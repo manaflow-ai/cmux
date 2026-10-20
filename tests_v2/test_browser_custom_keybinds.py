@@ -38,6 +38,23 @@ def wait_url_contains(client: cmux, panel_id: str, needle: str, timeout_s: float
     raise RuntimeError(f"Timed out waiting for url to contain '{needle}': {url!r}")
 
 
+def wait_focused_pane(client: cmux, expected_pane_id: str, timeout_s: float = 5.0) -> Optional[str]:
+    """Poll the focused pane until it matches expected_pane_id, or the deadline passes.
+
+    The focus handoff out of the WKWebView first responder after a synthesized
+    shortcut is asynchronous, so a fixed sleep races against focus propagation.
+    Returns the last observed focused pane id (which equals expected on success).
+    """
+    start = time.time()
+    current = focused_pane_id(client)
+    while time.time() - start < timeout_s:
+        current = focused_pane_id(client)
+        if current == expected_pane_id:
+            return current
+        time.sleep(0.05)
+    return current
+
+
 def test_cmd_ctrl_h_goto_split_left_from_webview(client: cmux) -> tuple[bool, str]:
     """
     Verifies: Cmd+Ctrl+H moves pane focus left while WKWebView is first responder.
@@ -74,9 +91,8 @@ def test_cmd_ctrl_h_goto_split_left_from_webview(client: cmux) -> tuple[bool, st
 
         # Send Cmd+Ctrl+H via socket event injection.
         client.simulate_shortcut("cmd+ctrl+h")
-        time.sleep(0.4)
 
-        post = focused_pane_id(client)
+        post = wait_focused_pane(client, terminal_pane_id, timeout_s=5.0)
         if post != terminal_pane_id:
             return False, f"Expected focus to move left to {terminal_pane_id}, got {post}"
 
@@ -120,9 +136,8 @@ def test_cmd_opt_left_arrow_goto_split_left_from_webview(client: cmux) -> tuple[
         return False, f"Expected browser pane focused before keypress, got {pre}"
 
     client.simulate_shortcut("cmd+opt+left")
-    time.sleep(0.4)
 
-    post = focused_pane_id(client)
+    post = wait_focused_pane(client, terminal_pane_id, timeout_s=5.0)
     if post != terminal_pane_id:
         return False, f"Expected focus to move left to {terminal_pane_id}, got {post}"
     return True, "Cmd+Option+Left moved focus left while webview focused"

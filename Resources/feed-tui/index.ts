@@ -37,6 +37,7 @@ interface FeedItem {
   title: string;
   detail: string;
   defaultMode?: string;
+  toolInputCapabilities?: string;
   questionMultiSelect: boolean;
   questionOptions: FeedOption[];
   questions: FeedQuestion[];
@@ -507,6 +508,11 @@ class FeedApp {
     }
 
     if (isKey(key, "return", "enter")) {
+      if (!this.canUseAction(item, "default")) {
+        this.statusMessage = "Key is not available for this card.";
+        this.render();
+        return;
+      }
       await this.resolveItem(item, "default");
       return;
     }
@@ -669,13 +675,7 @@ class FeedApp {
     }
     switch (item.kind) {
       case "permissionRequest":
-        if (!sourceSupportsPersistentPermissionModes(item.source)) {
-          return "Enter once | d deny";
-        }
-        if (!sourceSupportsBypassPermissions(item.source)) {
-          return "Enter once | a always | l all | d deny";
-        }
-        return "Enter once | a always | l all | b bypass | d deny";
+        return permissionActionText(item);
       case "exitPlan":
         if (!sourceSupportsBypassPermissions(item.source)) {
           return "Enter default | a auto | m manual | u ultra | f replan | d deny";
@@ -720,18 +720,10 @@ class FeedApp {
     }
     switch (item.kind) {
       case "permissionRequest":
-        if (!sourceSupportsPersistentPermissionModes(item.source)) {
-          // Codex PermissionRequest hooks only accept allow/deny for this
-          // invocation. Persistent permission modes are agent-specific.
-          return ["deny"].includes(action);
-        }
-        return (
-          ["deny", "always", "all"].includes(action) ||
-          (action === "bypass" && sourceSupportsBypassPermissions(item.source))
-        );
+        return permissionActionIsAvailable(item, action);
       case "exitPlan":
         return (
-          ["deny", "always", "manual", "ultraplan"].includes(action) ||
+          ["default", "deny", "always", "manual", "ultraplan"].includes(action) ||
           (action === "bypass" && sourceSupportsBypassPermissions(item.source))
         );
       case "question":
@@ -820,6 +812,7 @@ function parseFeedItem(raw: Record<string, unknown>): FeedItem | undefined {
     title: stringValue(raw.title) || defaultTitle(kind, raw),
     detail: detailText(kind, raw),
     defaultMode: stringValue(raw.default_mode),
+    toolInputCapabilities: stringValue(raw.tool_input_capabilities) || stringValue(raw.tool_input),
     questionMultiSelect: raw.question_multi_select === true,
     questionOptions,
     questions,
@@ -1069,12 +1062,169 @@ function isCtrlC(key: KeyEvent): boolean {
   return (key.ctrl && isKey(key, "c")) || key.sequence === "\u0003" || key.raw === "\u0003";
 }
 
-function sourceSupportsPersistentPermissionModes(source: string): boolean {
-  return source !== "codex";
+interface PermissionActionCapabilities {
+  supportsOnce: boolean;
+  supportsAlways: boolean;
+  supportsAll: boolean;
+}
+
+function permissionActionText(item: FeedItem): string {
+  const capabilities = permissionActionCapabilities(item);
+  const actions: string[] = [];
+  if (capabilities.supportsOnce) {
+    actions.push("Enter once");
+  }
+  if (capabilities.supportsAlways) {
+    actions.push("a always");
+  }
+  if (capabilities.supportsAll) {
+    actions.push("l all");
+  }
+  if (sourceSupportsBypassPermissions(item.source)) {
+    actions.push("b bypass");
+  }
+  actions.push("d deny");
+  return actions.join(" | ");
+}
+
+function permissionActionIsAvailable(item: FeedItem, action: string): boolean {
+  if (action === "deny") {
+    return true;
+  }
+  if (action === "bypass") {
+    return sourceSupportsBypassPermissions(item.source);
+  }
+  const capabilities = permissionActionCapabilities(item);
+  if (action === "default") {
+    return capabilities.supportsOnce;
+  }
+  if (action === "always") {
+    return capabilities.supportsAlways;
+  }
+  if (action === "all") {
+    return capabilities.supportsAll;
+  }
+  return false;
+}
+
+function permissionActionCapabilities(item: FeedItem): PermissionActionCapabilities {
+  return {
+    supportsOnce: sourceSupportsOncePermissionMode(item.source, item.toolInputCapabilities),
+    supportsAlways: sourceSupportsAlwaysPermissionMode(item.source, item.toolInputCapabilities),
+    supportsAll: sourceSupportsAllPermissionMode(item.source, item.toolInputCapabilities),
+  };
+}
+
+function sourceSupportsOncePermissionMode(source: string, toolInputCapabilities?: string): boolean {
+  if (source !== "codex") {
+    return true;
+  }
+  return codexCapabilities(toolInputCapabilities).supportsOnce;
+}
+
+function sourceSupportsAlwaysPermissionMode(source: string, toolInputCapabilities?: string): boolean {
+  if (source === "hermes-agent") {
+    return false;
+  }
+  if (source !== "codex") {
+    return true;
+  }
+  return codexCapabilities(toolInputCapabilities).supportsAlways;
+}
+
+function sourceSupportsAllPermissionMode(source: string, toolInputCapabilities?: string): boolean {
+  if (source === "hermes-agent") {
+    return false;
+  }
+  if (source !== "codex") {
+    return true;
+  }
+  return codexCapabilities(toolInputCapabilities).supportsAll;
+}
+
+function codexCapabilities(toolInputCapabilities?: string): PermissionActionCapabilities {
+  if (toolInputCapabilities === undefined) {
+    return { supportsOnce: true, supportsAlways: true, supportsAll: true };
+  }
+
+  const object = parseJSONObject(toolInputCapabilities);
+  if (!object) {
+    return { supportsOnce: false, supportsAlways: false, supportsAll: false };
+  }
+
+  const method = stringValue(object.app_server_method);
+  const decisions = codexAvailableDecisions(object);
+  const acceptsOnce = decisions?.has("accept") ?? true;
+  const acceptsSession = decisions?.has("acceptForSession") ?? true;
+  switch (method) {
+    case "item/permissions/requestApproval":
+      return { supportsOnce: true, supportsAlways: true, supportsAll: true };
+    case "item/commandExecution/requestApproval":
+      return {
+        supportsOnce: acceptsOnce,
+        supportsAlways: acceptsSession,
+        supportsAll: codexSupportsAmendmentDecision(object, decisions),
+      };
+    case "item/fileChange/requestApproval":
+      return { supportsOnce: acceptsOnce, supportsAlways: acceptsSession, supportsAll: false };
+    default:
+      return { supportsOnce: acceptsOnce, supportsAlways: acceptsSession, supportsAll: false };
+  }
+}
+
+function parseJSONObject(text: string): Record<string, unknown> | undefined {
+  try {
+    const value = JSON.parse(text);
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function codexSupportsAmendmentDecision(object: Record<string, unknown>, decisions: Set<string> | undefined): boolean {
+  if (object.proposed_execpolicy_amendment !== undefined &&
+      object.proposed_execpolicy_amendment !== null &&
+      codexDecisionAvailableOrUnspecified("acceptWithExecpolicyAmendment", decisions)) {
+    return true;
+  }
+  if (Array.isArray(object.proposed_network_policy_amendments) &&
+      object.proposed_network_policy_amendments.length > 0 &&
+      codexDecisionAvailableOrUnspecified("applyNetworkPolicyAmendment", decisions)) {
+    return true;
+  }
+  return false;
+}
+
+function codexAvailableDecisions(object: Record<string, unknown>): Set<string> | undefined {
+  const raw = object.available_decisions ?? object.availableDecisions;
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(raw)) {
+    return new Set();
+  }
+  const values = raw
+    .map((value) => {
+      if (typeof value === "string") {
+        return value;
+      }
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        return Object.keys(value)[0];
+      }
+      return undefined;
+    })
+    .filter((value): value is string => Boolean(value));
+  return new Set(values);
+}
+
+function codexDecisionAvailableOrUnspecified(decision: string, decisions: Set<string> | undefined): boolean {
+  return decisions?.has(decision) ?? true;
 }
 
 function sourceSupportsBypassPermissions(source: string): boolean {
-  return source !== "codex" && source !== "claude";
+  return source !== "codex" && source !== "claude" && source !== "hermes-agent";
 }
 
 function actionForKey(key: KeyEvent): string | undefined {

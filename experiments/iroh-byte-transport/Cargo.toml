@@ -1,0 +1,14 @@
+[package]
+name = "cmux-iroh-byte-transport"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+publish = false
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+iroh = "1.0.0-rc.0"
+n0-error = "1.0.0-rc.0"
+serde_json = "1.0"
+tokio = { version = "1.48", features = ["io-util", "macros", "rt-multi-thread", "signal", "time"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

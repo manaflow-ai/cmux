@@ -106,7 +106,12 @@ def main() -> int:
     )
 
     try:
-        hello = _rpc(proc, 1, "hello", {})
+        # `go run` compiles cmuxd-remote on first invocation before the daemon
+        # can answer the hello RPC. On a cold Go build/module cache or under CI
+        # load that compile can take well over the default 5s, so give the first
+        # RPC a generous deadline that covers cold compilation. Passing runs
+        # still return as soon as the daemon replies.
+        hello = _rpc(proc, 1, "hello", {}, timeout_s=120.0)
         _must(hello.get("ok") is True, f"hello should return ok=true: {hello}")
         capabilities = {str(item) for item in ((hello.get("result") or {}).get("capabilities") or [])}
         _must("session.basic" in capabilities, f"hello missing session.basic capability: {hello}")

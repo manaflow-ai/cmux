@@ -1,20 +1,6 @@
 import AppKit
 import Foundation
 
-struct WorkspaceFinderDirectoryCacheKey: Equatable, Sendable {
-    var path: String?
-}
-
-struct WorkspaceFinderDirectoryCache: Equatable, Sendable {
-    var key: WorkspaceFinderDirectoryCacheKey? = nil
-    var directoryURL: URL? = nil
-
-    func url(for currentKey: WorkspaceFinderDirectoryCacheKey) -> URL? {
-        guard key == currentKey else { return nil }
-        return directoryURL
-    }
-}
-
 struct WorkspaceFinderDirectoryOpenRequest: Equatable, Sendable {
     var id = UUID()
     var directoryURL: URL?
@@ -26,12 +12,6 @@ enum WorkspaceFinderDirectoryResolver {
         guard let directory = workspace.sidebarFinderDirectory() else { return nil }
         let path = NSString(string: directory).expandingTildeInPath
         return path.isEmpty ? nil : path
-    }
-
-    static func cache(for key: WorkspaceFinderDirectoryCacheKey) async -> WorkspaceFinderDirectoryCache {
-        guard let path = key.path else { return WorkspaceFinderDirectoryCache(key: key) }
-        let directoryURL = await existingDirectoryURL(for: path)
-        return WorkspaceFinderDirectoryCache(key: key, directoryURL: directoryURL)
     }
 
     static func existingDirectoryURL(for path: String) async -> URL? {

@@ -85,11 +85,23 @@ def _capture_session(env: dict[str, str], zsh_path: str) -> bytes:
     )
     os.close(slave)
 
+    # Drive the session off the real OSC 133 readiness markers rather than
+    # fixed wall-clock phases. Under CI load, slow zsh startup or scheduling
+    # jitter can shift when the prompt/redraw markers land relative to fixed
+    # elapsed-time windows, capturing the wrong number of prompt cycles.
+    #
+    # Phase 0: wait for the initial prompt to be drawn (OSC 133;A) and its
+    #          async line-init redraw to settle (OSC 133;P), then send an empty
+    #          command (newline) to start the measured prompt cycle.
+    # Phase 1: wait for that cycle's command end (OSC 133;D) followed by the
+    #          async redraw's OSC 133;P prompt-start, then send exit.
     output = bytearray()
-    start = time.time()
+    deadline = time.time() + 15.0
     phase = 0
+    newline_sent = False
+    end_command_idx = -1
     try:
-        while time.time() - start < 5:
+        while time.time() < deadline:
             readable, _, _ = select.select([master], [], [], 0.2)
             if master in readable:
                 try:
@@ -100,13 +112,30 @@ def _capture_session(env: dict[str, str], zsh_path: str) -> bytes:
                     break
                 output.extend(chunk)
 
-            elapsed = time.time() - start
-            if phase == 0 and elapsed > 1.0:
-                os.write(master, b"\n")
-                phase = 1
-            elif phase == 1 and elapsed > 2.5:
-                os.write(master, b"exit\n")
-                phase = 2
+            if phase == 0:
+                # The initial fresh-prompt mark followed by its redraw's
+                # prompt-start means the initial prompt is drawn, its async
+                # line-init redraw has fired, and zsh is ready for input.
+                fresh_idx = output.find(FRESH_PROMPT)
+                if (
+                    not newline_sent
+                    and fresh_idx != -1
+                    and output.find(PROMPT_START, fresh_idx) != -1
+                ):
+                    newline_sent = True
+                    os.write(master, b"\n")
+                    phase = 1
+            elif phase == 1:
+                # Find the empty command's end marker, then wait for the redraw
+                # to emit its OSC 133;P prompt-start before sending exit so the
+                # captured prompt cycle deterministically includes the redraw.
+                if end_command_idx == -1:
+                    end_command_idx = output.find(END_COMMAND)
+                if end_command_idx != -1 and (
+                    output.find(PROMPT_START, end_command_idx) != -1
+                ):
+                    os.write(master, b"exit\n")
+                    phase = 2
     finally:
         try:
             proc.wait(timeout=5)

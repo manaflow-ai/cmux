@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CtlHelloAck",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "type": "integer",
+      "description": "control-plane protocol version, 1"
+    },
+    "type": {
+      "const": "hello_ack"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "sessionId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "resumedFromRev": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "rev the server resumed the delta stream from; null means full snapshot follows"
+        },
+        "serverCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "control-plane features this server supports (list overlay, ack tracking, revocation)"
+        },
+        "minimumSupportedVersion": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "echo of the directory's per-platform version floors so clients get them before the directory body",
+          "properties": {
+            "mac": {
+              "type": "string"
+            },
+            "ios": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

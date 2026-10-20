@@ -7,7 +7,7 @@ Report a failure when the diff introduces or materially expands any of these in 
 - `DispatchSemaphore`, `semaphore.wait()`, `DispatchGroup.wait()`, or other thread-blocking waits for async work.
 - `Thread.sleep`, `usleep`, `sleep`, `Task.sleep`, `DispatchQueue.asyncAfter`, timers, or polling loops in shipped app/runtime code. Treat these as failures by default, even when the delay is small.
 - `DispatchQueue.main.sync`, especially in socket, telemetry, terminal, rendering, focus, or input paths.
-- `NSLock`, `pthread_mutex`, or similar manual locking around shared mutable state when an actor or MainActor-isolated model would be the safer shape.
+- `NSLock`, `pthread_mutex`, or similar manual locking around shared mutable state when an actor or MainActor-isolated model would be the safer shape. Flag a lock added alongside new async/concurrent code unless the diff states a concrete reason an actor cannot own the synchronization (for example a non-async low-level platform bridge). "It is simpler" or "it is just one lock" is not a sufficient reason.
 
 Allowed cases:
 

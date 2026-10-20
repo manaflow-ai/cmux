@@ -3,7 +3,7 @@ import AppKit
 @MainActor
 final class FilePreviewPDFSession {
     private let viewSession = PanelOwnedNativeViewSession(
-        makeView: FilePreviewPDFContainerView.init,
+        makeView: { FilePreviewPDFContainerView(frame: .zero) },
         closeView: { $0.close() }
     )
 
@@ -13,6 +13,7 @@ final class FilePreviewPDFSession {
 
     func view(
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -21,6 +22,7 @@ final class FilePreviewPDFSession {
             configure(
                 $0,
                 panel: panel,
+                revision: revision,
                 isVisibleInUI: isVisibleInUI,
                 backgroundColor: backgroundColor,
                 drawsBackground: drawsBackground
@@ -31,6 +33,7 @@ final class FilePreviewPDFSession {
     func update(
         _ view: FilePreviewPDFContainerView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -39,6 +42,7 @@ final class FilePreviewPDFSession {
             configure(
                 $0,
                 panel: panel,
+                revision: revision,
                 isVisibleInUI: isVisibleInUI,
                 backgroundColor: backgroundColor,
                 drawsBackground: drawsBackground
@@ -53,6 +57,7 @@ final class FilePreviewPDFSession {
     private func configure(
         _ view: FilePreviewPDFContainerView,
         panel: FilePreviewPanel,
+        revision: Int,
         isVisibleInUI: Bool,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -60,6 +65,6 @@ final class FilePreviewPDFSession {
         view.isHidden = !isVisibleInUI
         view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
         view.setPanel(panel)
-        view.setURL(panel.fileURL)
+        view.setURL(panel.fileURL, revision: revision)
     }
 }

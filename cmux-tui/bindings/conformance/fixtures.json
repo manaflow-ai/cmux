@@ -1,0 +1,375 @@
+{
+  "contract_version": 2,
+  "protocol": "cmux.protocol/2",
+  "constants": {
+    "machine": "machine_11111111111111111111111111111111",
+    "session": "session_22222222222222222222222222222222",
+    "workspace": "ws_33333333333333333333333333333333",
+    "candidate_a": "ws_44444444444444444444444444444444",
+    "candidate_b": "ws_55555555555555555555555555555555",
+    "screen": "screen_66666666666666666666666666666666",
+    "pane": "pane_77777777777777777777777777777777",
+    "tab": "tab_88888888888888888888888888888888",
+    "terminal": "term_99999999999999999999999999999999",
+    "browser": "browser_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generation": "generation-conformance",
+    "revision": "18446744073709551615",
+    "exit_revision": "18446744073709551614",
+    "exited_at": "18446744073709551613",
+    "idempotency_key": "conformance-idempotency-key",
+    "correlation_key": "conformance-correlation-key",
+    "name": "api β"
+  },
+  "fake_cases": [
+    {
+      "name": "read-envelope-and-decimal",
+      "adapter": {"op": "read"},
+      "server": {"behavior": "read"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "alive": true,
+          "cursor": {
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615"
+          }
+        }
+      }
+    },
+    {
+      "name": "mutation-idempotent-replay",
+      "adapter": {"op": "mutation-replay"},
+      "server": {"behavior": "mutation-replay"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "first": {
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "name": "api β",
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615",
+            "replayed": false
+          },
+          "second": {
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "name": "api β",
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615",
+            "replayed": true
+          }
+        }
+      }
+    },
+    {
+      "name": "mutation-indeterminate-is-one-request",
+      "adapter": {"op": "mutation-error", "error_code": "mutation.indeterminate"},
+      "server": {"behavior": "mutation-indeterminate"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "code": "mutation.indeterminate",
+          "message": "external effect outcome is unknown",
+          "details": {
+            "idempotency_key": "conformance-idempotency-key",
+            "operation": "workspace.rename",
+            "recovery": "inspect_state_then_retry_with_new_key"
+          },
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "revision-conflict-is-structured",
+      "adapter": {"op": "mutation-error", "error_code": "revision.conflict"},
+      "server": {"behavior": "revision-conflict"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "code": "revision.conflict",
+          "message": "expected revision is stale",
+          "details": {
+            "expected": "18446744073709551615",
+            "actual": "42"
+          },
+          "retryable": true
+        }
+      }
+    },
+    {
+      "name": "duplicate-name-ambiguity-preserves-all-candidates",
+      "adapter": {"op": "mutation-error", "error_code": "selector.ambiguous"},
+      "server": {"behavior": "selector-ambiguous"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "code": "selector.ambiguous",
+          "message": "more than one workspace is named api",
+          "details": {
+            "candidates": [
+              "ws_44444444444444444444444444444444",
+              "ws_55555555555555555555555555555555"
+            ]
+          },
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "typed-stream-preserves-unknown-and-decimals",
+      "adapter": {"op": "stream-unknown"},
+      "server": {"behavior": "stream-unknown"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "sequence": "18446744073709551615",
+          "cursor": {
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615"
+          },
+          "kind": "future.session.widget",
+          "raw": {
+            "kind": "future.session.widget",
+            "payload": {
+              "label": "kept",
+              "revision": "18446744073709551615"
+            }
+          },
+          "end": "completed"
+        }
+      }
+    },
+    {
+      "name": "cancel-purges-queued-items-and-orders-end-before-response",
+      "adapter": {"op": "stream-cancel"},
+      "server": {"behavior": "stream-cancel"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "end": "canceled",
+          "items_after_cancel": 0,
+          "cancel_calls": 2
+        }
+      }
+    },
+    {
+      "name": "message-overflow-is-stream-local",
+      "adapter": {"op": "stream-overflow", "dimension": "messages"},
+      "server": {"behavior": "stream-overflow-messages"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "first_end": "gap",
+          "second_kind": "future.after-overflow",
+          "control_alive": true
+        }
+      }
+    },
+    {
+      "name": "byte-overflow-is-stream-local",
+      "adapter": {"op": "stream-overflow", "dimension": "bytes"},
+      "server": {"behavior": "stream-overflow-bytes"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "first_end": "gap",
+          "second_kind": "future.after-overflow",
+          "control_alive": true
+        }
+      }
+    },
+    {
+      "name": "creation-resolve-created-workspace-path",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-created-workspace"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "created",
+          "recovery": "none",
+          "operation": "workspace.create",
+          "idempotency_key": "conformance-idempotency-key",
+          "created_path": {
+            "kind": "workspace",
+            "workspace_id": "ws_33333333333333333333333333333333"
+          },
+          "generation": "generation-conformance",
+          "revision": "18446744073709551615"
+        }
+      }
+    },
+    {
+      "name": "creation-resolve-created-terminal-path",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-created-terminal"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "created",
+          "recovery": "none",
+          "operation": "workspace.run",
+          "idempotency_key": "conformance-idempotency-key",
+          "created_path": {
+            "kind": "terminal",
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "screen_id": "screen_66666666666666666666666666666666",
+            "pane_id": "pane_77777777777777777777777777777777",
+            "tab_id": "tab_88888888888888888888888888888888",
+            "terminal_id": "term_99999999999999999999999999999999"
+          },
+          "generation": "generation-conformance",
+          "revision": "18446744073709551615"
+        }
+      }
+    },
+    {
+      "name": "creation-resolve-created-browser-path",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-created-browser"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "created",
+          "recovery": "none",
+          "operation": "tab.create_browser",
+          "idempotency_key": "conformance-idempotency-key",
+          "created_path": {
+            "kind": "browser",
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "screen_id": "screen_66666666666666666666666666666666",
+            "pane_id": "pane_77777777777777777777777777777777",
+            "tab_id": "tab_88888888888888888888888888888888",
+            "browser_id": "browser_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "generation": "generation-conformance",
+          "revision": "18446744073709551615"
+        }
+      }
+    },
+    {
+      "name": "creation-resolve-pending-means-wait",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-pending"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "pending",
+          "recovery": "wait",
+          "operation": "pane.run",
+          "idempotency_key": "conformance-idempotency-key"
+        }
+      }
+    },
+    {
+      "name": "creation-resolve-prepared-retries-same-key",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-not-applied-same-key"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "not_applied",
+          "recovery": "retry_same_idempotency_key",
+          "operation": "pane.split",
+          "idempotency_key": "conformance-idempotency-key"
+        }
+      }
+    },
+    {
+      "name": "creation-resolve-absent-retries-new-key",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-not-applied-new-key"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "not_applied",
+          "recovery": "retry_new_idempotency_key"
+        }
+      }
+    },
+    {
+      "name": "creation-resolve-indeterminate-forbids-retry",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-indeterminate"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "indeterminate",
+          "recovery": "do_not_retry",
+          "operation": "screen.create",
+          "idempotency_key": "conformance-idempotency-key"
+        }
+      }
+    },
+    {
+      "name": "creation-correlation-conflict-is-structured",
+      "adapter": {"op": "creation-conflict"},
+      "server": {"behavior": "creation-conflict"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "code": "creation.conflict",
+          "message": "correlation key is already bound to different creation semantics",
+          "details": {
+            "correlation_key": "conformance-correlation-key",
+            "existing_operation": "workspace.run",
+            "requested_operation": "workspace.create",
+            "existing_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "requested_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "terminal-wait-exit-timeout-is-pending",
+      "adapter": {"op": "terminal-wait-exit", "timeout_ms": "0"},
+      "server": {"behavior": "terminal-exit-pending"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "state": "pending",
+          "terminal_id": "term_99999999999999999999999999999999",
+          "lifecycle": "running",
+          "revision": "18446744073709551615"
+        }
+      }
+    },
+    {
+      "name": "terminal-wait-exit-preserves-code-17",
+      "adapter": {"op": "terminal-wait-exit", "timeout_ms": "5000"},
+      "server": {"behavior": "terminal-exit-code"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "state": "exited",
+          "terminal_id": "term_99999999999999999999999999999999",
+          "lifecycle": "exited",
+          "outcome": {
+            "kind": "exit",
+            "code": 17
+          },
+          "exited_at": "18446744073709551613",
+          "revision": "18446744073709551614"
+        }
+      }
+    },
+    {
+      "name": "sensitive-values-redact",
+      "adapter": {"op": "redaction"},
+      "server": null,
+      "expect": {
+        "ok": true,
+        "value": {
+          "specifier_redacted": true,
+          "renderer_token_redacted": true
+        }
+      }
+    }
+  ]
+}

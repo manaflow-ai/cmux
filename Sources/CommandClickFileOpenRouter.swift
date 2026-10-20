@@ -1,26 +1,42 @@
 import AppKit
+import CmuxSettings
 import Foundation
 
 enum CommandClickFileOpenRouter {
-    nonisolated static func shouldRouteInCmux(path: String) -> Bool {
-        CmdClickMarkdownRouteSettings.shouldRoute(path: path)
-            || CmdClickSupportedFileRouteSettings.shouldRoute(path: path)
+    nonisolated static func shouldRouteInCmux(
+        path: String,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let store = FileRouteSettingsStore(defaults: defaults)
+        return store.shouldRouteMarkdown(path: path)
+            || store.shouldRouteSupportedFile(path: path)
     }
 
     @MainActor
     static func openInCmux(
         workspace: Workspace,
         sourcePanelId: UUID,
-        filePath: String
+        filePath: String,
+        defaults: UserDefaults = .standard
     ) -> Bool {
-        if CmdClickMarkdownRouteSettings.shouldRoute(path: filePath),
+        let store = FileRouteSettingsStore(defaults: defaults)
+        if store.shouldRouteMarkdown(path: filePath),
            workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
             return true
         }
 
-        guard CmdClickSupportedFileRouteSettings.shouldRoute(path: filePath) else {
+        guard store.shouldRouteSupportedFile(path: filePath) else {
             return false
         }
+
+        if TerminalHTMLFileBrowserAction(defaults: defaults).open(
+            fileURL: URL(fileURLWithPath: filePath),
+            sourcePanelId: sourcePanelId,
+            container: workspace
+        ) {
+            return true
+        }
+
         return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
     }
 
@@ -62,6 +78,7 @@ enum CommandClickFileOpenRouter {
         preferredWorkspaceId: UUID,
         surfaceId: UUID,
         filePath: String,
+        defaults: UserDefaults = .standard,
         fallback: (@MainActor @Sendable () -> Void)? = nil
     ) {
         DispatchQueue.main.async {
@@ -73,14 +90,15 @@ enum CommandClickFileOpenRouter {
                 fallback?()
                 return
             }
-            guard shouldRouteInCmux(path: filePath) else {
+            guard shouldRouteInCmux(path: filePath, defaults: defaults) else {
                 fallback?()
                 return
             }
             if openInCmux(
                 workspace: resolvedWorkspace,
                 sourcePanelId: surfaceId,
-                filePath: filePath
+                filePath: filePath,
+                defaults: defaults
             ) {
                 return
             }

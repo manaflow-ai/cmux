@@ -1,0 +1,17 @@
+{
+  "name": "cmux-cloudflare-relay",
+  "license": "BUSL-1.1",
+  "private": true,
+  "scripts": {
+    "build": "worker-build --release --no-panic-recovery",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.118.0"
+  },
+  "overrides": {
+    "sharp": "0.35.4",
+    "undici": "7.29.0"
+  }
+}

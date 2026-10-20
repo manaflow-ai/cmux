@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
@@ -12,6 +11,7 @@ import threading
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
+from fake_socket_env import cli_environment, unwrap_capability
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 PANE_ID = "22222222-2222-4222-8222-222222222222"
@@ -88,7 +88,7 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             line = self.rfile.readline()
             if not line:
                 return
-            request = json.loads(line.decode("utf-8"))
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
                     request["method"],
@@ -115,10 +115,9 @@ def run_cli(
     socket_path: str,
     args: list[str],
     env_overrides: dict[str, str] | None = None,
+    cwd: str | None = None,
 ) -> str:
-    env = dict(os.environ)
-    for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
-        env.pop(key, None)
+    env = cli_environment()
     if env_overrides:
         env.update(env_overrides)
     proc = subprocess.run(
@@ -127,6 +126,7 @@ def run_cli(
         text=True,
         check=False,
         env=env,
+        cwd=cwd,
         timeout=5,
     )
     if proc.returncode != 0:
@@ -136,9 +136,7 @@ def run_cli(
 
 
 def assert_cli_fails(cli: str, socket_path: str, args: list[str], expected: str) -> None:
-    env = dict(os.environ)
-    for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
-        env.pop(key, None)
+    env = cli_environment()
     proc = subprocess.run(
         [cli, "--socket", socket_path, *args],
         capture_output=True,
@@ -249,6 +247,36 @@ def main() -> int:
                 state,
                 "surface.create",
                 {"workspace_id": WORKSPACE_ID, "pane_id": PANE_ID, "focus": False},
+            )
+
+            project_dir = Path(tmp) / "project"
+            project_dir.mkdir()
+            run_cli(
+                cli,
+                socket_path,
+                [
+                    "new-surface",
+                    "--workspace",
+                    WORKSPACE_ID,
+                    "--pane",
+                    PANE_ID,
+                    "--type",
+                    "agent-session",
+                    "--cwd",
+                    "project",
+                ],
+                cwd=tmp,
+            )
+            assert_last_call(
+                state,
+                "surface.create",
+                {
+                    "workspace_id": WORKSPACE_ID,
+                    "pane_id": PANE_ID,
+                    "type": "agent-session",
+                    "working_directory": str(project_dir.resolve()),
+                    "focus": False,
+                },
             )
 
             run_cli(cli, socket_path, ["reorder-surface", "--surface", SURFACE_ID, "--index", "0"])

@@ -1,0 +1,121 @@
+public import Darwin
+public import CmuxSettings
+
+/// Authorizes peer processes for control socket requests.
+public struct SocketClientAuthorization {
+    /// Creates an authorization helper with no retained process state.
+    public init() {}
+
+    /// Returns whether a peer process is allowed to use cmux-only socket operations.
+    ///
+    /// A non-nil `peerProcessID` must resolve as a descendant of the trusted cmux
+    /// process tree. A nil PID fails closed because the caller cannot be tied to
+    /// a concrete process. `peerHasSameUID` is supplied by the socket handshake
+    /// for callers that need it, but this check intentionally relies on ancestry.
+    ///
+    /// - Parameters:
+    ///   - peerProcessID: The PID reported by the accepted socket, or nil when
+    ///     the platform cannot provide one.
+    ///   - peerHasSameUID: Whether the peer process has the same user ID as cmux.
+    ///   - isDescendant: Predicate that verifies the PID belongs to the trusted
+    ///     cmux process tree.
+    public func isCmuxOnlyClientAllowed(
+        peerProcessID: pid_t?,
+        peerHasSameUID _: Bool,
+        isDescendant: (pid_t) -> Bool
+    ) -> Bool {
+        if let peerProcessID {
+            return isDescendant(peerProcessID)
+        }
+        return false
+    }
+
+    /// Returns the command carried by an authorized cmux-only request.
+    ///
+    /// Descendants retain the existing process-tree authorization. The
+    /// capability parameters form the runtime seam for terminals whose
+    /// process trees are later reparented by a multiplexer.
+    ///
+    /// - Parameters:
+    ///   - command: The raw command line received from the client.
+    ///   - peerProcessID: The PID reported by the accepted socket.
+    ///   - peerHasSameUID: Whether the peer runs as the same user as cmux.
+    ///   - capabilityAuthority: The authority that verifies inherited tokens.
+    ///   - isDescendant: Predicate that verifies current process ancestry.
+    /// - Returns: The unwrapped command when authorized, otherwise `nil`.
+    public func authorizedCommand(
+        _ command: String,
+        peerProcessID: pid_t?,
+        peerHasSameUID: Bool,
+        capabilityAuthority: SocketClientCapabilityAuthority,
+        isDescendant: (pid_t) -> Bool
+    ) -> String? {
+        let envelope = SocketClientCapabilityCommand(command)
+        if let peerProcessID, isDescendant(peerProcessID) {
+            return envelope?.command ?? command
+        }
+        guard peerHasSameUID,
+              let envelope,
+              capabilityAuthority.verifies(envelope.capability) else {
+            return nil
+        }
+        return envelope.command
+    }
+
+    /// Applies the current socket access mode to a received command.
+    ///
+    /// Owner-only modes verify the peer UID for every command instead of
+    /// relying solely on socket-file permissions. This keeps restrictive
+    /// modes fail-closed if a permission change cannot be applied to the
+    /// filesystem entry of an already running listener.
+    public func authorizedCommand(
+        _ command: String,
+        accessMode: SocketControlMode,
+        peerProcessID: pid_t?,
+        peerHasSameUID: Bool,
+        capabilityAuthority: SocketClientCapabilityAuthority,
+        isDescendant: (pid_t) -> Bool
+    ) -> String? {
+        switch accessMode {
+        case .off:
+            return nil
+        case .cmuxOnly:
+            return authorizedCommand(
+                command,
+                peerProcessID: peerProcessID,
+                peerHasSameUID: peerHasSameUID,
+                capabilityAuthority: capabilityAuthority,
+                isDescendant: isDescendant
+            )
+        case .automation, .password:
+            guard peerHasSameUID else { return nil }
+            return SocketClientCapabilityCommand(command)?.command ?? command
+        case .allowAll:
+            return SocketClientCapabilityCommand(command)?.command ?? command
+        }
+    }
+
+    /// Whether a peer the socket access mode admitted may call `method`.
+    ///
+    /// The access mode decides who may connect; it does not widen what a
+    /// caller reaches. The browser REPL methods (``sameUserOnlyMethods``)
+    /// drive the user's browser profile and files, so a peer of another
+    /// user is refused in every mode, also `allowAll`, which admits other
+    /// local users to the socket.
+    ///
+    /// - Parameters:
+    ///   - method: The v2 method the request names.
+    ///   - peerHasSameUID: Whether the peer runs as the same user as cmux,
+    ///     or nil for an in-process call that has no socket peer.
+    public func admitsMethod(_ method: String, peerHasSameUID: Bool?) -> Bool {
+        peerHasSameUID != false || !Self.sameUserOnlyMethods.contains(method)
+    }
+
+    /// Methods only a peer of the same user may call, in every access mode.
+    public static let sameUserOnlyMethods: Set<String> = [
+        "browser.repl.eval",
+        "browser.repl.reset",
+        "browser.repl.list",
+    ]
+}
+

@@ -1,20 +1,40 @@
 import AppKit
+import CmuxCommandPalette
+import CmuxWorkspaces
+import CmuxSidebar
+import CmuxSwiftRender
 
 extension ContentView {
     static func commandPaletteShortcutAction(forCommandID commandId: String) -> KeyboardShortcutSettings.Action? {
+        if let movement = SurfacePaneMovement(commandID: commandId) {
+            return movement.shortcutAction
+        }
         if let rightSidebarModeAction = commandPaletteRightSidebarModeShortcutAction(forCommandID: commandId) {
             return rightSidebarModeAction
         }
+        if let parityCommand = ShortcutParityPaletteCommand(rawValue: commandId) {
+            return parityCommand.shortcutAction
+        }
 
         switch commandId {
+        case Self.commandPaletteAuthTeamPickerCommandId:
+            return .openTeamPicker
         case "palette.newWorkspace":
             return .newTab
+        case "palette.newBrowserWorkspace":
+            return .newBrowserWorkspace
+        case ContentView.commandPaletteCloudNewMachineCommandId:
+            return .newCloudMachine
+        case ContentView.commandPaletteCloudNewWorkspaceCommandId:
+            return .newCloudWorkspace
         case "palette.newWindow":
             return .newWindow
         case "palette.openFolder":
             return .openFolder
         case "palette.reopenPreviousSession":
             return .reopenPreviousSession
+        case "palette.reopenClosedWorkspace":
+            return .reopenClosedWorkspace
         case "palette.reopenClosedBrowserTab":
             return .reopenClosedBrowserPanel
         case "palette.newTerminalTab":
@@ -39,10 +59,18 @@ extension ContentView {
             return .renameWorkspace
         case "palette.editWorkspaceDescription":
             return .editWorkspaceDescription
+        case "palette.markWorkspaceDone":
+            return .markWorkspaceDone
+        case WorkspaceTodoPaletteCommands.cycleWorkspaceStatusCommandId:
+            return .cycleWorkspaceStatus
         case "palette.nextWorkspace":
             return .nextSidebarTab
         case "palette.previousWorkspace":
             return .prevSidebarTab
+        case "palette.moveWorkspaceUp":
+            return .moveWorkspaceUp
+        case "palette.moveWorkspaceDown":
+            return .moveWorkspaceDown
         case "palette.nextTabInPane":
             return .nextSurface
         case "palette.previousTabInPane":
@@ -79,12 +107,30 @@ extension ContentView {
             return .attachTextBoxFile
         case "palette.terminalSendCtrlF":
             return .sendCtrlFToTerminal
+        case "palette.terminalPasteLastScreenshot":
+            return .pasteLastScreenshot
+        case "palette.terminalSizeToMyWindow":
+            return .sizeTerminalToMyWindow
+        case "palette.terminalClearScreenKeepScrollback":
+            return .clearScreenKeepScrollback
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":
             return .equalizeSplits
+        case "palette.newPaneAutoLayout":
+            return .newPaneAutoLayout
+        case "palette.resizePaneLeft":
+            return .resizePaneLeft
+        case "palette.resizePaneRight":
+            return .resizePaneRight
+        case "palette.resizePaneUp":
+            return .resizePaneUp
+        case "palette.resizePaneDown":
+            return .resizePaneDown
         case "palette.triggerFlash":
             return .triggerFlash
+        case "palette.openChief":
+            return .openChief
         default:
             return nil
         }
@@ -95,7 +141,11 @@ extension ContentView {
             { _ in value }
         }
 
-        return RightSidebarMode.availableModes().map { mode in
+        // Palette execution resolves through the mode's shortcut action;
+        // customSidebar has none yet (a new cmux-owned shortcut carries the
+        // full settings/config/docs policy), so it stays out of the palette
+        // until that lands. The mode bar, CLI, and socket verb cover it.
+        return RightSidebarMode.availableModes().filter { $0.shortcutAction != nil }.map { mode in
             let title = mode.shortcutAction?.label ?? mode.label
             return CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
@@ -133,12 +183,17 @@ extension ContentView {
             return "palette.showRightSidebarFeed"
         case .dock:
             return "palette.showRightSidebarDock"
+        case .machines:
+            return "palette.showRightSidebarMachines"
+        case .customSidebar:
+            return "palette.showRightSidebarCustomSidebar"
         }
     }
 
     static func commandPaletteRightSidebarToolPaneCommandDescriptors() -> [(mode: RightSidebarMode, commandId: String, title: String)] {
         RightSidebarMode.paneModes.compactMap { mode in
-            guard let commandId = commandPaletteRightSidebarToolPaneCommandID(mode),
+            guard mode.isAvailable(),
+                  let commandId = commandPaletteRightSidebarToolPaneCommandID(mode),
                   let title = commandPaletteRightSidebarToolPaneTitle(mode) else {
                 return nil
             }
@@ -154,7 +209,9 @@ extension ContentView {
             return "palette.openFindPane"
         case .sessions:
             return "palette.openVaultPane"
-        case .feed, .dock:
+        case .machines:
+            return "palette.openCloudPane"
+        case .feed, .dock, .customSidebar:
             return nil
         }
     }
@@ -167,7 +224,9 @@ extension ContentView {
             return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
         case .sessions:
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
-        case .feed, .dock:
+        case .machines:
+            return String(localized: "command.openCloudPane.title", defaultValue: "Open Cloud as Pane")
+        case .feed, .dock, .customSidebar:
             return nil
         }
     }
@@ -193,6 +252,25 @@ extension ContentView {
         openRightSidebarToolPane(mode)
     }
 
+    func openCustomSidebarPane(_ name: String) {
+        guard let workspace = tabManager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+
+        sidebarSelectionState.selection = .tabs
+        workspace.clearSplitZoom()
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.openOrFocusCustomSidebarSplit(from: focusedPanelId, name: name) != nil {
+            return
+        }
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+              workspace.openOrFocusCustomSidebarSurface(inPane: paneId, name: name, focus: true) != nil else {
+            NSSound.beep()
+            return
+        }
+    }
+
     private static func commandPaletteRightSidebarModeShortcutAction(
         forCommandID commandID: String
     ) -> KeyboardShortcutSettings.Action? {
@@ -203,4 +281,55 @@ extension ContentView {
         }
         return mode.shortcutAction
     }
+
+    func rightSidebarCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
+        let selectedId = tabManager.selectedTabId
+        let workspaces = tabManager.tabs.enumerated().map { index, workspace in
+            workspace.customSidebarWorkspaceSnapshot(
+                index: index,
+                selectedId: selectedId,
+                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
+            )
+        }
+        let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
+        return Self.customSidebarDataContext(
+            workspaces: workspaces,
+            workspaceGroups: tabManager.workspaceGroups,
+            selectedWorkspaceId: selectedId,
+            selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
+            totalUnreadCount: sidebarUnread.totalUnreadCount,
+            now: now
+        )
+    }
+
+    static func customSidebarDataContext(
+        workspaces: [CustomSidebarWorkspaceSnapshot],
+        workspaceGroups: [WorkspaceGroup],
+        selectedWorkspaceId: UUID?,
+        selectedWorkspaceTitle: String,
+        totalUnreadCount: Int,
+        now: Date
+    ) -> [String: SwiftValue] {
+        let groups = workspaceGroups.map { group in
+            CustomSidebarGroupSnapshot(
+                id: group.id,
+                name: group.name,
+                isCollapsed: group.isCollapsed,
+                isPinned: group.isPinned,
+                anchorWorkspaceId: group.anchorWorkspaceId,
+                customColor: group.customColor,
+                iconSymbol: group.iconSymbol
+            )
+        }
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: workspaces,
+            groups: groups,
+            selectedWorkspaceId: selectedWorkspaceId,
+            selectedWorkspaceTitle: selectedWorkspaceTitle,
+            totalUnreadCount: totalUnreadCount,
+            now: now
+        )
+        return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
+    }
+
 }

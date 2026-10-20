@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.cmux.invalid/iroh-v2/V2ChangedResponse.json",
+  "type": "object",
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "const": "directory.changed.v1"
+    },
+    "teamId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "deliveryReceipt": {
+      "allOf": [
+        {
+          "$ref": "https://contracts.cmux.invalid/iroh-v2/V2DeliveryReceipt.json"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schemaId",
+    "teamId",
+    "revision"
+  ],
+  "additionalProperties": false
+}

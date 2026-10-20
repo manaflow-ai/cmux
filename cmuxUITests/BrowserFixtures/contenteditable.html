@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>contenteditable</title></head>
+<body>
+<div id="editor" contenteditable="true">prefill text that must not survive</div>
+<div id="status">PENDING</div>
+<pre id="event-log"></pre>
+<script>
+  window.__cmuxLog = [];
+  const logEl = document.getElementById('event-log');
+  const statusEl = document.getElementById('status');
+  let seq = 0;
+  function log(entry) {
+    window.__cmuxLog.push(Object.assign({ seq: ++seq }, entry));
+    logEl.textContent = JSON.stringify(window.__cmuxLog);
+  }
+
+  const editor = document.getElementById('editor');
+  let editLogged = false;
+  function check() {
+    if (editLogged && editor.textContent === 'edited') statusEl.textContent = 'PASS';
+  }
+
+  editor.addEventListener('input', (ev) => {
+    editLogged = true;
+    log({ type: ev.type, target: '#editor', isTrusted: ev.isTrusted, text: editor.textContent });
+    check();
+  });
+  // Socket-driven contenteditable writes assign textContent directly and do not
+  // dispatch input events, so also observe mutations as edit evidence.
+  new MutationObserver(() => {
+    editLogged = true;
+    log({ type: 'mutation', target: '#editor', isTrusted: true, text: editor.textContent });
+    check();
+  }).observe(editor, { childList: true, characterData: true, subtree: true });
+</script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.cmux.invalid/iroh-v2/V2Identity.json",
+  "type": "object",
+  "properties": {
+    "environment": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "teamId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "userId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "deviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "appNamespace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "buildTag": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "environment",
+    "projectId",
+    "teamId",
+    "userId",
+    "deviceId",
+    "appNamespace",
+    "buildTag"
+  ],
+  "additionalProperties": false
+}

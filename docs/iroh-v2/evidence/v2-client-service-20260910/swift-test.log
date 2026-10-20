@@ -1,0 +1,326 @@
+[0/1] Planning build
+Building for debugging...
+[0/4] Write sources
+[2/4] Write swift-version--58304C5D6DBC2206.txt
+[4/8] Compiling CmuxIrxTransport V2WireModels.swift
+[5/8] Emitting module CmuxIrxTransport
+[6/8] Compiling CmuxIrxTransport V2ControlService+Connection.swift
+[7/8] Compiling CmuxIrxTransport V2ControlService+Operations.swift
+[8/23] Compiling CmuxIrxTransport V2FileStateStore.swift
+[9/23] Compiling CmuxIrxTransport V2IdentityKeyStore.swift
+[10/23] Compiling CmuxIrxTransport V2OrderedSocket.swift
+[11/23] Compiling CmuxIrxTransport V2StateStoring.swift
+[12/23] Compiling CmuxIrxTransport V2URLSessionHTTPTransport.swift
+[13/23] Compiling CmuxIrxTransport V2URLSessionSocket.swift
+[14/23] Compiling CmuxIrxTransport V2WireSigningCodec.swift
+[15/23] Compiling CmuxIrxTransport V2ControlService+HTTP.swift
+[16/23] Compiling CmuxIrxTransport V2ControlService+Maintenance.swift
+[17/23] Compiling CmuxIrxTransport V2ControlService.swift
+[18/23] Compiling CmuxIrxTransport V2ControlSnapshot.swift
+[19/23] Compiling CmuxIrxTransport V2CachedState.swift
+[20/23] Compiling CmuxIrxTransport V2ControlConfiguration.swift
+[21/23] Compiling CmuxIrxTransport V2ControlFailure.swift
+[22/23] Compiling CmuxIrxTransport V2ControlService+Acknowledgements.swift
+[23/38] Compiling CmuxIrxTransportTests IrxDirectOnlyEndpointTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLiveQUICTests.swift:299:32: warning: result of call to 'admit(deviceID:sessionID:connection:stillAuthorized:)' is unused [#no-usage]
+297 |                     )
+298 |                 else { continue }
+299 |                 await registry.admit(
+    |                                `- warning: result of call to 'admit(deviceID:sessionID:connection:stillAuthorized:)' is unused [#no-usage]
+300 |                     deviceID: peer.deviceID, sessionID: sessionID, connection: irx)
+301 |                 Task {
+[24/38] Compiling CmuxIrxTransportTests IrxJSONCacheMigrationTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLiveQUICTests.swift:299:32: warning: result of call to 'admit(deviceID:sessionID:connection:stillAuthorized:)' is unused [#no-usage]
+297 |                     )
+298 |                 else { continue }
+299 |                 await registry.admit(
+    |                                `- warning: result of call to 'admit(deviceID:sessionID:connection:stillAuthorized:)' is unused [#no-usage]
+300 |                     deviceID: peer.deviceID, sessionID: sessionID, connection: irx)
+301 |                 Task {
+[25/38] Compiling CmuxIrxTransportTests IrxLiveQUICTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLiveQUICTests.swift:299:32: warning: result of call to 'admit(deviceID:sessionID:connection:stillAuthorized:)' is unused [#no-usage]
+297 |                     )
+298 |                 else { continue }
+299 |                 await registry.admit(
+    |                                `- warning: result of call to 'admit(deviceID:sessionID:connection:stillAuthorized:)' is unused [#no-usage]
+300 |                     deviceID: peer.deviceID, sessionID: sessionID, connection: irx)
+301 |                 Task {
+[26/38] Compiling CmuxIrxTransportTests IrxProtocolTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLiveQUICTests.swift:299:32: warning: result of call to 'admit(deviceID:sessionID:connection:stillAuthorized:)' is unused [#no-usage]
+297 |                     )
+298 |                 else { continue }
+299 |                 await registry.admit(
+    |                                `- warning: result of call to 'admit(deviceID:sessionID:connection:stillAuthorized:)' is unused [#no-usage]
+300 |                     deviceID: peer.deviceID, sessionID: sessionID, connection: irx)
+301 |                 Task {
+[27/42] Compiling CmuxIrxTransportTests IrxStateLocationTests.swift
+[28/42] Compiling CmuxIrxTransportTests MobileIrxControlLaneClaimsTests.swift
+[29/42] Compiling CmuxIrxTransportTests V2ControlServiceTests.swift
+[30/42] Compiling CmuxIrxTransportTests V2FileStateStoreTests.swift
+[31/42] Compiling CmuxIrxTransportTests V2TestBackend.swift
+[32/42] Compiling CmuxIrxTransportTests V2TestSocket.swift
+[33/42] Compiling CmuxIrxTransportTests V2TestStateStore.swift
+[34/42] Compiling CmuxIrxTransportTests V2WireSigningTests.swift
+[35/42] Compiling CmuxIrxTransportTests IrxBrokerArmingTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxControlPlaneTests.swift:26:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 24 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 25 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 26 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 27 |                 throw DecodingError.dataCorrupted(.init(
+ 28 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxCtlListAuthTests.swift:15:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 13 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 14 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 15 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 16 |                 throw DecodingError.dataCorrupted(.init(
+ 17 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[36/42] Compiling CmuxIrxTransportTests IrxBrokerMintRetryTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxControlPlaneTests.swift:26:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 24 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 25 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 26 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 27 |                 throw DecodingError.dataCorrupted(.init(
+ 28 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxCtlListAuthTests.swift:15:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 13 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 14 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 15 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 16 |                 throw DecodingError.dataCorrupted(.init(
+ 17 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[37/42] Compiling CmuxIrxTransportTests IrxControlPlaneTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxControlPlaneTests.swift:26:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 24 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 25 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 26 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 27 |                 throw DecodingError.dataCorrupted(.init(
+ 28 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxCtlListAuthTests.swift:15:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 13 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 14 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 15 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 16 |                 throw DecodingError.dataCorrupted(.init(
+ 17 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[38/42] Compiling CmuxIrxTransportTests IrxCtlListAuthTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxControlPlaneTests.swift:26:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 24 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 25 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 26 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 27 |                 throw DecodingError.dataCorrupted(.init(
+ 28 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxCtlListAuthTests.swift:15:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 13 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 14 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 15 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 16 |                 throw DecodingError.dataCorrupted(.init(
+ 17 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[39/42] Compiling CmuxIrxTransportTests IrxDeviceListTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxControlPlaneTests.swift:26:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 24 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 25 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 26 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 27 |                 throw DecodingError.dataCorrupted(.init(
+ 28 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxCtlListAuthTests.swift:15:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 13 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 14 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 15 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 16 |                 throw DecodingError.dataCorrupted(.init(
+ 17 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[40/42] Emitting module CmuxIrxTransportTests
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxControlPlaneTests.swift:26:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 24 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 25 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 26 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 27 |                 throw DecodingError.dataCorrupted(.init(
+ 28 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxCtlListAuthTests.swift:15:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 13 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 14 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 15 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 16 |                 throw DecodingError.dataCorrupted(.init(
+ 17 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[40/42] Write Objects.LinkFileList
+[41/42] Linking CmuxIrxTransportPackageTests
+Build complete! (4.45s)
+Test Suite 'Selected tests' started at 2026-09-10 21:58:57.605.
+Test Suite 'CmuxIrxTransportPackageTests.xctest' started at 2026-09-10 21:58:57.606.
+Test Suite 'CmuxIrxTransportPackageTests.xctest' passed at 2026-09-10 21:58:57.606.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-09-10 21:58:57.606.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite V2FileStateStoreTests started.
+◇ Suite V2WireSigningTests started.
+◇ Suite IrxDirectOnlyEndpointTests started.
+◇ Suite V2ControlServiceTests started.
+◇ Suite "control plane list-auth wire" started.
+◇ Test replacesOneFilePerScopeAndIgnoresLegacyState() started.
+◇ Test matchesWorkerCanonicalBytesAndEd25519Signatures() started.
+◇ Test protocolCloseCodesPreserveBoundedRetryPolicy() started.
+◇ Test distinctFreshKeysNeverAdoptOneAnother() started.
+◇ Test stopInvalidatesAnOutstandingReplyBeforeItCanChangeCache() started.
+◇ Test relayOnlyTargetIsRejectedBeforeAnyEndpointOpens() started.
+◇ Test unavailableSocketUsesOnlyTheVersionedHTTPRecoveryRoutes() started.
+◇ Test paginationPinsRevisionAndRestartsAfterConcurrentChange() started.
+◇ Test deliveryCheckpointIsEchoedWithoutWaitingForAnApplicationObserverOrReply() started.
+◇ Test uncertainSocketMutationKeepsItsRequestIDWhenRecoveringThroughHTTP() started.
+◇ Test directConnectionNeedsNoCredentialAndCannotAcquireARelay() started.
+◇ Test enrollmentThenResumeUsesOneRegistrationAndSignedTicket() started.
+◇ Test permanentClosesStopWhileCapacityClosesBackOff() started.
+◇ Test renewalsAndForegroundKeepTheSameSocket() started.
+◇ Test retiredSchemaWaitsAnHourButAllowsAnExplicitRetry() started.
+◇ Test knownRevocationClearsAuthorityInTheCompleteSnapshot() started.
+◇ Test helloV2CarriesClientInfoAndOmitsItWhenAbsent() started.
+◇ Test rateLimitPreservesCredentialsAndOnlyBlocksItsOperation() started.
+✔ Test distinctFreshKeysNeverAdoptOneAnother() passed after 0.001 seconds.
+✔ Test helloV2CarriesClientInfoAndOmitsItWhenAbsent() passed after 0.001 seconds.
+✔ Test protocolCloseCodesPreserveBoundedRetryPolicy() passed after 0.004 seconds.
+✔ Suite "control plane list-auth wire" passed after 0.004 seconds.
+✔ Test permanentClosesStopWhileCapacityClosesBackOff() passed after 0.004 seconds.
+✔ Test relayOnlyTargetIsRejectedBeforeAnyEndpointOpens() passed after 0.004 seconds.
+✔ Test stopInvalidatesAnOutstandingReplyBeforeItCanChangeCache() passed after 0.006 seconds.
+✔ Test rateLimitPreservesCredentialsAndOnlyBlocksItsOperation() passed after 0.006 seconds.
+✔ Test matchesWorkerCanonicalBytesAndEd25519Signatures() passed after 0.006 seconds.
+✔ Suite V2WireSigningTests passed after 0.007 seconds.
+✔ Test knownRevocationClearsAuthorityInTheCompleteSnapshot() passed after 0.006 seconds.
+✔ Test deliveryCheckpointIsEchoedWithoutWaitingForAnApplicationObserverOrReply() passed after 0.006 seconds.
+✔ Test retiredSchemaWaitsAnHourButAllowsAnExplicitRetry() passed after 0.006 seconds.
+✔ Test renewalsAndForegroundKeepTheSameSocket() passed after 0.007 seconds.
+✔ Test enrollmentThenResumeUsesOneRegistrationAndSignedTicket() passed after 0.007 seconds.
+✔ Test paginationPinsRevisionAndRestartsAfterConcurrentChange() passed after 0.007 seconds.
+✔ Test uncertainSocketMutationKeepsItsRequestIDWhenRecoveringThroughHTTP() passed after 0.007 seconds.
+✔ Test replacesOneFilePerScopeAndIgnoresLegacyState() passed after 0.008 seconds.
+✔ Suite V2FileStateStoreTests passed after 0.008 seconds.
+✔ Test unavailableSocketUsesOnlyTheVersionedHTTPRecoveryRoutes() passed after 0.009 seconds.
+✔ Suite V2ControlServiceTests passed after 0.009 seconds.
+✔ Test directConnectionNeedsNoCredentialAndCannotAcquireARelay() passed after 0.016 seconds.
+✔ Suite IrxDirectOnlyEndpointTests passed after 0.017 seconds.
+✔ Test run with 18 tests in 5 suites passed after 0.017 seconds.

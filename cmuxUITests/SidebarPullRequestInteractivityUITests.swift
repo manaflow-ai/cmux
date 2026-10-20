@@ -34,7 +34,7 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
         clickabilityOverride: Bool?,
         expectsPlainText: Bool
     ) throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         defer { app.terminate() }
         app.launchArguments += [
             "-AppleLanguages", "(en)",
@@ -171,8 +171,8 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        pollUntil(timeout: timeout) {
-            socketCommand("ping") == "PONG"
+        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
+            self.socketCommand("ping") == "PONG"
         }
     }
 

@@ -1,0 +1,190 @@
+import { NextRequest, NextResponse } from "next/server";
+import { env } from "../../env";
+import { stackServerApp } from "../../lib/stack";
+import { requestOrigin } from "../../lib/request-origin";
+import { isPublicationToken } from "../../../services/vm-publications/security";
+
+type SignOutAndSignInDependencies = {
+  projectId: string | undefined;
+  signOut: ((options: { redirectUrl: string }) => Promise<void>) | null;
+};
+
+const STACK_ACCESS_COOKIE = "stack-access";
+const LEGACY_STACK_REFRESH_COOKIE = "stack-refresh";
+const STACK_CUSTOM_REFRESH_COOKIE_MARKER = "--custom-";
+const CROCKFORD_BASE32_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+function sameOriginURL(value: string | null, request: NextRequest): URL | null {
+  if (!value) return null;
+  try {
+    const origin = requestOrigin(request);
+    const url = new URL(value, origin);
+    return url.origin === origin ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+function validatedNativeSignInTarget(request: NextRequest): string | null {
+  const target = sameOriginURL(request.nextUrl.searchParams.get("after_auth_return_to"), request);
+  if (!target || target.pathname !== "/handler/native-sign-in") return null;
+
+  const afterAuth = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);
+  if (!afterAuth || afterAuth.pathname !== "/handler/after-sign-in") return null;
+  if (!afterAuth.searchParams.has("native_app_return_to")) return null;
+  if (afterAuth.searchParams.has("after_auth_return_to")) return null;
+
+  return `${target.pathname}${target.search}${target.hash}`;
+}
+
+function validatedCliSignInTarget(request: NextRequest): string | null {
+  const target = sameOriginURL(request.nextUrl.searchParams.get("after_auth_return_to"), request);
+  if (!target || target.pathname !== "/handler/sign-in") return null;
+  if (!onlySearchParams(target, ["after_auth_return_to"])) return null;
+
+  const confirmation = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);
+  const loginCode = confirmation?.searchParams.get("login_code");
+  if (
+    !confirmation ||
+    confirmation.pathname !== "/handler/cli-auth-confirm" ||
+    !onlySearchParams(confirmation, ["login_code"]) ||
+    !loginCode ||
+    loginCode.length > 256 ||
+    !/^[a-zA-Z0-9_-]+$/.test(loginCode)
+  ) {
+    return null;
+  }
+
+  return `${target.pathname}${target.search}`;
+}
+
+function onlySearchParams(url: URL, allowed: readonly string[]): boolean {
+  const keys = [...url.searchParams.keys()].sort();
+  return keys.length === allowed.length && keys.every((key, index) => key === allowed[index]);
+}
+
+// A signed-in viewer refused by a protected Cloud VM domain can switch
+// accounts: sign out, straight into sign-in, and back to the same access
+// transaction. Every hop is same-origin and the transaction is opaque.
+function validatedPublicationSignInTarget(request: NextRequest): string | null {
+  const target = sameOriginURL(request.nextUrl.searchParams.get("after_auth_return_to"), request);
+  if (!target || target.pathname !== "/handler/sign-in") return null;
+  if (!onlySearchParams(target, ["after_auth_return_to"])) return null;
+
+  const afterAuth = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);
+  if (!afterAuth || afterAuth.pathname !== "/handler/after-sign-in") return null;
+  if (!onlySearchParams(afterAuth, ["after_auth_return_to"])) return null;
+
+  const access = sameOriginURL(afterAuth.searchParams.get("after_auth_return_to"), request);
+  if (!access || access.pathname !== "/cloud/access") return null;
+  if (!onlySearchParams(access, ["state", "transaction"])) return null;
+  if (!isPublicationToken(access.searchParams.get("transaction"))) return null;
+  if (!isPublicationToken(access.searchParams.get("state"))) return null;
+
+  return `${target.pathname}${target.search}`;
+}
+
+function canStartSignOut(request: NextRequest): boolean {
+  const fetchSite = request.headers.get("sec-fetch-site");
+  return fetchSite === "none" || fetchSite === "same-origin";
+}
+
+function isStackAuthCookie(name: string, projectId: string): boolean {
+  const refreshName = `stack-refresh-${projectId}`;
+  return (
+    name === STACK_ACCESS_COOKIE ||
+    name === `__Host-${STACK_ACCESS_COOKIE}` ||
+    name === `__Secure-${STACK_ACCESS_COOKIE}` ||
+    name === LEGACY_STACK_REFRESH_COOKIE ||
+    name === `__Host-${LEGACY_STACK_REFRESH_COOKIE}` ||
+    name === `__Secure-${LEGACY_STACK_REFRESH_COOKIE}` ||
+    name === refreshName ||
+    name === `__Host-${refreshName}` ||
+    name === `__Secure-${refreshName}` ||
+    name.startsWith(`${refreshName}--`) ||
+    name.startsWith(`__Host-${refreshName}--`) ||
+    name.startsWith(`__Secure-${refreshName}--`)
+  );
+}
+
+function decodeStackBase32Text(value: string): string | null {
+  let bits = 0;
+  let buffer = 0;
+  const bytes: number[] = [];
+
+  for (const character of value) {
+    const index = CROCKFORD_BASE32_ALPHABET.indexOf(character.toUpperCase());
+    if (index === -1) return null;
+    buffer = (buffer << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((buffer >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+function stackCustomRefreshCookieDomain(name: string, projectId: string): string | null {
+  const cookieName = name.startsWith("__Secure-") ? name.slice("__Secure-".length) : name;
+  const prefix = `stack-refresh-${projectId}${STACK_CUSTOM_REFRESH_COOKIE_MARKER}`;
+  if (!cookieName.startsWith(prefix)) return null;
+  return decodeStackBase32Text(cookieName.slice(prefix.length));
+}
+
+function clearStackAuthCookies(response: NextResponse, request: NextRequest, projectId: string) {
+  const secure = request.nextUrl.protocol === "https:";
+  for (const cookie of request.cookies.getAll()) {
+    if (!isStackAuthCookie(cookie.name, projectId)) continue;
+    const domain = stackCustomRefreshCookieDomain(cookie.name, projectId);
+    response.cookies.set(cookie.name, "", {
+      ...(domain ? { domain } : {}),
+      httpOnly: true,
+      maxAge: 0,
+      path: "/",
+      sameSite: "lax",
+      secure: cookie.name.startsWith("__") || secure,
+    });
+  }
+}
+
+function isNextRedirectError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "digest" in error &&
+    typeof error.digest === "string" &&
+    error.digest.startsWith("NEXT_REDIRECT;")
+  );
+}
+
+export function makeSignOutAndSignInHandler(dependencies: SignOutAndSignInDependencies) {
+  return async function GET(request: NextRequest) {
+    const target =
+      validatedNativeSignInTarget(request) ??
+      validatedPublicationSignInTarget(request) ??
+      validatedCliSignInTarget(request);
+    if (!target || !canStartSignOut(request)) return NextResponse.redirect(new URL("/", requestOrigin(request)));
+
+    const response = NextResponse.redirect(new URL(target, requestOrigin(request)));
+    if (dependencies.projectId) clearStackAuthCookies(response, request, dependencies.projectId);
+
+    const redirectUrl = new URL(target, requestOrigin(request)).toString();
+    try {
+      await dependencies.signOut?.({ redirectUrl });
+    } catch (error) {
+      if (!isNextRedirectError(error)) {
+        console.warn("[Sign Out and Sign In] Continuing after Stack sign-out did not complete normally", error);
+      }
+    }
+    return response;
+  };
+}
+
+const configuredStackServerApp = stackServerApp;
+
+export const GET = makeSignOutAndSignInHandler({
+  projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
+  signOut: configuredStackServerApp ? (options) => configuredStackServerApp.signOut(options) : null,
+});

@@ -101,9 +101,14 @@ def _capture_session(env: dict[str, str], zsh_path: str, workdir: Path) -> bytes
 
     output = bytearray()
     start = time.time()
+    # Drive phase transitions on the real readiness signal (prompt-start
+    # markers appearing in the captured output) rather than wall-clock elapsed,
+    # so the prompt_start_count >= 2 assertion does not depend on zsh startup
+    # latency under load. The deadline only bounds the failure path.
+    deadline = 12.0
     phase = 0
     try:
-        while time.time() - start < 4.5:
+        while time.time() - start < deadline:
             readable, _, _ = select.select([master], [], [], 0.2)
             if master in readable:
                 try:
@@ -114,13 +119,17 @@ def _capture_session(env: dict[str, str], zsh_path: str, workdir: Path) -> bytes
                     break
                 output.extend(chunk)
 
-            elapsed = time.time() - start
-            if phase == 0 and elapsed > 1.2:
+            marker_count = output.count(PROMPT_START)
+            if phase == 0 and marker_count >= 1:
+                # First prompt drawn: trigger a second prompt cycle.
                 os.write(master, b"\n")
                 phase = 1
-            elif phase == 1 and elapsed > 2.8:
+            elif phase == 1 and marker_count >= 2:
+                # Second prompt cycle emitted its marker: end the session.
                 os.write(master, b"exit\n")
                 phase = 2
+            elif phase == 2 and proc.poll() is not None:
+                break
     finally:
         try:
             proc.wait(timeout=5)

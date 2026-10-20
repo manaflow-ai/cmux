@@ -1,0 +1,12 @@
+// Adapted from serve-sim commit af681b8c3b0453f31dcb8e98a3389f23b7cfc6b0 (Apache-2.0).
+// Modified by cmux for native worker integration.
+
+#import "SimCamLog.h"
+
+void simcam_log(NSString *fmt, ...) {
+    va_list args; va_start(args, fmt);
+    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
+    va_end(args);
+    fprintf(stderr, "[SimCam] %s\n", msg.UTF8String);
+    NSLog(@"[SimCam] %@", msg);
+}

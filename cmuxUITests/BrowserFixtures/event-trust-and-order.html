@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>event-trust-and-order</title></head>
+<body>
+<button id="btn">Click me</button>
+<input id="field" type="text">
+<div id="status">PENDING</div>
+<pre id="event-log"></pre>
+<script>
+  window.__cmuxLog = [];
+  const logEl = document.getElementById('event-log');
+  const statusEl = document.getElementById('status');
+  let seq = 0;
+  function logEvent(ev, target, extra) {
+    window.__cmuxLog.push(Object.assign(
+      { seq: ++seq, type: ev.type, target, isTrusted: ev.isTrusted, key: ev.key, code: ev.code },
+      extra || {}
+    ));
+    logEl.textContent = JSON.stringify(window.__cmuxLog);
+  }
+
+  const field = document.getElementById('field');
+  let clicked = false;
+  let inputs = 0;
+  let orderOk = true;
+  let lastKeydownKey = null;
+
+  function check() {
+    if (clicked && field.value === 'abc' && inputs === 3 && orderOk) {
+      statusEl.textContent = 'PASS';
+    }
+  }
+
+  document.getElementById('btn').addEventListener('click', (ev) => {
+    logEvent(ev, '#btn');
+    clicked = true;
+    check();
+  });
+  field.addEventListener('keydown', (ev) => {
+    lastKeydownKey = ev.key;
+    logEvent(ev, '#field');
+  });
+  field.addEventListener('input', (ev) => {
+    inputs += 1;
+    logEvent(ev, '#field', { value: field.value });
+    const expected = 'abc'.slice(0, inputs);
+    if (field.value !== expected || lastKeydownKey !== expected.slice(-1)) {
+      orderOk = false;
+    }
+    lastKeydownKey = null;
+    check();
+  });
+  field.addEventListener('keyup', (ev) => logEvent(ev, '#field'));
+</script>
+</body>
+</html>

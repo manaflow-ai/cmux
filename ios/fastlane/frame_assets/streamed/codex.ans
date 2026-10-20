@@ -1,0 +1,50 @@
+[2m  └ [0m[38;5;6mRead[39m main.swift[2m, [0mREADME.md
+    [38;5;6mList[39m ls -la
+
+[2m────────────────────────────────────────────────────────────────────────────
+
+• [0m[38;5;6mmain.swift:1[39m is a tiny SwiftUI view definition:
+
+  [38;2;203;166;247mimport[38;2;205;214;244m [38;2;249;226;175mSwiftUI[39m
+  [38;2;203;166;247mstruct[38;2;205;214;244m ContentView: View { [38;2;203;166;247mvar[38;2;205;214;244m body: some View { Text([38;2;166;227;161m"Hello"[38;2;205;214;244m) } }[39m
+
+  Line 1 imports SwiftUI, which provides [38;5;6mView[39m, [38;5;6mText[39m, and the declarative UI
+  system. Line 2 defines [38;5;6mContentView[39m, a SwiftUI view whose [38;5;6mbody[39m returns a
+  single [38;5;6mText("Hello")[39m element. As written, this defines a view but does not
+  define an app entry point, so by itself it is not a complete runnable
+  SwiftUI app unless something else hosts [38;5;6mContentView[39m.
+
+  Three improvements:
+
+  [38;5;12m1. [39mFormat it for readability:
+
+  [38;2;203;166;247mstruct[38;2;205;214;244m ContentView: View {[39m
+  [38;2;205;214;244m    [38;2;203;166;247mvar[38;2;205;214;244m body: some View {[39m
+  [38;2;205;214;244m        Text([38;2;166;227;161m"Hello"[38;2;205;214;244m)[39m
+  [38;2;205;214;244m    }[39m
+  [38;2;205;214;244m}[39m
+
+  [38;5;12m2. [39mAdd an app entry point if this file should run as a standalone SwiftUI
+     app:
+
+  [38;2;147;153;178m@[38;2;203;166;247mmain[39m
+  [38;2;203;166;247mstruct[38;2;205;214;244m DemoApp: App {[39m
+  [38;2;205;214;244m    [38;2;203;166;247mvar[38;2;205;214;244m body: some Scene {[39m
+  [38;2;205;214;244m        WindowGroup {[39m
+  [38;2;205;214;244m            ContentView()[39m
+  [38;2;205;214;244m        }[39m
+  [38;2;205;214;244m    }[39m
+  [38;2;205;214;244m}[39m
+
+  [38;5;12m3. [39mAdd a preview for fast iteration in Xcode:
+
+  [38;2;205;214;244m#Preview {[39m
+  [38;2;205;214;244m    ContentView()
+[39m  [38;2;205;214;244m}[39m
+
+[2m────────────────────────────────────────────────────────────────────────────
+
+
+[0;1m›[0m [2mSummarize recent commits[0m
+
+  [38;2;246;226;183mgpt-5.5 high[2m[39m · [0m[38;2;242;181;144mContext 98% left[2m[39m · [0m[38;2;171;223;167m/private/tmp/cmux-rec/app[2m[39m · [0m[38;2;171;223;167mapp[2m[39m · [0m[38;2;143;179;239mmain[2m[39m …

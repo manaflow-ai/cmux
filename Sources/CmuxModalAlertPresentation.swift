@@ -1,6 +1,6 @@
 import AppKit
 
-/// How ``runCmuxModalAlert(_:presentingWindow:willPresent:)`` ended up
+/// How ``NSAlert/runCmuxModal(presentingWindow:content:willPresent:)`` ended up
 /// presenting an alert.
 ///
 /// Reported to the `willPresent` hook from inside the presenter so callers
@@ -17,81 +17,81 @@ enum CmuxModalAlertPresentation {
     case appModal(hostWindowHadAttachedSheet: Bool)
 }
 
-/// Returns whether `window` is one of cmux's main windows.
-///
-/// Main windows carry the identifier `cmux.main` or a `cmux.main.<id>`
-/// per-window variant. This is the single source of truth for that match so
-/// the identifier scheme only has to change in one place.
-@MainActor
-func isCmuxMainWindow(_ window: NSWindow) -> Bool {
-    guard let raw = window.identifier?.rawValue else { return false }
-    return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+private extension NSWindow {
+    /// Whether this window is one of cmux's main windows.
+    var isCmuxMainWindow: Bool {
+        guard let raw = identifier?.rawValue else { return false }
+        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+    }
 }
 
-/// Returns the visible main cmux window best suited to host a modal sheet.
-///
-/// Prefers `preferredWindow` when supplied and eligible, then the key
-/// window, then the main window, then any visible main window. Returns `nil`
-/// when no main cmux window is currently on screen, in which case callers
-/// should fall back to an app-modal presentation.
-///
-/// - Parameter preferredWindow: A window to consider ahead of the
-///   key/main/any search, used when it is visible and a cmux main window
-///   (e.g. a `TabManager`'s own owning window).
-@MainActor
-func cmuxMainWindowForModalPresentation(preferring preferredWindow: NSWindow? = nil) -> NSWindow? {
-    if let preferredWindow, preferredWindow.isVisible, isCmuxMainWindow(preferredWindow) {
-        return preferredWindow
+extension NSApplication {
+    /// Returns the visible main cmux window best suited to host a modal sheet.
+    ///
+    /// Prefers `preferredWindow` when supplied and eligible, then the key
+    /// window, then the main window, then any visible main window. Returns `nil`
+    /// when no main cmux window is currently on screen, in which case callers
+    /// should fall back to an app-modal presentation.
+    ///
+    /// - Parameter preferredWindow: A window to consider ahead of the
+    ///   key/main/any search, used when it is visible and a cmux main window
+    ///   (e.g. a `TabManager`'s own owning window).
+    @MainActor
+    func cmuxMainWindowForModalPresentation(preferring preferredWindow: NSWindow? = nil) -> NSWindow? {
+        if let preferredWindow, preferredWindow.isVisible, preferredWindow.isCmuxMainWindow {
+            return preferredWindow
+        }
+        if let keyWindow, keyWindow.isVisible, keyWindow.isCmuxMainWindow {
+            return keyWindow
+        }
+        if let mainWindow, mainWindow.isVisible, mainWindow.isCmuxMainWindow {
+            return mainWindow
+        }
+        return windows.first { $0.isVisible && $0.isCmuxMainWindow }
     }
-    if let keyWindow = NSApp.keyWindow, keyWindow.isVisible, isCmuxMainWindow(keyWindow) {
-        return keyWindow
-    }
-    if let mainWindow = NSApp.mainWindow, mainWindow.isVisible, isCmuxMainWindow(mainWindow) {
-        return mainWindow
-    }
-    return NSApp.windows.first { $0.isVisible && isCmuxMainWindow($0) }
 }
 
-/// Presents an `NSAlert` so it reliably appears even when the call originates
-/// from inside a SwiftUI `.contextMenu` action or another AppKit
-/// menu-tracking handler.
-///
-/// A bare `NSAlert.runModal()` invoked from such a context can silently
-/// no-op: the app may not be the active application and there is no window to
-/// host the alert, so the modal session can end immediately and return a
-/// cancel response without ever drawing the dialog. Routing every
-/// confirmation/prompt through this helper activates the app and presents the
-/// alert as a sheet attached to the main cmux window when one is available,
-/// falling back to an app-modal `runModal()` only when there is no eligible
-/// host window.
-///
-/// - Parameters:
-///   - alert: The configured alert to present.
-///   - presentingWindow: An explicit host window. When `nil`, the main cmux
-///     window is resolved via ``cmuxMainWindowForModalPresentation(preferring:)``.
-///   - willPresent: Invoked synchronously with the chosen presentation just
-///     before the modal session begins, so callers can record telemetry from
-///     the path the presenter actually takes instead of re-deriving it.
-/// - Returns: The modal response selected by the user.
-@MainActor
-func runCmuxModalAlert(
-    _ alert: NSAlert,
-    presentingWindow: NSWindow? = nil,
-    willPresent: ((CmuxModalAlertPresentation) -> Void)? = nil
-) -> NSApplication.ModalResponse {
-    if NSApp.activationPolicy() == .regular {
-        NSApp.activate(ignoringOtherApps: true)
-    }
+extension NSAlert {
+    /// Presents this alert reliably from menu-tracking and ordinary AppKit contexts.
+    ///
+    /// The application is activated, then the alert is presented as a sheet on
+    /// an eligible cmux main window. If no host is available or the host already
+    /// owns a sheet, presentation falls back to an application-modal session.
+    ///
+    /// - Parameters:
+    ///   - presentingWindow: An explicit host window. When `nil`, the main cmux
+    ///     window is resolved by ``NSApplication/cmuxMainWindowForModalPresentation(preferring:)``.
+    ///   - content: Structured alert copy whose user-sized details are bounded to
+    ///     the presenting screen and made internally scrollable.
+    ///   - willPresent: Invoked synchronously with the chosen presentation just
+    ///     before the modal session begins.
+    /// - Returns: The modal response selected by the user.
+    @MainActor
+    func runCmuxModal(
+        presentingWindow: NSWindow? = nil,
+        content: CmuxAlertContent? = nil,
+        willPresent: ((CmuxModalAlertPresentation) -> Void)? = nil
+    ) -> NSApplication.ModalResponse {
+        if NSApp.activationPolicy() == .regular {
+            NSApp.activate(ignoringOtherApps: true)
+        }
 
-    let hostWindow = presentingWindow ?? cmuxMainWindowForModalPresentation()
-    guard let hostWindow, hostWindow.attachedSheet == nil else {
-        willPresent?(.appModal(hostWindowHadAttachedSheet: hostWindow?.attachedSheet != nil))
-        return alert.runModal()
-    }
+        let hostWindow = presentingWindow ?? NSApp.cmuxMainWindowForModalPresentation()
+        if let content {
+            content.apply(to: self, presentingWindow: hostWindow)
+        } else if accessoryView == nil, !informativeText.isEmpty {
+            CmuxAlertContent(informativeText: informativeText)
+                .apply(to: self, presentingWindow: hostWindow)
+        }
+        guard let hostWindow, hostWindow.attachedSheet == nil else {
+            willPresent?(.appModal(hostWindowHadAttachedSheet: hostWindow?.attachedSheet != nil))
+            return runModal()
+        }
 
-    willPresent?(.sheet(hostWindow))
-    alert.beginSheetModal(for: hostWindow) { result in
-        NSApp.stopModal(withCode: result)
+        willPresent?(.sheet(hostWindow))
+        beginSheetModal(for: hostWindow) { result in
+            NSApp.stopModal(withCode: result)
+        }
+        return NSApp.runModal(for: window)
     }
-    return NSApp.runModal(for: alert.window)
 }

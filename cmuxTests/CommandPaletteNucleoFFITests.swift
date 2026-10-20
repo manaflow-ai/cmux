@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -484,7 +485,37 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         )
     }
 
+    /// Ranking half of `testNucleoFFIEdgeCaseTypingFrameBudgetComparison`.
+    ///
+    /// The frame-budget benchmark is env-gated out of the app-host unit suite,
+    /// but the edge-case ranking contract it also asserted (initialism, unread
+    /// command, open-folder command, exact generated workspace, diacritic title)
+    /// is cheap, so it stays here on a much smaller generated corpus.
+    func testNucleoFFIEdgeCaseQueriesRankExpectedTopResults() throws {
+        let entries = makeEdgeCasePaletteEntries(generatedWorkspaceCount: 60)
+        let corpus = searchCorpus(entries: entries)
+        guard let productionIndex = CommandPaletteNucleoSearchIndex(entries: corpus) else {
+            throw XCTSkip("Build the nucleo FFI dylib before running production wrapper tests")
+        }
+
+        let expectedTopResults = [
+            ("ims", "workspace.indigoMarkdownStudio"),
+            ("wunr", "palette.markWorkspaceUnread"),
+            ("open folder", "palette.openFolder"),
+            ("workspace 51", "workspace.large.51"),
+            ("cafe", "workspace.cafeUnicodeNotes"),
+        ]
+        for (query, expectedID) in expectedTopResults {
+            XCTAssertEqual(
+                productionIndex.search(query: query, resultLimit: 10)?.first?.payload,
+                expectedID,
+                "Unexpected top result for \(query)"
+            )
+        }
+    }
+
     func testNucleoFFIEdgeCaseTypingFrameBudgetComparison() throws {
+        try skipUnlessCommandPaletteSearchBenchmarksAreEnabled()
         let entries = makeEdgeCasePaletteEntries(generatedWorkspaceCount: 2_000)
         let corpus = searchCorpus(entries: entries)
         var index: CommandPaletteNucleoSearchIndex<String>?

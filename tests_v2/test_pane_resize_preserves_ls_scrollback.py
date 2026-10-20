@@ -17,6 +17,7 @@ from cmux import cmux, cmuxError
 from pane_resize_test_support import (
     clean_line as _clean_line,
     focused_pane_id as _focused_pane_id,
+    must as _must,
     pane_extent as _pane_extent,
     pick_resize_direction_for_pane as _pick_resize_direction_for_pane,
     scrollback_has_exact_line as _scrollback_has_exact_line,

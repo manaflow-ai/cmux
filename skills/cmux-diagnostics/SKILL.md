@@ -5,90 +5,40 @@ description: "Run end-user cmux diagnostics. Use when cmux hooks, notifications,
 
 # cmux Diagnostics
 
-Use this skill to collect and interpret support-safe cmux diagnostics for end users. Default to read-only checks. Do not dump hook config files, session stores, prompt logs, tokens, or environment secrets.
+Collect and interpret support-safe cmux diagnostics for end users. Default to read-only checks. Never dump hook config files, session stores, prompt logs, tokens, or environment secrets.
 
-## Quick Report
+## Quick report
 
-Run the bundled read-only diagnostic script first:
-
-```bash
-# From a cmux checkout
-skills/cmux-diagnostics/scripts/cmux-diagnostics
-
-# From an installed skill
-~/.agents/skills/cmux-diagnostics/scripts/cmux-diagnostics
-
-# From a Codex-only skills.sh install
-~/.codex/skills/cmux-diagnostics/scripts/cmux-diagnostics
-```
-
-Use `--include-context` only when workspace names, cwd paths, and current cmux identifiers are relevant to the user-reported issue:
+Run the bundled read-only script first, from whichever install path exists:
 
 ```bash
-skills/cmux-diagnostics/scripts/cmux-diagnostics --include-context
+skills/cmux-diagnostics/scripts/cmux-diagnostics            # cmux checkout
+~/.agents/skills/cmux-diagnostics/scripts/cmux-diagnostics  # installed skill
+~/.codex/skills/cmux-diagnostics/scripts/cmux-diagnostics   # Codex-only skills.sh install
 ```
 
-## What to Check
+Add `--include-context` only when workspace names, cwd paths, and current cmux identifiers are relevant to the reported issue.
 
-1. CLI and socket health:
+## What to check
 
-   ```bash
-   command -v cmux
-   cmux ping
-   cmux capabilities --json
-   ```
-
-   If socket commands fail, check whether the agent is running inside a cmux terminal and whether socket automation is enabled.
-
-2. Settings health:
-
-   ```bash
-   ~/.agents/skills/cmux-settings/scripts/cmux-settings validate
-   ~/.agents/skills/cmux-settings/scripts/cmux-settings get terminal.autoResumeAgentSessions
-   ```
-
-   If the user installed with `skills.sh`, use `~/.codex/skills/cmux-settings/scripts/cmux-settings` instead.
-   If `terminal.autoResumeAgentSessions` is false, cmux restores panes but will not automatically resume saved agent sessions.
-
-3. Hook installation:
-
-   ```bash
-   cmux hooks setup --agent codex
-   cmux hooks setup --agent opencode
-   cmux hooks setup
-   ```
-
-   Only run install or uninstall commands after the user agrees. `cmux hooks setup` installs supported agents found on PATH and skips missing agents.
-
-4. Session restore evidence:
-
-   ```bash
-   ls -lh ~/.cmuxterm/*-hook-sessions.json 2>/dev/null
-   ```
-
-   Missing session stores usually means the agent has not run inside cmux since hooks were installed, hooks are disabled, or the agent integration does not support resume capture.
-
-5. Notification path:
-
-   ```bash
-   cmux notify "cmux diagnostic test"
-   ```
-
-   Use this only when the user is ready for a visible test notification.
+1. **CLI and socket health**: `command -v cmux`, `cmux ping`, `cmux capabilities --json`. If socket commands fail, check whether the agent is running inside a cmux terminal and whether socket automation is enabled.
+2. **Settings health**: `cmux-settings validate` and `cmux-settings get terminal.autoResumeAgentSessions` (from `~/.agents/skills/cmux-settings/scripts/`, or `~/.codex/skills/...` for a `skills.sh` install). When `terminal.autoResumeAgentSessions` is false, cmux restores panes but does not resume saved agent sessions.
+3. **Hook installation**: `cmux hooks setup --agent codex`, `--agent opencode`, or bare `cmux hooks setup` (installs supported agents found on PATH, skips missing ones). Run install or uninstall commands only after the user agrees.
+4. **Session restore evidence**: `ls -lh ~/.cmuxterm/*-hook-sessions.json 2>/dev/null`. Missing stores usually mean the agent has not run inside cmux since hooks were installed, hooks are disabled, or the integration does not support resume capture.
+5. **Notification path**: `cmux notify "cmux diagnostic test"`, only when the user is ready for a visible test notification.
 
 ## Interpretation
 
 - `cmux` not found: the CLI is not installed or not on PATH for this shell.
-- `cmux ping` fails: app is not reachable through the current socket path, the app is closed, or automation access is disabled.
-- No `CMUX_WORKSPACE_ID` or `CMUX_SURFACE_ID`: the command is probably running outside a cmux terminal. Some hooks intentionally no-op outside cmux.
-- Hook config exists but no session store: run one supported agent inside cmux after installing hooks, then re-check.
-- Session store exists but restore does not launch agents: check `terminal.autoResumeAgentSessions` and whether the saved executable still exists on PATH.
-- Settings validation fails: fix the config first. Invalid config can make later symptoms misleading.
+- `cmux ping` fails: the app is closed, unreachable through the current socket path, or automation access is disabled.
+- No `CMUX_WORKSPACE_ID` or `CMUX_SURFACE_ID`: the command is running outside a cmux terminal. Some hooks intentionally no-op there.
+- Hook config but no session store: run one supported agent inside cmux after installing hooks, then re-check.
+- Session store but no agents on restore: check `terminal.autoResumeAgentSessions` and whether the saved executable still exists on PATH.
+- Settings validation fails: fix the config first. Invalid config makes later symptoms misleading.
 
 ## Rules
 
 - Stay read-only until the user asks to fix something.
-- Never print raw hook files, session JSON, prompt logs, shell history, tokens, or API keys.
-- Summarize file presence, size, modified time, and marker presence instead of contents.
-- Prefer narrow fixes such as `cmux hooks setup --agent codex` over reinstalling every integration.
+- Never print raw hook files, session JSON, prompt logs, shell history, tokens, or API keys. Summarize file presence, size, modified time, and marker presence instead.
+- Prefer a narrow fix such as `cmux hooks setup --agent codex` over reinstalling every integration.
 - After a fix, rerun the diagnostic script and report the changed lines.

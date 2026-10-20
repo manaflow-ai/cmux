@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxTestSupport
 import SwiftUI
 
 struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
@@ -31,17 +32,48 @@ enum TitlebarControlsHitRegions {
     static let buttonCount = MinimalModeSidebarControlActionSlot.allCases.count
 
     static func buttonXRanges(config: TitlebarControlsStyleConfig) -> [ClosedRange<CGFloat>] {
-        var ranges: [ClosedRange<CGFloat>] = []
-        ranges.reserveCapacity(buttonCount)
-
-        var minX = outerLeadingPadding + config.groupPadding.leading
-        for _ in 0..<buttonCount {
-            let maxX = minX + config.buttonSize
-            ranges.append(minX...maxX)
-            minX = maxX + config.spacing
+        MinimalModeSidebarControlActionSlot.allCases.compactMap {
+            buttonXRange(for: $0, config: config)
         }
+    }
 
-        return ranges
+    static func buttonXRange(
+        for slot: MinimalModeSidebarControlActionSlot,
+        config: TitlebarControlsStyleConfig
+    ) -> ClosedRange<CGFloat>? {
+        let startX = outerLeadingPadding + config.groupPadding.leading
+        let sidebarX = startX
+        let notificationsX = sidebarX + config.buttonSize + config.spacing
+        let newTabX = notificationsX + config.buttonSize + config.spacing
+        let newTabWidth = TitlebarNewWorkspaceSplitButtonMetrics.primaryWidth(config: config)
+        let newWorkspaceMenuX = newTabX + newTabWidth
+        let newWorkspaceMenuWidth = TitlebarNewWorkspaceSplitButtonMetrics.dropdownWidth(config: config)
+        let focusBackX = newWorkspaceMenuX + newWorkspaceMenuWidth + config.spacing
+        let focusForwardX = focusBackX + config.buttonSize + config.spacing
+
+        let minX: CGFloat = switch slot {
+        case .toggleSidebar:
+            sidebarX
+        case .showNotifications:
+            notificationsX
+        case .newTab:
+            newTabX
+        case .newWorkspaceMenu:
+            newWorkspaceMenuX
+        case .focusHistoryBack:
+            focusBackX
+        case .focusHistoryForward:
+            focusForwardX
+        }
+        let width: CGFloat = switch slot {
+        case .newTab:
+            newTabWidth
+        case .newWorkspaceMenu:
+            newWorkspaceMenuWidth
+        case .toggleSidebar, .showNotifications, .focusHistoryBack, .focusHistoryForward:
+            config.buttonSize
+        }
+        return minX...(minX + width)
     }
 
     static func sidebarActionSlot(
@@ -162,7 +194,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         guard shouldAcceptAction(at: point) else { return nil }
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["\(telemetryPrefix)LastHitTestSlot"] = slot.debugName
                 payload["\(telemetryPrefix)LastHitTestPoint"] = windowDragHandleFormatPoint(point)
                 payload["\(telemetryPrefix)LastHitTestWindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
@@ -198,6 +230,12 @@ final class MinimalModeSidebarControlActionView: NSView {
             CmuxExtensionSidebarSelection.showMenu(anchorView: self, event: event)
         case .newTab:
             _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
+        case .newWorkspaceMenu:
+            _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                anchorView: self,
+                event: event,
+                debugSource: "titlebar.minimalSidebar.newWorkspaceMenu.rightClick"
+            )
         case .focusHistoryBack:
             _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .back)
         case .focusHistoryForward:
@@ -216,7 +254,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             button.frame = NSRect(
                 x: range.lowerBound,
                 y: max(0, (bounds.height - config.buttonSize) / 2),
-                width: config.buttonSize,
+                width: range.upperBound - range.lowerBound,
                 height: config.buttonSize
             )
         }
@@ -242,7 +280,7 @@ final class MinimalModeSidebarControlActionView: NSView {
 
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["\(telemetryPrefix)LastAction"] = slot.debugName
                 payload["\(telemetryPrefix)LastPoint"] = windowDragHandleFormatPoint(convert(locationInWindow, from: nil))
                 payload["\(telemetryPrefix)WindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"

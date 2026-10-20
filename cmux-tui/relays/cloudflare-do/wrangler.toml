@@ -1,0 +1,22 @@
+name = "cmux-remote-relay"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-07-22"
+
+[vars]
+CMUX_RELAY_TICKET_ISSUER = "cmux-relay"
+
+[build]
+command = "worker-build --release --no-panic-recovery"
+
+[durable_objects]
+bindings = [
+  { name = "RELAY_SLOTS", class_name = "RelaySlot" },
+  { name = "RELAY_CIRCUITS", class_name = "RelayCircuit" },
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelaySlot", "RelayCircuit"]
+
+[observability.logs]
+enabled = true

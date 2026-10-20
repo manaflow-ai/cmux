@@ -1,0 +1,11 @@
+cmux porta i tuoi agenti di programmazione sul telefono. Collega il tuo Mac con il terminale cmux e guarda i tuoi agenti AI lavorare in tempo reale, ricevi una notifica push nel momento in cui un agente ha bisogno della tua attenzione o completa un'attività, e rispondi o esegui comandi da qualsiasi luogo.
+
+cmux è il terminale costruito per gli agenti di programmazione: schede verticali, anelli di notifica quando gli agenti richiedono istruzioni, pannelli suddivisi, un browser integrato e una CLI programmabile sul desktop. L'app iOS è il tuo telecomando per tutto questo.
+
+- Terminale live: trasmetti gli spazi di lavoro e i terminali cmux del tuo Mac sul telefono
+- Notifiche agenti: una push nel momento in cui un agente fa una domanda o completa un lavoro
+- Rispondi in movimento: invia istruzioni, esegui comandi e cambia spazio di lavoro dal telefono
+- Voce in testo: detta nel campo messaggio
+- Abbinamento sicuro: connettiti al tuo Mac tramite rete locale o relay
+
+Gratuito e open source. Richiede un Mac con cmux in esecuzione (gratuito su cmux.com).

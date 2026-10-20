@@ -101,7 +101,8 @@ func cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: TabManager?, wind
     }
     guard let workspace = tabManager?.selectedWorkspace,
           let focusedPanelId = workspace.focusedPanelId else { return }
-    let owner = (workspace.terminalPanel(for: focusedPanelId)?.searchState as AnyObject?) ?? (workspace.browserPanel(for: focusedPanelId)?.searchState as AnyObject?)
+    let owner = (workspace.focusedTerminalInputTarget()?.panel.searchState as AnyObject?)
+        ?? (workspace.browserPanel(for: focusedPanelId)?.searchState as AnyObject?)
     guard let owner else { return }
     cmuxStoreFindSelection(selection, for: owner)
 }
@@ -160,6 +161,10 @@ class FindSelectionTrackingTextField: NSTextField {
     var cmuxLastSelectedRange: NSRange?
     weak var cmuxSelectionOwner: AnyObject?
     var cmuxOnEscape: ((NSTextView) -> Bool)?
+    /// Reports whether the field is actually being edited: true once it takes
+    /// first responder, false when its field editor ends editing. Drives the
+    /// focus stroke, which must not follow a focus request that never landed.
+    var cmuxOnEditingChanged: ((Bool) -> Void)?
     private var cmuxSelectionObserver: NSObjectProtocol?
     private var cmuxKeyMonitor: Any?
     private weak var cmuxObservedEditor: NSTextView?
@@ -174,6 +179,7 @@ class FindSelectionTrackingTextField: NSTextField {
         guard super.becomeFirstResponder() else { return false }
         cmuxAttachSelectionObserverIfNeeded()
         cmuxRestoreRememberedSelection()
+        cmuxOnEditingChanged?(true)
         return true
     }
 
@@ -196,6 +202,7 @@ class FindSelectionTrackingTextField: NSTextField {
         cmuxRemoveKeyMonitor()
         cmuxDetachSelectionObserver()
         super.textDidEndEditing(notification)
+        cmuxOnEditingChanged?(false)
     }
 
     override func cancelOperation(_ sender: Any?) {

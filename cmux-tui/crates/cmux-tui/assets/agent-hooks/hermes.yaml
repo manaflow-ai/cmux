@@ -1,0 +1,16 @@
+# cmux-tui-journal-plugin
+name: cmux-tui-journal
+version: "1.0.0"
+description: Append native Hermes Agent lifecycle events to the cmux TUI journal
+provides_hooks:
+  - on_session_start
+  - on_session_reset
+  - on_session_end
+  - on_session_finalize
+  - pre_approval_request
+  - post_approval_response
+  - pre_llm_call
+  - post_llm_call
+  - pre_tool_call
+  - post_tool_call
+  - subagent_stop

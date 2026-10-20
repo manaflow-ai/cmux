@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-nonisolated enum RemoteShellTransport: Sendable {
+enum RemoteShellTransport: Sendable {
     case ssh
     case eternalTerminal
 
@@ -26,7 +26,7 @@ nonisolated enum RemoteShellTransport: Sendable {
     }
 }
 
-nonisolated enum RemoteShellSessionParsing {
+enum RemoteShellSessionParsing {
     private static let eternalTerminalNoArgumentFlags = Set("efhNx")
     private static let eternalTerminalValueArgumentFlags = Set("cklprtu")
     private static let eternalTerminalLongValueOptions: Set<String> = [
@@ -40,6 +40,7 @@ nonisolated enum RemoteShellSessionParsing {
         "port",
         "reversetunnel",
         "serverfifo",
+        "ssh-config",
         "ssh-socket",
         "terminal-path",
         "tunnel",
@@ -51,6 +52,7 @@ nonisolated enum RemoteShellSessionParsing {
         "kill-other-sessions",
         "logtostdout",
         "macserver",
+        "no-ssh-config",
         "no-terminal",
         "noexit",
         "silent",
@@ -88,7 +90,7 @@ nonisolated enum RemoteShellSessionParsing {
         var destination: String?
         var port: Int?
         var identityFile: String?
-        let configFile: String? = nil
+        var configFile: String?
         var jumpHost: String?
         var controlPath: String?
         var loginName: String?
@@ -123,6 +125,8 @@ nonisolated enum RemoteShellSessionParsing {
                 jumpHost = resolvedJumpHost
             case "jport", "keepalive", "port":
                 guard Int(trimmedValue) != nil else { return false }
+            case "ssh-config":
+                configFile = trimmedValue
             case "username":
                 loginName = trimmedValue
             default:
@@ -183,7 +187,14 @@ nonisolated enum RemoteShellSessionParsing {
                 let optionName = String(parts[0])
 
                 if optionName == "forward-ssh-agent" {
+                    guard parts.count == 1 else { return nil }
                     forwardAgent = true
+                    index += 1
+                    continue
+                }
+                if optionName == "no-ssh-config" {
+                    guard parts.count == 1 else { return nil }
+                    configFile = "/dev/null"
                     index += 1
                     continue
                 }
@@ -218,7 +229,8 @@ nonisolated enum RemoteShellSessionParsing {
                     }
                     continue
                 }
-                if eternalTerminalLongNoArgumentOptions.contains(optionName) || parts.count == 2 {
+                if eternalTerminalLongNoArgumentOptions.contains(optionName) {
+                    guard parts.count == 1 else { return nil }
                     index += 1
                     continue
                 }

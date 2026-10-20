@@ -1,0 +1,46 @@
+// swift-tools-version: 6.0
+
+import PackageDescription
+
+let package = Package(
+    name: "CmuxCommandPalette",
+    platforms: [
+        .macOS(.v14),
+    ],
+    products: [
+        .library(
+            name: "CmuxCommandPalette",
+            targets: ["CmuxCommandPalette"]
+        ),
+    ],
+    dependencies: [
+        // CmuxFoundation backs the FocusGuards/ command-palette focus-stealing
+        // NSResponder/NSView guards.
+        .package(path: "../CmuxFoundation"),
+    ],
+    targets: [
+        .target(
+            name: "CmuxCommandPalette",
+            dependencies: [
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxCommandPaletteTests",
+            dependencies: [
+                "CmuxCommandPalette",
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+    ]
+)

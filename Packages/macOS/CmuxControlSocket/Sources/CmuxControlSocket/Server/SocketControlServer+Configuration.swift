@@ -1,0 +1,81 @@
+public import CmuxSettings
+
+extension SocketControlServer {
+    /// Records the resolved preferred path and reports real configuration drift.
+    ///
+    /// The first value establishes an inactive baseline independently of any
+    /// reserved fallback path. For an already-running untracked listener, a
+    /// mismatch reports drift so the host can rebind to the resolved path.
+    @discardableResult
+    public func updateConfiguredPreferredSocketPath(_ path: String) -> Bool {
+        withListenerState { state in
+            let changed = state.configuredPreferredSocketPath.map {
+                !SocketControlSettings.pathsMatch($0, path)
+            } ?? ((state.isRunning || state.pendingAcceptLoopRearmGeneration != nil)
+                && !SocketControlSettings.pathsMatch(state.socketPath, path))
+            state.configuredPreferredSocketPath = path
+            return changed
+        }
+    }
+
+    /// Avoids accepting configuration drift or chmod'ing a replacement inode.
+    private func ownsConfiguredSocketPath() -> Bool {
+        let snapshot = listenerStateSnapshot()
+        return transport.pathExists(snapshot.socketPath, matching: snapshot.boundSocketPathIdentity)
+    }
+
+    /// Replaces the live access policy used by subsequent client decisions.
+    ///
+    /// The policy is published through the server's synchronous state snapshot,
+    /// so connection workers observe the new mode without a listener restart.
+    /// File permissions are reapplied only while the listener still owns its
+    /// bound path. Lost ownership stops the stale listener and returns `false`
+    /// so the host can rebind through the normal startup policy. Configuring
+    /// ``SocketControlMode/off`` stops the listener instead of leaving an open
+    /// socket whose command checks could accidentally interpret `off` as a
+    /// permissive non-`cmuxOnly` mode.
+    ///
+    /// - Parameter accessMode: The current resolved access mode.
+    /// - Returns: Whether the live listener accepted the configuration.
+    @discardableResult
+    public func reconfigure(accessMode: SocketControlMode) -> Bool {
+        let previousMode = withListenerState { $0.accessMode }
+        // Rotate the authorization generation before publishing the listener
+        // snapshot. Client workers therefore observe the revocation signal and
+        // the new admission mode as one policy transition, even when a line is
+        // being authenticated concurrently with an MDM refresh.
+        configureConnectionAuthorization(accessMode: accessMode)
+        withListenerState { state in
+            state.accessMode = accessMode
+        }
+
+        if accessMode == .off {
+            stop()
+        } else if isRunning, !ownsConfiguredSocketPath() || !applySocketPermissions() {
+            stop()
+            events.breadcrumb(
+                "socket.listener.configuration.failed_closed",
+                socketListenerEventData(
+                    stage: "configuration",
+                    extra: [
+                        "previousMode": previousMode.rawValue,
+                        "mode": accessMode.rawValue,
+                    ]
+                )
+            )
+            return false
+        }
+
+        events.breadcrumb(
+            "socket.listener.configuration.applied",
+            socketListenerEventData(
+                stage: "configuration",
+                extra: [
+                    "previousMode": previousMode.rawValue,
+                    "mode": accessMode.rawValue,
+                ]
+            )
+        )
+        return true
+    }
+}

@@ -1,0 +1,8 @@
+{
+  "kind": "direct_address",
+  "value": "8.8.8.8:4433",
+  "source": "native",
+  "privacy_scope": "public_internet",
+  "observed_at": "2026-07-09T19:55:00.000Z",
+  "expires_at": "2026-07-09T20:45:00.000Z"
+}

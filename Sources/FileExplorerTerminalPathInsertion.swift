@@ -74,15 +74,15 @@ enum FileExplorerTerminalPathInsertion {
     private static func targetTerminalPanel(for window: NSWindow?) -> TerminalPanel? {
         guard let appDelegate = AppDelegate.shared else { return nil }
         if let window,
-           let terminalPanel = appDelegate.contextForMainTerminalWindow(window)?.tabManager.selectedWorkspace?.focusedTerminalPanel {
+           let terminalPanel = appDelegate.contextForMainTerminalWindow(window)?.tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel {
             return terminalPanel
         }
         if let window,
            let windowId = appDelegate.mainWindowId(from: window),
-           let terminalPanel = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace?.focusedTerminalPanel {
+           let terminalPanel = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace?.focusedTerminalInputTarget()?.panel {
             return terminalPanel
         }
-        return appDelegate.tabManager?.selectedWorkspace?.focusedTerminalPanel
+        return appDelegate.tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel
     }
 }
 
@@ -166,7 +166,8 @@ extension FileExplorerContainerView {
 
     @MainActor
     @objc func contextMenuInsertSearchResultPath(_ sender: NSMenuItem) {
-        guard let row = (sender.representedObject as? NSNumber)?.intValue else { return }
+        guard currentResourceContextID == coordinator.store.resourceContextID,
+              let row = (sender.representedObject as? NSNumber)?.intValue else { return }
         FileExplorerTerminalPathInsertion.insert(
             paths: searchResultsForContextMenu(row: row).map(\.path),
             intoTerminalFor: window
@@ -175,7 +176,8 @@ extension FileExplorerContainerView {
 
     @MainActor
     @objc func contextMenuInsertSearchResultRelativePath(_ sender: NSMenuItem) {
-        guard let row = (sender.representedObject as? NSNumber)?.intValue else { return }
+        guard currentResourceContextID == coordinator.store.resourceContextID,
+              let row = (sender.representedObject as? NSNumber)?.intValue else { return }
         FileExplorerTerminalPathInsertion.insert(
             paths: searchResultsForContextMenu(row: row).map(\.relativePath),
             intoTerminalFor: window

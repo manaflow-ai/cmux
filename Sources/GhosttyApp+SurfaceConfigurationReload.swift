@@ -1,4 +1,13 @@
+import Foundation
+
 extension GhosttyApp {
+    func appearanceBackedColorSchemePreference() -> GhosttyConfig.ColorSchemePreference {
+        if Thread.isMainThread {
+            return GhosttyConfig.appearanceSyncColorSchemePreference(passedAppearance: nil).preference
+        }
+        return effectiveTerminalColorSchemePreference
+    }
+
     func reloadSurfaceConfiguration(
         _ surface: ghostty_surface_t,
         soft: Bool = false,
@@ -13,10 +22,11 @@ extension GhosttyApp {
 
         guard let newConfig = ghostty_config_new() else { return }
         let reloadColorScheme = preferredColorScheme ?? effectiveTerminalColorSchemePreference
+        let conditionalThemeColorScheme = appearanceBackedColorSchemePreference()
         _ = loadDefaultConfigFilesWithLegacyFallback(
             newConfig,
             preferredColorScheme: reloadColorScheme,
-            conditionalThemeColorScheme: GhosttyConfig.currentColorSchemePreference()
+            conditionalThemeColorScheme: conditionalThemeColorScheme
         )
         // Ghostty Surface.updateConfig derives its own surface state from the
         // passed config. The C API does not retain this temporary pointer.

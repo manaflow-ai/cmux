@@ -57,50 +57,49 @@ final class SettingsShortcutsBehaviorUITests: SettingsUITestCase {
         super.tearDown()
     }
 
-    // MARK: - Tier 1: Enable toggle drives the card subtitle copy
+    // MARK: - Tier 1: Enable toggle keeps its fixed subtitle
 
-    /// TIER 1 — `SettingsGlobalHotkeyToggle`.
+    /// TIER 1: `SettingsGlobalHotkeyToggle`.
     ///
     /// The OS-level hotkey registration is not observable via XCUITest,
-    /// but the enable row's *subtitle* is derived from `enabled.current`
-    /// inside the same Settings card:
-    ///   - off: "Turn this on to show or hide all cmux windows from any app."
-    ///   - on:  "Press the shortcut from any app to show or hide all cmux windows."
-    /// Flipping the toggle must swap the rendered subtitle. We assert the
-    /// effect (the visible subtitle copy), not merely that the switch flipped.
-    func testEnableToggleSwapsSubtitleCopy() {
+    /// but the toggle reads `enabled.current` back from the same store.
+    /// The row shows one fixed subtitle:
+    ///   "Pressing the shortcut in any app shows or hides all cmux windows."
+    /// Flipping the toggle must flip its value and keep that subtitle.
+    func testEnableToggleKeepsFixedSubtitle() {
         let app = makeLaunchedApp()
         let window = openSettings(app)
         defer { closeSettings(app, window) }
         navigate(window, to: "Global Hotkey")
 
-        let offSubtitle = "Turn this on to show or hide all cmux windows from any app."
-        let onSubtitle = "Press the shortcut from any app to show or hide all cmux windows."
+        let subtitle = "Pressing the shortcut in any app shows or hides all cmux windows."
 
-        // Default is disabled → off subtitle present, on subtitle absent.
         XCTAssertTrue(
-            poll(timeout: 5.0) { window.staticTexts[offSubtitle].exists },
-            "Disabled hotkey row should show the off subtitle"
+            poll(timeout: 5.0) { window.staticTexts[subtitle].exists },
+            "Hotkey row should show its subtitle at the default (disabled) value"
         )
 
         let toggle = toggle(window, id: "SettingsGlobalHotkeyToggle")
+        XCTAssertFalse(isOn(toggle), "Global hotkey toggle should start off")
         toggle.click()
 
-        // After enabling, the subtitle copy must change to the on variant.
         XCTAssertTrue(
-            poll(timeout: 5.0) { window.staticTexts[onSubtitle].exists },
-            "Enabling the hotkey should swap the row subtitle to the on variant"
+            poll(timeout: 5.0) { self.isOn(toggle) },
+            "Global hotkey toggle should be on after one click"
         )
-        XCTAssertFalse(
-            window.staticTexts[offSubtitle].exists,
-            "Off subtitle should disappear once the hotkey is enabled"
+        XCTAssertTrue(
+            window.staticTexts[subtitle].exists,
+            "The same subtitle should be shown while the hotkey is enabled"
         )
 
-        // Disabling restores the off subtitle.
         toggle.click()
         XCTAssertTrue(
-            poll(timeout: 5.0) { window.staticTexts[offSubtitle].exists },
-            "Disabling the hotkey should restore the off subtitle"
+            poll(timeout: 5.0) { !self.isOn(toggle) },
+            "Global hotkey toggle should be off after a second click"
+        )
+        XCTAssertTrue(
+            window.staticTexts[subtitle].exists,
+            "The same subtitle should be shown after the hotkey is disabled"
         )
     }
 
