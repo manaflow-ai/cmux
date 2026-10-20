@@ -6,9 +6,21 @@ import Testing
     @Test func aSnapshotWithTooManyWorkspacesIsRejected() throws {
         let workspace: [String: Any] = ["currentDirectory": "/tmp", "panels": []]
         let data = try JSONSerialization.data(withJSONObject: [
-            "windows": [["tabManager": ["workspaces": Array(repeating: workspace, count: 129)]]]
+            "windows": [["tabManager": ["workspaces": Array(repeating: workspace, count: 1_001)]]]
         ])
         #expect(rejected(data))
+    }
+
+    @Test func aSnapshotAtSupportedWorkspaceScaleDecodes() throws {
+        let workspaces: [[String: Any]] = (0..<1_000).map { index in
+            ["stableId": "workspace-\(index)", "currentDirectory": "/tmp/\(index)", "panels": []]
+        }
+        let data = try JSONSerialization.data(withJSONObject: [
+            "windows": [["tabManager": ["workspaces": workspaces]]]
+        ])
+        let snapshot = try ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/dev/null"))
+            .decodeSnapshot(data)
+        #expect(snapshot.workspaces.count == 1_000)
     }
 
     @Test func aSnapshotWithADeepLayoutIsRejected() throws {
@@ -28,6 +40,14 @@ import Testing
         ]
         let layout: [String: Any] = ["type": "pane", "pane": ["panelIds": ["terminal"]]]
         let data = try snapshot(workspace: ["currentDirectory": "/tmp", "panels": [panel], "layout": layout])
+        #expect(rejected(data))
+    }
+
+    @Test func aSnapshotWithAnOversizedMetadataKeyIsRejected() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "windows": [],
+            String(repeating: "k", count: 64 * 1024 + 1): true,
+        ])
         #expect(rejected(data))
     }
 
