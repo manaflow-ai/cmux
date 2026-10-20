@@ -498,7 +498,7 @@ struct MacScreenHubViewerTests {
 struct MacScreenHubPushTests {
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file, secrets: MemoryMacScreenSecrets()))
+        return MacScreenPages(store: MacScreenStore(file: file))
     }
 
     @Test func pushesReachTheTabOfTheirSession() throws {
@@ -658,7 +658,7 @@ struct MacScreenDevicesSettingsTests {
     /// The state never carries a secret, even with relays this Mac can open.
     @Test func theStateHoldsNoSecrets() async throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file, secrets: MemoryMacScreenSecrets()))
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         let settings = MacScreenDevicesSettings(pages: pages)
         pages.hubConfigured = true
         #expect(settings.state.available && settings.state.thisDevice == nil)
@@ -693,7 +693,7 @@ struct MacScreenHubHostOrderTests {
 
     private func serving() -> (MacScreenHubHost, DeviceHub) {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file, secrets: MemoryMacScreenSecrets()))
+        let pages = MacScreenPages(store: MacScreenStore(file: file))
         let hub = testHub()
         let host = pages.hubHost
         host.hub = { hub }
