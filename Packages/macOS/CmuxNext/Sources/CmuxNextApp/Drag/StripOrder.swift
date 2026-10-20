@@ -16,6 +16,18 @@ enum StripOrder {
         pane.move(id, toPane: pane, index: index)
     }
 
+    /// A drop of several selected tabs (`TabSelectionMove`): one move at a time, each from the
+    /// order the last one left, until the strip shows `order` (a failed move shows the store's
+    /// order). At most one move per tab: a move the store never shows ends it.
+    static func reorder(toward order: [StripTabID], in pane: PaneController, moved: Int = 0) {
+        guard moved < order.count, let step = TabSelectionMove.nextStep(from: pane.orderedIDs, toward: order) else { return settle([pane]) }
+        guard let tab = pane.tab(step.id) else { return pane.view.stripView.discardPendingReorder() }
+        TabMoves.move(tab, to: pane.pane, index: paneIndex(forDisplayIndex: step.index, moving: step.id, in: pane), services: pane.services) { [weak pane] ok in
+            if ok, let pane { pane.syncStripFromStore(); reorder(toward: order, in: pane, moved: moved + 1) }
+            if !ok, let pane { pane.resyncStrip(); pane.view.stripView.discardPendingReorder() }
+        }
+    }
+
     /// The pane (daemon) final index for putting `moving` at `index` of
     /// `pane`'s strip as shown: pinned tabs first, group members together,
     /// closing tabs hidden, app-local tabs last.

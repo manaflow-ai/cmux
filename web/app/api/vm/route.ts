@@ -70,6 +70,8 @@ import {
   requestedVmTeamIdFromRequest,
   vmErrorResponse,
   withAuthedVmApiRoute,
+  VM_CREATE_CREDITS_CHECKOUT_URL,
+  vmCreateCreditsCheckoutExtra,
   vmActiveLimitExceededResponse,
   vmMemoryRequiresPlanResponse,
   vmMemoryUnavailableResponse,
@@ -972,9 +974,9 @@ function createErrorResponders(entitlements: {
           ? "Your account has no Cloud VM create credits left."
           : "This team has no Cloud VM create credits left.",
         action: billsUser
-          ? "Upgrade your plan or add Cloud VM create credits, then retry."
-          : "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
-        extra: { amount: error.amount },
+          ? `Buy Cloud VM credits at ${VM_CREATE_CREDITS_CHECKOUT_URL}, then retry.`
+          : `Buy Cloud VM credits at ${VM_CREATE_CREDITS_CHECKOUT_URL}, or ask a team admin to add some, then retry.`,
+        extra: vmCreateCreditsCheckoutExtra(error.amount),
         details: { amount: error.amount },
       });
     },
