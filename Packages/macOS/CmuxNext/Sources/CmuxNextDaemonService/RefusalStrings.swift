@@ -179,6 +179,9 @@ public nonisolated enum RefusalStrings {
     public static func controlListenerRestartFailed(_ reason: String) -> String {
         format("handlers.refusal.controlListenerRestartFailed", "The CLI listener could not restart: %@", reason)
     }
+    public static var noWorkspacePullRequestLinks: String {
+        text("handlers.refusal.noWorkspacePullRequestLinks", "This workspace has no pull request links.")
+    }
     public static var noRecentlyClosedTab: String { text("handlers.refusal.noRecentlyClosedTab", "no recently closed tab") }
     public static var noRecentlyClosedWorkspace: String { text("handlers.refusal.noRecentlyClosedWorkspace", "no recently closed workspace") }
     static var noRecentlyClosedItem: String { text("handlers.refusal.noRecentlyClosedItem", "nothing was closed recently") }
