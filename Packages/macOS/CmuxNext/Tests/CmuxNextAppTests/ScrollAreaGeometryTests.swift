@@ -114,4 +114,20 @@ import Testing
         _ = scroll.state.reduce(.sync(scroll.strip(area), focused: PaneID("p1"), source: .keyboard, animated: false))
         #expect(scroll.state.spring.target < 0.5)
     }
+
+    /// A docked column or a split screen refuses a side-by-side split with no room today; with
+    /// scroll areas on, the split happens and the panes scroll. Strip columns keep opening a
+    /// new column (column-scroll.md W5).
+    @Test func aSplitWithNoRoomScrollsInADockAndOnASplitScreen() {
+        let narrow = CGSize(width: 700, height: 800)
+        for (on, expected) in [(false, SplitPlacement.refused(.notEnoughRoom)), (true, SplitPlacement.split)] {
+            let style = Self.style(scrollAreas: on)
+            #expect(SplitRoom.placement(splitting: PaneID("p3"), axis: .horizontal, in: Self.dockLayout, viewport: Self.viewport, style: style) == expected,
+                    "dock, scroll areas \(on)")
+            #expect(SplitRoom.placement(splitting: PaneID("p3"), axis: .horizontal, in: .splits(Self.chain), viewport: narrow, style: style) == expected,
+                    "split screen, scroll areas \(on)")
+            #expect(SplitRoom.placement(splitting: PaneID("p3"), axis: .horizontal, in: Self.stripLayout, viewport: narrow, style: style) == .newColumn,
+                    "strip column, scroll areas \(on)")
+        }
+    }
 }
