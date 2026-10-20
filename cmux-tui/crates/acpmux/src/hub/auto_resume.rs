@@ -25,7 +25,9 @@
 //! - Its `user_message` carries `_meta.provenance = {kind: "auto_resume", promptId, attempt,
 //!   turnId}` so a client can show it as acpmux's, not the person's.
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
-//!   only those: they waited only because of the connection.
+//!   only those: they waited only because of the connection. A failed attempt holds nothing
+//!   new (the cut turn already holds them), so attempt `n` follows the attempts before it back
+//!   to the turn the connection first cut, and resumes what each of those held.
 //! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
 //!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
@@ -34,7 +36,7 @@ use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -370,7 +372,7 @@ impl Hub {
             self.append(session, "mux", "auto_resume_skipped", skipped("superseded"));
             return;
         }
-        let held = self.held_by(session, cut_turn);
+        let held = self.held_by(session, root, cut_turn);
         let provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
         let opts = PromptOptions {
             prompt_id: Some(format!("{root}{SUFFIX}{attempt}")),
@@ -400,24 +402,46 @@ impl Hub {
         }
     }
 
-    /// The prompts `cut_turn` held (its `queue_paused` record).
-    fn held_by(&self, session: &Session, cut_turn: &str) -> Vec<String> {
-        let mut held = Vec::new();
+    /// The prompts `cut_turn` held (its `queue_paused` record), and those the turns it
+    /// continues held: back through the earlier attempts at `root` to the turn the connection
+    /// first cut. A failed attempt writes no record of its own when the prompts behind it were
+    /// already held, so its continuation finds them on the turn before.
+    fn held_by(&self, session: &Session, root: &str, cut_turn: &str) -> Vec<String> {
+        let mut paused: HashMap<String, Vec<String>> = HashMap::new();
+        // An attempt's turn, and the turn it continues.
+        let mut continues: HashMap<String, String> = HashMap::new();
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            if e.kind == "queue_paused"
-                && e.msg.get("turnId").and_then(Value::as_str) == Some(cut_turn)
-            {
-                held = e
-                    .msg
-                    .get("held")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|v| v.as_str().map(str::to_owned))
-                    .collect();
+            let Some(turn) = e.msg.get("turnId").and_then(Value::as_str) else { return true };
+            match e.kind.as_str() {
+                "queue_paused" => {
+                    let ids = e.msg.get("held").and_then(Value::as_array).into_iter().flatten();
+                    let ids = ids.filter_map(|v| v.as_str().map(str::to_owned)).collect();
+                    paused.insert(turn.to_owned(), ids);
+                }
+                "user_message" => {
+                    let p = e.msg.pointer("/_meta/provenance");
+                    let field = |k: &str| p.and_then(|p| p.get(k)).and_then(Value::as_str);
+                    if field("kind") == Some("auto_resume")
+                        && field("promptId") == Some(root)
+                        && let Some(cut) = field("turnId")
+                    {
+                        continues.insert(turn.to_owned(), cut.to_owned());
+                    }
+                }
+                _ => {}
             }
             true
         });
+        let (mut held, mut seen) = (Vec::new(), HashSet::new());
+        let mut turn = Some(cut_turn);
+        while let Some(t) = turn.filter(|t| seen.insert(*t)) {
+            for id in paused.get(t).into_iter().flatten() {
+                if !held.contains(id) {
+                    held.push(id.clone());
+                }
+            }
+            turn = continues.get(t).map(String::as_str);
+        }
         held
     }
 }
