@@ -27,6 +27,10 @@ final class TopHomePageView: NSView {
     var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
     private(set) var shown: ConversationID?
+    /// New Chief's create is running: another click waits for it (one Chief per click, not per bounce).
+    private var creatingChief = false
+    /// The conversation whose message box takes the keyboard when it shows (New Chief's new Chief).
+    private var focusOnShow: ConversationID?
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
@@ -111,6 +115,7 @@ final class TopHomePageView: NSView {
             Task { _ = await home.startConversation([.contact(person)], title: "") }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
+        list.onNewChief = { [weak self] in self?.startChiefConversation() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
@@ -234,7 +239,10 @@ final class TopHomePageView: NSView {
         transcriptColumn.addSubview(view)
         host = view
         services.home.homeDidOpen(asked: true)
-        if window?.firstResponder === window || window?.firstResponder == nil { focusPrimaryInput() }
+        if focusOnShow == id || window?.firstResponder === window || window?.firstResponder == nil {
+            focusOnShow = nil
+            focusPrimaryInput()
+        }
     }
 
     /// A permalink: its conversation, and its message's thread at its branch (any depth).
@@ -276,6 +284,28 @@ final class TopHomePageView: NSView {
         sheet.onAnswer = { id, answer in await requests.answer(id, answer) }
         present(sheet)
         requests.refresh()
+    }
+
+    /// The New Chief button, as classic cmux's Chief list (ChiefHomeView.newConversation, #21063): another Chief
+    /// at once, under the next free name ("Chief 2"), its conversation shown with the message box
+    /// focused so the person can ask it something; a refusal says why. New Chief… (the sheet) names
+    /// one first.
+    func startChiefConversation() {
+        guard !creatingChief, let services else { return }
+        let home = services.home, registry = services.registry
+        let taken = home.homeStore.rows.filter { $0.kind == .chief }.map(\.title)
+        creatingChief = true
+        // task-owner: one create; ends with the owner's answer
+        Task { [weak self] in
+            let outcome = await home.createChief(named: HomeChiefName.next(taken: taken))
+            self?.creatingChief = false
+            guard case .opened(let id) = outcome else { return registry.refuse(outcome.message ?? "") }
+            guard let self else { return }
+            // Its message box takes the keyboard when it shows: now when listed, else once the inbox
+            // lists it (createChief set pendingSelection, which selectionObservation follows).
+            focusOnShow = id
+            if home.homeStore.rows.contains(where: { $0.id == id }) { show(id) }
+        }
     }
 
     func presentNewChief() {
