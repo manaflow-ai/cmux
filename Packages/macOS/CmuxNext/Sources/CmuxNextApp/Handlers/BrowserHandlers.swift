@@ -73,17 +73,34 @@ enum BrowserHandlers {
         })
         registry.bind("browserScreenshotPage", run: { invocation in
             let tab = try context.page(invocation).tab
-            let logger = context.daemon.logger
+            copyScreenshot(context) { try await tab.snapshot() }
+        })
+        // A drag over the page picks the rect (BrowserSectionOverlay; Esc
+        // cancels); the page snapshot cropped to it is copied like a page.
+        registry.bind("browserScreenshotSection", run: { invocation in
+            let tab = try context.page(invocation).tab
+            guard tab.contentView.window != nil else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
+            let overlay = BrowserSectionOverlay(over: tab.contentView)
             Task {
-                do {
-                    let image = try await tab.snapshot()
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
-                } catch {
-                    logger.error("browser screenshot failed: \(String(describing: error), privacy: .public)")
-                }
+                guard let selection = await overlay.select() else { return }
+                copyScreenshot(context) { try await selection.capture(from: tab) }
             }
         })
+    }
+
+    /// Copies the image `capture` takes to the clipboard (Screenshot Page and
+    /// Screenshot Section); a failed capture is logged.
+    private static func copyScreenshot(_ context: AppActionContext, _ capture: @escaping @MainActor () async throws -> CGImage) {
+        let logger = context.daemon.logger
+        Task {
+            do {
+                let image = try await capture()
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
+            } catch {
+                logger.error("browser screenshot failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     /// Split Browser Right/Down: a new app-rendered browser tab moved into a
@@ -191,7 +208,6 @@ enum BrowserHandlers {
         unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
         unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
         unavailable(["palette.enableBrowser", "palette.disableBrowser"], MiscHandlerStrings.browserToggle)
-        unavailable(["browserScreenshotSection"], MiscHandlerStrings.sectionScreenshot)
         unavailable(["palette.vscodeServeWebStop", "palette.vscodeServeWebRestart"], MiscHandlerStrings.vscodeServer)
     }
 }

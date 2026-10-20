@@ -1,6 +1,6 @@
 /// Phase of a continuous gesture.
 public nonisolated enum LayoutGesturePhase: Hashable, Sendable {
-    /// Live update; the model throttles these to one per display frame.
+    /// Live update: applied locally, never sent as an intent.
     case changed
     /// Final value of the gesture.
     case ended
