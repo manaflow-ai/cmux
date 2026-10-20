@@ -203,6 +203,24 @@ An SSH target with no optchat-chief that knows the format gets this binary insta
   targets from `cmux host list`, paired servers and Cloud, shows the dry-run report, then runs
   the move with live steps. Phase 2 (Swift).
 
+### 8a. Move targets in the menu (agreed with the remote-groups lane, 2026-10-20)
+
+The "Move Chief to..." list is This Mac plus every machine section marked as a remote group in
+the sidebar document. Each target is `{machine id, name, kind: ssh | server | cloud, live
+status}`; the remote-groups lane owns the list, this lane owns the move. A target maps to one
+`--to` value (the same for the CLI, the MCP `move` tool and the menu):
+
+| kind | `--to` | notes |
+| --- | --- | --- |
+| This Mac (another home) | `local:<dir>` | |
+| ssh | `ssh:<ssh destination>[:<home dir>]` | the destination is what `ssh` takes on this Mac (alias or user@host); default home `~/.cmux/chief/<same name>` |
+| cloud | `cloud`, `cloud:staging` | needs the person's session (the app passes its token through a 0600 file, never argv) |
+| server | not a move target yet | a paired server answers through `brain_place`; until a server move exists the menu shows it disabled with "not supported yet" |
+
+The menu runs `move --dry-run` first and shows its report (preflight detail, counts), then the
+real move, then `move reach` on the target. A target whose live status is offline is shown but
+disabled.
+
 ## 9. Safety
 
 - The user's main Chief never moves without a checkpoint kept on the source and a tested
