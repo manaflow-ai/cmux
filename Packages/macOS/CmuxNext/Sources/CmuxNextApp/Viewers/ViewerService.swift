@@ -30,6 +30,8 @@ final class ViewerService {
     private(set) lazy var editorPages = FilePageService(services: owner, kind: .editor)
     /// Files tree tabs beside a chat (cx-p4rt).
     private(set) lazy var fileTrees = FileTreePageService(services: owner)
+    /// Native Files pane tabs (u2360, plans/finder-parity/PARITY.md).
+    private(set) lazy var filesPanes = FilesPaneService(services: owner)
 
     init(services: AppServices, recents: ViewerRecents = ViewerRecents()) {
         self.services = services

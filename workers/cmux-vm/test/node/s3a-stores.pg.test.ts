@@ -39,7 +39,7 @@ beforeEach(async () => {
   layer = Layer.mergeAll(sqlSnapshotStoreLayer, sqlStoresLayer, sqlApiKeyAdminStoreLayer).pipe(Layer.provide(sql));
 });
 
-const record = (tenantId: TenantId, minute: number, labels: Record<string, string> = {}, sourceVmId = newVmId()) =>
+const record = (tenantId: TenantId, minute: number, labels: Record<string, string> = {}, sourceVmId = newVmId(), createdBy = "key:test") =>
   Effect.gen(function* () {
     const store = yield* SnapshotStore;
     const id = newSnapshotId();
@@ -50,7 +50,7 @@ const record = (tenantId: TenantId, minute: number, labels: Record<string, strin
       sourceVmId,
       displayName: `snap ${minute}`,
       labels,
-      createdBy: "key:test",
+      createdBy,
       createdAt: new Date(Date.UTC(2026, 9, 1, 0, minute)),
     });
     return id;
@@ -71,6 +71,27 @@ describe("migration 0003", () => {
 });
 
 describe("snapshot store", () => {
+  it("intersects creator, tenant, source, labels, allowlist and deletion before paging", async () => {
+    const vm = newVmId();
+    const one = await run(record(TENANT_A, 1, { role: "cloud" }, vm, "service:cloud"));
+    const two = await run(record(TENANT_A, 2, { role: "cloud" }, vm, "service:cloud"));
+    const other = await run(record(TENANT_A, 3, { role: "cloud" }, vm, "key:other"));
+    await run(record(TENANT_B, 4, { role: "cloud" }, vm, "service:cloud"));
+    await run(record(TENANT_A, 5, { role: "other" }, vm, "service:cloud"));
+    await run(record(TENANT_A, 6, { role: "cloud" }, newVmId(), "service:cloud"));
+    const deleted = await run(record(TENANT_A, 7, { role: "cloud" }, vm, "service:cloud"));
+    await run(Effect.flatMap(SnapshotStore, (store) => store.markDeleted(TENANT_A, deleted, new Date())));
+    const base: SnapshotPage = { limit: 1, after: null, sourceVmId: vm, labels: { role: "cloud" }, only: [one, two, other, deleted], createdBy: "service:cloud" };
+    const list = (page: SnapshotPage) => run(Effect.flatMap(SnapshotStore, (store) => store.list(TENANT_A, page)));
+    const first = await list(base);
+    expect(first.map((snapshot) => snapshot.id)).toEqual([two]);
+    const last = first[0];
+    if (last === undefined) throw new Error("empty creator page");
+    expect((await list({ ...base, after: { createdAt: last.createdAt, id: last.id } })).map((snapshot) => snapshot.id)).toEqual([one]);
+    expect(await list({ ...base, only: [other, deleted] })).toEqual([]);
+    expect(first[0]).not.toHaveProperty("createdBy");
+  });
+
   it("records rows the ownership store resolves for the owner only", async () => {
     const id = await run(record(TENANT_A, 1));
     const own = await run(Effect.flatMap(OwnershipStore, (store) => store.find(TENANT_A, "snapshot", id)));
