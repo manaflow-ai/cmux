@@ -32,12 +32,18 @@ struct AgentTabContent {
             return services.agentTabs.notice(for: key).map(TabContent.notice)
         }
         // Set on each show, so a tab moved to another pane opens files there.
+        // A file or preview the person clicks in the chat opens beside it (LinkOpener,
+        // `layout.linkPlacement`), never over the chat; the external editor keeps its own path.
         view.model.onOpenFile = { [weak pane] url, target in
             guard let pane else { return false }
+            if target == .tab { return pane.services.linkOpener.openFile(url, from: pane) }
             return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey)
         }
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
+            if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.open(from: pane) { target, placed in
+                target.newBrowserTab(url: url, background: placed != nil, then: placed)
+            } }
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }

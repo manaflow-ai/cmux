@@ -18,6 +18,8 @@ import { useSyncExternalStore } from "react";
 /// - `shortcutsHelp`: show the chat's live keys from its menu.
 /// - `chatViewer`: Files and linked files open in one viewer beside the transcript, inside the chat,
 ///   instead of a new column or a tab over the chat (Lucas 2026-10-19, on by default).
+/// - `sourceIcons`: Thread details sources show each site's icon, fetched by the host without
+///   cookies (Lucas 2026-10-19, on by default).
 ///
 /// Set one in the Debug Settings window, for new agent tabs. An explicit boolean in `"labs"` in
 /// `agent-pane/layout.json` wins (the app pushes the file live to every chat), then the app's
@@ -37,6 +39,7 @@ export const LABS = [
   "planProgress",
   "shortcutsHelp",
   "chatViewer",
+  "sourceIcons",
 ] as const;
 export type Lab = (typeof LABS)[number];
 const defaults: Partial<Record<Lab, boolean>> = {
@@ -47,6 +50,7 @@ const defaults: Partial<Record<Lab, boolean>> = {
   renderExpand: true,
   tableScroll: true,
   chatViewer: true,
+  sourceIcons: true,
 };
 
 const attribute = (lab: Lab) => `data-lab-${lab.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;

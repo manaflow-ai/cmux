@@ -1014,6 +1014,10 @@ EOF
 }
 
 check_no_github_hosted_runners() {
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
+  # GitHub-hosted images: they never route to Blacksmith (user decision
+  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
@@ -1045,6 +1049,11 @@ check_no_github_hosted_runners() {
     # PyPI trusted publishing accepts only GitHub-hosted runners too.
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
+    # A 3-second advisory lint (a159); the free hosted runner, not Blacksmith.
+    "cmux-next-web.yml:    runs-on: ubuntu-24.04 # github-hosted-required: small advisory lint on the free hosted runner"
+    # The NEXT nightly path (promotion requests and the tick) never waits on Blacksmith.
+    "cmux-next.yml:    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith"
+    "cmux-tui-artifacts.yml:    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith"
     # Detects a Blacksmith outage, so it must run where Blacksmith is not.
     "ci-cloud-overflow-probe.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing"
     # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands.
@@ -1089,6 +1098,19 @@ check_no_github_hosted_runners() {
     file="${line%%:*}"
     content="${line#*:*:}"
     [[ "$content" =~ ^[[:space:]]*# ]] && continue
+    # Nightly workflows never run on Blacksmith (user decision 2026-10-19,
+    # tests/test_ci_nightly_off_blacksmith.py): compiles stay on the trusted
+    # minis, everything else takes an ephemeral GitHub-hosted image.
+    if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
+      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
+    # test-ios.yml's cmux-next lane (feat-cmux-next pushes and pull requests
+    # into it) never runs on Blacksmith either (user decision 2026-10-20): its
+    # small Linux helper jobs take hosted ubuntu-24.04, its Mac jobs the owned
+    # minis. Only this exact selector is read as allowed.
+    if [[ "$(basename "$file")" == test-ios.yml ]]; then
+      content="${content//"(github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || "/}"
+    fi
     # Fork-only matrix rows: read only through the fork branch above.
     [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
     stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
@@ -1120,6 +1142,10 @@ check_no_github_hosted_runners() {
 }
 
 check_no_self_hosted_fleet_runners() {
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
+  # GitHub-hosted images: they never route to Blacksmith (user decision
+  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # Required jobs route through repository variables. Forbid hardcoded fleet
   # labels so paid-provider fallback remains a configuration change and a
   # physical host label cannot bypass the routing rules. tart-* labels (the
@@ -1217,6 +1243,18 @@ check_no_self_hosted_fleet_runners() {
   # the bare capability, generic fleet labels and main selector stay guarded.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # cmux-next's GUI suites and its autofix bots keep the std GUI minis (#18589,
+  # #19587, #21658) behind CI_PR_POOL_OWNED, the owned-pool switch; with it off,
+  # or on a fork pull request (its branch comes first), they take Blacksmith.
+  # pr_runner_pool.py has no GUI pool, so only these exact selectors, in only
+  # these workflows, may name glaeda-gui-std-xcode-26.6.
+  local gui_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6'"
+  local gui_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6'"
+  # #22035: session jobs take glaeda-session-std-xcode-26.6 once runners carry
+  # it (vars.CI_SESSION_LABEL), else the gui label, behind the same gates.
+  local session_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
+  local session_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
+  local gui_fork_pr_branch="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1226,11 +1264,27 @@ check_no_self_hosted_fleet_runners() {
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
+    if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
+      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
       content="${content/"$next_trusted_selector"/}"
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"
     fi
+    # A pull request workflow keeps the exemption only while its fork pull
+    # request branch comes first on the line; base autofix runs on push only.
+    case "${line%%:*}" in
+      "$ROOT_DIR/.github/workflows/cmux-next.yml")
+        if [[ "${content%%"$session_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_owned_selector"/}"; fi
+        if [[ "${content%%"$gui_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_selector"/}"; fi ;;
+      "$ROOT_DIR/.github/workflows/cmux-next-pr-autofix.yml")
+        if [[ "${content%%"$session_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_autofix_selector"/}"; fi
+        if [[ "${content%%"$gui_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_autofix_selector"/}"; fi ;;
+      "$ROOT_DIR/.github/workflows/cmux-next-base-autofix.yml")
+        content="${content//"$session_autofix_selector"/}"
+        content="${content//"$gui_autofix_selector"/}" ;;
+    esac
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
     # is refused in any case; the bare self-hosted labels stay case-sensitive
@@ -1587,6 +1641,24 @@ CASES
       fi
       continue
     fi
+    # cmux-next-batch.yml never cancels on purpose (a cancelled debounce reads
+    # red on every pull request); its macOS jobs (regen, build) start only from
+    # workflow_dispatch, so no pull request run holds a macOS runner. Exempt
+    # only while every macOS job there keeps that dispatch-only gate.
+    if [ "$(basename "$file")" = "cmux-next-batch.yml" ] && awk '
+      /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { job=$1; next }
+      /^    if:/ { gate[job]=$0; next }
+      /^    runs-on:.*(macos|MACOS_RUNNER)/ { mac[job]=1 }
+      END {
+        for (j in mac) {
+          if (gate[j] !~ /^    if: \$\{\{ github\.event_name == .workflow_dispatch. && / || gate[j] ~ /\|\|/) exit 1
+          n++
+        }
+        exit n == 0
+      }
+    ' "$file"; then
+      continue
+    fi
     if ! pr_concurrency_cancels_superseded_runs "$file"; then
       echo "FAIL: $(basename "$file") runs macOS jobs on pull requests but a new push does not cancel the previous run; key the concurrency group on the pull request and set cancel-in-progress for its pull request events"
       failed=1
@@ -1848,6 +1920,9 @@ check_background_macos_lane() {
     file="${line%%:*}"
     content="${line#*:*:}"
     rel="$(basename "$file")"
+    # Nightly workflows never run on Blacksmith (tests/test_ci_nightly_off_blacksmith.py):
+    # their hosted macos-15/26 jobs are the intended ephemeral route.
+    [[ "$rel" == *nightly*.yml || "$rel" == *notarization*.yml ]] && continue
     printf '%s\n' "$content" | strip_background_lane_expr | grep -Eq "$hosted_mac" || continue
     allowed=0
     for exception in "${hosted_exceptions[@]}"; do

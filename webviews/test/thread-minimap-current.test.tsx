@@ -1,8 +1,9 @@
-// The thread minimap's current turn (cx-f7c): the turn being read is a longer tick in the accent,
-// so the reader sees where they are in the thread at a glance (Codex style).
+// The thread minimap's current prompts (cx-f7c, as the Codex rail draws them): every prompt whose
+// turn is on screen is current, a brighter 6 px tick, so the reader sees where they are at a glance.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { LANDING_OFFSET, THREAD_PADDING_TOP } from "../src/agent-session/acpmux/threadMinimap/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -32,6 +33,7 @@ const replacements: Record<string, unknown> = {
   },
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  matchMedia: (query: string) => ({ matches: query.includes("reduce"), media: query }),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 // Pierre's registered elements read their own DOM constructors at import time.
@@ -55,12 +57,12 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   },
   set(this: object, value: number) {
     offsets.set(this, value);
+    jumps.push(value);
   },
 });
 const jumps: number[] = [];
 dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
   const top = typeof options === "number" ? 0 : (options?.top ?? 0);
-  jumps.push(top);
   this.scrollTop = top;
 } as typeof HTMLElement.prototype.scrollTo;
 
@@ -95,11 +97,12 @@ test("a tick click and a next-turn command during commit use the new geometry", 
     row("commit-first", "user", "First"),
     row("commit-second", "user", "Second"),
     row("commit-third", "user", "Third"),
+    row("commit-fourth", "user", "Fourth"),
   ];
   const draw = (top: number, duringCommit: boolean) => {
     const layout = {
-      tops: Float64Array.from([0, top, 2000]),
-      heights: Float64Array.from([top, 2000 - top, 1000]),
+      tops: Float64Array.from([0, top, 2000, 2500]),
+      heights: Float64Array.from([top, 2000 - top, 500, 500]),
       totalHeight: 3000,
     };
     function CommitClick() {
@@ -131,13 +134,13 @@ test("a tick click and a next-turn command during commit use the new geometry", 
     await draw(800, false);
     jumps.length = 0;
     await draw(1200, true);
-    expect(jumps).toEqual([1200, 1200]);
+    expect(jumps).toEqual([1200 + THREAD_PADDING_TOP - LANDING_OFFSET, 0, 1200 + THREAD_PADDING_TOP - LANDING_OFFSET]);
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test("the minimap draws the turn being read longer than the others, in the accent", async () => {
+test("the minimap marks every prompt on screen as current, at the resting length", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   try {
     await act(async () =>
@@ -147,24 +150,24 @@ test("the minimap draws the turn being read longer than the others, in the accen
     );
     const ticks = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")];
     expect(ticks()).toHaveLength(TURNS);
-    /// The tick marked as the turn being read; every tick is checked against it.
+    /// The current ticks, checked to be one run, every tick at the 6 px rest.
     const check = () => {
-      const current = ticks().findIndex((tick) => tick.getAttribute("aria-current") === "location");
-      ticks().forEach((tick, index) => {
-        const reading = index === current;
-        // The accent and the length: data-current (threadMinimap.css) and a 14 px bar against the 6 px rest.
-        expect(tick.dataset.current).toBe(reading ? "" : undefined);
-        expect(scale(tick)).toContain(`scaleX(${(reading ? 14 : 6) / 26})`);
-      });
+      const current = ticks().flatMap((tick, index) => (tick.getAttribute("aria-current") === "true" ? [index] : []));
+      expect(current.length).toBeGreaterThan(0);
+      expect(current).toEqual(Array.from({ length: current.length }, (_, offset) => current[0]! + offset));
+      for (const tick of ticks()) {
+        expect(scale(tick)).toContain(`scaleX(${(26 * 0.2308) / 26})`);
+        expect(tick.dataset.tone).toBe(tick.getAttribute("aria-current") === "true" ? "current" : "rest");
+      }
       return current;
     };
-    // It opens at the latest message: a turn near the end is the one being read.
-    expect(check()).toBeGreaterThanOrEqual(TURNS - 2);
-    // Scrolled to the top, the first is.
+    // It opens at the latest message: the last prompt is on screen.
+    expect(check().at(-1)).toBe(TURNS - 1);
+    // Scrolled to the top, the first is, with the ones below it in the viewport.
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     scroller.scrollTop = 0;
     await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
-    expect(check()).toBe(0);
+    expect(check()[0]).toBe(0);
   } finally {
     await act(async () => root.unmount());
   }
@@ -197,7 +200,7 @@ test("a kept minimap tick jumps using the latest geometry after a reply changes"
     const expected = layoutConversation(rows, transcriptRowWidth(1040)).tops[target];
     jumps.length = 0;
     await act(async () => dom.window.document.querySelector<HTMLButtonElement>('[data-tick="4"]')!.click());
-    expect(jumps).toEqual([expected]);
+    expect(jumps).toEqual([expected + THREAD_PADDING_TOP - LANDING_OFFSET]);
   } finally {
     await act(async () => root.unmount());
   }

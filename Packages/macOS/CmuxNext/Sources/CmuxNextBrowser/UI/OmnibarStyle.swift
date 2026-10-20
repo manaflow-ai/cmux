@@ -21,18 +21,42 @@ enum OmnibarStyle {
     static func chromeGap(scale: CGFloat) -> CGFloat { PaneChromeMetrics.current.tabGap(scale: scale) }
     /// Space the toolbar leaves above the omnibar. The tab strip above
     /// already ends `chromeGap` below its pills (`PaneChromeMetrics`), so
-    /// the omnibar starts at the toolbar's top edge.
-    static let toolbarTopPadding: CGFloat = 0
-    /// Toolbar row: the bar, then `chromeGap` down to the page.
-    static func toolbarHeight(scale: CGFloat) -> CGFloat { toolbarTopPadding + barHeight + chromeGap(scale: scale) }
+    /// the omnibar starts at the toolbar's top edge, unless the pane is
+    /// outlined (`layout.paneSeparation` borders: Panes, Card Outlined). The
+    /// outline's top line runs along the strip's bottom, so the bar starts
+    /// one `chromeGap` below that line, as the page starts one below the bar
+    /// (Lawrence 2026-10-19: the space above the omnibar row equals the
+    /// space below it).
+    static func toolbarTopPadding(scale: CGFloat) -> CGFloat {
+        guard Metrics.paneBorder == .subtle else { return 0 }
+        return (Metrics.paneBorderWidth ?? 1 / max(scale, 1)) + chromeGap(scale: scale)
+    }
+    /// The toolbar row's content height: the tallest thing in it, the toolbar
+    /// buttons (Chrome's 34 pt) beside the 28 pt omnibar; the omnibar-only row
+    /// (`OmnibarToolbarView`) has no buttons and is the bar's height.
+    static func rowContentHeight(withButtons: Bool = true) -> CGFloat { withButtons ? max(barHeight, buttonSize) : barHeight }
+    /// The omnibar's top in the toolbar row: the top padding, then half the
+    /// difference to the buttons, so the bar sits on their center line.
+    static func barTop(scale: CGFloat, withButtons: Bool = true) -> CGFloat {
+        toolbarTopPadding(scale: scale) + (rowContentHeight(withButtons: withButtons) - barHeight) / 2
+    }
+    /// Toolbar row: the top padding, the row's content, then `chromeGap` down to the page.
+    static func toolbarHeight(scale: CGFloat, withButtons: Bool = true) -> CGFloat {
+        toolbarTopPadding(scale: scale) + rowContentHeight(withButtons: withButtons) + chromeGap(scale: scale)
+    }
     /// Horizontal interior margin: the pane's chrome line, so the first
     /// button's hover shape starts where the tab pills above it start and
     /// its glyph near the tabs' icons (`Metrics.paneChromeInset`).
     static var toolbarInset: CGFloat { Metrics.paneChromeInset }
-    /// Toolbar buttons: square, bar height, 8 pt hover shape.
-    static var buttonSize: CGFloat { barHeight }
-    static let buttonCornerRadius: CGFloat = 8
-    static var buttonSymbolSize: CGFloat { 15 }
+    /// Toolbar buttons: square, Chrome's 34 pt (`kToolbarButtonSize` 28 dp plus its
+    /// 3 dp insets on each side), a 20 pt icon in a circular hover shape.
+    static var buttonSize: CGFloat { 34 }
+    /// Toolbar buttons highlight in a circle on hover and press, as Chrome's toolbar ink drop does.
+    static var buttonCornerRadius: CGFloat { buttonSize / 2 }
+    /// Toolbar button icons draw at Chrome's toolbar icon size (`kToolbarButtonIconSize`, 20 dp).
+    static let toolbarIconSize: CGFloat = 20
+    /// The star and other trailing address-bar icons, Chrome's `kLocationBarTrailingIconSize` (20 dp).
+    static let trailingIconSize: CGFloat = 20
     static let buttonSpacing: CGFloat = 0
     /// Gap between the reload button and the omnibox, and the omnibox and
     /// the extension slot.

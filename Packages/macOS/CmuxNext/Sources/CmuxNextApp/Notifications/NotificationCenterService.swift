@@ -4,6 +4,8 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFloating
+import CmuxNextMobileHost
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -48,6 +50,8 @@ final class NotificationCenterService {
     /// Banner ids posted per tab id, withdrawn once the tab is read.
     @ObservationIgnored private var banners: [String: [String]] = [:]
     @ObservationIgnored let finishedBursts = FinishedBannerBursts()
+    /// The Chief pet's notices (`NotificationCenterService+ChiefPet`); nil while it is off.
+    @ObservationIgnored var chiefPet: ChiefPetController?
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
@@ -102,6 +106,7 @@ final class NotificationCenterService {
         })
         tasks.append(followPermissionBridge(services, principal: principal))
         desktop.onOpen = { [weak self] id, surface in
+            if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
@@ -124,6 +129,7 @@ final class NotificationCenterService {
         tasks.append(Task { [weak self] in
             for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
                 self?.updateDockBadge(count)
+                self?.dropReadChiefPetNotices()
             }
         })
     }
@@ -137,6 +143,7 @@ final class NotificationCenterService {
                 self.updateDockBadge(self.currentUnreadCount())
             }
         })
+        followChiefPet(settings)
     }
 
     /// The source of `tab`'s retained marker, from the daemon
@@ -197,14 +204,7 @@ final class NotificationCenterService {
             note("reply refused: \(banner) is not the tab's unread notification")
             return
         }
-        let target = located.tab.surface
-        // The tab's own machine: a Cloud terminal's input goes over its link.
-        services.daemon(for: located.pane).send("notification-reply") { connection in
-            try await connection.send(target, text: text, paste: true)
-            try await connection.send(target, text: "\r")
-        }
-        note("reply \(located.tab.id)")
-        acknowledge(located.tab)
+        type(text, into: located)
     }
 
     /// Opening from a verb (jump to unread): reads it unless the policy is `never`.
@@ -245,10 +245,13 @@ final class NotificationCenterService {
         timeouts.removeValue(forKey: tab.id)?.cancel()
         approvals.forget(tab: tab.id, retire: true)
         finishedBursts.read(tab: tab.id)
+        chiefPet?.read(tab: tab.id)
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
         let surface = tab.surface
         let driver = feedDriver
-        services?.daemon.send("ack-tab-notifications") { connection in
+        // Read now (dots, badges, Cmd-Opt-U); the tree's echo settles it, a failed ack rolls it back.
+        tab.expectNotificationRead()
+        services?.daemon.send("ack-tab-notifications", onFailure: { _ in tab.dropExpectedNotificationRead() }) { connection in
             let reply = try await connection.acknowledgeNotifications(of: surface)
             // Items that already moved are read in the cloud (B5).
             if let refused = reply.refused, !refused.isEmpty { await driver?.acknowledged(refused) }
@@ -330,6 +333,7 @@ final class NotificationCenterService {
         // driver's pass applies the policy to the daemon's item, and a notice that did
         // not alert here (pane in view, app active, banners off) stays local.
         moveToTop(located.workspace)
+        notifyChiefPet(notification, located: located, decision: decision, program: program)
         // Showcase captures read and order rows as the app does, and post nothing.
         guard desktopPostingEnabled else {
             note("desktop posting suppressed")

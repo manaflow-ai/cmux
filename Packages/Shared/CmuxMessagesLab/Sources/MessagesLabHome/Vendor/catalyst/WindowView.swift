@@ -1513,7 +1513,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         for case let cell as RowCell in collection.visibleCells {
             if let b = map[cell.key] { cell.renameRow(to: b) }
         }
+        onRowsRenamed(map)
     }
+
+    /// cmux: rows renamed in place (a stream's final message took its rows), old key -> new key; the
+    /// transcript selection follows (TranscriptSelection.renameRows).
+    var onRowsRenamed: ([String: String]) -> Void = { _ in }
+    /// cmux: a cell was configured for a row (decorate); the transcript selection draws its part in it.
+    var onCellDecorated: (RowCell) -> Void = { _ in }
 
     /// Live container motions: (displacement, spring, begin, end, rows it covered). A row that
     /// shows up while one runs (inserted later, or outside its band) gets the opposite motion,
@@ -1886,7 +1893,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             cell.setConnector(top: nil, bottom: 0, mirrored: false)
         }
         step(1)
-        defer { CustomRows.host?.decorated(cell) }
+        defer { CustomRows.host?.decorated(cell); onCellDecorated(cell) }
         for e in ledger.live(r.spec.key) where !cell.applied.contains(e.id) {
             cell.applied.insert(e.id)
             // The previous receipt text is drawn once, when its fade starts on this cell.
@@ -1986,14 +1993,6 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let top = collection.contentOffset.y + Fixture.headerHeight + 8 - MessagesWindowView.cvTop - layout.rowsTop
         let r = model.range(top, top + 1)
         return min(model.count - 1, r.first { model.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) > top } ?? r.lowerBound) // checked
-    }
-    /// True when an outgoing row (the model's outgoing flag) shows a link card for
-    /// `url` in a visible cell: the LinkPresentation fallback runs only then.
-    func outgoingLinkOnScreen(_ url: String) -> Bool {
-        for case let cell as RowCell in collection.visibleCells {
-            if case let .part(pr)? = cell.spec?.kind, pr.outgoing, case let .link(u, _, _, _, _) = pr.part, u == url { return true }
-        }
-        return false
     }
     /// Outgoing link cards on screen with no title yet (a pending or domain card, no image).
     func visibleUntitledOutgoingLinks() -> [String] {

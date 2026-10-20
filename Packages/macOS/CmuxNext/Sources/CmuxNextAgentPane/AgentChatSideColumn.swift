@@ -11,11 +11,10 @@ package struct AgentChatSideColumn {
                             panes: @escaping @MainActor () -> [Pane],
                             chat: @escaping @MainActor (Pane) -> AgentPaneView?,
                             left: @escaping @MainActor (Pane) -> CGFloat,
-                            refuse: @escaping @MainActor (String) -> Void) {
-        let off: @MainActor () -> String? = {
-            AgentPaneTunables.sideColumn.value ? nil : unavailable()
-        }
-        registry.bind("toggleRightSidebar", unavailable: off, invoke: { invocation in
+                            refuse: @escaping @MainActor (String) -> Void,
+                            fallback: @escaping @MainActor (ActionInvocation) throws -> Void) {
+        registry.bind("toggleRightSidebar", run: { invocation in
+            guard AgentPaneTunables.sideColumn.value else { return try fallback(invocation) }
             let focused = focused(invocation)
             // A chat's own view: never a New Tab page (the side column's tiles).
             if let focused, let view = chat(focused) { return view.toggleSideColumn() }

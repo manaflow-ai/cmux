@@ -10,6 +10,7 @@
 pub mod exit;
 
 mod config;
+mod creation_history;
 mod error;
 mod output;
 mod prompt;
@@ -78,10 +79,17 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Inspect or reconcile an original VM creation without allocating another VM
+    #[command(subcommand)]
+    Creation(CreationCommand),
     /// Create a VM
     Create(CreateArgs),
+    /// Grow an existing VM to at least the requested resources
+    Resize(ResizeArgs),
     /// Show a VM
     Get(VmArg),
+    /// Show the canonical allocation fingerprint, optionally checking whether the VM still exists
+    Identity(IdentityArgs),
     /// List the team's VMs
     List(ListArgs),
     /// Start a stopped VM
@@ -90,6 +98,8 @@ enum Command {
     Stop(VmArg),
     /// Pause a running VM, keeping its memory
     Pause(VmArg),
+    /// Permanently fence a VM against starts and inbound wakes (requires confirmation)
+    Retire(DeleteArgs),
     /// Resume a paused VM
     Resume(VmArg),
     /// Fork a VM into a new VM with the same memory and disk
@@ -99,9 +109,73 @@ enum Command {
     /// Create, list, show and delete snapshots
     #[command(subcommand)]
     Snapshot(SnapshotCommand),
+    /// List approved service boot images
+    #[command(subcommand)]
+    Image(ImageCommand),
     /// Create, list and revoke API keys
     #[command(subcommand, name = "api-key")]
     ApiKey(ApiKeyCommand),
+    /// Read guest file metadata without starting the VM
+    #[command(subcommand)]
+    File(FileCommand),
+}
+
+#[derive(Subcommand, Debug)]
+enum CreationCommand {
+    /// Discover server-issued handles after a lost create response
+    List(CreationListArgs),
+    /// Read retained creation intent and ownership without provider I/O
+    Get(CreationArgs),
+    /// Recover the original allocation; never creates, starts or grows a VM
+    Reconcile(CreationArgs),
+    /// Fence a pending creation and delete its verified allocation (requires confirmation)
+    Cancel(CreationCancelArgs),
+}
+
+#[derive(Args, Debug)]
+struct CreationCancelArgs {
+    #[arg(long)]
+    idempotency_key: String,
+    /// Confirm cancellation without an interactive prompt
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Args, Debug)]
+struct CreationArgs {
+    /// The original creation's idempotency key
+    #[arg(long)]
+    idempotency_key: String,
+}
+
+#[derive(Args, Debug)]
+struct CreationListArgs {
+    /// List pending server-issued work newest first, without scanning completed history
+    #[arg(long)]
+    pending: bool,
+    /// Backfill pages to advance before returning a resumable cursor (default 32)
+    #[arg(long, requires = "pending", value_parser = clap::value_parser!(u32).range(1..=128))]
+    index_pages: Option<u32>,
+    /// Page size (1-100)
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
+    limit: Option<u32>,
+    /// Continue from a previous page's opaque cursor
+    #[arg(long)]
+    cursor: Option<String>,
+}
+
+#[derive(Subcommand, Debug)]
+enum FileCommand {
+    /// Show file metadata on a running, paused, stopped or retired VM
+    Stat(FileStatArgs),
+}
+
+#[derive(Args, Debug)]
+struct FileStatArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Absolute guest path, without parent segments
+    path: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -114,6 +188,12 @@ enum SnapshotCommand {
     List(SnapshotListArgs),
     /// Delete a snapshot permanently (asks to type the snapshot id, or needs --yes without a terminal)
     Delete(SnapshotDeleteArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum ImageCommand {
+    /// List images available to this service and team
+    List,
 }
 
 #[derive(Args, Debug)]
@@ -151,6 +231,9 @@ struct SnapshotCreateArgs {
 
 #[derive(Args, Debug)]
 struct SnapshotListArgs {
+    /// Only snapshots created by the authenticated caller
+    #[arg(long)]
+    created_by_me: bool,
     /// Page size (1-100)
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
     limit: Option<u32>,
@@ -205,12 +288,38 @@ struct VmArg {
 }
 
 #[derive(Args, Debug)]
+struct IdentityArgs {
+    vm_id: String,
+    /// Read provider presence without starting the VM
+    #[arg(long)]
+    check_presence: bool,
+}
+
+#[derive(Args, Debug)]
 struct DeleteArgs {
     /// VM id (vm_...)
     vm_id: String,
     /// Delete without asking; required when stdin is not a terminal
     #[arg(long)]
     yes: bool,
+}
+
+#[derive(Args, Debug)]
+struct ResizeArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Minimum vCPU count; larger current values are retained
+    #[arg(long, value_parser = clap::value_parser!(u32).range(2..=32), required_unless_present_any = ["memory_mib", "disk_mib"])]
+    vcpus: Option<u32>,
+    /// Minimum memory in MiB
+    #[arg(long, value_parser = clap::value_parser!(u32).range(4096..=65536))]
+    memory_mib: Option<u32>,
+    /// Minimum disk in MiB; growing the disk requires a running VM
+    #[arg(long, value_parser = clap::value_parser!(u32).range(16384..=131072))]
+    disk_mib: Option<u32>,
+    /// Reuse this key when retrying the same resize
+    #[arg(long, value_name = "KEY")]
+    idempotency_key: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -221,6 +330,20 @@ struct CreateArgs {
     /// Boot from this snapshot (snap_...)
     #[arg(long, value_name = "SNAPSHOT_ID")]
     snapshot: Option<String>,
+    /// Approved image id; requires --image-revision
+    #[arg(
+        long,
+        value_name = "IMAGE_ID",
+        requires = "image_revision",
+        conflicts_with = "snapshot"
+    )]
+    image: Option<String>,
+    /// Exact approved image revision
+    #[arg(long, value_name = "REVISION", requires = "image")]
+    image_revision: Option<String>,
+    /// Allow public outbound traffic; requires vm:network
+    #[arg(long)]
+    public_egress: bool,
     /// Seconds without network activity before the VM pauses; -1 never pauses
     #[arg(long, value_name = "SECONDS", allow_negative_numbers = true)]
     idle_timeout: Option<i64>,
@@ -246,6 +369,9 @@ struct ForkArgs {
 
 #[derive(Args, Debug)]
 struct ListArgs {
+    /// Only VMs created by the authenticated caller
+    #[arg(long)]
+    created_by_me: bool,
     /// Page size (1-100)
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
     limit: Option<u32>,
@@ -343,17 +469,141 @@ async fn dispatch(
 ) -> Result<(), CliError> {
     match command {
         Command::Create(args) => {
+            let image = args
+                .image
+                .as_ref()
+                .zip(args.image_revision.as_ref())
+                .map(|(id, revision)| json!({ "id": id, "revision": revision }));
             let body: types::CreateVmRequest = request_body(json!({
                 "displayName": args.name,
                 "snapshotId": args.snapshot,
                 "idleTimeoutSeconds": args.idle_timeout,
+                "image": image,
+                "initialNetwork": args.public_egress.then(|| json!({ "publicEgress": true })),
             }))?;
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
             let vm = fetch_body(client.vms_create_vm(Some(&key), None, &body))
                 .await
                 .map_err(|e| e.with_idempotency_hint(&key_text))?;
+            if args.image.is_some() || args.public_egress {
+                let response: Option<Value> = serde_json::from_slice(&vm).ok();
+                let confirmed = response.as_ref().is_some_and(|value| {
+                    let image_confirmed = args.image.as_deref().is_none_or(|expected| {
+                        value.pointer("/bootImage/id").and_then(Value::as_str) == Some(expected)
+                            && value.pointer("/bootImage/revision").and_then(Value::as_str)
+                                == args.image_revision.as_deref()
+                    });
+                    let network_confirmed = !args.public_egress
+                        || value
+                            .pointer("/initialNetwork/publicEgress")
+                            .and_then(Value::as_bool)
+                            == Some(true);
+                    image_confirmed && network_confirmed
+                });
+                if !confirmed {
+                    let public_id = serde_json::from_slice::<types::Vm>(&vm)
+                        .ok()
+                        .map(|value| value.id.to_string());
+                    let message = match public_id {
+                        Some(id) => format!("The API did not confirm the requested VM creation policy; inspect VM {id}. Creation may have succeeded"),
+                        None => "The API did not confirm the requested VM creation policy; creation may have succeeded".to_owned(),
+                    };
+                    return Err(CliError::unexpected(format!(
+                        "{message}; retry the same intent with --idempotency-key {key_text}"
+                    )));
+                }
+            }
             out.vm(&vm)
+        }
+        Command::Resize(args) => {
+            let vm_id = args.vm_id.parse::<types::VmId>().map_err(|error| {
+                CliError::usage(format!("invalid VM id {:?}: {error}", args.vm_id))
+            })?;
+            let body: types::ResizeVmRequest = request_body(json!({ "resources": {
+                "vcpus": args.vcpus, "memoryMib": args.memory_mib, "diskMib": args.disk_mib,
+            }}))?;
+            let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
+            let key = parse_key::<types::VmsResizeVmIdempotencyKey>(&key_text)?;
+            let response =
+                fetch_body(client.vms_resize_vm(vm_id.as_str(), Some(&key), None, &body))
+                    .await
+                    .map_err(|e| e.with_retry_key(&key_text))?;
+            let confirmed = serde_json::from_slice::<types::Vm>(&response)
+                .ok()
+                .is_some_and(|actual| {
+                    actual.id.as_str() == vm_id.as_str()
+                        && args
+                            .vcpus
+                            .is_none_or(|want| actual.resources.vcpus >= f64::from(want))
+                        && args
+                            .memory_mib
+                            .is_none_or(|want| actual.resources.memory_mib >= f64::from(want))
+                        && args
+                            .disk_mib
+                            .is_none_or(|want| actual.resources.disk_mib >= f64::from(want))
+                });
+            if !confirmed {
+                return Err(CliError::unexpected(format!(
+                    "The API did not confirm the requested resources for VM {}; inspect it and retry the same intent with --idempotency-key {key_text}",
+                    vm_id.as_str()
+                )));
+            }
+            out.vm(&response)
+        }
+        Command::Creation(command) => {
+            let body = match command {
+                CreationCommand::List(args) => {
+                    let page = creation_history::fetch(
+                        client,
+                        args.cursor,
+                        args.limit,
+                        args.pending,
+                        args.index_pages.unwrap_or(32),
+                    )
+                    .await?;
+                    return out.creation_list(&page, args.pending, args.index_pages);
+                }
+                CreationCommand::Get(args) => {
+                    let key = parse_key::<types::VmCreationsGetVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    fetch_body(client.vm_creations_get_vm_creation(&key, None)).await?
+                }
+                CreationCommand::Cancel(args) => {
+                    let key = parse_key::<types::VmCreationsCancelVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    if !args.yes {
+                        if !prompt.is_interactive() {
+                            return Err(CliError::usage(
+                                "creation cancel requires --yes without a terminal",
+                            ));
+                        }
+                        let answer = prompt.ask("Cancel this pending VM creation and delete its allocation? Type cancel to confirm: ")
+                            .map_err(|e| CliError::cancelled(format!("could not read confirmation: {e}")))?;
+                        if answer.trim() != "cancel" {
+                            return Err(CliError::cancelled(
+                                "creation cancellation was not confirmed",
+                            ));
+                        }
+                    }
+                    return out.creation_cancellation(
+                        &fetch_body(client.vm_creations_cancel_vm_creation(&key, None)).await?,
+                    );
+                }
+                CreationCommand::Reconcile(args) => {
+                    let key = parse_key::<types::VmCreationsReconcileVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    fetch_body(client.vm_creations_reconcile_vm_creation(&key, None)).await?
+                }
+            };
+            out.creation(&body)
+        }
+        Command::Image(ImageCommand::List) => {
+            let images = fetch_body(client.vms_list_vm_images(None)).await?;
+            out.image_list(&images)
         }
         Command::Get(VmArg { vm_id }) => {
             let vm = fetch_body(client.vms_get_vm(&vm_id, None)).await?;
@@ -364,19 +614,49 @@ async fn dispatch(
             let state = parse_opt::<types::VmsListVmsState>("--state", args.state)?;
             let limit = args.limit.map(|n| n.to_string());
             // Label filters (`label=key:value`) are not a CLI flag yet.
-            let page = fetch_body(client.vms_list_vms(
-                cursor.as_ref(),
-                None,
-                limit.as_deref(),
-                state,
-                None,
-            ))
+            let page = fetch_body(
+                client.vms_list_vms(
+                    args.created_by_me
+                        .then_some(types::VmsListVmsCreatedBy::Caller),
+                    cursor.as_ref(),
+                    None,
+                    limit.as_deref(),
+                    state,
+                    None,
+                ),
+            )
             .await?;
             out.vm_list(&page)
         }
         Command::Start(VmArg { vm_id }) => {
             let vm = fetch_body(client.vms_start_vm(&vm_id, None)).await?;
             out.vm(&vm)
+        }
+        Command::Identity(IdentityArgs {
+            vm_id,
+            check_presence,
+        }) => {
+            let id = vm_id
+                .parse::<types::VmId>()
+                .map_err(|_| CliError::usage("invalid VM id"))?;
+            let presence = parse_opt(
+                "--check-presence",
+                check_presence.then(|| "true".to_owned()),
+            )?;
+            let body = fetch_body(client.vms_get_vm_instance_identity(id.as_str(), presence, None))
+                .await?;
+            let receipt: serde_json::Value = serde_json::from_slice(&body)
+                .map_err(|_| CliError::unexpected("the VM instance identity is unconfirmed"))?;
+            if receipt["id"] != id.as_str()
+                || receipt["scheme"] != "sha256-v1"
+                || (check_presence
+                    && !matches!(receipt["presence"].as_str(), Some("present" | "missing")))
+            {
+                return Err(CliError::unexpected(
+                    "the VM instance identity is unconfirmed",
+                ));
+            }
+            out.identity(&body)
         }
         Command::Stop(VmArg { vm_id }) => {
             let vm = fetch_body(client.vms_stop_vm(&vm_id, None)).await?;
@@ -385,6 +665,27 @@ async fn dispatch(
         Command::Pause(VmArg { vm_id }) => {
             let vm = fetch_body(client.vms_pause_vm(&vm_id, None)).await?;
             out.vm(&vm)
+        }
+        Command::Retire(DeleteArgs { vm_id, yes }) => {
+            let id = vm_id
+                .parse::<types::VmId>()
+                .map_err(|_| CliError::usage("invalid VM id"))?;
+            if !yes {
+                confirm(prompt, Destroy::RetireVm, id.as_str())?;
+            }
+            let response = fetch_body(client.vms_retire_vm(id.as_str(), None)).await?;
+            let receipt: serde_json::Value = serde_json::from_slice(&response).map_err(|_| {
+                CliError::unexpected("retirement is unconfirmed; retry retire for the same VM")
+            })?;
+            if receipt["id"] != id.as_str()
+                || receipt["retired"] != true
+                || !matches!(receipt["state"].as_str(), Some("paused" | "stopped"))
+            {
+                return Err(CliError::unexpected(
+                    "retirement is unconfirmed; retry retire for the same VM",
+                ));
+            }
+            out.retired(&response, id.as_str())
         }
         Command::Resume(VmArg { vm_id }) => {
             let vm = fetch_body(client.vms_resume_vm(&vm_id, None)).await?;
@@ -411,6 +712,27 @@ async fn dispatch(
         }
         Command::Snapshot(command) => snapshot(client, command, prompt, out).await,
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
+        Command::File(FileCommand::Stat(args)) => {
+            let id = args
+                .vm_id
+                .parse::<types::VmId>()
+                .map_err(|_| CliError::usage("invalid VM id"))?;
+            if !args.path.starts_with('/')
+                || args.path.contains('\0')
+                || args.path.split('/').any(|part| part == "..")
+                || args.path.encode_utf16().count() > 4096
+            {
+                return Err(CliError::usage(
+                    "guest path must be absolute, at most 4096 characters, without parent segments or NUL",
+                ));
+            }
+            let path = args
+                .path
+                .parse::<types::GuestPath>()
+                .map_err(|_| CliError::usage("invalid guest path"))?;
+            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None)).await?;
+            out.file_stat(&body)
+        }
     }
 }
 
@@ -444,13 +766,17 @@ async fn snapshot(
             let vm = parse_opt::<types::SnapshotsListSnapshotsSourceVmId>("--vm", args.vm)?;
             let limit = args.limit.map(|n| n.to_string());
             // Label filters (`labels=key:value`) are not a CLI flag yet.
-            let page = fetch_body(client.snapshots_list_snapshots(
-                cursor.as_ref(),
-                None,
-                limit.as_deref(),
-                vm.as_ref(),
-                None,
-            ))
+            let page = fetch_body(
+                client.snapshots_list_snapshots(
+                    args.created_by_me
+                        .then_some(types::SnapshotsListSnapshotsCreatedBy::Caller),
+                    cursor.as_ref(),
+                    None,
+                    limit.as_deref(),
+                    vm.as_ref(),
+                    None,
+                ),
+            )
             .await?;
             out.snapshot_list(&page)
         }
@@ -499,6 +825,7 @@ async fn api_key(
 /// A destructive verb that needs confirmation.
 #[derive(Clone, Copy)]
 enum Destroy {
+    RetireVm,
     DeleteVm,
     DeleteSnapshot,
     RevokeApiKey,
@@ -508,6 +835,7 @@ impl Destroy {
     /// The verb, the verb capitalized, and the name of the id to type.
     fn words(self) -> (&'static str, &'static str, &'static str) {
         match self {
+            Destroy::RetireVm => ("retire", "Retire", "VM id"),
             Destroy::DeleteVm => ("delete", "Delete", "VM id"),
             Destroy::DeleteSnapshot => ("delete", "Delete", "snapshot id"),
             Destroy::RevokeApiKey => ("revoke", "Revoke", "API key id"),
@@ -526,6 +854,9 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
         )));
     }
     let question = match action {
+        Destroy::RetireVm => format!(
+            "Retire {id} permanently? It cannot run again; files remain readable until deletion. Type the VM id to confirm: "
+        ),
         Destroy::RevokeApiKey => format!(
             "{question_verb} {id}? Requests that use it will fail. Type the {id_name} to confirm: "
         ),
@@ -540,6 +871,7 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
         Ok(())
     } else {
         let past = match action {
+            Destroy::RetireVm => "retired",
             Destroy::RevokeApiKey => "revoked",
             _ => "deleted",
         };
@@ -614,7 +946,7 @@ where
         .map_err(|e| CliError::usage(format!("invalid --idempotency-key {key:?}: {e}")))
 }
 
-/// A fresh idempotency key for one create or fork.
+/// A fresh idempotency key for one create, fork or resize.
 ///
 /// The randomness comes from the standard library's `RandomState`, whose
 /// SipHash keys are seeded from the OS once per process and advanced for each

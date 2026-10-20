@@ -1,0 +1,51 @@
+# Check-only coverage for the CloudDO migration to the tenant VM API.
+# No live environments, migrations or deployments run from this workflow.
+name: cmux VM Cloud adapter
+on:
+  push:
+    branches: ["codex/vm-api-cloud-*"]
+    paths: ["backend/**", "libs/vm-instance-identity/**", "workers/cmux-vm/sdk/**", "workers/cmux-vm/src/**", ".github/workflows/cmux-vm-cloud.yml"]
+  pull_request:
+    paths: ["workers/cmux-vm/sdk/**", "workers/cmux-vm/src/**", "libs/vm-instance-identity/**", "backend/apps/api/src/cloud-vm-api*", "backend/apps/api/src/team-vm-api*", "backend/apps/api/test/cloud-vm-api*", "backend/apps/api/test/team-vm-api*", ".github/workflows/cmux-vm-cloud.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: vm-api-cloud-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend/apps/api
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+      - name: Install locked dependencies
+        id: install
+        working-directory: backend
+        run: bun install --frozen-lockfile
+      - name: API typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run typecheck
+      - name: Cloud tenant and adapter behavior
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/team-vm-api test/cloud-vm-api
+      - name: Existing Team VM binding behavior
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/team-vm-bind.test.ts test/team-vm.test.ts test/team-vm-taint.test.ts test/team-vm-retired-fence.test.ts test/team-vm-export.test.ts
+      - name: Existing Cloud lifecycle behavior
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/cloud-do.test.ts test/cloud-start-pause.test.ts test/cloud-resize.test.ts test/cloud-snapshots.test.ts test/cloud-orphans.test.ts test/cloud-idle-pause.test.ts test/cloud-idle-backstop.test.ts test/cloud-connect.test.ts test/cloud-admin.test.ts
+      - name: Backend source size
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: backend
+        run: bun run lint:size

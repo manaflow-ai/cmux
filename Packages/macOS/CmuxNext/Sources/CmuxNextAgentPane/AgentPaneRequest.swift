@@ -1,4 +1,5 @@
 import CmuxNextDictation
+public import CmuxNextSettings
 public import Foundation
 
 /// A request the page posts to `window.webkit.messageHandlers.agentSession`:
@@ -52,6 +53,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page's style switch (`newTab.setTemplate`): the template to
     /// save as `tabs.newTabTemplate` (the App checks the value).
     case setNewTabTemplate(String)
+    /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
+    case nowPlaying(AgentPaneNowPlaying.Command)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -61,6 +64,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case newTabContext
     /// The identified New Tab field mounted and took DOM focus.
     case newTabInputReady(String)
+    /// A local page's newest chats as JSON text (`newTab.warm {warm}`): the next New Tab page's
+    /// context carries it (``AgentPaneNewTab/warm``), so its first frame lists them.
+    case newTabWarm(String)
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
@@ -80,6 +86,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
+    /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
+    case projectIcon(String)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -115,6 +123,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool)
+    /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
+    /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
+    case processTerminal(toolCall: String)
     /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
     case newChatHere(String)
     /// `pane.rename {name}`: the chat's tab takes `name`, as Rename Tab with a name does (the header's
@@ -211,6 +222,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
     /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
     case composerSetting(path: [String], show: Bool)
+    /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
+    /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
+    case displaySetting(path: [String], value: JSONValue?)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)

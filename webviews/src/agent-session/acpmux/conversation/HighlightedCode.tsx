@@ -16,6 +16,7 @@ import { OpenPreview } from "./OpenPreview";
 import { languageLabel, type CodeBlockProps } from "./CodeBlock";
 import { useLab } from "../labs";
 import { useCodeWrap } from "./codeWrap";
+import { currentChatMetrics } from "../chatDisplay";
 
 /// Pierre's line height: a line of the card's body.
 const LINE_HEIGHT = 20;
@@ -25,8 +26,9 @@ const codeUnsafeCSS = `${diffUnsafeCSS}
 :host {
   --diffs-dark-bg: transparent;
   --diffs-light-bg: transparent;
-  --diffs-font-size: 12px;
-  --diffs-line-height: ${LINE_HEIGHT}px;
+  --diffs-font-family: var(--cv-mono, var(--cmux-diff-code-font-family, "SF Mono", ui-monospace, Menlo, monospace));
+  --diffs-font-size: var(--cv-codeblock-size, 12px);
+  --diffs-line-height: var(--cv-codeblock-line-height, ${LINE_HEIGHT}px);
   background: transparent;
 }
 [data-line] > span { top: 0; }
@@ -128,7 +130,7 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
         ref={host}
         className="cv-codeblock__body selectable"
         data-wrap={sharedWrap ? String(wrap) : undefined}
-        style={{ minHeight: code.replace(/\n$/, "").split("\n").length * LINE_HEIGHT }}
+        style={{ minHeight: code.replace(/\n$/, "").split("\n").length * currentChatMetrics().codeLineHeight }}
       />
     </div>
   );

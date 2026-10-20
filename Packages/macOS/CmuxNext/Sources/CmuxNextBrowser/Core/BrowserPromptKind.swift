@@ -33,6 +33,11 @@ public nonisolated enum BrowserPromptKind: Hashable, Sendable {
     /// `.accept` (Save / Update), `.deny` (never for the site) or `.cancel`
     /// (Not Now). The password itself never leaves Chromium.
     case savePassword(username: String, update: Bool)
+    /// Email verification AutoFill (plans/cmux-next/email-verification-autofill/DESIGN.md):
+    /// the code or link of a verification email from the page's own site, shown in native
+    /// chrome the page cannot read. Answered `.accept` (Fill Code), `.allowOnce` (Open Link)
+    /// or `.cancel` (Not Now). Never answered for an agent, never submits the form.
+    case verificationOffer(VerificationOffer)
 }
 
 /// The user's answer to a prompt.

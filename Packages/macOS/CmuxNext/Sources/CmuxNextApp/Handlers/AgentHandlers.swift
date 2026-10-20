@@ -16,8 +16,8 @@ import Observation
 /// (CmuxNextAgentPane), and Toggle Dictation drives its composer's mic.
 /// Start Agent toggles the floating `QuickComposerController` panel.
 /// Computer Use Setup and its two grants run `ComputerUseSetup`.
-/// Terminal-as-chat, Teams, and Computer Use focus/stop are
-/// typed-unavailable.
+/// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
+/// focus/stop are typed-unavailable.
 enum AgentHandlers {
     enum Placement {
         case right, left, above, below, newTab, newWorkspace
@@ -120,15 +120,14 @@ enum AgentHandlers {
                 view.runPermissionAction(command, byPerson: invocation.origin == .user)
             })
         }
-        // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt (cx-f7c).
-        let turnSteps: [(ActionID, Bool)] = [("agentPane.previousTurn", false), ("agentPane.nextTurn", true)]
-        for (id, forward) in turnSteps {
-            registry.bind(id, run: { invocation in
+        // Previous and Next Turn and Bookmarked Prompt step the agent chat's transcript (cx-f7c).
+        for step in AgentTranscriptStep.allCases {
+            registry.bind(ActionID(rawValue: step.actionID), run: { invocation in
                 guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
                       let view = context.services.agentTabs.existingView(key) else {
                     return context.refuse(MiscHandlerStrings.noAgentChat)
                 }
-                view.stepTurn(forward: forward)
+                view.step(step)
             })
         }
         // Continue in… is a user-facing chooser. Headless callers use the
@@ -189,8 +188,8 @@ enum AgentHandlers {
                 view.runGitAction(action)
             })
         }
-        registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
-        registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
+        TerminalChatHandler.bind(into: registry, context: context)
+        AgentTeamsLaunch.bind(into: registry, context: context)
         registry.bindUnavailable(
             ["computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
             ActionFailure(message: MiscHandlerStrings.computerUse)

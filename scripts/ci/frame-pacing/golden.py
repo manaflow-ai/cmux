@@ -29,6 +29,8 @@ import sys
 import time
 from pathlib import Path
 
+import browser_resize
+
 EPS = 0.75  # points: a value this close to its start or end counts as there
 
 # Per scenario: `min_intermediate` frames strictly between the start and end values,
@@ -48,6 +50,8 @@ THRESHOLDS: dict[str, dict[str, float]] = {
     "reduce_new_tab": {"max_intermediate": 1, "min_frames": 20},
     "reduce_sidebar_collapse": {"max_intermediate": 1, "min_frames": 20},
     "reduce_sidebar_expand": {"max_intermediate": 1, "min_frames": 20},
+    # Reported only (browser_resize.py): frames a Chromium page trails its host in a live resize.
+    "browser_resize": {},
 }
 SCENARIOS = list(THRESHOLDS)
 
@@ -148,34 +152,37 @@ class Driver:
             self.save(f"{prefix}sidebar_{name}", trace)
             time.sleep(0.3)
 
-    def window_resize(self) -> None:
+    def drag_corner(self, dx: float, dy: float, steps: int = 90) -> dict:
         """A live resize at the pace of a real drag: the bottom-right corner pressed once, then one
-        `debug.mouse` drag event per 120 Hz frame, out by 300 x 150 points and back. Vendored from
+        `debug.mouse` drag event per 120 Hz frame by (dx, dy) points. Vendored from
         op-next-toolbar's scripts/cmux-next/resize-frames-live.py (#20398, not landed yet)."""
-        steps, period = 90, 1 / 120
+        period = 1 / 120
+        layers = (self.call("debug.layers").get("windows") or [{}])[0]
+        frame = layers.get("frame") or [0, 0, 1100, 720]
+        x0, y0 = frame[2] - 1, frame[3] - 1
+        self.call("debug.mouse", {"action": "down", "x": x0, "y": y0})
+        started = time.monotonic()
+        for step in range(1, steps + 1):
+            x, y = x0 + dx * step / steps, y0 + dy * step / steps
+            self.call("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": y, "steps": 1,
+                                      "press": False, "release": False})
+            wait = started + step * period - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+        self.call("debug.mouse", {"action": "up", "x": x0 + dx, "y": y0 + dy})
+        return {"from": frame, "wall_s": round(time.monotonic() - started, 3)}
+
+    def window_resize(self) -> None:
+        """Out by 300 x 150 points and back (`drag_corner`), each drag traced."""
         drags = []
-
-        def drag(dx: float, dy: float) -> dict:
-            layers = (self.call("debug.layers").get("windows") or [{}])[0]
-            frame = layers.get("frame") or [0, 0, 1100, 720]
-            x0, y0 = frame[2] - 1, frame[3] - 1
-            self.call("debug.mouse", {"action": "down", "x": x0, "y": y0})
-            started = time.monotonic()
-            for step in range(1, steps + 1):
-                x, y = x0 + dx * step / steps, y0 + dy * step / steps
-                self.call("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": y, "steps": 1,
-                                          "press": False, "release": False})
-                wait = started + step * period - time.monotonic()
-                if wait > 0:
-                    time.sleep(wait)
-            self.call("debug.mouse", {"action": "up", "x": x0 + dx, "y": y0 + dy})
-            return {"from": frame, "wall_s": round(time.monotonic() - started, 3)}
-
         for dx, dy in ((300, 150), (-300, -150)):
-            trace = self.trace(["window"], lambda dx=dx, dy=dy: drag(dx, dy), 0.4)
+            trace = self.trace(["window"], lambda dx=dx, dy=dy: self.drag_corner(dx, dy), 0.4)
             drags.append(trace)
             time.sleep(0.5)
         self.save("window_resize", {"drags": drags})
+
+    def browser_resize(self) -> None:
+        browser_resize.drive(self, self.out)
 
     def transcript(self) -> None:
         opened = self.call("action.run", {"action": "palette.newAgentChat"})
@@ -223,6 +230,7 @@ class Driver:
             ("window_resize", self.window_resize),
             ("transcript_follow", self.transcript),
             ("capture", self.capture),
+            ("browser_resize", self.browser_resize),
         ]
         for name, step in steps:
             try:
@@ -368,6 +376,9 @@ def judge(out: Path) -> dict[str, dict]:
     verdicts: dict[str, dict] = {}
     for name in SCENARIOS:
         data = load(out, name)
+        if name == "browser_resize":
+            verdicts[name] = browser_resize.judge(data or {"error": "no result file"}, refresh)
+            continue
         if data is None or ("error" in data and "samples" not in data and "scroll_top" not in data and "drags" not in data):
             verdicts[name] = {"ok": False, "problems": [f"not measured: {(data or {}).get('error', 'no result file')}"]}
             continue
@@ -487,6 +498,9 @@ def markdown(out: Path, verdicts: dict[str, dict]) -> str:
              "| scenario | result | intermediate frames | largest step | frame p95 / max | notes |",
              "|---|---|---|---|---|---|"]
     for name, verdict in verdicts.items():
+        if name == "browser_resize":
+            lines.append(browser_resize.markdown_row(verdict))
+            continue
         limits = THRESHOLDS[name]
         bound = f"≥ {limits['min_intermediate']:g}" if "min_intermediate" in limits else f"≤ {limits['max_intermediate']:g}"
         step = f"{verdict['max_step']:.0%}" if "max_step" in verdict else ""

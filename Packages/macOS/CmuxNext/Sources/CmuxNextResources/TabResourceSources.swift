@@ -40,4 +40,7 @@ public struct TabResourceSources: Sendable, Equatable {
 public enum ResourceTarget: Sendable, Hashable {
     case tab(String)
     case workspace(String)
+    /// Every tab of every workspace on every machine, and the shared
+    /// processes (the Task Manager).
+    case everything
 }

@@ -36,7 +36,9 @@ final class HoverCardPanel: NSPanel {
     /// shadow band. A retarget farther away jumps the rest at once (the card never trails).
     static let travel: CGFloat = 48
     /// How far a first show moves the card, away from its target, while it fades in.
-    static let entryOffset: CGFloat = 6
+    static var entryOffset: CGFloat { motion.entryOffset }
+    /// The entrance and exit every hover card plays (the update card's too).
+    static let motion = HoverCardMotion.standard
     /// The window's clear band around the card: the shadow band plus the slide's room.
     private static var windowMargin: CGFloat { PopupStyle.standard.shadowMargin + travel }
     private weak var body: NSView?
@@ -142,14 +144,11 @@ final class HoverCardPanel: NSPanel {
             // A visible card: it slides from where it is drawn to its new place (a quick return
             // during the fade-out fades back in from the alpha it reached).
             slide(from: offset(of: previous, to: cardFrame))
-            if wasDismissing || alphaValue < 1 { Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 } }
+            if wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
         } else {
             // A first show: from clear, the card fades in while it moves the last few points
-            // away from its target.
-            Motion.withoutAnimation { animator().alphaValue = 0 }
-            orderFront(nil)
-            slide(from: Self.entryVector(for: placement))
-            Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 }
+            // away from its target (`HoverCardMotion`, shared with the update card).
+            Self.motion.enter(self, placement: placement)
         }
     }
 
@@ -173,11 +172,7 @@ final class HoverCardPanel: NSPanel {
 
     /// Where a first show starts, from its rest place: toward the target it describes.
     static func entryVector(for placement: HoverCardPlacement) -> CGVector {
-        switch placement {
-        case .below: CGVector(dx: 0, dy: entryOffset)
-        case .above: CGVector(dx: 0, dy: -entryOffset)
-        case .beside: CGVector(dx: -entryOffset, dy: 0)
-        }
+        motion.entryVector(for: placement)
     }
 
     /// The card's next content fades over its last frame (the body is reused, so its text,
@@ -189,9 +184,11 @@ final class HoverCardPanel: NSPanel {
         let content = glass.contentView
         content.wantsLayer = true
         guard duration > 0, Motion.canAnimate(in: glass), let layer = content.layer else { return }
+        // motion-allow: a crossfade transition on Motion's .crossfade duration, gated by Motion.canAnimate
         let fade = CATransition()
         fade.type = .fade
         fade.duration = duration
+        // motion-allow: the crossfade's ease-out curve (CATransition takes no Motion curve)
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         layer.add(fade, forKey: "hoverCard.crossfade")
     }
@@ -217,8 +214,11 @@ final class HoverCardPanel: NSPanel {
 
     private func place() {
         glass.layoutSubtreeIfNeeded()
-        let size = glass.fittingSize
-        var origin = Self.origin(for: placement, anchor: anchor, size: size)
+        let scale = max(parentWindowRef?.backingScaleFactor ?? 2, 1)
+        // Whole device pixels, so the edge `origin(for:)` puts on the target stays there.
+        let fitting = glass.fittingSize
+        let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
+        var origin = Self.origin(for: placement, anchor: anchor, size: size, scale: scale)
         if let screen = parentWindowRef?.screen ?? NSScreen.main {
             let visible = screen.visibleFrame
             let margin = Metrics.space2
@@ -234,7 +234,7 @@ final class HoverCardPanel: NSPanel {
     func dismiss() {
         guard isVisible, !isDismissing else { return }
         isDismissing = true
-        Motion.animateTimed(.fadeOut, in: contentView, { animator().alphaValue = 0 }, completion: { [weak self] in
+        Self.motion.exit(self, completion: { [weak self] in
             guard let self, self.isDismissing else { return }
             self.isDismissing = false
             self.parentWindowRef?.removeChildWindow(self)
@@ -247,13 +247,25 @@ final class HoverCardPanel: NSPanel {
 extension HoverCardPanel: ThemeResponsive {}
 
 extension HoverCardPanel {
-    /// The card's origin (screen coordinates, y up) for `placement` next to
-    /// `anchor`, before the screen clamp.
-    static func origin(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize) -> CGPoint {
-        switch placement {
-        case .below: CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
-        case .above: CGPoint(x: anchor.minX, y: anchor.maxY + Metrics.space2)
-        case .beside: CGPoint(x: anchor.maxX + Metrics.space2, y: anchor.maxY - size.height)
+    /// The room between a card and its target: none. The card touches its tab (or row), so the
+    /// pointer never crosses empty space between them (Lawrence 2026-10-19: "there is a gap in
+    /// between ... such that there is no gap in between").
+    static let targetGap: CGFloat = 0
+
+    /// The card's origin (screen coordinates, y up) for `placement` next to `anchor`, before
+    /// the screen clamp. The touching edge is snapped to a device pixel of `scale` toward the
+    /// target, so a fractional anchor overlaps it by under a pixel and never leaves a seam.
+    static func origin(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize, scale: CGFloat = 2) -> CGPoint {
+        let scale = max(scale, 1)
+        func up(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.up) / scale }
+        func down(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.down) / scale }
+        return switch placement {
+        // The card's top edge on the tab's bottom edge (rounded up: into the tab, never below it).
+        case .below: CGPoint(x: anchor.minX, y: up(anchor.minY - targetGap) - size.height)
+        // The card's bottom edge on the tab's top edge (rounded down: into the tab).
+        case .above: CGPoint(x: anchor.minX, y: down(anchor.maxY + targetGap))
+        // The card's leading edge on the row's trailing edge, top-aligned.
+        case .beside: CGPoint(x: down(anchor.maxX + targetGap), y: anchor.maxY - size.height)
         }
     }
 }

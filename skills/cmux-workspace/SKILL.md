@@ -114,7 +114,7 @@ cmux workspace status list --json          # entries, progress, last log line
 cmux workspace ws_… status list            # another workspace
 ```
 
-Status entries are keyed (at most 64 per workspace); `set` replaces the entry with that key. Log levels: info, progress, success, warning, error; the workspace keeps its newest 200 lines. The workspace's workflow status is a different thing, an app action: `cmux workspace set-status --target ws_… --status inProgress`. For attention, use `cmux notify --title "Build" --body "done"`.
+Status entries are keyed (at most 64 per workspace); `set` replaces the entry with that key. Log levels: info, progress, success, warning, error; the workspace keeps its newest 200 lines. The workspace's workflow status is a different thing, an app action: `cmux workspace set-status --target ws_… --status working`. For attention, use `cmux notify --title "Build" --body "done"`.
 
 ## Contributor reloads
 
@@ -127,7 +127,7 @@ CMUX_TAG=<short-tag> scripts/cmux-debug-cli.sh app identify
 
 ## Socket access
 
-The CLI finds the daemon from `--socket`/`--session`, then `CMUX_TUI_SOCKET`, then the app's session; it finds the app from `CMUX_SOCKET_PATH`. If a command cannot connect, check `cmux session list` for the daemon and `cmux app ping` for the app. Exit code 3 means transport failure.
+The CLI finds the daemon from `--socket`/`--session`, then `CMUX_TUI_SOCKET`, then the app's session; it finds the app from `CMUX_SOCKET_PATH`. If a command cannot connect, check `cmux workspace list` for the daemon and `cmux app ping` for the app. Exit code 3 means transport failure.
 
 Lists act on that one session. `--all-sessions` runs a list on every local session (records gain `session`; a person only, an agent caller such as a Chief turn gets `origin.forbidden`), and a session-qualified id (`build-box:ws_…`) routes one command to that local session. Sessions the app reaches over SSH or Cloud are not reachable from the CLI yet.
 

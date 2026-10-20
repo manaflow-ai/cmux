@@ -162,10 +162,21 @@ impl RemoteSession {
 
     fn initialize(&self, subscribe: bool) -> anyhow::Result<()> {
         // Identify the endpoint and register this connection before any optional subscription.
-        let ident = self.request(json!({"cmd": "identify"}))?;
+        // `revisions` asks for the API revision range and the server's update
+        // command; an older server ignores the flag.
+        let ident = self.request(json!({"cmd": "identify", "revisions": true}))?;
         validate_remote_identity(&ident)?;
         *self.capabilities.lock().unwrap() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
+        // A daemon that reports API revisions learns ours, our release and
+        // how we were installed, so it can translate for us or name our
+        // update command when it refuses (server/api_revision_wire.rs).
+        if ident.get("api_revision").is_some() {
+            use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel};
+            client_info["api_revision"] = json!(cmux_tui_core::server::api_revision_range().0);
+            client_info["version"] = json!(DISTRIBUTION_VERSION);
+            client_info["install"] = json!(InstallChannel::current().as_str());
+        }
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
         }

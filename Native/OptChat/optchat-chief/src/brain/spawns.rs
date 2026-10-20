@@ -29,14 +29,117 @@ fn now_ms() -> u64 {
 }
 
 impl Brain {
+    /// Where a spawn's subagents run: `place` (`cloud`/`local`), else the
+    /// saved `control cloud` default, else the env's peer; None: here.
+    pub(super) fn spawn_peer(
+        &self,
+        env: Option<&str>,
+        place: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        let list = |p: &str| -> Vec<String> {
+            p.split(',')
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .map(str::to_owned)
+                .collect()
+        };
+        let saved = self.state.cloud_peer.clone();
+        let peers = match saved.as_deref() {
+            Some(p) if !p.is_empty() => list(p),
+            _ => env.map(list).unwrap_or_default(),
+        };
+        match place {
+            Some("local") => Ok(Vec::new()),
+            Some("cloud") if peers.is_empty() => Err(
+                "no cloud peer is set up: `control cloud PEER[,PEER...]` names the acpmux peers (`acpmux host ls`) cloud subagents run on".to_owned(),
+            ),
+            Some("cloud") => Ok(peers),
+            Some(other) => Err(format!("spawn: no place {other}; cloud or local")),
+            None if saved.as_deref() == Some("") => Ok(Vec::new()),
+            None => Ok(peers),
+        }
+    }
+
+    /// Live (starting or running) subagents on cloud peer `peer`.
+    pub(super) fn live_on(&self, peer: &str) -> usize {
+        self.state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| s.peer.as_deref() == Some(peer))
+            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+            .count()
+    }
+
+    /// B4: pauses each cloud peer's VM after `cloud_idle` with no live
+    /// subagent on it, once (the tick runs every minute).
+    pub(super) fn cloud_tick(&mut self) {
+        let Some(vms) = self.cloud_vms.clone() else {
+            return;
+        };
+        let now = now_ms();
+        let mut peers: Vec<String> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter_map(|s| s.peer.clone())
+            .collect();
+        peers.sort_unstable();
+        peers.dedup();
+        for peer in peers {
+            if self.live_on(&peer) > 0 {
+                self.cloud_idle_since.remove(&peer);
+                continue;
+            }
+            if self.cloud_paused.contains(&peer) {
+                continue;
+            }
+            let since = *self.cloud_idle_since.entry(peer.clone()).or_insert(now);
+            if now.saturating_sub(since) < self.cloud_idle.as_millis() as u64 {
+                continue;
+            }
+            self.cloud_paused.insert(peer.clone());
+            self.cloud_idle_since.remove(&peer);
+            (self.log)(&format!("cloud: pausing {peer} (no live cloud subagent)"));
+            let vms = vms.clone();
+            let log = self.log.clone();
+            // The pool tool takes seconds: off the brain thread.
+            let _ = std::thread::Builder::new()
+                .name("cloud-pause".into())
+                .spawn(move || {
+                    if let Err(e) = vms.pause(&peer) {
+                        log(&format!("cloud: pause {peer}: {e}"));
+                    }
+                });
+        }
+    }
+
     /// Gives a spawn its id and its subagents theirs (`a<N>`, unique per home).
-    pub(super) fn register_spawn(&mut self, tasks: &[String]) -> Result<SpawnPlan, String> {
+    pub(super) fn register_spawn(
+        &mut self,
+        tasks: &[String],
+        peers: &[String],
+    ) -> Result<SpawnPlan, String> {
         if tasks.is_empty() {
             return Err("spawn needs at least one task".into());
         }
         let mut free = self
             .live_cap()
             .map_or(usize::MAX, |n| n.saturating_sub(self.live_subs()));
+        // B4: each cloud subagent goes to the peer with the fewest live
+        // ones (counting this spawn's), ties to the first listed.
+        let mut load: Vec<usize> = peers.iter().map(|p| self.live_on(p)).collect();
+        let mut pick = || -> Option<String> {
+            let k = (0..peers.len()).min_by_key(|&k| (load[k], k))?;
+            load[k] += 1;
+            Some(peers[k].clone())
+        };
+        let chosen: Vec<Option<String>> = tasks.iter().map(|_| pick()).collect();
+        for p in chosen.iter().flatten() {
+            self.cloud_paused.remove(p);
+            self.cloud_idle_since.remove(p);
+        }
         let first = self.state.next_subagent.max(1);
         let ids: Vec<String> = (0..tasks.len() as u64)
             .map(|k| format!("a{}", first + k))
@@ -47,9 +150,13 @@ impl Brain {
             subs: ids
                 .iter()
                 .zip(tasks)
-                .map(|(id, task)| {
-                    // Over the cap it waits for a free slot.
-                    let status = if free > 0 {
+                .zip(&chosen)
+                .map(|((id, task), peer)| {
+                    // Over the cap it waits for a free slot; a cloud one
+                    // (on a peer) takes none.
+                    let status = if peer.is_some() {
+                        SubStatus::Starting
+                    } else if free > 0 {
                         free -= 1;
                         SubStatus::Starting
                     } else {
@@ -60,6 +167,7 @@ impl Brain {
                         title: crate::workspaces::name(id, task),
                         run_ms: now_ms(),
                         status,
+                        peer: peer.clone(),
                         ..SubRecord::default()
                     }
                 })
@@ -85,8 +193,10 @@ impl Brain {
             spawn,
             ids,
             queued,
-            limit: self.live_cap(),
+            limit: self.live_cap_source(),
             engine: self.spawn_engine(),
+            peer: chosen.iter().flatten().next().cloned(),
+            peers: chosen,
         })
     }
 
@@ -445,7 +555,7 @@ impl Brain {
                 sub.status = SubStatus::Done;
                 sub.stopped = false;
                 sub.report = Some(format!(
-                    "stopped: {reason}. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
+                    "stopped after a retryable network error. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
                     crate::auto_resume::NETWORK_WAIT_MAX.as_secs() / 60
                 ));
             }
@@ -493,9 +603,14 @@ impl Brain {
         crate::trace::requests(&self.trace, &scope, fold.requests());
     }
 
-    /// Renames a subagent's workspace: done mark on, or off when it runs
-    /// again; or, under the close setting, closes it when it finishes.
+    /// Under the close setting, closes a finished subagent's workspace.
+    /// Its name is never changed (Lawrence 2026-10-19: "I don't like the
+    /// checkmark"): the chat tab's own idle state shows that it is done, and
+    /// a name the user or the Chief gave it stays.
     fn mark_workspace(&mut self, id: &str, done: bool) {
+        if !(done && self.sub_close_on_finish) {
+            return;
+        }
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
         else {
             return;
@@ -503,30 +618,14 @@ impl Brain {
         let Some(key) = sub.workspace.clone() else {
             return;
         };
-        let title = sub.title.clone();
-        if done && self.sub_close_on_finish {
-            if let Some(sub) = self.state.sub_mut(id) {
-                sub.workspace = None;
-            }
-            self.save();
-            let (log, id) = (self.log.clone(), id.to_owned());
-            std::thread::spawn(move || {
-                if let Err(e) = workspaces.close(&key) {
-                    log(&format!("subagent {id}: closing its workspace: {e}"));
-                }
-            });
-            return;
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.workspace = None;
         }
-        let name = if done {
-            crate::workspaces::done_name(&title)
-        } else {
-            title.clone()
-        };
-        let log = self.log.clone();
-        let id = id.to_owned();
+        self.save();
+        let (log, id) = (self.log.clone(), id.to_owned());
         std::thread::spawn(move || {
-            if let Err(e) = workspaces.rename(&key, &name) {
-                log(&format!("subagent {id}: renaming its workspace: {e}"));
+            if let Err(e) = workspaces.close(&key) {
+                log(&format!("subagent {id}: closing its workspace: {e}"));
             }
         });
     }
@@ -628,10 +727,35 @@ impl Brain {
             || sub.paused
             || sub.status == SubStatus::Queued;
         let cancelled = sub.cancelled;
+        let peer = sub.peer.clone();
+        // B4: its VM was paused while it was idle; it resumes before the
+        // message (a rare tell to a finished cloud subagent, seconds).
+        if !cancelled
+            && let Some(peer) = peer.filter(|p| self.cloud_paused.contains(p))
+            && let Some(vms) = self.cloud_vms.clone()
+        {
+            vms.resume(&peer)
+                .map_err(|e| format!("{id}'s cloud VM {peer} did not resume: {e}"))?;
+            self.cloud_paused.remove(&peer);
+            self.cloud_idle_since.remove(&peer);
+        }
         if cancelled {
             return Ok(format!(
                 "outcome: refused. {id} was cancelled; control(action: \"restart\", id: \"{id}\") brings it back"
             ));
+        }
+        // The messages this tell is for: its next report answers them, in
+        // their thread (chief-replies-reactions-DESIGN.md).
+        let told_for = self
+            .state
+            .turn
+            .as_ref()
+            .map(|t| t.answers.clone())
+            .unwrap_or_default();
+        if !told_for.is_empty()
+            && let Some(sub) = self.state.sub_mut(id)
+        {
+            sub.answers = told_for;
         }
         if let Some(key) = key
             && let Some(sub) = self.state.sub_mut(id)
@@ -842,19 +966,27 @@ impl Brain {
 
     /// The live cap: `control cap` (0: none) over the env's.
     pub(super) fn live_cap(&self) -> Option<usize> {
+        self.live_cap_source().map(crate::subagents::LiveCap::n)
+    }
+
+    /// The live cap with where it came from (`control cap` over the env).
+    pub(super) fn live_cap_source(&self) -> Option<crate::subagents::LiveCap> {
+        use crate::subagents::LiveCap;
         match self.state.live_cap {
             Some(0) => None,
-            Some(n) => Some(n),
-            None => self.max_live,
+            Some(n) => Some(LiveCap::Control(n)),
+            None => self.max_live.map(LiveCap::Env),
         }
     }
 
-    /// Subagents starting or running now.
+    /// Subagents starting or running now on this machine (cloud ones, on a
+    /// peer, take no slot).
     pub(super) fn live_subs(&self) -> usize {
         self.state
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
+            .filter(|s| s.peer.is_none())
             .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
             .count()
     }

@@ -4,7 +4,7 @@
 // metrics (12px on 20px lines), so its height is final as it grows; when it closes, Pierre renders
 // it once underneath, and the highlighted card fades in over the plain one only after Pierre has
 // painted its lines. Same metrics, so nothing moves; only the colors arrive.
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
 import { CodeBrackets, WrapLines } from "./icons";
@@ -12,6 +12,7 @@ import { useT } from "../i18n";
 import { menuPartRef } from "./menuParts";
 import { useLab } from "../labs";
 import { useCodeWrap } from "./codeWrap";
+import { isAgentMotionOff } from "../../shared/motion";
 
 /// An open fence: the card's chrome over plain lines.
 export function PlainCode({ code, lang, open = false }: { code: string; lang: string; open?: boolean }) {
@@ -68,14 +69,32 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
     let frame = 0;
     const started = performance.now();
     const check = () => {
+      if (isAgentMotionOff()) {
+        setStage("done");
+        return;
+      }
       const host = ref.current?.querySelector("diffs-container");
       if (host?.shadowRoot?.querySelector("[data-line]") || performance.now() - started > HANDOFF_LIMIT_MS)
         // Under Reduce Motion nothing fades: the highlighted card replaces the plain one at once.
-        setStage(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "done" : "fading");
+        setStage(
+          isAgentMotionOff() || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "done" : "fading",
+        );
       else frame = requestAnimationFrame(check);
     };
     check();
     return () => cancelAnimationFrame(frame);
+  }, [stage]);
+  // `ui.animationSpeed: off` removes CSS animations globally, so a card already fading never gets
+  // its animationend event. Finish when the setting turns off mid-fade (the root's
+  // data-agent-motion changes), so the plain card does not stay mounted under the highlighted one.
+  useEffect(() => {
+    if (stage !== "fading" || typeof MutationObserver === "undefined") return;
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => {
+      if (isAgentMotionOff()) setStage("done");
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ["data-agent-motion"] });
+    return () => observer.disconnect();
   }, [stage]);
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>

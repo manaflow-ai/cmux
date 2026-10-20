@@ -1,8 +1,9 @@
 import CmuxNextDesign
 import QuartzCore
 
-/// The tab's busy indicator: the shared `StatusIndicatorLayer` in the icon
-/// slot. A busy cell registers with `StatusIndicatorAppearance`, so a
+/// The tab's busy indicator: the shared `StatusIndicatorLayer` in the
+/// trailing cluster (TabCell+TrailingMarks; in the icon slot only on a tab
+/// that shows no title). A busy cell registers with `StatusIndicatorAppearance`, so a
 /// settings or Debug Settings change restyles it live; idle cells cost
 /// nothing.
 extension TabCell: StatusIndicatorConfigClient {
@@ -11,12 +12,12 @@ extension TabCell: StatusIndicatorConfigClient {
     var spinnerPlan: StatusIndicatorPlan {
         guard item.indicator.replacesTabIcon else { return .hidden }
         let config = StatusIndicatorAppearance.shared.config
-        var plan = StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle),
-                                            animates: config.animatesLoops && isWindowVisible, set: config.iconSet, isStatic: config.isStatic,
-                                            staticShapes: config.staticShapes)
-        // A page waiting for its first response turns the other way; agent work keeps `spin`.
-        if item.isWaiting, item.indicator.isLoading, plan.animation == .spin { plan.animation = .spinBackward }
-        return plan
+        // A page waiting for its first response spins like every other spinner: same direction,
+        // same phase (Lawrence 2026-10-20; Chromium's counter-clockwise waiting throbber put two
+        // spinners on screen turning opposite ways).
+        return StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle),
+                                        animates: config.animatesLoops && isWindowVisible, set: config.iconSet, isStatic: config.isStatic,
+                                        staticShapes: config.staticShapes)
     }
 
     /// Creates, updates or removes the indicator for the current item and

@@ -177,7 +177,7 @@ impl Brain {
     }
 
     /// chief.stop: a running turn stops as for a newer message, and its end
-    /// posts what it said and "(turn stopped)".
+    /// posts nothing: the owner already knows they stopped it.
     /// Every subagent at work stops too (the reference client's stop).
     pub(super) fn owner_stop(&mut self) -> Value {
         let subagents = self.stop_subagents();

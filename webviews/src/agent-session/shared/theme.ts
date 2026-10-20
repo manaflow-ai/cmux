@@ -17,6 +17,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   onAccent: "--agent-on-accent",
   danger: "--agent-danger",
   warning: "--agent-warning",
+  success: "--agent-success",
   highlight: "--agent-highlight",
   highlightText: "--agent-highlight-text",
   shadow: "--agent-shadow",
@@ -71,6 +72,15 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
     if (typeof seconds === "number" && Number.isFinite(seconds) && seconds >= 0) {
       root.style.setProperty(variable, `${Math.round(seconds * 1000)}ms`);
     } else root.style.removeProperty(variable);
+  }
+  // `ui.animationSpeed: off` reaches the page as an all-zero motion policy. Mark it on the root so
+  // CSS animations and transitions that represent loops or third-party surfaces stop as well as
+  // tokenized fades. Reduce Motion keeps its short crossfade values and therefore does not trip this.
+  const motionValues = theme.motion ? Object.values(theme.motion) : [];
+  if (motionValues.length > 0 && motionValues.every((value) => value === 0)) root.dataset.agentMotion = "off";
+  else delete root.dataset.agentMotion;
+  if (root.dataset.agentMotion === "off") {
+    for (const animation of document.getAnimations?.() ?? []) animation.cancel();
   }
   // `--agent-ansi-0` … `--agent-ansi-15`; a theme without a palette clears them.
   for (let index = 0; index < 16; index += 1) {

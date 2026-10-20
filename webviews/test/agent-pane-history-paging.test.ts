@@ -107,6 +107,12 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
   }
 
   const requests: { method: string; params: Record<string, any>; sent: number }[] = [];
+  /// The pane's read of the prompt that opened the turn its tail starts in: user_message records only.
+  const isOpenerRead = (request: (typeof requests)[number]) =>
+    request.method === "_acpmux/events" &&
+    Array.isArray(request.params.kinds) &&
+    request.params.kinds.length === 1 &&
+    request.params.kinds[0] === "user_message";
   let inflight = 0;
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
@@ -182,7 +188,11 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     // never truncated. This fixture's boundary is within one older page; nothing else is prefetched.
     const attach = requests.find((request) => request.method === "_acpmux/attach")!;
     expect(attach.sent).toBeLessThanOrEqual(400);
-    expect(requests.filter((request) => request.method === "_acpmux/events" && request.params.limit > 1)).toEqual([
+    expect(
+      requests.filter(
+        (request) => request.method === "_acpmux/events" && request.params.limit > 1 && !isOpenerRead(request),
+      ),
+    ).toEqual([
       {
         method: "_acpmux/events",
         params: {
@@ -266,7 +276,11 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     await page.waitForTimeout(500);
 
     const older = requests.filter(
-      (request) => request.method === "_acpmux/events" && request.params.beforeSeq && request.params.limit > 1,
+      (request) =>
+        request.method === "_acpmux/events" &&
+        request.params.beforeSeq &&
+        request.params.limit > 1 &&
+        !isOpenerRead(request),
     );
     expect(errors).toEqual([]);
     expect(reachedFirst).toBe(true);

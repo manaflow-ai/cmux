@@ -29,13 +29,21 @@ async function chat(workspaceContext = false, fresh = false, origin: string | un
   let hold = false;
   let refuse: boolean | string = false;
   let editOK = true;
+  let removeOK = true;
   let seq = 0;
   const event = (kind: string, promptId: string) =>
     socket.onmessage?.({
       data: JSON.stringify({
         jsonrpc: "2.0",
         method: "_acpmux/event",
-        params: { sessionId: "chat-1", seq: ++seq, at: 1, dir: "mux", kind, msg: { promptId, text: "Queued" } },
+        params: {
+          sessionId: "chat-1",
+          seq: ++seq,
+          at: 1,
+          dir: "mux",
+          kind,
+          msg: { promptId, text: "Queued" },
+        },
       }),
     });
   const reply = (id: number) =>
@@ -80,9 +88,11 @@ async function chat(workspaceContext = false, fresh = false, origin: string | un
                   }
                 : method === "session/new"
                   ? { sessionId: "chat-new" }
-                  : method === "_acpmux/queue_edit"
-                    ? { ok: editOK }
-                    : null;
+                  : method === "_acpmux/queue_remove"
+                    ? { removed: removeOK }
+                    : method === "_acpmux/queue_edit"
+                      ? { ok: editOK }
+                      : null;
         if (id !== undefined)
           queueMicrotask(() =>
             socket.onmessage?.({
@@ -121,6 +131,11 @@ async function chat(workspaceContext = false, fresh = false, origin: string | un
     editOK: (value: boolean) => {
       editOK = value;
     },
+    removeOK: (value: boolean) => {
+      removeOK = value;
+    },
+    removed: (promptId: string) => event("queue_removed", promptId),
+    dequeued: (promptId: string) => event("dequeued", promptId),
     queued: (promptId: string) => event("queued", promptId),
     updated: (promptId: string) => event("queue_updated", promptId),
     finish: () => {
@@ -324,4 +339,37 @@ test("both guides teach that declined bridge calls reject", async () => {
     configureLabs({ labs: { renderKit } });
     expect(renderGuide()).toContain("reject when declined");
   }
+});
+
+test.each(["reply", "event"] as const)(
+  "withdrawing a queued guide prompt releases it through the %s path",
+  async (via) => {
+    const daemon = await chat();
+    daemon.hold();
+    const first = daemon.client.send("First", [], "first");
+    daemon.queued("first");
+    if (via === "reply") await daemon.client.removeQueued("first");
+    else daemon.removed("first");
+    const next = daemon.client.send("Next");
+    const nextContext = context(daemon.prompts[1]);
+    daemon.finish();
+    await Promise.all([first, next]);
+    expect(nextContext).toContain(TAG);
+  },
+);
+
+test("a refused removal, another prompt's removal and dequeue keep the delivered guide", async () => {
+  const daemon = await chat();
+  daemon.hold();
+  const first = daemon.client.send("First", [], "first");
+  daemon.queued("first");
+  daemon.removeOK(false);
+  await daemon.client.removeQueued("first");
+  daemon.removed("other");
+  daemon.dequeued("first");
+  const next = daemon.client.send("Next");
+  const nextContext = context(daemon.prompts[1]);
+  daemon.finish();
+  await Promise.all([first, next]);
+  expect(nextContext).toBeUndefined();
 });

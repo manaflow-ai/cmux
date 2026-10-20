@@ -1,4 +1,5 @@
 import React, { type ReactNode } from "react";
+import { openProcessTerminal } from "../processTerminal";
 import { Counts } from "../changes/Counts";
 import { changedByTools } from "../changes/turnCheckpoint";
 import { useT, type StringKey } from "../i18n";
@@ -8,8 +9,39 @@ import type { TurnFile } from "../diff";
 import type { SessionSummary, SummaryBackgroundTask } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
+import { useSourceIcon } from "../chips/linkStore";
+import { useLab } from "../labs";
 
 const ROW_ICON = rowIconSize(12);
+
+/// The site a search was aimed at (`site:example.com …`), as a URL for its icon.
+export function searchSite(label: string): string | undefined {
+  const token = /(?:^|\s)site:([^\s]+)/i.exec(label)?.[1];
+  if (!token || !/^[\p{L}\p{N}\p{M}.-]+$/u.test(token)) return undefined;
+  try {
+    const url = new URL(`https://${token}/`);
+    const labels = url.hostname.split(".");
+    if (
+      url.hostname.length > 253 ||
+      labels.length < 2 ||
+      labels.some((part) => part.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(part))
+    )
+      return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+/// A source's site icon (labs `sourceIcons`, Lucas 2026-10-19), else the generic one.
+function SourceIcon({ url, fallback, settled = true }: { url?: string; fallback: string; settled?: boolean }) {
+  const icon = useSourceIcon(url, useLab("sourceIcons") && settled);
+  return icon ? (
+    <img className="acpmux-summary-favicon" src={icon} alt="" width={ROW_ICON} height={ROW_ICON} />
+  ) : (
+    <Icon name={fallback} size={ROW_ICON} row />
+  );
+}
 
 /// The chat's summary, a section per kind of thing it produced. Outputs, Subagents and Sources
 /// always show, in the Codex app's order, with "None" while empty; pull requests, background
@@ -119,12 +151,12 @@ export function SummaryBody({
           <li key={source.url ?? source.label}>
             {source.url ? (
               <a className="acpmux-summary-row acpmux-summary-link" href={source.url} onClick={onFollow}>
-                <Icon name="link.web" size={ROW_ICON} row />
+                <SourceIcon url={source.url} fallback="link.web" settled={source.settled} />
                 <span className="acpmux-summary-text">{source.label}</span>
               </a>
             ) : (
               <span className="acpmux-summary-row">
-                <Icon name="search.files" size={ROW_ICON} row />
+                <SourceIcon url={searchSite(source.label)} fallback="search.files" settled={source.settled} />
                 <span className="acpmux-summary-text">{source.label}</span>
               </span>
             )}
@@ -189,10 +221,22 @@ export function SummaryBody({
         title={t("summary.backgroundTasks")}
         items={summary.backgroundTasks}
         row={(task) => (
-          <li key={task.id} className="acpmux-summary-row" data-state={task.state}>
-            <Icon name="terminal" size={ROW_ICON} row />
-            <span className="acpmux-summary-text">{task.command}</span>
-            <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
+          <li key={task.id}>
+            {/* A click opens its terminal beside the chat (processTerminal.ts). */}
+            <button
+              type="button"
+              className="acpmux-summary-row acpmux-summary-link"
+              data-state={task.state}
+              title={t("bgTask.showOutput")}
+              onClick={() => {
+                onFollow?.();
+                void openProcessTerminal(task.id);
+              }}
+            >
+              <Icon name="terminal" size={ROW_ICON} row />
+              <span className="acpmux-summary-text">{task.command}</span>
+              <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
+            </button>
           </li>
         )}
       />
