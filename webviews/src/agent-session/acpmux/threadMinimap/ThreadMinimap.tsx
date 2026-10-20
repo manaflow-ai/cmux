@@ -339,6 +339,7 @@ export function ThreadMinimap({
   // geometry, so no commit reads layout for it.
   const glide = useRef<Animation | undefined>(undefined);
   const holding = useRef(false);
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose (the band tracks every frame); its setState calls are guarded by `added`.
   useLayoutEffect(() => {
     const was = anchor.current;
     anchor.current = undefined;

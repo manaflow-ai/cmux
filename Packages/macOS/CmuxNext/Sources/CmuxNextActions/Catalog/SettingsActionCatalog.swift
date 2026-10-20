@@ -195,18 +195,6 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.topicString], cliName: "settings documentation", mainMenu: .help
             ),
             ActionDescriptor(
-                id: "appearance.density.compact",
-                title: String(localized: "action.appearance.density.compact", defaultValue: "Use Compact Density", bundle: .module),
-                keywords: ["density", "compact", "dense", "appearance", "size"], category: .settings,
-                symbol: "rectangle.compress.vertical", surfaces: [.palette], cliName: "settings use-compact-density"
-            ),
-            ActionDescriptor(
-                id: "appearance.density.comfortable",
-                title: String(localized: "action.appearance.density.comfortable", defaultValue: "Use Comfortable Density", bundle: .module),
-                keywords: ["density", "comfortable", "spacious", "appearance", "size"], category: .settings,
-                symbol: "rectangle.expand.vertical", surfaces: [.palette], cliName: "settings use-comfortable-density"
-            ),
-            ActionDescriptor(
                 id: "appearance.animationSpeed.fast",
                 title: String(localized: "action.appearance.animationSpeed.fast", defaultValue: "Use Fast Animations", bundle: .module),
                 keywords: ["animation", "motion", "speed", "fast", "snappy", "appearance"], category: .settings,

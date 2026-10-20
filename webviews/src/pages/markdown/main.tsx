@@ -19,6 +19,7 @@ import {
   MARKDOWN_FLUSH_OP,
   MARKDOWN_LIST_FILES_OP,
   MARKDOWN_RESOLVE_LINKS_OP,
+  MARKDOWN_SELECTION_OP,
   MARKDOWN_SET_TABLE_WIDTHS_OP,
   resolveImageURL,
 } from "./host";
@@ -290,6 +291,8 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     );
     // The host asks before it closes the tab or quits: pending edits are written first.
     client.handle(MARKDOWN_FLUSH_OP, () => store.flush());
+    // Comment… and Quote in Chat on selected text: the host asks for the selection and its lines.
+    client.handle(MARKDOWN_SELECTION_OP, () => editor?.selectionQuote() ?? null);
   }
   // Leaving the page (tab closed, app quit) writes pending edits.
   addEventListener("pagehide", () => {

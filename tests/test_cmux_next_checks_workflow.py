@@ -1166,7 +1166,12 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertNotIn("setup-cmux-tui-rust", yaml.safe_dump(build), "nothing restores a Mac cargo seed")
         self.assertLess(tier, steps.index(saves[0]))
         self.assertIn(FAST_CACHE_MANIFEST, steps[record]["run"])
-        self.assertIn("'blacksmith-12vcpu-macos-26'", str(build["runs-on"]))
+        # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
+        # cascade fills it first, so a seed pinned there sat queued (run
+        # 39351410275, 85+ minutes) while its concurrency group held every later
+        # feat-cmux-next push, and no seed ever landed.
+        self.assertIn("'blacksmith-6vcpu-macos-26'", str(build["runs-on"]))
+        self.assertNotIn("12vcpu", str(build["runs-on"]))
         self.assertIn("needs.due.outputs.due == 'true'", build.get("if", ""))
 
     def test_seed_key_matches_the_fast_tier_key_for_one_tree(self):
@@ -1331,6 +1336,10 @@ FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
     "&& contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') "
     "&& 'blacksmith-6vcpu-macos-26' || "
+    # Hosted macos-26 takes the overflow while Blacksmith is full or stalled.
+    "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
+    "&& contains(needs.macos-placement.outputs.hosted_jobs, ' fast-tier ') "
+    "&& needs.macos-placement.outputs.hosted_runner || "
     "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "

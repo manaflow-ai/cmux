@@ -2065,6 +2065,7 @@ jobs:
           IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
           SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
           EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
+          BUILD_TRACK: ${{ needs.decide.outputs.track }}
         run: |
           set -euo pipefail
           # cx-f58x: compile out browser-import code as `decide` chose (the
@@ -2101,6 +2102,21 @@ jobs:
           # phases find the local-source helpers fresh instead of building them after
           # the compile. A failed or late prebuild only leaves that work to the
           # phases, so its status never fails this step.
+          # Xcode's script phases resolved HOME to the build user's home, not the
+          # job's HOME. On the dedicated nightly-next builder the job's HOME is
+          # /Users/runner (the Blacksmith path) while the user is cmux, so the
+          # CEF shim and the diff sidecar recorded /Users/cmux paths (build
+          # 74986f8b: libcmux_cef_shim.dylib and the five helpers named
+          # /Users/cmux/Library/Caches/cmux/cef, cmux-diff-sidecar
+          # /Users/cmux/.cargo). Name the cargo, rustup and CEF roots from the job's HOME, so the
+          # phases build where the earlier steps fetched and the bytes match a
+          # Blacksmith build. Same values as before on every other runner.
+          if [ "${BUILD_TRACK:-}" = nightly-next ]; then
+            export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+            export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+            CMUX_CEF_CACHE_DIR="${CMUX_CEF_CACHE_DIR:-$(scripts/cmux-next/cef-cache-root.sh)}"
+            export CMUX_CEF_CACHE_DIR
+          fi
           python3 scripts/ci/run-with-helper-prebuild.py \
             --derived-data build-universal --configuration Release --archs "$archs" \
             --log "$RUNNER_TEMP/helper-prebuild.log" -- \
@@ -2117,6 +2133,37 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
             "${notary_test_flags[@]}"
+
+      # In Release Xcode merges iroh-ffi's static code into Contents/MacOS/cmux
+      # and still embeds Iroh.framework: a 35 KB stub (only __TEXT and
+      # __LINKEDIT, no exported symbol) that no binary of the app loads (otool
+      # -L of build 3939848657701), and whose LC_ID_DYLIB is a random
+      # swbuild.tmp folder, so its bytes differ in every build. The app
+      # launched without it (nx-remote job 1020-050356-5d14cf). Drop it; the
+      # hosted sign job signs the app afterwards. The checks refuse a
+      # framework that exports code or that something loads.
+      - name: Drop the empty Iroh.framework stub (nightly-next)
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          fw="$app/Contents/Frameworks/Iroh.framework"
+          [ -d "$fw" ] || { echo "no Iroh.framework in $app"; exit 0; }
+          bin="$fw/Versions/A/Iroh"
+          [ -f "$bin" ] || { echo "::error::no $bin; not the known stub layout"; exit 1; }
+          if [ -n "$(nm -gU "$bin" 2>/dev/null || true)" ]; then
+            echo "::error::Iroh.framework exports symbols; it is not the Release stub"
+            exit 1
+          fi
+          loaders="$(find "$app" -type f -perm +111 ! -path "$fw/*" -print0 \
+            | xargs -0 otool -L 2>/dev/null | grep -F "Iroh.framework" || true)"
+          if [ -n "$loaders" ]; then
+            echo "::error::a binary in the app loads Iroh.framework"
+            echo "$loaders"
+            exit 1
+          fi
+          echo "Removing the Iroh.framework stub (install name $(otool -D "$bin" | tail -n 1))"
+          rm -rf "$fw"
 
       - name: Prove the password-import readers are compiled out (cx-f58x notary test)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.password_readers_out == 'true')

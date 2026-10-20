@@ -237,7 +237,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "palette.toggleWorkspacePin",
                 title: String(localized: "action.palette.toggleWorkspacePin", defaultValue: "Pin/Unpin Workspace", bundle: .module),
                 keywords: ["pin", "unpin", "favorite"], category: .workspace, symbol: "pin",
-                surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace pin-unpin",
+                surfaces: [.palette, .menu, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace pin-unpin",
                 mainMenu: .file
             ),
             ActionDescriptor(
