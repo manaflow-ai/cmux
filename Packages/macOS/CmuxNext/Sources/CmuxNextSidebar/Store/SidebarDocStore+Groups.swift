@@ -62,4 +62,14 @@ extension SidebarModel {
         let item = GroupID(SidebarDocStore.groupItemID(personal: group))
         return self.group(item) != nil ? item : own
     }
+
+    /// The personal group id of the group the active workspace is in (its own id, or its document item's
+    /// group id on the sidebar document); nil when the active workspace is in no group.
+    public var activeGroupPersonalID: String? {
+        guard let active = activeWorkspaceID else { return nil }
+        for case let .group(group) in sections.flatMap(\.nodes) where group.workspaces.contains(where: { $0.id == active }) {
+            return SidebarDocStore.personalGroupID(item: group.id.rawValue)
+        }
+        return nil
+    }
 }

@@ -21,7 +21,7 @@ enum WorkspaceGroupHandlers {
             (try? context.group(invocation)).map { isPinned($0, context) ? WorkspaceVerbStrings.unpinGroup : WorkspaceVerbStrings.pinGroup }
         }
         ActionTargetTitles.set("toggleFocusedWorkspaceGroupCollapsed", in: registry) { invocation in
-            (try? context.group(invocation)).map { $0.collapsed ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
+            (try? context.group(invocation)).map { isCollapsed($0, context) ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
         }
         registry.bind("nextWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
                       run: { _ in selectGroup(context, offset: 1) })
@@ -185,6 +185,11 @@ enum WorkspaceGroupHandlers {
         (try? context.sidebar())?.model.groupID(personal: group.id.rawValue) ?? CmuxNextSidebar.GroupID(group.id.rawValue)
     }
 
+    /// The fold the sidebar shows (the sidebar document keeps its own), else the personal group's.
+    private static func isCollapsed(_ group: WorkspaceGroupModel, _ context: AppActionContext) -> Bool {
+        (try? context.sidebar().model.group(sidebarID(group, context))?.isCollapsed) ?? group.collapsed
+    }
+
     /// Whether the group reads as pinned where the person sees it: in the Pinned band on the sidebar
     /// document, else the personal group's saved flag. Pin/Unpin toggles from this.
     private static func isPinned(_ group: WorkspaceGroupModel, _ context: AppActionContext) -> Bool {
@@ -205,7 +210,7 @@ enum WorkspaceGroupHandlers {
     /// nil toggles.
     private static func setCollapsed(_ collapsed: Bool?, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let group = try context.group(invocation)
-        guard collapsed == nil || collapsed != group.collapsed else { return }
+        guard collapsed == nil || collapsed != isCollapsed(group, context) else { return }
         try context.sidebar().handle(.toggleCollapse(.group(sidebarID(group, context))))
     }
 
@@ -213,15 +218,8 @@ enum WorkspaceGroupHandlers {
         guard let window = context.activeWindow, let sidebar = try? context.sidebar(),
               !context.roomGroups.isEmpty else { return }
         let groups = context.roomGroups
-        let activeGroup = sidebar.model.activeWorkspaceID.flatMap { active in
-            sidebar.model.sections.flatMap(\.nodes).compactMap { node -> SidebarGroup? in
-                guard case let .group(group) = node, group.workspaces.contains(where: { $0.id == active }) else { return nil }
-                return group
-            }.first
-        }
-        let activeGroupIndex = activeGroup.flatMap { current in
-            groups.firstIndex { $0.id.rawValue == current.id.rawValue }
-        }
+        // By personal id: on the sidebar document the group lists as its item (`itm_g_<id>`).
+        let activeGroupIndex = sidebar.model.activeGroupPersonalID.flatMap { current in groups.firstIndex { $0.id.rawValue == current } }
         let start = activeGroupIndex ?? (offset > 0 ? -1 : groups.count)
         for step in 1...groups.count {
             let index = (start + offset * step + groups.count * 2) % groups.count
