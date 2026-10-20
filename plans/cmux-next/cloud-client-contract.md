@@ -336,6 +336,13 @@ and quit stop local transport while preserving enrollment cleanup handles. Sign-
 broker work and process exit, then revokes those enrollments before rotating the install key.
 Failed remote cleanup keeps the existing device checkpoint for later recovery.
 
+Sign-out captures the original account and auth generation before waiting for teardown. Install
+cleanup revokes and rotates only that account's key; another account's current client remains
+bound. An unbind cannot reopen the retiring account until its cleanup task finishes. The Stack
+token supplier and final local auth clear refuse a changed generation, including a replacement
+session for the same account. If the old session has expired, remote revocation can fail while
+local record removal and key rotation still run.
+
 The parent and server paths are connected in source. Receiving/current-peer authorization, idle
 backend revocation/expiry, explicit selection of ambiguous meshes, offline cleanup recovery and
 live Cloud/paired-server/Keychain/GUI journeys remain unverified or incomplete. Earlier parents
