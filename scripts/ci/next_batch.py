@@ -57,6 +57,7 @@ COMMENT_MARKER = "<!-- cmux-next-batch:{kind}:{sha} -->"
 
 QUIET_SECONDS = 120
 HARD_MAX_SECONDS = 600
+MAX_RETRY_BACKOFF_SECONDS = 3600
 STALE_DAYS = 5
 MAX_PRS = 12
 MAX_CULPRITS = 3
@@ -790,7 +791,8 @@ class Debouncer:
     `observe` gets the eligible set as (number, head sha) pairs once per poll.
     A batch runs after `quiet` seconds without a change, never later than
     `hard_max` after the first change since the last batch, and not again
-    for a set it already ran.
+    for a set it already ran. A set whose batch raised is tried again after a
+    wait that doubles with each failure in a row (up to `max_backoff`).
     """
 
     def __init__(self, quiet: int = QUIET_SECONDS, hard_max: int = HARD_MAX_SECONDS) -> None:
@@ -799,6 +801,10 @@ class Debouncer:
         self.done: tuple | None = None
         self.first: dt.datetime | None = None
         self.last: dt.datetime | None = None
+        self.failed_heads: tuple | None = None
+        self.failures = 0
+        self.hold_until: dt.datetime | None = None
+        self.max_backoff = MAX_RETRY_BACKOFF_SECONDS
 
     def observe(self, heads: tuple, at: dt.datetime) -> bool:
         if heads != self.seen:
@@ -809,6 +815,8 @@ class Debouncer:
                 self.first = at
         if self.first is None or self.last is None:
             return False
+        if heads == self.failed_heads and self.hold_until is not None and at < self.hold_until:
+            return False
         return (at - self.last).total_seconds() >= self.quiet or \
             (at - self.first).total_seconds() >= self.hard_max
 
@@ -817,7 +825,13 @@ class Debouncer:
 
     def failed(self, heads: tuple, at: dt.datetime) -> None:
         """A batch for `heads` raised (a rate limit, a 502): try the same set
-        again after another quiet wait instead of waiting for a new push."""
+        again instead of waiting for a new push. The wait doubles with each
+        failure of the same set in a row, so a batch that always raises can't
+        rerun the whole validation every few minutes."""
+        self.failures = self.failures + 1 if heads == self.failed_heads else 1
+        self.failed_heads = heads
+        wait = min(self.quiet * 2 ** (self.failures - 1), self.max_backoff)
+        self.hold_until = at + dt.timedelta(seconds=wait)
         self.done, self.seen, self.first, self.last = None, heads, at, at
 
 
