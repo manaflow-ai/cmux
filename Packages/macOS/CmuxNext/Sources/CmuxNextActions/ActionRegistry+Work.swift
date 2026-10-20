@@ -16,6 +16,10 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     /// answers it as it answers the same refusal reported at once (`unavailable` with the
     /// reason, or `not_found`). Nil for a daemon failure (`daemon_error`).
     public var refusal: ActionWorkRefusal?
+    /// The control error code a caller answers instead of the default
+    /// (`screenshot.unavailable`), with `message` as its reason. Nil for the
+    /// default mapping (``refusal``, a timeout, or `daemon_error`).
+    public var code: String?
 
     public init(_ message: String, mayHaveApplied: Bool = false, terminalMayAppear: Bool = false) {
         self.message = message
@@ -27,6 +31,12 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     public init(refusal: ActionWorkRefusal, reason: String) {
         self.init(reason)
         self.refusal = refusal
+    }
+
+    /// A failure the control socket answers with error `code` and `reason`.
+    public init(code: String, reason: String) {
+        self.init(reason)
+        self.code = code
     }
 
     public init(stringLiteral value: String) {
