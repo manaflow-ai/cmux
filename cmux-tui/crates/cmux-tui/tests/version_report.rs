@@ -29,7 +29,8 @@ fn version_names_the_distribution_release() {
     let text = String::from_utf8(output.stdout).unwrap();
     let first = text.lines().next().unwrap_or_default();
     assert!(
-        first == format!("cmux {distribution}") || first.starts_with(&format!("cmux {distribution} (")),
+        first == format!("cmux {distribution}")
+            || first.starts_with(&format!("cmux {distribution} (")),
         "--version must name the distribution release {distribution}: {first:?}"
     );
 }
@@ -39,8 +40,13 @@ fn version_json_reports_the_rollout_facts() {
     let probe = probe();
     let output = Command::new(bin()).args(["--version", "--json"]).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let report: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("--version --json must print JSON ({error}): {:?}", String::from_utf8_lossy(&output.stdout)));
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+            panic!(
+                "--version --json must print JSON ({error}): {:?}",
+                String::from_utf8_lossy(&output.stdout)
+            )
+        });
     assert_eq!(report["app"], "cmux-tui", "{report}");
     assert_eq!(report["version"], probe["distribution_version"], "{report}");
     assert_eq!(report["build_identity"], probe["build_identity"], "{report}");
