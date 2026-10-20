@@ -113,7 +113,11 @@ extension SidebarListViewComponents {
             } else {
                 // Lawrence 2026-10-20: a plain click anywhere on the header only collapses or
                 // expands it; the more button and a right-click open the editor and the menu.
+                // The fold draws itself (`foldGroup`, the group's rows only): no list reload after it. It is the
+                // user's own change, so it moves on the spring (calm-sidebar-movement).
+                model.noteUserIntent()
                 model.send(.toggleCollapse(.group(group)))
+                return
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
