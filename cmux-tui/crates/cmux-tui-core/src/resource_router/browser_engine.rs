@@ -53,12 +53,13 @@ pub(super) fn route_to_frontend(
         return Ok(());
     }
     let url = request.fields.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
-    // The request's `engine`, else the person's `browser.defaultEngine`
-    // (Chromium unless set to WebKit): an agent's tab opens in the same
-    // engine as one the person opens.
+    // The request's `engine`, else the person's `browser.siteEngines` rule
+    // for the URL, else `browser.defaultEngine` (Chromium unless set to
+    // WebKit): an agent's tab opens in the same engine as one the person opens.
     let engine = crate::browser_profile_ops::requested_or_default_engine(
         mux,
         request.fields.get("engine").and_then(Value::as_str),
+        &url,
     )?;
     let record = FrontendBrowserRecord {
         engine: engine.to_string(),

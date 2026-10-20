@@ -214,6 +214,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
         self.inputReadiness = inputReadiness
+        // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
         webView = PageWKWebView(frame: .zero, configuration: configuration)
         inputReadiness.attach(webView)
         let webKitBridge = WebKitPageHostBridge(webView: webView)
@@ -397,7 +398,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// Reloads the page document (its subscriptions end with the old document).
     public func reload() {
-        reloadDocument()
+        reloadPage()
     }
 
     /// Gives the page the keyboard focus.
