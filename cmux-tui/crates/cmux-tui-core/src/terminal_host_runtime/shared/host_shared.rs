@@ -373,7 +373,13 @@ impl HostShared {
     pub(crate) fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
         let delivered = {
             let mut writer = self.writer.lock().unwrap();
-            writer.write_all(payload).and_then(|()| writer.flush()).is_ok()
+            // Receipted input certifies delivery, so none of it is dropped. The master is
+            // held only to read the queue, never across a write that can block.
+            let admitted = request_id != 0 || {
+                let master = self.master.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                crate::pty_input_room::admits(&**master, payload)
+            };
+            !admitted || writer.write_all(payload).and_then(|()| writer.flush()).is_ok()
         };
         // Interactive input has always been best-effort. Only a nonzero
         // request id asks the authoritative host to certify delivery.
