@@ -514,6 +514,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/promote-nightly-next.mjs
+            scripts/ci/nightly_next_train.py
             .github/release-surface.txt
           sparse-checkout-cone-mode: false
 
@@ -541,6 +542,8 @@ jobs:
               surfaceText: fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'),
               debounce: process.env.DEBOUNCE === 'true',
               minIntervalHours: Number(process.env.MIN_INTERVAL_HOURS),
+              // G1' for a train commit: main's train script rebuilds its tree.
+              verifyTrain: guard.trainVerifier(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_next_train.py`, { cwd: process.env.GITHUB_WORKSPACE }),
             });
             await core.summary.addRaw(`${dryRun ? '**Dry run: nothing moves.**\n\n' : ''}${decision.sha && decision.sha !== sha ? `Requested \`${sha}\`.\n\n` : ''}${guard.summary(decision)}`).write();
             core.setOutput('dry_run', dryRun ? 'true' : 'false');
@@ -650,6 +653,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/promote-nightly-next.mjs
+            scripts/ci/nightly_next_train.py
             .github/release-surface.txt
           sparse-checkout-cone-mode: false
 
@@ -668,6 +672,7 @@ jobs:
               github, core, owner, repo,
               sha: (process.env.REQUESTED_SHA || '').trim(),
               surfaceText: fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'),
+              verifyTrain: guard.trainVerifier(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_next_train.py`, { cwd: process.env.GITHUB_WORKSPACE }),
             });
             const approvers = await guard.approvedBy({ github, owner, repo, runId: context.runId });
             const policy = guard.parsePolicy(fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'));
