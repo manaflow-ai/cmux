@@ -13,8 +13,9 @@ pub(crate) const REMOTE_ENV_POLICY_KEY: &str = "ACPMUX_REMOTE_ENV_POLICY";
 /// Recorded with every remote durable host. A changed or missing id means
 /// that host predates this process-authority boundary and is not adopted.
 pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v2";
-/// `Command` exposes its env edits but not `env_clear`; this removal records
-/// that clear for the agent-host environment projection (`command_env`).
+/// `Command` exposes its env edits but not `env_clear`; this harmless internal
+/// value records that clear for the agent-host environment projection
+/// (`command_env`). The projection consumes it instead of forwarding it.
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
 
 /// The harness command line and environment, as acpmux runs it: the login
@@ -154,7 +155,7 @@ pub(crate) fn harness_command(
     if remote_environment {
         // Keep the hosted projection's env-clear proof after every profile
         // entry, even if an old config used the internal marker's name.
-        cmd.env_remove(REMOTE_ENV_CLEARED_KEY);
+        cmd.env(REMOTE_ENV_CLEARED_KEY, "1");
     }
     cmd
         // Claude refuses to nest inside another Claude session.
@@ -234,8 +235,9 @@ pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
             )
         })
         .collect();
-    let cleared =
-        changes.iter().any(|(key, value)| key == REMOTE_ENV_CLEARED_KEY && value.is_none());
+    let cleared = changes
+        .iter()
+        .any(|(key, value)| key == REMOTE_ENV_CLEARED_KEY && value.as_deref() == Some("1"));
     let mut env: std::collections::BTreeMap<String, String> =
         if cleared { Default::default() } else { std::env::vars().collect() };
     for (k, v) in changes {
@@ -258,13 +260,7 @@ pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
 /// then layer the common login allowlist and its explicit profile/session
 /// values. Unrelated tokens, SSH_AUTH_SOCK, and ambient CMUX_* never enter.
 fn apply_remote_base(cmd: &mut Command) {
-    // `Command::env_remove` need not retain a removal for a key it has never
-    // seen. Set then remove so `command_env` can observe env_clear without
-    // exposing the internal marker to either a direct or hosted child.
-    cmd.env_clear()
-        .envs(host_environment())
-        .env(REMOTE_ENV_CLEARED_KEY, "1")
-        .env_remove(REMOTE_ENV_CLEARED_KEY);
+    cmd.env_clear().envs(host_environment());
 }
 
 /// Fixed non-secret process base for a remote harness and for the durable
