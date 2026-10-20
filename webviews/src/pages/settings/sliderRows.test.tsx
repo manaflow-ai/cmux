@@ -113,6 +113,18 @@ describe("slider rows", () => {
     expect(rowElement(page.container, OPACITY).textContent).toContain("65%");
   });
 
+  // A floor at or above 95% leaves the slider no travel: it is disabled, not a thumb that cannot move.
+  test("over a picture whose floor reaches 95% the slider is disabled", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: { values: { "appearance.background": "goya-saturn" } },
+    });
+    await run(() => page!.provider.setHost({ ...page!.provider.host, derived_min: { [OPACITY]: 0.93 } }));
+    expect(slider(OPACITY).min).toBe("0.95");
+    expect(slider(OPACITY).disabled).toBe(true);
+    expect(rowElement(page.container, OPACITY).textContent).toContain("95%");
+  });
+
   test("without a picture the window opacity slider keeps its whole range", async () => {
     page = await renderPage({ path: "/settings/appearance", mock: { values: { "appearance.background": "none" } } });
     await run(() => page!.provider.setHost({ ...page!.provider.host, derived_min: {} }));
