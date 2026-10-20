@@ -65,8 +65,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
-          # The freshness guard needs the true merge base, not a depth-1 head.
+          # The freshness guard needs the true merge base, not a depth-1 head:
+          # the whole commit graph, but no historical blobs (a full clone took
+          # about 280 s here and ran into this job's 5-minute timeout).
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Autofix scripts from the base
@@ -267,6 +270,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+          filter: blob:none # the commit graph without historical blobs, as action-areas
           persist-credentials: false
 
       # The autofix's own scripts come from the immutable base snapshot, and

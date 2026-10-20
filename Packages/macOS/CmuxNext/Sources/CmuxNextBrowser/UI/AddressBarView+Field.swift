@@ -41,6 +41,8 @@ extension AddressBarView: OmnibarFieldEditorSink {
         controller.send(.fieldMouseDown(clickCount: clickCount, button: button, word: word))
     }
 
+    func fieldEditorMouseDragged() { controller.send(.fieldMouseDragged) }
+
     func fieldEditorMouseUp() { controller.send(.fieldMouseUp) }
 
     var copyContent: OmnibarCopy? { OmnibarReducer.copyContent(of: controller.state, resolver: resolver) }

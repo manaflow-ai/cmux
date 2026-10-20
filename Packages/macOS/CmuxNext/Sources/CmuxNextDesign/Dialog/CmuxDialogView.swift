@@ -202,7 +202,7 @@ public final class CmuxDialogView: NSView {
 
         let content = NSView()
         content.addSubview(stack)
-        let surface = Glass.makeOverlayPanel(content: content)
+        let surface = Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.dialog))
         addSubview(surface)
         self.surface = surface
         NSLayoutConstraint.activate([

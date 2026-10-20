@@ -255,6 +255,10 @@ impl Brain {
         };
         sub.status = SubStatus::Done;
         sub.awaiting_task = false;
+        // Startup failures may contain harness/repository-controlled text.
+        // They never enter an approve-all Chief turn, regardless of the
+        // policy the session would have used had it started successfully.
+        sub.policy = Some(crate::approval::ASK.to_owned());
         sub.report = Some(format!("(did not start: {error})"));
         sub.stopped = false;
         let spawn = self.state.sub(id).map(|(s, _)| s.clone());
