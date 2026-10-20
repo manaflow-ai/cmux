@@ -79,6 +79,13 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
         return nil
     }
 
+    /// The turn's last agent message: what a list's preview shows (the chat's newest
+    /// words, not the turn's first message, full verify D13).
+    public var lastAnswerMarkdown: String? {
+        for case .message(_, let text) in items.reversed() where !text.isEmpty { return text }
+        return nil
+    }
+
     /// The final answer text (copy, share).
     public var answerMarkdown: String {
         items.compactMap {

@@ -78,3 +78,13 @@ import Testing
     }
 }
 
+
+/// Full verify D13: a chat's preview is its newest agent message, not the turn's first.
+@Suite struct LastAnswerTests {
+    @Test func theLastMessageOfTheTurn() {
+        var turn = AgentTurn(id: "t", prompt: "update both files", promptAt: Date())
+        turn.items = [.message(id: "a", markdown: "I'll update both files"), .message(id: "b", markdown: "Done: both updated.")]
+        #expect(turn.lastAnswerMarkdown == "Done: both updated.")
+        #expect(AgentTurn(id: "u", prompt: "x", promptAt: Date()).lastAnswerMarkdown == nil)
+    }
+}

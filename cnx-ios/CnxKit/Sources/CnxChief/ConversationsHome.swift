@@ -95,7 +95,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private func conversation(_ tab: WorkspaceTab, in workspace: Workspace) -> AgentConversation {
         let chat = AgentSessionDirectory.shared.existingStore(id: tab.id)
         let lastTurn = chat?.turns.last
-        let answer: String? = lastTurn.map { $0.answerMarkdown.isEmpty ? $0.prompt : $0.answerMarkdown }
+        let answer: String? = lastTurn.map { $0.lastAnswerMarkdown ?? $0.prompt }
         let agentTabs = workspace.tabs.filter { $0.kind == .agent }
         return AgentConversation(
             workspaceID: workspace.id, tabID: tab.id,

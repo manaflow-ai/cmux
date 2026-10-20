@@ -29,3 +29,14 @@ import Testing
         #expect(throws: ServiceTeamCreation.Failure.failed) { try creation.team(from: Data(), status: 502) }
     }
 }
+
+/// Full verify D14: VoiceOver's time matches the row's "now".
+@Suite struct RelativeStampSpokenTests {
+    @Test func underAMinuteAndSlightlyAheadIsNow() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let stamp = RelativeStamp(now: now)
+        #expect(stamp.spoken(for: now.addingTimeInterval(10)) == "now")
+        #expect(stamp.spoken(for: now.addingTimeInterval(-30)) == "now")
+        #expect(stamp.spoken(for: now.addingTimeInterval(-300)) != "now")
+    }
+}
