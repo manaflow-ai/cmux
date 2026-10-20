@@ -64,4 +64,26 @@ import Testing
         #expect(failures.count == 1)
         #expect(settings.snapshot.homeChiefPetEnabled == false)
     }
+
+    /// Two runs before the first write lands (a double-click on the menu item): the second flips
+    /// the first's value, not the stale snapshot, so the pet ends as it began.
+    @Test func twoQuickRunsPutThePetBack() async throws {
+        let (registry, settings, home) = try Self.make()
+        defer { try? FileManager.default.removeItem(at: home) }
+        await settings.reload()
+        let action = try #require(registry.action(for: HomeChiefPetSetting.toggleAction))
+        var titleInFlight: String?
+        let work = registry.capturingWork {
+            _ = registry.perform(HomeChiefPetSetting.toggleAction, invocation: ActionInvocation(origin: .user))
+            titleInFlight = action.paletteTitle?()
+            _ = registry.perform(HomeChiefPetSetting.toggleAction, invocation: ActionInvocation(origin: .user))
+        }
+        #expect(titleInFlight == "Hide Chief Pet", "the row names the change in flight")
+        #expect(work.count == 2)
+        var failures = 0
+        for task in work { if await task.value != nil { failures += 1 } }
+        #expect(failures == 0)
+        #expect(settings.snapshot.homeChiefPetEnabled == false)
+        #expect(action.paletteTitle?() == nil)
+    }
 }
