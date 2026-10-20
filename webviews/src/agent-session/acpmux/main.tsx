@@ -13,12 +13,15 @@ import { postNative } from "./native";
 import { pageHostClient } from "./pageHost";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
+import { installPageKey } from "./pageKey";
 
 // One transcript snapshot per display frame, however many deltas land in it.
 AcpmuxDirectClient.scheduleFrame = nextFrame;
 document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
 // The native context menu learns which message is under the pointer (conversation/messageMenu.ts).
 installMessageMenuReporter(document);
+// The composer shows its caret and focused ring only while the page is the key one (pageKey.ts).
+installPageKey(document);
 const root = document.getElementById("root")!;
 // A menu with no room in the pane goes past the window's edge through the native host (cx-6k6cg):
 // the shared page host's popup ops, else the legacy bridge's.

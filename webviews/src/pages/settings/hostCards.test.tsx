@@ -375,3 +375,26 @@ test("A wallpaper tile whose thumbnail fails shows an empty frame, not a broken 
   expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "starryNight" });
   page.unmount();
 });
+
+test("an art tile shows one title line; its full credit is the tooltip (macOS 15 tester: tile text overlapped)", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const long = "The Starry Night · Vincent van Gogh · 1889 · Museum of Modern Art, New York · Public domain";
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      backdrops: [{ id: "starryNight", title: "The Starry Night", attribution: long }],
+    }),
+  );
+  await settle();
+  const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
+  // One text line under the thumbnail: the title, truncated by CSS; no wrapping credit line.
+  expect([...tile.querySelectorAll("span")].filter((span) => span.textContent).map((span) => span.className)).toEqual([
+    "backdrop-title",
+  ]);
+  expect(tile.textContent).toBe("The Starry Night");
+  expect(tile.title).toBe(long);
+  // A tile whose help text is not its credit keeps both, title first.
+  const none = page.container.querySelector<HTMLButtonElement>(".backdrop-grid > button")!;
+  expect(none.querySelector(".row-help")).toBeNull();
+  page.unmount();
+});

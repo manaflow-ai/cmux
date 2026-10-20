@@ -44,6 +44,7 @@ struct HomePasteboardValue: HomePasteboardContents {
 
     func hasType(_ types: [NSPasteboard.PasteboardType]) -> Bool { types.contains(.fileURL) && !fileURLs.isEmpty }
     func data(forType type: NSPasteboard.PasteboardType) -> Data? { nil }
+    func string(forType type: NSPasteboard.PasteboardType) -> String? { nil }
 }
 
 extension HomeNativeTranscriptView {
