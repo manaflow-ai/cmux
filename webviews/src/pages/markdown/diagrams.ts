@@ -127,6 +127,11 @@ export async function renderMermaid(
 }
 
 const SCRIPT_URL = /^(javascript|data|vbscript):/i;
+/** `text` without ASCII whitespace and control characters, which browsers drop before a URL scheme. */
+const withoutControls = (text: string) =>
+  Array.from(text)
+    .filter((char) => char.charCodeAt(0) > 32)
+    .join("");
 const BLOCKED_ELEMENTS = new Set(["script", "iframe", "object", "embed", "link", "meta", "base", "form"]);
 
 /**
@@ -142,11 +147,11 @@ export function cleanSVG(text: string): SVGSVGElement {
       element.remove();
       continue;
     }
-    for (const attribute of [...element.attributes]) {
+    // A copy: removing an attribute changes the live NamedNodeMap.
+    for (const attribute of Array.from(element.attributes)) {
       const name = attribute.name.toLowerCase();
       const url = name === "href" || name.endsWith(":href") || name === "src" || name === "action";
-      // Browsers drop ASCII whitespace and control characters before reading a URL scheme.
-      if (name.startsWith("on") || (url && SCRIPT_URL.test(attribute.value.replace(/[\u0000- ]/g, "")))) {
+      if (name.startsWith("on") || (url && SCRIPT_URL.test(withoutControls(attribute.value)))) {
         element.removeAttribute(attribute.name);
       }
     }

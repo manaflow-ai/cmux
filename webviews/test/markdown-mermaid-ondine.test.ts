@@ -63,7 +63,10 @@ function hazards(root: Element): string[] {
     for (const attribute of element.attributes) {
       const attr = attribute.name.toLowerCase();
       if (attr.startsWith("on")) found.push(`${name}[${attr}]`);
-      const value = attribute.value.replace(/[\u0000- ]/g, "").toLowerCase();
+      const value = Array.from(attribute.value)
+        .filter((char) => char.charCodeAt(0) > 32)
+        .join("")
+        .toLowerCase();
       if ((attr === "href" || attr.endsWith(":href") || attr === "src") && /^(javascript|data|vbscript):/.test(value)) {
         found.push(`${name}[${attr}=${attribute.value}]`);
       }
@@ -73,16 +76,40 @@ function hazards(root: Element): string[] {
 }
 
 const corpus: [type: string, source: string, labels: string[]][] = [
-  ["flowchart", 'flowchart TD\n  A["Unicode ✓ 日本語"] --> B{"Is it?"}\n  B -->|Yes| C[(Database)]\n  B -->|No| D((Circle))', ["Unicode ✓ 日本語", "Is it?", "Yes", "Database", "Circle"]],
+  [
+    "flowchart",
+    'flowchart TD\n  A["Unicode ✓ 日本語"] --> B{"Is it?"}\n  B -->|Yes| C[(Database)]\n  B -->|No| D((Circle))',
+    ["Unicode ✓ 日本語", "Is it?", "Yes", "Database", "Circle"],
+  ],
   ["flowchart", "flowchart LR\n  subgraph one\n    a1-->a2\n  end\n  one --> b", ["one", "a1", "a2", "b"]],
-  ["sequence", "sequenceDiagram\n  autonumber\n  Alice->>+John: Hello\n  John-->>-Alice: Hi\n  loop Every minute\n    John->>Alice: ping\n  end", ["Alice", "John", "Hello", "Hi", "Every minute", "ping"]],
-  ["class", "classDiagram\n  class Animal {\n    +String name\n    +move(int dist) bool\n  }\n  Animal <|-- Dog", ["Animal", "+String name", "Dog"]],
-  ["state", "stateDiagram-v2\n  [*] --> Still\n  Still --> Moving\n  state Moving {\n    [*] --> Fast\n  }", ["Still", "Moving", "Fast"]],
+  [
+    "sequence",
+    "sequenceDiagram\n  autonumber\n  Alice->>+John: Hello\n  John-->>-Alice: Hi\n  loop Every minute\n    John->>Alice: ping\n  end",
+    ["Alice", "John", "Hello", "Hi", "Every minute", "ping"],
+  ],
+  [
+    "class",
+    "classDiagram\n  class Animal {\n    +String name\n    +move(int dist) bool\n  }\n  Animal <|-- Dog",
+    ["Animal", "+String name", "Dog"],
+  ],
+  [
+    "state",
+    "stateDiagram-v2\n  [*] --> Still\n  Still --> Moving\n  state Moving {\n    [*] --> Fast\n  }",
+    ["Still", "Moving", "Fast"],
+  ],
   ["er", "erDiagram\n  CUSTOMER ||--o{ ORDER : places", ["CUSTOMER", "ORDER", "places"]],
-  ["gantt", "gantt\n  title Plan\n  dateFormat YYYY-MM-DD\n  section A\n  Task1 :a1, 2026-01-01, 30d\n  Task2 :after a1, 20d", ["Plan", "Task1", "Task2"]],
+  [
+    "gantt",
+    "gantt\n  title Plan\n  dateFormat YYYY-MM-DD\n  section A\n  Task1 :a1, 2026-01-01, 30d\n  Task2 :after a1, 20d",
+    ["Plan", "Task1", "Task2"],
+  ],
   ["pie", 'pie\n  title Pets\n  "Dogs" : 386\n  "Cats" : 85', ["Pets", "Dogs", "Cats"]],
   ["mindmap", "mindmap\n  root((cmux))\n    Terminal\n    Browser", ["cmux", "Terminal", "Browser"]],
-  ["gitGraph", "gitGraph\n  commit\n  branch develop\n  checkout develop\n  commit\n  checkout main\n  merge develop", ["main", "develop"]],
+  [
+    "gitGraph",
+    "gitGraph\n  commit\n  branch develop\n  checkout develop\n  commit\n  checkout main\n  merge develop",
+    ["main", "develop"],
+  ],
 ];
 
 describe("Ondine renders mermaid blocks", () => {
@@ -124,7 +151,7 @@ const payloads = [
   'pie\n  "<img src=x onerror=alert(1)>" : 1',
   'mindmap\n  root["<img src=x onerror=alert(1)>"]',
   'gitGraph\n  commit id: "<img src=x onerror=alert(1)>"',
-  'flowchart TD\n  A["</text><foreignObject><div xmlns=\'http://www.w3.org/1999/xhtml\'><img src=x onerror=alert(1)></div></foreignObject><text>"]',
+  "flowchart TD\n  A[\"</text><foreignObject><div xmlns='http://www.w3.org/1999/xhtml'><img src=x onerror=alert(1)></div></foreignObject><text>\"]",
 ];
 
 describe("no script reaches the page", () => {
@@ -162,7 +189,9 @@ describe("fallback and flag", () => {
 
   test("when both refuse, Ondine's reason is reported", async () => {
     stubMermaid("", new Error("mermaid says no"));
-    await expect(diagrams.renderMermaid(libraries(), "flowchart TD\n  A --> ", target())).rejects.toThrow(/Parse error/);
+    await expect(diagrams.renderMermaid(libraries(), "flowchart TD\n  A --> ", target())).rejects.toThrow(
+      /Parse error/,
+    );
   });
 
   test('the "mermaid" flag uses Mermaid even for a source Ondine draws', async () => {
