@@ -281,6 +281,7 @@ public final class BrowserChromeView: NSView {
         reloadButton.target = self
         reloadButton.action = #selector(reloadOrStop)
         addressBar.onEvent = { [weak self] event in self?.omnibarEvent(event) }
+        addressBar.pageTitle = { [weak self] in self?.tab.state.title }
     }
 
     private func omnibarEvent(_ event: OmnibarEvent) {

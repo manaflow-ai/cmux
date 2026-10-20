@@ -137,7 +137,7 @@ struct OmnibarChromeParityTests {
     @Test(arguments: [
         ("example", "https://www.example.com"),
         ("google/maps", "https://www.google.com/maps"),
-        ("www.apple", "https://www.apple.com"),
+        ("www.example", "https://www.example.com"),
     ])
     func controlEnterAddsWWWAndCom(_ text: String, _ expected: String) {
         let (state, effects) = reduce(OmnibarState(), typed(text) + [.key(.enterAddingTLD(.currentTab))])
@@ -159,6 +159,7 @@ struct OmnibarChromeParityTests {
     @Test(arguments: [
         ("192.168.1.20:3000", "http://192.168.1.20:3000"),
         ("10.0.0.5", "http://10.0.0.5"),
+        ("100.89.225.106:18765/status", "http://100.89.225.106:18765/status"),
         ("172.16.4.2/admin", "http://172.16.4.2/admin"),
         ("devbox:8080", "http://devbox:8080"),
         ("devbox/", "http://devbox/"),
