@@ -116,7 +116,7 @@ fn parent_pid(pid: i32) -> Option<i32> {
     // SAFETY: `info` is a writable proc_bsdinfo of `size` bytes.
     let read =
         unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
-    (read == size).then(|| info.pbi_ppid as i32)
+    (read == size).then_some(info.pbi_ppid as i32)
 }
 
 fn executable(pid: i32) -> Option<PathBuf> {
