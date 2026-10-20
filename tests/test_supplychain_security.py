@@ -221,6 +221,7 @@ if __name__ == "__main__":
     test_pull_request_target_jobs_never_receive_oidc()
     test_dispatchable_jobs_with_external_credentials_use_environments()
     test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job()
+    test_environment_secret_rollout_keeps_untrusted_jobs_secretless()
     test_ci_and_deployment_container_images_are_digest_pinned()
     test_vendored_stack_auth_records_origin_patch_and_license_status()
     print("supply-chain security checks passed")
