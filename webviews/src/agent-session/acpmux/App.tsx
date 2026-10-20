@@ -54,7 +54,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
-import { isAgentHome, projectLabel } from "./sessionList";
+import { isAgentHome, projectLabel, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
@@ -280,6 +280,7 @@ import {
   type StartedCache,
   type StartedSession,
   offerChildren,
+  spawnedSessions,
   sessionMentions,
   startedCardsShown,
   startedSessions,
@@ -818,6 +819,8 @@ const OfferResultRow = memo(
 );
 
 const NO_STARTED: readonly StartedSession[] = [];
+const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
+const sameItems = <T,>(a: readonly T[], b: readonly T[]) => a.length === b.length && a.every((item, index) => item === b[index]);
 
 /// The chats this chat's agent started, as cards where each was started (started/StartedSessionCard.tsx).
 const StartedSessionsRow = memo(
@@ -3038,17 +3041,36 @@ function AcpmuxPane() {
   // Snapshots rebuild rows each time: the list keeps its object while what it says is the same,
   // so the transcript and every reply's chips (a context) do not redraw.
   const startedOn = startedCardsShown();
+  // The chats it started, kept while each entry is the same object (direct.ts keeps an unchanged
+  // session's entry), so a streamed snapshot does not search the transcript or rebuild the list.
+  const spawnedFresh =
+    startedOn && snapshot.sessionId ? spawnedSessions(snapshot.sessions, snapshot.sessionId) : NO_SPAWNED;
+  const spawnedKept = useRef<readonly AcpmuxSessionEntry[]>(NO_SPAWNED);
+  if (!sameItems(spawnedKept.current, spawnedFresh)) spawnedKept.current = spawnedFresh;
+  const spawned = spawnedKept.current;
+  // Only a chat it started can be an offer's started task: the rows are read only when there is one.
+  const offered = spawned.length
+    ? [...offerChildren(snapshot.rows)].filter((id) => spawned.some((entry) => entry.sessionId === id)).join("\n")
+    : "";
   const startedFresh = useMemo(
     () =>
-      startedOn
-        ? startedSessions(snapshot.sessions, snapshot.sessionId, { exclude: offerChildren(snapshot.rows) })
+      spawned.length
+        ? startedSessions(spawned, snapshot.sessionId, { exclude: new Set(offered.split("\n")) })
         : NO_STARTED,
-    [startedOn, snapshot.sessions, snapshot.sessionId, snapshot.rows],
+    [spawned, offered, snapshot.sessionId],
   );
-  const startedKept = useRef<{ key: string; started: readonly StartedSession[] }>({ key: "[]", started: NO_STARTED });
-  const startedKey = startedFresh.length ? JSON.stringify(startedFresh) : "[]";
-  if (startedKept.current.key !== startedKey)
-    startedKept.current = { key: startedKey, started: startedFresh.length ? startedFresh : NO_STARTED };
+  const startedKept = useRef<{ fresh: readonly StartedSession[]; key: string; started: readonly StartedSession[] }>({
+    fresh: NO_STARTED,
+    key: "[]",
+    started: NO_STARTED,
+  });
+  if (startedKept.current.fresh !== startedFresh) {
+    const key = startedFresh.length ? JSON.stringify(startedFresh) : "[]";
+    startedKept.current =
+      startedKept.current.key === key
+        ? { ...startedKept.current, fresh: startedFresh }
+        : { fresh: startedFresh, key, started: startedFresh.length ? startedFresh : NO_STARTED };
+  }
   const started = startedKept.current.started;
   const startedCache = useRef<StartedCache>(new Map());
   const mentionsKey = JSON.stringify(started.map((child) => [child.sessionId, child.title, child.named, child.state]));

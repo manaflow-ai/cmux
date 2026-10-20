@@ -437,7 +437,8 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveR
   let last: AcpmuxRow | undefined;
   for (let index = rows.length - 1; index >= 0 && !last; index -= 1)
     if (rows[index]!.kind !== STARTED_SESSIONS) last = rows[index];
-  if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }];
+  // A turn with only its started chats' card so far keeps the card under its thinking line.
+  if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }, ...rows];
   const answering = last.kind === "assistant";
   if (answering && rows.length === 1) return rows;
   // The status ticks on this computer's clock, from the prompt moved onto it.
@@ -458,9 +459,12 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveR
 /// (`inFlight`) shows only its newest call, so its line replaces itself instead of growing into a
 /// list. Each derived row's version moves with its drawn state.
 function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
+  // A started chats' card after the run is not a step: the run before it is still in flight.
+  let latest = rows.length - 1;
+  while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
   return rows.map((row, index) => {
     if (row.kind !== "activity" || isEdit(row)) return row;
-    return index === rows.length - 1
+    return index === latest
       ? { ...row, inFlight: true, version: row.version * 4 + 1 }
       : { ...row, settled: true, version: row.version * 4 + 2 };
   });
