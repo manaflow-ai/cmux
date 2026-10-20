@@ -19,8 +19,11 @@ import os
 /// from before (the Chief conversation tab, no dock) migrates on its first connect: its Chief tab
 /// closes (the page shows the Chief conversation) and the page moves into the dock; the docked
 /// `home-channels` tab of the home before the switch closes the same way. When nothing
-/// else would stay on the right, the move leaves a terminal there in the same daemon commit: the
-/// daemon undocks a screen without a scrolling column.
+/// else would stay on the right, the dock is made pinned in the same commit and stands alone
+/// (`pinned-dock-alone-v1`; Leo 2026-10-19: "did we disable the initial thing auto opening a random
+/// terminal pane on the right yet?"): Home opens with no right column until something is shown
+/// there. Only an older daemon, which undocks a screen without a scrolling column, still gets a
+/// terminal left on the right.
 @MainActor
 public final class HomeDock {
     /// The page tab the dock holds: the Messages and Channels views of Home.
@@ -42,9 +45,10 @@ public final class HomeDock {
     static let origin = "cmux-next-home-dock"
 
     /// Moves a tab into a new left dock with the agent chat role on its anchor pane's screen,
-    /// leaving `respawn` in the pane it left: the app's `TabMoves.toNewDockColumn`, which owns
-    /// the dock width (`TabMoves.leftDockWidth`). Calls its completion once with the result.
-    public typealias Dock = @MainActor (TabModel, PaneModel, SplitRespawn?, @escaping @MainActor (Bool) -> Void) -> Void
+    /// leaving `respawn` in the pane it left (none: the pane closes), pinned in the same commit when
+    /// the flag is true: the app's `TabMoves.toNewDockColumn`, which owns the dock width
+    /// (`TabMoves.leftDockWidth`). Calls its completion once with the result.
+    public typealias Dock = @MainActor (TabModel, PaneModel, SplitRespawn?, Bool, @escaping @MainActor (Bool) -> Void) -> Void
 
     /// One pending creation key, shared by overlapping connects; a closed page tab gets a new one.
     private let key = HomeChiefTabKey { "home-dock-page-\(UUID().uuidString.lowercased())" }
@@ -52,6 +56,9 @@ public final class HomeDock {
     /// A dock move was sent and the tree does not show its dock yet: a connect meanwhile (launch
     /// runs this twice, a placed Chief again) must not send a second move.
     private var moveInFlight = false
+    /// The restored placeholder shell beside the dock was looked for (once per launch, so a shell the
+    /// person opens there later is never closed on a reconnect).
+    private var placeholderChecked = false
 
     public init() {}
 
@@ -107,16 +114,24 @@ public final class HomeDock {
             screen.panes.flatMap { pane in pane.tabs.filter { Self.isChiefTab($0) || Self.isLegacyDockTab($0, in: pane, on: screen) } }
         }.map(\.surface))
         let docked = Self.isDocked(placed.pane, on: placed.screen)
-        // What stays on the dock's screen once the page and the Chief tabs leave it: the daemon
-        // undocks a screen without a scrolling column, so with nothing the move leaves a terminal.
+        // A daemon that keeps a lone pinned dock: the dock is pinned in the move, and nothing is
+        // left on its right (`pinned-dock-alone-v1`).
+        let alone = store.supports(DaemonCapabilities.shared.pinnedDock) && store.supports(DaemonCapabilities.shared.pinnedDockAlone)
+        // What stays on the dock's screen once the page and the Chief tabs leave it: an older
+        // daemon undocks a screen without a scrolling column, so there the move leaves a terminal.
         let stays = placed.screen.panes.flatMap(\.tabs).contains { $0.surface != placed.tab.surface && !chiefs.contains($0.surface) }
         if !chiefs.isEmpty, stays || !docked { try await connection.closeTabs(Array(chiefs), endTerminals: false) }
-        if docked { return try await pin(connection, store: store, workspace: workspace) ?? "home dock present" }
-        let respawn: SplitRespawn? = stays ? nil : .terminal(SpawnOptions(workspace: workspace()?.key))
+        if docked {
+            let pinned = try await pin(connection, store: store, workspace: workspace)
+            let cleared = alone ? try await closePlaceholder(connection, workspace: workspace) : nil
+            let steps = [pinned, cleared].compactMap { $0 }
+            return steps.isEmpty ? "home dock present" : steps.joined(separator: ", ")
+        }
+        let respawn: SplitRespawn? = stays || alone ? nil : .terminal(SpawnOptions(workspace: workspace()?.key))
         moveInFlight = true
         defer { moveInFlight = false }
         let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            dock(placed.tab, placed.pane, respawn) { done.resume(returning: $0) }
+            dock(placed.tab, placed.pane, respawn, alone) { done.resume(returning: $0) }
         }
         guard moved else { return "home dock move failed (see the app log)" }
         // Held until the tree shows the dock (or this run is cancelled), so a connect meanwhile reads it.
@@ -142,6 +157,41 @@ public final class HomeDock {
         }
         _ = try await connection.request(SetColumnDockRequest(pane: placed.pane.handle, dock: dock, pinned: true))
         return "home dock pinned"
+    }
+
+    /// A home restored from before `pinned-dock-alone-v1` kept the terminal the dock move left on
+    /// its right. Once per launch, when that column holds nothing but such a shell (``isPlaceholderShell``),
+    /// it closes and the dock stands alone; a column with anything real in it is kept as it was.
+    private func closePlaceholder(_ connection: DaemonConnection,
+                                  workspace: @MainActor @Sendable () -> WorkspaceModel?) async throws -> String? {
+        guard !placeholderChecked else { return nil }
+        placeholderChecked = true
+        guard let placed = workspace().flatMap(Self.pageTab(in:)),
+              let shell = Self.placeholderShell(on: placed.screen, home: NSHomeDirectory()) else { return nil }
+        _ = try await connection.closeTabs([shell.surface], endTerminals: true)
+        return "home placeholder shell closed"
+    }
+
+    /// The one tab right of the Home dock on `screen` when it is a placeholder shell, else nil.
+    static func placeholderShell(on screen: ScreenModel, home: String) -> TabModel? {
+        let dockPanes = Set(screen.columns.filter { $0.dock != nil }.flatMap(\.layout.paneIDs))
+        guard screen.columns.contains(where: { $0.dock?.isPinned == true }) else { return nil }
+        let right = screen.panes.filter { !dockPanes.contains($0.handle) }.flatMap(\.tabs)
+        guard right.count == 1, let tab = right.first, isPlaceholderShell(tab, home: home) else { return nil }
+        return tab
+    }
+
+    /// A shell nobody used: a live local terminal at a prompt in the home folder, unnamed, with no
+    /// agent, program status, running command, unread mark or keep-layout record, titled by its
+    /// folder ("~"). It is what the dock move left on Home's right before `pinned-dock-alone-v1`.
+    static func isPlaceholderShell(_ tab: TabModel, home: String) -> Bool {
+        guard tab.kind == .pty, !tab.dead, tab.name == nil, tab.agent == nil, tab.agentSession == nil,
+              tab.commandSinceMs == nil, tab.programStatus.isEmpty, tab.relaunch == nil, tab.remote == nil,
+              !tab.showsUnread, !tab.pinned, tab.tabGroup == nil else { return false }
+        let folder = home.hasSuffix("/") ? String(home.dropLast()) : home
+        let atHome = tab.cwd.map { $0 == folder || $0 == folder + "/" } ?? true
+        let title = tab.title.trimmingCharacters(in: .whitespaces)
+        return atHome && (title.isEmpty || title == "~" || title == folder)
     }
 
     /// The left chat dock column holding `pane` on `screen`, if any.

@@ -62,6 +62,10 @@ pub(crate) struct ConversationTabOutcome {
     pub(crate) replayed: bool,
 }
 
+/// The width of the column a conversation tab split opens right of a pinned
+/// column: the half the Home dock leaves.
+const PINNED_COLUMN_NEIGHBOR_WIDTH: f32 = 0.5;
+
 impl Mux {
     pub(crate) fn new_conversation_tab_as(
         self: &Arc<Self>,
@@ -164,7 +168,12 @@ impl Mux {
                 if let Some(split_id) = split_id {
                     fields.insert(CLIENT_SPLIT_ID_FIELD.into(), Value::String(split_id));
                 }
-                self.split_browser_pane_with_fields_as(actor, pane, direction, None, fields, size)
+                // `pinned-dock-alone-v1`: a pinned column (Home's dock) takes no split and no tab,
+                // so a split to its right is a new column beside it, half the viewport wide.
+                let beside_pinned = direction == "right"
+                    && self.with_state(|state| crate::mux::pane_in_pinned_column(state, pane));
+                let width = beside_pinned.then_some(PINNED_COLUMN_NEIGHBOR_WIDTH);
+                self.split_browser_pane_with_fields_as(actor, pane, direction, width, fields, size)
             }
         };
         match created {
