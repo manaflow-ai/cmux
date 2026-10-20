@@ -17,6 +17,8 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const RESUME: &str = "_acpmux/agent_pair_resume";
+const SUBSESSION_START: &str = "_acpmux/subsession/start";
+const SUBSESSION_SEND: &str = "_acpmux/subsession/send";
 
 /// The person key the hubs of these tests hold, as a daemon the app started does.
 const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -84,6 +86,34 @@ impl Client {
         let proved = c.call("_acpmux/person_prove", json!({"proof": proof})).await;
         assert_eq!(proved["person"], true, "{proved}");
         c
+    }
+
+    /// The connection a session's own tools open (its cmux-subsessions MCP server): `initialize`
+    /// with the session's caller token (`hub/person.rs`).
+    async fn as_session(hub: &Arc<Hub>, id: &str) -> Self {
+        let mut c = Self::open(hub);
+        let token = acpmux::hub::person::caller_token(id);
+        c.call(
+            "initialize",
+            json!({"protocolVersion": 1,
+                   "_meta": {"acpmux": {"callerSession": {"sessionId": id, "token": token}}}}),
+        )
+        .await;
+        c
+    }
+
+    /// The cmux-subsessions `send_message` tool from this connection's session to `to`: the
+    /// whole `_acpmux/subsession/send` reply.
+    async fn send_message(
+        &mut self,
+        to: &str,
+        prompt_id: &str,
+        text: &str,
+        interrupt: bool,
+    ) -> Value {
+        let params = json!({"sessionId": to, "text": text, "promptId": prompt_id,
+                            "interrupt": interrupt});
+        self.reply(SUBSESSION_SEND, params).await
     }
 
     async fn call(&mut self, method: &str, params: Value) -> Value {
@@ -426,4 +456,86 @@ async fn a_remote_client_cannot_resume_a_pair() {
         let reply = remote.reply(RESUME, json!({"sessionId": a})).await;
         assert!(reply.get("error").is_some(), "{origin:?}: {reply}");
     }
+}
+
+/// A parent and the sub-session it started, talking through cmux-subsessions `send_message`
+/// one way and `cmux agent message` (`agents_chat_send`) the other: every exchange counts toward
+/// the same pair, whichever path carried it. The tenth in a row with no progress is held, and
+/// the person's resume delivers it to the child.
+#[tokio::test]
+async fn a_sub_session_and_its_parent_messaging_through_send_message_are_paused() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let parent = c.new_session().await;
+    let mut p = Client::as_session(&hub, &parent).await;
+    // `start_session`'s first prompt is the first exchange, parent to child.
+    let child = p.call(SUBSESSION_START, json!({"prompt": CHATTER[0]})).await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for (i, text) in CHATTER.iter().enumerate().take(9).skip(1) {
+        let reply = if i % 2 == 1 {
+            c.message(&child, &parent, &format!("c{i}"), text).await
+        } else {
+            p.send_message(&child, &format!("c{i}"), text, false).await
+        };
+        assert!(reply.get("error").is_none(), "exchange {i} was delivered: {reply}");
+    }
+    // The tenth exchange in a row, a `send_message` to the child, trips the guard.
+    let tenth = p.send_message(&child, "c9", CHATTER[9], false).await;
+    assert!(held(&tenth), "the tenth exchange is held: {tenth}");
+    assert!(!c.ran(&child, "c9").await, "a held message does not run");
+    for session in [&parent, &child] {
+        let paused = c.records(session, "agent_pair_paused").await;
+        assert_eq!(paused.len(), 1, "{session}: {paused:?}");
+        assert_eq!(paused[0]["reason"], "alternating", "{paused:?}");
+    }
+    let held_records = c.records(&child, "agent_pair_held").await;
+    assert_eq!(held_records.len(), 1, "{held_records:?}");
+    assert_eq!(held_records[0]["promptId"], "c9", "{held_records:?}");
+    assert_eq!(held_records[0]["provenance"]["kind"], "subsession_message", "{held_records:?}");
+
+    let mut person = Client::person(&hub).await;
+    let resumed = person.call(RESUME, json!({"sessionId": child})).await;
+    assert_eq!(resumed["delivered"], 1, "{resumed}");
+    c.wait_ran(&child, "c9").await;
+    let ran = c.records(&child, "user_message").await;
+    let released = ran.iter().find(|m| m["promptId"] == "c9").unwrap();
+    assert_eq!(released["_meta"]["provenance"]["kind"], "subsession_message", "{released}");
+    // A resumed pair starts counting again.
+    let after = p.send_message(&child, "c10", "thanks", false).await;
+    assert!(after.get("error").is_none(), "{after}");
+}
+
+/// `send_message` with `interrupt` into a paused pair is held, and it stops nothing: the
+/// child's running turn goes on, both for the message that trips the pair and for one sent
+/// while it is paused.
+#[tokio::test]
+async fn a_held_send_message_with_interrupt_does_not_stop_the_receivers_turn() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let parent = c.new_session().await;
+    let mut p = Client::as_session(&hub, &parent).await;
+    let child = p.call(SUBSESSION_START, json!({"prompt": "until-cancel"})).await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while c.records(&child, "turn_started").await.is_empty() {
+        assert!(tokio::time::Instant::now() < deadline, "the child's turn never started");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    for i in 1..3 {
+        let reply = p.send_message(&child, &format!("i{i}"), "please check the build", false).await;
+        assert!(reply.get("error").is_none(), "message {i} was queued: {reply}");
+    }
+    // The third near-identical message trips the pair; the fourth finds it paused.
+    for id in ["i3", "i4"] {
+        let reply = p.send_message(&child, id, "please check the build", true).await;
+        assert!(held(&reply), "{id} is held: {reply}");
+    }
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let ended = c.records(&child, "turn_result").await;
+    assert!(ended.is_empty(), "a held interrupt stopped the child's turn: {ended:?}");
+    assert!(!c.ran(&child, "i1").await, "the queued messages still wait behind the turn");
 }

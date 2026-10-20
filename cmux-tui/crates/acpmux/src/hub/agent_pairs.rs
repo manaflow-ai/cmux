@@ -777,6 +777,41 @@ mod tests {
     }
 
     #[test]
+    fn subsession_and_chat_tools_are_not_progress_but_starting_one_is() {
+        let rec = |title: &str| EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "in".into(),
+            kind: "tool_call".into(),
+            msg: json!({"params": {"update": {"title": title}}}),
+            host_seq: None,
+        };
+        for title in [
+            "mcp__cmux-subsessions__send_message",
+            "mcp__cmux-subsessions__wait_for_sessions",
+            "mcp__cmux-subsessions__get_session",
+            "mcp__cmux-subsessions__list_sessions",
+            "mcp__cmux-subsessions__stop_session",
+            "mcp__cmux-subsessions__set_session_limits",
+            "cmux-subsessions.send_message",
+            "send_message",
+            "wait_for_sessions",
+            "mcp__cmux__agents_chat_send",
+            "agents_chat_read",
+        ] {
+            assert!(!progress_record(&rec(title)), "{title} is messaging, not progress");
+        }
+        // Starting a sub-session hands work off; another server's tool of the same name is work.
+        for title in [
+            "mcp__cmux-subsessions__start_session",
+            "mcp__slack__send_message",
+            "github.list_sessions",
+        ] {
+            assert!(progress_record(&rec(title)), "{title} is progress");
+        }
+    }
+
+    #[test]
     fn only_a_whole_messaging_call_is_not_progress() {
         let rec = |update: Value| EventRecord {
             seq: 1,
