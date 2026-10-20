@@ -1058,10 +1058,12 @@
   padding-block: 0;
   padding-inline: calc(16px - var(--acpmux-row-inset)) calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
   gap: 0;
+  justify-content: flex-end;
   background: none;
   box-shadow: none;
 }
-/* The chips lay out as the row's own items, so the mode goes left and the rest right. */
+/* The chips lay out as the row's own items, so the mode goes left and the rest right (right too
+   before a chat has a mode, as on a fresh New Tab page). */
 .acpmux-composer-foot .acpmux-chips { display: contents; }
 .acpmux-composer-foot .acpmux-access {
   order: -1;

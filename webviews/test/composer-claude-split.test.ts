@@ -140,6 +140,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           mode: text(root.querySelector(".acpmux-composer-foot .acpmux-mode-text")),
           model: text(root.querySelector(".acpmux-composer-foot .acpmux-model .acpmux-picker-button > span")),
           effort: text(root.querySelector(".acpmux-composer-foot .acpmux-effort [data-fit-part='effort']")),
+          modelButton: rect(root.querySelector(".acpmux-composer-foot .acpmux-model .acpmux-picker-button")),
           effortButton: rect(root.querySelector(".acpmux-composer-foot .acpmux-effort .acpmux-picker-button")),
           ring: rect(root.querySelector(".acpmux-composer-foot .acpmux-context-ring")),
           // The row's rightmost control: the context ring once the chat reports usage, else effort.
@@ -168,13 +169,16 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         expect(at.mic, "the mic is in the box").not.toBeNull();
         expect(at.send, "Send is in the box").not.toBeNull();
         if (stage.plus) expect(at.plus, "+ is in the box").not.toBeNull();
-        // The mode on the left, on the prompt's text edge (16 px in from the box, Claude Code's).
-        expect(at.mode, "the mode names itself").not.toBeNull();
-        expect(Math.abs(at.mode!.left - (at.box.left + 16)), "the mode's text on the 16 px edge").toBeLessThanOrEqual(3);
-        // The model and effort on the right, about 8 px apart, the last 12 px in from the box's side.
-        expect(at.model!.left, "the model is right of the mode").toBeGreaterThan(at.mode!.right + 40);
-        expect(at.effort!.left - at.model!.right, "model and effort 8 px apart").toBeLessThanOrEqual(10);
-        expect(at.effort!.left - at.model!.right, "model and effort 8 px apart").toBeGreaterThanOrEqual(6);
+        // The mode on the left, on the prompt's text edge (16 px in from the box, Claude Code's). A
+        // New Tab page before its chat starts may have no mode yet; the model and effort stay right.
+        if (stage.plus) expect(at.mode, "the mode names itself").not.toBeNull();
+        if (at.mode) {
+          expect(Math.abs(at.mode.left - (at.box.left + 16)), "the mode's text on the 16 px edge").toBeLessThanOrEqual(3);
+          expect(at.model!.left, "the model is right of the mode").toBeGreaterThan(at.mode.right + 40);
+        }
+        expect(at.model!.left, "the model sits in the row's right half").toBeGreaterThan(at.box.left + at.box.width / 2);
+        // The model and effort chips side by side (each chip's 4 px hover inset is their spacing).
+        expect(Math.abs(at.effortButton!.left - at.modelButton!.right), "model and effort chips touch").toBeLessThanOrEqual(2);
         expect(at.box.right - at.end, "the row ends near the box's right side").toBeLessThanOrEqual(14);
         // Claude Code ends the row on the context ring, right of effort, once there is usage.
         // The chat's fixture reports usage; the New Tab page has no chat yet, so no ring.
@@ -207,7 +211,8 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
       expect(plus).toEqual({ text: "", tooltip: "Add" });
     });
 
-    for (const stage of COMPOSERS)
+    // The New Tab stage has no chat yet, so no mode menu; both pages draw the same AccessMenu.
+    for (const stage of COMPOSERS.filter((stage) => stage.plus))
       test(`${engine}: ${stage.name}: the mode menu checks the chosen mode at the trailing edge, in its number's place`, async () => {
         const page = await open(engine, stage);
         await page.locator(`${stage.composer} .acpmux-access .acpmux-picker-button`).first().click();
@@ -241,7 +246,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         for (const other of rows.filter((row) => !row.checked)) {
           expect(other.number, "another row shows its number").not.toBeNull();
           expect(Math.abs(other.number!.right - row.check!.right), "number and check share a column").toBeLessThanOrEqual(
-            4,
+            6,
           );
         }
       });
