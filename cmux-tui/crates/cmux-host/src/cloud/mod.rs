@@ -21,6 +21,8 @@
 //! auth over the [`client::Http`] and [`client::Store`] traits), `role`
 //! (the Linux worker).
 
+#[cfg(target_os = "linux")]
+mod bootstrap_role;
 pub mod client;
 pub mod receiver;
 #[cfg(target_os = "linux")]

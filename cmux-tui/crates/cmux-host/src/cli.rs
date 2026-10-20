@@ -311,9 +311,18 @@ fn run_agent(mut cfg: Config) -> u8 {
     });
     // The Cloud agent role binds a cmux Cloud machine; it does nothing until
     // the driver writes bind.json (or bound.json exists from a past bind).
-    let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone());
+    // Creating the channel opens descriptors only. LinuxPlatform must block
+    // supervisor signals before the Cloud worker starts any thread.
+    // SAFETY: geteuid has no preconditions.
+    let bootstrap = if unsafe { libc::geteuid() } == 0 {
+        cmux_link::root_bootstrap::Host::new().ok().map(std::sync::Arc::new)
+    } else {
+        None
+    };
+    let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone())
+        .with_root_bootstrap(bootstrap.clone());
     let platform = match crate::linux::LinuxPlatform::new(cfg) {
-        Ok(p) => p,
+        Ok(p) => p.with_root_bootstrap(bootstrap),
         Err(e) => {
             eprintln!("cmux host: setup failed: {e}");
             return code(1);
