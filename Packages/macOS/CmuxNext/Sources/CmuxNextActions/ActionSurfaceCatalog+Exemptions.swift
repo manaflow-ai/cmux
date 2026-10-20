@@ -170,7 +170,7 @@ nonisolated extension ActionSurfaceCatalog {
             "toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement", "browserPrint",
             "toggleBrowserFocusMode", "toggleBrowserDesignMode", "toggleReactGrab", "palette.browserToggleOmnibar",
             "importFromBrowser", "password.importCSV", "browser.importFromFiles", "browser.allowAgentWithExtensions", "browserProfile.delete", "openLinkInDefaultBrowser", "filePreviewOpenWith", "filePreviewOpenExternally",
-            "filePreviewRevealInFinder", "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart",
+            "filePreviewRevealInFinder", "filePreviewRevealInFiles", "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart",
             "browser.pageInfo", "browser.pageInfo.connection", "browser.pageInfo.certificate",
             "browser.pageInfo.cookies", "browser.pageInfo.manageSiteData", "browser.pageInfo.siteSettings",
             "browser.pageInfo.aboutThisPage", "browser.extensions.menu", "browser.extensions.manage",

@@ -80,7 +80,7 @@ nonisolated extension ActionSurfaceCatalog {
             "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview", "markdownSave",
             "markdownLink", "markdownBack", "markdownForward", "markdownResetTableWidths",
             "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",
-            "filePreviewRevealInFinder", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",
+            "filePreviewRevealInFinder", "filePreviewRevealInFiles", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",
             "diffViewerHalfPageUp", "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom",
             "diffViewerGoToTop", "diffViewerSearch", "diffViewerNextFile", "diffViewerPreviousFile", "fileEditorGotoLine", "fileEditorReplace", "fileEditorAction",
             "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart", "fileExplorerOpenSelection",

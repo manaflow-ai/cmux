@@ -79,6 +79,11 @@ enum BrowserToolbarHandlers {
         }
         buttons.media = { [weak services] in services.map { $0.cache.pageRequests.media.toolbar(in: $0.cache) } ?? BrowserToolbarMedia() }
         buttons.pins = { [weak services] in (services?.settings.map(BrowserToolbarButtonsSetting.current) ?? .fallback).pinned }
+        // The omnibar's "Focus Mode" badge leaves focus mode (the action's one path).
+        entry.chrome.onFocusModeBadgePress = { [weak services, weak entry] in
+            guard let services, let entry else { return }
+            services.registry.perform("toggleBrowserFocusMode", invocation: ActionInvocation(target: tabTarget(entry), origin: .user))
+        }
     }
 
     static func press(_ button: BrowserToolbarButton, entry: BrowserEntry, registry: ActionRegistry) {
