@@ -5,7 +5,8 @@ import Testing
 
 /// The compact Home list (the avatar rail) draws a pinned conversation at the same size and on
 /// the same rhythm as every other conversation (the user, 2026-10-19: "pinned should be same size
-/// imo"). Pinned shows as a hairline under the pinned group, never as a bigger avatar.
+/// imo"). Pinned shows as a thin ring around the avatar, inside the selection disc's footprint,
+/// never as a bigger avatar.
 @MainActor
 struct HomeSidebarCompactPinnedSizeTests {
     private func rail(width: CGFloat) -> CmuxSidebarView {
@@ -44,6 +45,12 @@ struct HomeSidebarCompactPinnedSizeTests {
         // Even rhythm: the pinned avatar sits one row height above the first row's avatar.
         #expect(abs((rowAvatar.midY - pinAvatar.midY) - SidebarMetrics.rowHeight) < 0.5,
                 "pinned-to-row step \(rowAvatar.midY - pinAvatar.midY), row step \(SidebarMetrics.rowHeight)")
+        // Pinned stays visible: a ring around the avatar, within the selection disc's footprint.
+        #expect(!tile.pinRing.isHidden, "nothing marks the pinned avatar")
+        #expect(tile.pinRing.borderWidth > 0)
+        #expect(abs(tile.pinRing.frame.midX - tile.avatar.frame.midX) < 0.5)
+        #expect(abs(tile.pinRing.frame.midY - tile.avatar.frame.midY) < 0.5)
+        #expect(tile.pinRing.frame.width <= SidebarMetrics.avatar + 8, "the ring grows the footprint")
         // The selection disc is the row's disc size too.
         list.select("a")
         let d = SidebarMetrics.avatar + 8
@@ -51,17 +58,14 @@ struct HomeSidebarCompactPinnedSizeTests {
         // The unread dot sits where a row's dot sits.
         let dot = try #require(c.tileGeometry(0).dot)
         #expect(abs(dot.width - SidebarMetrics.dotDiameter) < 0.5)
-        #expect(abs(dot.midX - c.metrics.dotCenterX) < 0.5)
+        #expect(abs(dot.midX + tileFrame.minX - c.metrics.dotCenterX) < 0.5, "tile coordinates vs row coordinates")
         #expect(abs(dot.midY - tileFrame.height / 2) < 0.5)
-        // Pinned stays visible: a hairline under the pinned group, no wider than the avatar.
-        #expect(!tile.separator.isHidden, "nothing marks the pinned group")
-        #expect(tile.separator.frame.width <= SidebarMetrics.avatar + 0.5)
     }
 
     /// The full-width list keeps Messages' big pinned grid (only the rail changed).
     @Test func theWideGridKeepsItsBigTiles() {
         let list = rail(width: 320)
         #expect(list.controller.metrics.pinAvatar > SidebarMetrics.avatar)
-        #expect(list.controller.tileLayers.first?.separator.isHidden == true)
+        #expect(list.controller.tileLayers.first?.pinRing.isHidden == true)
     }
 }
