@@ -290,8 +290,7 @@ impl SearchEngine {
     /// owner takes with [`SearchEngine::take_seal_jobs`]. Off by default:
     /// `append` then seals in place.
     pub fn set_background_seal(&mut self, background: bool) {
-        // Red: append still seals in place, under the owner's lock.
-        let _ = background;
+        self.background_seal = background;
     }
 
     /// The seal jobs `append` queued; run each with [`SealJob::run`] off the
