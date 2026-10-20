@@ -515,6 +515,20 @@ The panel can also open while another app is in front. This system-wide key is o
 
 Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
+## Background mode and `app.hideDockIconWithoutWindows`
+
+When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab) and shows a cmux item in the menu bar instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:
+
+```json
+{
+  "app": {
+    "hideDockIconWithoutWindows": false
+  }
+}
+```
+
+Or turn off Settings > General > Hide Dock Icon When No Windows Are Open.
+
 ## `palette.scopes.<scope>.prefix`
 
 The character that enters a built-in command palette scope when you type it into an empty query. Scopes: `tabs` (default `@`), `workspaces` (`#`), `commands` (`>`), `settings` (`,`) and `scopes` (`?`, the list of every scope). The value is one of `@ # > , ? ! / ; : % & + = ~ $ ^ * .`, or `"none"` to turn the prefix off. A prefix you assign moves from the built-in scope that has it by default. A keyword plus Tab (for example `tabs` Tab) enters a scope whatever its prefix.
