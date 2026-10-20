@@ -469,7 +469,13 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
 fn link_show_names_the_pairing_file() {
     let directory = cmux_unix_socket::short_test_dir("linkshow");
     let state = super::state::LinkState::open(Some(directory.path().join("link"))).unwrap();
-    state.init(&super::state::LinkConfig { install: "inst_show".into(), port: 4101 }).unwrap();
+    state
+        .init(&super::state::LinkConfig {
+            install: "inst_show".into(),
+            port: 4101,
+            server_identity: None,
+        })
+        .unwrap();
     let shown = super::show_json(&state).unwrap();
     assert_eq!(shown["peers_file"].as_str(), state.peers_path().to_str());
     assert_eq!(shown["install"].as_str(), Some("inst_show"));

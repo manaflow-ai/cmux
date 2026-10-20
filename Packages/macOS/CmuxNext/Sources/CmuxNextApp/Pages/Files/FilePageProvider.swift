@@ -10,7 +10,7 @@ import Foundation
 /// followed link opens.
 protocol FilePageHosting: AnyObject {
     var roots: FileWorkspaceRoots { get }
-    /// `markdown.remoteImages` (default true).
+    /// `markdown.remoteImages`: load web images without a per-document click (default false).
     var remoteImages: Bool { get }
     /// `{home, items: [{path, name?, openedAt}]}` (diff-host.md "Empty state").
     func recents() -> JSONValue
@@ -65,6 +65,11 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     private var changeListeners: [UUID: (JSONValue) -> Void] = [:]
     /// The folder of the open file the current asset token serves, and the token.
     private(set) var assetToken = UUID().uuidString.lowercased()
+    /// The unguessable resource prefix for this document. It rotates on navigation so an approved
+    /// document cannot keep fetching after the tab starts showing another one.
+    private(set) var remoteImageToken = UUID().uuidString.lowercased()
+    /// A click in the page approved web images for the document currently shown in this tab.
+    private var remoteImagesApproved = false
     /// Canonical paths that are this tab's documents, whoever opened them: its first document,
     /// chooseFile results, approved links. The page may open them, and their folders bound the
     /// links that open without asking.
@@ -146,6 +151,16 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("setPreference"):
             try await setPreference(params, host: host, userGesture: context.userGesture)
             return .object([:])
+        case kind.op("loadRemoteImages") where kind == .markdown:
+            guard context.userGesture else {
+                throw PageError(code: "cmux.page.gesture", message: "loading web images needs a user gesture")
+            }
+            let requested = try path(params["path"])
+            guard let file, Self.canonical(requested) == file else {
+                throw PageError.invalidParams("path is not this page's file")
+            }
+            remoteImagesApproved = true
+            return ["remoteImageBase": .string(remoteImageBase)]
         case kind.op("recents"):
             return host.recents()
         case kind.op("chooseFile"):
@@ -256,6 +271,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         if opened.url != file {
             file = opened.url
             assetToken = UUID().uuidString.lowercased()
+            remoteImageToken = UUID().uuidString.lowercased()
+            remoteImagesApproved = false
             restartWatch(known: opened.hash)
         }
         host?.record(opened.url)
@@ -286,7 +303,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             config["assetBase"] = .string("\(origin)/\(MarkdownPageResource.asset)/\(assetToken)/")
             config["libBase"] = .string("\(origin)/\(MarkdownPageResource.library)/")
             if host?.showsOmnibar == true { config["omnibar"] = true }
-            if host?.remoteImages ?? false { config["remoteImageBase"] = .string("\(origin)/\(MarkdownPageResource.remoteImage)/") }
+            if remoteImagesAllowed { config["remoteImageBase"] = .string(remoteImageBase) }
             if let repository = await AgentPaneGitHubRepository.read(at: file.url.deletingLastPathComponent().path) {
                 config["githubRepository"] = .string(repository)
             }
@@ -300,6 +317,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         var members = look.objectValue ?? [:]
         for (key, value) in base.objectValue ?? [:] { members[key] = value }
         return .object(members)
+    }
+
+    /// Remote images are automatic only by explicit setting; otherwise a click approves this
+    /// document for the lifetime of its tab entry.
+    var remoteImagesAllowed: Bool { remoteImagesApproved || host?.remoteImages == true }
+
+    private var remoteImageBase: String {
+        "\(origin)/\(MarkdownPageResource.remoteImage)/\(remoteImageToken)/"
     }
 
     private func save(_ params: JSONValue) async throws -> JSONValue {
