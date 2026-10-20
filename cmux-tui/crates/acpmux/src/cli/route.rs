@@ -53,6 +53,10 @@ pub enum RouteCmd {
         auto_fallback: bool,
         #[arg(long)]
         notes: Option<String>,
+        /// A direct-subscription route's account home: the CLI's own config
+        /// folder for one login (CLAUDE_CONFIG_DIR, CODEX_HOME), absolute.
+        #[arg(long)]
+        account_home: Option<String>,
         /// Replace an existing route file.
         #[arg(long)]
         force: bool,
@@ -114,6 +118,7 @@ pub async fn run(cmd: RouteCmd, json_out: bool) -> Result<()> {
             fallback,
             auto_fallback,
             notes,
+            account_home,
             force,
         } => {
             let headers: Map<String, Value> = headers
@@ -126,7 +131,7 @@ pub async fn run(cmd: RouteCmd, json_out: bool) -> Result<()> {
                        "anthropicBaseUrl": anthropic_base_url, "openaiBaseUrl": openai_base_url,
                        "auth": auth, "secret": secret, "headers": headers, "healthUrl": health_url,
                        "fallback": fallback, "autoFallback": auto_fallback, "notes": notes,
-                       "replace": force}),
+                       "accountHome": account_home, "replace": force}),
             )
         }
         RouteCmd::Edit { id, set } => {
