@@ -60,7 +60,7 @@ IGNORED_NAMES = {".DS_Store"}
 # the webviews app imports Resources/markdown-viewer/viewer-navigation.js) names
 # an input as real as webviews/ itself. Tests, benches, the dev server, the
 # acpmux dev preview (preview:dev / preview:build) and gallery entries
-# (`*.gallery.ts(x)`, read only by the dev server and gallery:build) never
+# (`*.gallery.ts(x)`, `*.gallery.css`: read only by the dev server and gallery:build) never
 # reach a shipped bundle.
 SCANNED_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".css", ".html")
 UNSCANNED = re.compile(
