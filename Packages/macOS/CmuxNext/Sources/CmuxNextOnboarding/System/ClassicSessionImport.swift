@@ -374,7 +374,8 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// agent it ran, or the folder's name. Names several workspaces share
     /// take each one's branch, and a number only as the last resort.
     static func names(_ clues: [NameClues]) -> [String] {
-        var names = clues.map { $0.custom ?? $0.titles.first ?? $0.agent ?? $0.folder }
+        // Room left for a branch or a number, so the final name fits the daemon's limit.
+        var names = clues.map { fitting($0.custom ?? $0.titles.first ?? $0.agent ?? $0.folder, bytes: maximumNameBytes - 128) }
         let counts = Dictionary(names.map { ($0, 1) }, uniquingKeysWith: +)
         for index in names.indices where counts[names[index], default: 0] > 1 && clues[index].custom == nil {
             if let branch = clues[index].branch, branch != names[index] { names[index] += " · \(branch)" }
@@ -383,8 +384,16 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         return names.map { name in
             seen[name, default: 0] += 1
             let count = seen[name, default: 1]
-            return count == 1 ? name : "\(name) \(count)"
+            return fitting(count == 1 ? name : "\(name) \(count)", bytes: maximumNameBytes)
         }
+    }
+
+    /// `name` cut at a character so it takes at most `bytes` UTF-8 bytes.
+    private static func fitting(_ name: String, bytes: Int) -> String {
+        guard name.utf8.count > bytes else { return name }
+        var cut = Substring(name)
+        while cut.utf8.count > bytes { cut = cut.dropLast() }
+        return String(cut)
     }
 
     private static func layout(_ value: [String: Any], panels: [String: ClassicSessionTab]) -> ClassicSessionLayout {

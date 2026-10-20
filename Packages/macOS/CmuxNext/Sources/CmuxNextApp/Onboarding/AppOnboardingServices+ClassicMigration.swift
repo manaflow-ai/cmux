@@ -1,8 +1,10 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextOnboarding
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 
 /// What one classic migration run did.
@@ -154,58 +156,29 @@ extension AppOnboardingServices {
 
         let windows = services.windows
         let firstWindow = firstWorkspace.flatMap { windows.registry.value.owner(of: $0) } ?? windows.active?.state.id
-        var unreachable = Set<String>()
-        var lastError: (any Error)?
-        var reveal: String?
-        var openedInFirstWindow = false
         // Every SSH host starts connecting now, all together. A workspace whose
         // host is not up when its turn comes is made after the local ones, so a
         // host that is off (a laptop away from its network) holds back nothing.
         let knownMachines = Set(services.machines.ssh.map(\.machineID))
-        var hosts: [String: DaemonService] = [:]
+        var connecting: [String: DaemonService] = [:]
         for saved in plan.workspaces {
-            guard let remote = saved.remote, hosts[remote.sshDestination] == nil else { continue }
-            hosts[remote.sshDestination] = try? startClassicDaemon(for: remote)
+            guard let remote = saved.remote, connecting[remote.sshDestination] == nil else { continue }
+            connecting[remote.sshDestination] = try? startClassicDaemon(for: remote)
         }
-        let targets = plan.windows.indices.map { $0 == 0 ? windows.targetWindow(preferring: firstWindow) : UUID().uuidString.lowercased() }
+        let hosts = connecting
+        let run = ClassicMigrationRunState(
+            ledger: ledger, outcome: outcome, plan: plan, groups: groups, hosts: hosts, repository: repository,
+            targets: plan.windows.indices.map { $0 == 0 ? windows.targetWindow(preferring: firstWindow) : UUID().uuidString.lowercased() })
+
+        // Classic's windows come over side by side (each window's workspaces in
+        // order, one at a time: the window's creates queue anyway), so a session
+        // at classic's limits takes about as long as its largest window.
         var later: [(index: Int, saved: ClassicSessionWorkspace)] = []
-
-        func make(_ saved: ClassicSessionWorkspace, window index: Int) async throws {
-            let window = plan.windows[index]
-            let frame = index == 0 ? nil : window.frame.flatMap(Self.onScreen)
-            ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .pending)
-            try await save(ledger, to: repository)
-            var made: String?
-            do {
-                made = try await importClassicWorkspace(saved, into: targets[index], frame: frame, summary: &outcome.summary,
-                                                        unreachable: &unreachable,
-                                                        on: saved.remote.flatMap { hosts[$0.sshDestination] }) { id in
-                    ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .created, nextWorkspace: id)
-                    try? await self.save(ledger, to: repository)
-                }
-            } catch {
-                // Stays pending with its half-made workspace: the next manual run closes and remakes it.
-                lastError = error
-                return
+        try await withThrowingTaskGroup(of: [(index: Int, saved: ClassicSessionWorkspace)].self) { group in
+            for index in plan.windows.indices {
+                group.addTask { @MainActor [self] in try await self.makeClassicWindow(index, run: run) }
             }
-            // Nothing came over (an SSH host that did not connect): the next manual run tries again.
-            guard let made else { return }
-            await applyClassicIdentity(saved, to: made, groups: groups)
-            ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .done, nextWorkspace: made)
-            try await save(ledger, to: repository)
-            outcome.opened.append(made)
-            if index == 0 { openedInFirstWindow = true }
-            if index == 0, saved.key == window.selectedKey { reveal = made }
-        }
-
-        for (index, window) in plan.windows.enumerated() {
-            for saved in window.workspaces {
-                if let remote = saved.remote, let host = hosts[remote.sshDestination], host.connection == nil {
-                    later.append((index, saved))
-                    continue
-                }
-                try await make(saved, window: index)
-            }
+            for try await waiting in group { later += waiting }
         }
         if !later.isEmpty {
             // The hosts still connecting, waited for together (each within its connect limit).
@@ -216,15 +189,19 @@ extension AppOnboardingServices {
             for wait in waits {
                 let (destination, up) = await wait.value
                 guard !up else { continue }
-                unreachable.insert(destination)
+                run.unreachable.insert(destination)
                 // A machine this run added and that never connected is not left in the list.
                 if let daemon = hosts[destination], !knownMachines.contains(daemon.machineID),
                    let session = services.machines.sshSession(daemon.machineID) {
                     await services.ssh.forget(session)
                 }
             }
-            for (index, saved) in later { try await make(saved, window: index) }
+            for (index, saved) in later.sorted(by: { $0.index < $1.index }) { try await makeClassicWorkspace(saved, window: index, run: run) }
         }
+        await placeClassicWorkspaces(plan, made: run.made, ledger: run.ledger)
+        ledger = run.ledger
+        outcome = run.outcome
+        let lastError = run.lastError, reveal = run.reveal, openedInFirstWindow = run.openedInFirstWindow
         ledger.state = .completed
         try await save(ledger, to: repository)
         // One workspace that did not open is logged; none opening is the run's failure.
@@ -241,7 +218,109 @@ extension AppOnboardingServices {
         return outcome
     }
 
-    private func save(_ ledger: ClassicMigrationLedger, to repository: ClassicMigrationRepository) async throws {
+    /// One classic window's workspaces, in order; returns the SSH ones whose
+    /// host was not up at their turn, for after the local ones.
+    fileprivate func makeClassicWindow(_ index: Int, run: ClassicMigrationRunState) async throws
+        -> [(index: Int, saved: ClassicSessionWorkspace)] {
+        var waiting: [(index: Int, saved: ClassicSessionWorkspace)] = []
+        for saved in run.plan.windows[index].workspaces {
+            if let remote = saved.remote, let host = run.hosts[remote.sshDestination], host.connection == nil {
+                waiting.append((index, saved))
+                continue
+            }
+            try await makeClassicWorkspace(saved, window: index, run: run)
+        }
+        return waiting
+    }
+
+    /// Makes one classic workspace, recording it in the ledger before, while and after.
+    fileprivate func makeClassicWorkspace(_ saved: ClassicSessionWorkspace, window index: Int, run: ClassicMigrationRunState) async throws {
+        let window = run.plan.windows[index]
+        let frame = index == 0 ? nil : window.frame.flatMap(Self.onScreen)
+        let repository = run.repository
+        run.ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .pending)
+        try await save(run.ledger, to: repository)
+        var made: String?
+        // This call's own copies: windows run side by side, so none holds the run's across a suspension.
+        var summary = ClassicImportSummary()
+        var unreachable = run.unreachable
+        defer {
+            run.outcome.summary.merge(summary)
+            run.unreachable.formUnion(unreachable)
+        }
+        do {
+            made = try await importClassicWorkspace(saved, into: run.targets[index], frame: frame, summary: &summary,
+                                                    unreachable: &unreachable,
+                                                    on: saved.remote.flatMap { run.hosts[$0.sshDestination] }) { id in
+                run.ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .created, nextWorkspace: id)
+                try? await self.save(run.ledger, to: repository)
+            }
+        } catch {
+            // Stays pending with its half-made workspace: the next manual run closes and remakes it.
+            run.lastError = error
+            return
+        }
+        // Nothing came over (an SSH host that did not connect): the next manual run tries again.
+        guard let made else { return }
+        await applyClassicIdentity(saved, to: made, groups: run.groups)
+        run.ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .done, nextWorkspace: made)
+        try await save(run.ledger, to: repository)
+        run.outcome.opened.append(made)
+        run.made[index, default: []].insert(made)
+        if index == 0 { run.openedInFirstWindow = true }
+        if index == 0, saved.key == window.selectedKey { run.reveal = made }
+    }
+
+    /// Puts the workspaces this run made at their classic place in each
+    /// window's personal order (``ClassicMigrationPlanner/placements(order:classic:made:)``):
+    /// a resumed or merged run makes them last. A first run makes them in
+    /// order, so nothing moves; workspaces made earlier keep the person's order.
+    private func placeClassicWorkspaces(_ plan: ClassicMigrationPlan, made: [Int: Set<String>], ledger: ClassicMigrationLedger) async {
+        let local = services.machines.local
+        let store = local.store
+        guard let connection = local.connection, local.store.servesStateResources, let session = store.registryID else { return }
+        let rowKey: (String) -> String? = { id in store.workspace(id: id)?.key.map { $0.rawValue } }
+        // The rows of what this run made, once the store has them (they arrive with the daemon's events).
+        let wanted = Set(made.values.joined().compactMap(rowKey))
+        let listed: @MainActor @Sendable () -> Bool = {
+            wanted.isSubset(of: store.personal.workspaces.filter { $0.sessionID == session }.map(\.workspaceKey.rawValue))
+        }
+        if !listed() {
+            let outcome = FirstOutcome<Bool>()
+            let watch = Task { @MainActor in
+                for await ready in ObservationStream(listed) where ready {
+                    outcome.resolve(true)
+                    return
+                }
+            }
+            // A bounded wait: the rows normally arrive within one event turn; without them nothing moves.
+            let bound = DemandTimer(owner: "ClassicMigration.placeRows")
+            bound.schedule(after: .seconds(5)) { outcome.resolve(false) }
+            let ready = await outcome.value()
+            watch.cancel()
+            bound.cancel()
+            guard ready else { return }
+        }
+        for (index, window) in plan.windows.enumerated() {
+            guard let fresh = made[index], !fresh.isEmpty else { continue }
+            // Classic's whole window, as it is here: what earlier runs made too.
+            let classic = window.workspaces.compactMap { ledger.workspaces[$0.key]?.nextWorkspace }.compactMap(rowKey)
+            let order = store.personal.workspaces.filter { $0.sessionID == session }.sorted { $0.index < $1.index }.map(\.workspaceKey.rawValue)
+            let moves = ClassicMigrationPlanner().placements(order: order, classic: classic, made: Set(fresh.compactMap(rowKey)))
+            for (key, position) in moves {
+                do {
+                    let workspaceKey = WorkspaceKey(rawValue: key)
+                    try await connection.state.placePersonalWorkspace(session: session, key: workspaceKey,
+                                                                      resource: store.personalStateID(session: session, key: workspaceKey),
+                                                                      index: position)
+                } catch {
+                    services.daemon.logger.error("classic workspace not placed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+    }
+
+    fileprivate func save(_ ledger: ClassicMigrationLedger, to repository: ClassicMigrationRepository) async throws {
         var ledger = ledger
         ledger.updatedAt = Date().timeIntervalSince1970
         try await repository.save(ledger)
@@ -325,7 +404,7 @@ extension AppOnboardingServices {
     }
 
     /// The workspace's classic color, pin and group, on its new cmux-next workspace.
-    private func applyClassicIdentity(_ saved: ClassicSessionWorkspace, to id: String, groups: [String: WorkspaceGroupID]) async {
+    fileprivate func applyClassicIdentity(_ saved: ClassicSessionWorkspace, to id: String, groups: [String: WorkspaceGroupID]) async {
         let local = services.machines.local
         guard let connection = local.connection, let key = local.store.workspace(id: id)?.key else { return }
         let store = local.store
@@ -367,6 +446,38 @@ extension AppOnboardingServices {
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
         return formatter.string(from: Date()) + "-" + UUID().uuidString.prefix(4).lowercased()
+    }
+}
+
+/// One run's state that its windows, made side by side, all write.
+@MainActor
+fileprivate final class ClassicMigrationRunState {
+    var ledger: ClassicMigrationLedger
+    var outcome: ClassicMigrationOutcome
+    let plan: ClassicMigrationPlan
+    /// cmux-next group ids by classic group id.
+    let groups: [String: WorkspaceGroupID]
+    /// The daemon of each SSH destination, connecting since the run's start.
+    let hosts: [String: DaemonService]
+    let repository: ClassicMigrationRepository
+    /// The window each classic window's workspaces go to, by index.
+    let targets: [String]
+    var unreachable = Set<String>()
+    var lastError: (any Error)?
+    var reveal: String?
+    var openedInFirstWindow = false
+    /// cmux-next workspaces made in this run, by classic window index.
+    var made: [Int: Set<String>] = [:]
+
+    init(ledger: ClassicMigrationLedger, outcome: ClassicMigrationOutcome, plan: ClassicMigrationPlan,
+         groups: [String: WorkspaceGroupID], hosts: [String: DaemonService], repository: ClassicMigrationRepository, targets: [String]) {
+        self.ledger = ledger
+        self.outcome = outcome
+        self.plan = plan
+        self.groups = groups
+        self.hosts = hosts
+        self.repository = repository
+        self.targets = targets
     }
 }
 

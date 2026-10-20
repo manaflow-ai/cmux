@@ -143,7 +143,25 @@ public nonisolated struct ClassicMigrationPlanner: Sendable {
     ///   - made: the keys this run made.
     /// - Returns: `(key, index)` moves to apply in turn; `index` is the row's final position.
     public func placements(order: [String], classic: [String], made: Set<String>) -> [(String, Int)] {
-        []
+        var order = order
+        var moves: [(String, Int)] = []
+        let window = Set(classic)
+        for (position, key) in classic.enumerated() where made.contains(key) {
+            guard let from = order.firstIndex(of: key) else { continue }
+            // Only the window's own rows decide: rows of other windows and the
+            // person's own workspaces may sit between them.
+            let shown = order.filter(window.contains)
+            let before = classic[..<position].last { order.contains($0) }
+            let after = classic[(position + 1)...].first { order.contains($0) }
+            let at = shown.firstIndex(of: key) ?? 0
+            let inPlace = before.map { at > 0 && shown[at - 1] == $0 } ?? (at == 0)
+            guard !inPlace else { continue }
+            order.remove(at: from)
+            let to = before.flatMap { order.firstIndex(of: $0) }.map { $0 + 1 } ?? after.flatMap { order.firstIndex(of: $0) } ?? from
+            order.insert(key, at: to)
+            if to != from { moves.append((key, to)) }
+        }
+        return moves
     }
 
     /// `ledger` with every classic workspace in `snapshot` recorded as seen,

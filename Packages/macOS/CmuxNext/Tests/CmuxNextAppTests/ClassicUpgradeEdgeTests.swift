@@ -209,9 +209,13 @@ import Testing
     @Test func onlyWhatThisRunMadeMoves() {
         let planner = ClassicMigrationPlanner()
         // The person moved "c" to the top after the first run; classic made "x" after "b" meanwhile.
-        let moves = planner.placements(order: ["c", "a", "b", "mine", "x"], classic: ["a", "b", "x", "c"], made: ["x"])
+        let moves = planner.placements(order: ["c", "a", "x", "b"], classic: ["a", "b", "x", "c"], made: ["x"])
         #expect(moves.map(\.0) == ["x"] && moves.first?.1 == 3, "\(moves)")
+        // Already after "b" among the window's rows: the person's own "mine" between them stays.
+        #expect(planner.placements(order: ["c", "a", "b", "mine", "x"], classic: ["a", "b", "x", "c"], made: ["x"]).isEmpty)
         #expect(planner.placements(order: ["h", "a", "b", "c"], classic: ["a", "b", "c"], made: ["a", "b", "c"]).isEmpty)
+        // Two windows made side by side interleave; each window is in order: nothing moves.
+        #expect(planner.placements(order: ["h", "a1", "b1", "a2", "b2"], classic: ["a1", "a2"], made: ["a1", "a2"]).isEmpty)
         // Nothing before it came over: it goes before the next one that did.
         #expect(planner.placements(order: ["b", "a"], classic: ["a", "b"], made: ["a"]).map(\.1) == [0])
     }

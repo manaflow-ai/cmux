@@ -19,6 +19,16 @@ struct ClassicImportSummary: Equatable {
     var leftTabs = false
     /// Classic workspaces an earlier run brought over that are still open here.
     var alreadyHere = 0
+
+    /// Adds what `other` (one workspace's import) opened and left.
+    mutating func merge(_ other: ClassicImportSummary) {
+        opened += other.opened
+        leftCloudVMs = leftCloudVMs || other.leftCloudVMs
+        leftSSH = leftSSH || other.leftSSH
+        leftSSHScrollback = leftSSHScrollback || other.leftSSHScrollback
+        leftTabs = leftTabs || other.leftTabs
+        alreadyHere += other.alreadyHere
+    }
 }
 
 /// Classic cmux session import (Leo, cx-aha.5): one workspace at a time, for
