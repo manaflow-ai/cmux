@@ -52,6 +52,7 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
     }
     let mut human = false;
     let mut remote = false;
+    let mut requires_approval = false;
     // The cut messages' full text, in log order (the resume turn's).
     let mut cut: Vec<String> = Vec::new();
     for (k, (at, items, done)) in batches.iter().enumerate() {
@@ -66,6 +67,7 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
             // A logged resume note is a cut turn's too: it resumes again.
             human |= item.resume;
             remote |= item.remote;
+            requires_approval |= item.requires_approval;
             cut.extend(item.cut.iter().cloned());
             if item.seq.is_some()
                 && positioned
@@ -111,11 +113,13 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
         match state.resumes.iter_mut().find(|r| r.conversation == side) {
             Some(r) => {
                 r.remote |= remote;
+                r.requires_approval |= requires_approval;
                 r.messages.extend(cut);
             }
             None => state.resumes.push(Resume {
                 conversation: side,
                 remote,
+                requires_approval,
                 messages: cut,
             }),
         }
