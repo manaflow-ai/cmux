@@ -55,10 +55,18 @@ pub(super) fn title_subsession(m: &mut SessionMeta, requested: Option<&str>) {
 }
 
 fn subsession_title_fields(
-    _title: &mut Option<String>,
-    _source: &mut Option<String>,
-    _requested: Option<&str>,
+    title: &mut Option<String>,
+    source: &mut Option<String>,
+    requested: Option<&str>,
 ) {
+    match requested.map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) => {
+            *title = Some(short_text(name, 80));
+            *source = Some(NAMED.to_owned());
+        }
+        None if source.as_deref() == Some(NAMED) => *source = None,
+        None => {}
+    }
 }
 
 /// What a first prompt says, for its title: `line` names the chat, `body` is
