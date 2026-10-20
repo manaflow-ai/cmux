@@ -22880,6 +22880,35 @@
               "name": "string"
             }
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new pane's terminal runs instead of a shell, so no empty shell tab is left. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new pane's terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Move focus to the new pane. Default false: the caller's focus stays where it is, like tab.create_terminal."
+          },
           "cols": {
             "required": false,
             "type": {
@@ -22909,7 +22938,9 @@
         "constraints": [
           "ratio is finite and greater than 0 and less than 1.",
           "viewport_width requires direction right and is finite and greater than or equal to 0.1 and less than or equal to 1.",
-          "cols and rows are paired."
+          "cols and rows are paired.",
+          "At most one of argv or shell is present; argv[0] is non-empty.",
+          "focus defaults to false: a programmatic split never moves the user's focus unless it asks."
         ]
       },
       "result": {

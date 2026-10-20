@@ -95,7 +95,7 @@ export {
   attachmentRefWrites,
   checkAttachments,
   contentDisposition,
-  DENIED_EXTENSIONS,
+  GENERIC_FILE_TYPE,
   isSha256,
   TABLE_ATTREF,
   messageDeleteWrites,

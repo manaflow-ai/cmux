@@ -173,6 +173,19 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
 
+    def test_branch_checker_changes_are_not_executed_by_the_installed_hook(self):
+        marker = self.root / "branch-checker-ran"
+        self.write(
+            "scripts/cmux-next/check-concurrency.sh",
+            f"#!/bin/bash\necho branch-controlled > {marker}\nexit 0\n",
+        )
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)
+        self.commit("branch replaces a pre-push checker")
+
+        self.push()
+
+        self.assertFalse(marker.exists(), "the installed trusted hook executed the branch-controlled checker")
+
     def test_push_from_a_linked_worktree_leaves_the_repository_alone(self):
         # git runs the hook with GIT_DIR=<repo>/.git/worktrees/<name>: the gate's own temp-tree
         # git calls must not inherit it (2026-10-19: it set core.bare=true on the shared clone and

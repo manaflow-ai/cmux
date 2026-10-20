@@ -21,6 +21,10 @@
 #                              sidecar handshake, and the workflow runs
 #                              scripts/verify-diff-sidecar-artifact.sh again
 #                              after the keychain is deleted.
+#   CMUX_NEXT_CEF_ON_DEMAND    "1" moves the signed Chromium engine into a runtime
+#                              pack (scripts/cmux-next/cef-runtime-pack.sh) written to
+#                              CMUX_NEXT_CEF_RUNTIME_OUT, pinned to
+#                              CMUX_NEXT_CEF_RUNTIME_BASE_URL, before the app is signed
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
 #                              flow uses all-except-computer-use while Apple's
@@ -161,6 +165,16 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
     if [[ -d "$APP_PATH/Contents/Frameworks/$CEF_FRAMEWORK_NAME" ]]; then
       echo "==> signing the Chromium engine (CEF framework, shim, helpers)"
       "$SCRIPT_DIR/cmux-next/sign-cef.sh" "$APP_PATH" "$IDENTITY"
+      # Chromium on demand (plans/cmux-next/bundle-size-DESIGN.md 6.6): the
+      # signed engine leaves the app for a runtime pack, and the app gets its
+      # pin (Contents/Resources/cef-runtime.json) before step 5 seals it.
+      if [[ "${CMUX_NEXT_CEF_ON_DEMAND:-}" == 1 ]]; then
+        echo "==> moving the Chromium engine into its on-demand runtime pack"
+        "$SCRIPT_DIR/cmux-next/cef-runtime-pack.sh" split "$APP_PATH" \
+          "${CMUX_NEXT_CEF_RUNTIME_OUT:?CMUX_NEXT_CEF_ON_DEMAND=1 needs CMUX_NEXT_CEF_RUNTIME_OUT}" \
+          --base-url "${CMUX_NEXT_CEF_RUNTIME_BASE_URL:?CMUX_NEXT_CEF_ON_DEMAND=1 needs CMUX_NEXT_CEF_RUNTIME_BASE_URL}" \
+          --reuse-published
+      fi
     fi
     # The remote browser host (Contents/Helpers, embed-remote-browser-host.sh), after
     # the app's CEF framework, which it links through a symlink: its five helper apps

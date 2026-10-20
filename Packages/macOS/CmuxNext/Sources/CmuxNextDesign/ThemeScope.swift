@@ -29,10 +29,15 @@ public final class ThemeScope {
         if let shown, shown.pinsBackdrop { return shown.backdropSelection }
         return pinsNoBackdrop ? nil : selectedBackdropSelection ?? parent?.backdropSelection
     }
-    /// The glass tint over art a workspace chose (``pinBackdropTint(_:)``): a room reads its shown
-    /// workspace's; nil keeps the work's own tint. The legibility floor still applies on top.
-    public var backdropTintOpacity: Double? { shown?.pinnedTint ?? pinnedTint }
+    /// The glass tint over art: the one a workspace chose (``pinBackdropTint(_:)``; a room reads
+    /// its shown workspace's), else the window Opacity the user set (``setWindowBackdropTint(_:)``,
+    /// inherited from the app); nil keeps the work's own tint. The legibility floor still applies
+    /// on top.
+    public var backdropTintOpacity: Double? { shown?.pinnedTint ?? pinnedTint ?? inheritedWindowTint }
     private var pinnedTint: Double?
+    /// `appearance.backgroundOpacity` as a tint over art, set on the app's scope.
+    private var windowTint: Double?
+    private var inheritedWindowTint: Double? { windowTint ?? parent?.inheritedWindowTint }
     /// Whether ``pinBackdrop(_:)`` gave this scope a background of its own.
     private var pinsBackdrop: Bool { pinsNoBackdrop || isPinned }
     private var isPinned = false
@@ -103,6 +108,19 @@ public final class ThemeScope {
             pinnedTint = tint
             repaintBackdropArt()
             for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
+        }
+    }
+
+    /// The window Opacity the user set (`appearance.backgroundOpacity`), as the tint over art for
+    /// this scope and every descendant without a workspace tint of its own: 0...0.95 like a
+    /// workspace's, so 100% covers the picture the most and the slider moves the window one way
+    /// only (it fell back to the work's lighter tint at 100%). nil (unset) keeps the work's tint.
+    public func setWindowBackdropTint(_ tint: Double?) {
+        ThemeRepaint.batch {
+            let tint = tint.flatMap { $0.isFinite ? min(max($0, 0), WindowBackdrop.maximumWorkspaceTint) : nil }
+            guard windowTint != tint else { return }
+            windowTint = tint
+            repaintBackdropArt()
         }
     }
 
@@ -419,7 +437,7 @@ public final class ThemeScope {
     /// Runs `body` with this scope's colors active for `Palette` and its
     /// appearance as the drawing appearance (layer owners without a view).
     public func perform<T>(_ body: () -> T) -> T {
-        ThemeContext.push(tokens, selection: backdropSelection)
+        ThemeContext.push(self)
         defer { ThemeContext.pop() }
         var result: T?
         appearance.performAsCurrentDrawingAppearance { result = body() }
