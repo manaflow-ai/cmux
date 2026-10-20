@@ -398,6 +398,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: the Chief works: the round button beside the field is Stop,
     /// and Esc and Cmd-. in the field stop it (ChatController+Stop.swift).
     var isWorking = false { didSet { if isWorking != oldValue { updateStopButton() } } }
+    /// cmux: opens the system emoji picker (ChatController+Emoji.swift; tests count the calls).
+    var openEmojiPalette: () -> Void = { NSApp.orderFrontCharacterPalette(nil) }
     /// cmux: Up and Down in the field browse the sent messages (PaneHost+History.swift).
     var composerHistory = ComposerHistory()
     var clock: Double { CACurrentMediaTime() - start }
@@ -664,11 +666,6 @@ final class ChatController: NSObject, NSTextViewDelegate {
         intents?.acceptsAttachments(from: sender.draggingPasteboard) == true ? .copy : []
     }
     func performDrop(_ sender: NSDraggingInfo) -> Bool { takeDrop(sender.draggingPasteboard) }
-
-    func showEmojiPicker() {
-        focusCompose()
-        NSApp.orderFrontCharacterPalette(nil)
-    }
 
     // MARK: Clicks
 
