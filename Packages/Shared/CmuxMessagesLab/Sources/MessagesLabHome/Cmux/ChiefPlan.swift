@@ -39,7 +39,7 @@ public struct ChiefPlan: Hashable, Sendable {
 /// One step of the plan: the work one subagent owns.
 public struct ChiefPlanStep: Hashable, Sendable, Identifiable {
     /// What the step is doing now, in the order a person reads them.
-    public enum State: String, Hashable, Sendable, CaseIterable {
+    public enum State: String, Hashable, Sendable, CaseIterable, Codable {
         /// A turn runs.
         case working
         /// It waits on the person: a permission or a question.
