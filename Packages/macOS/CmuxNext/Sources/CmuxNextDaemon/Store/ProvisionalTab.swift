@@ -87,24 +87,26 @@ public struct ProvisionalTab: Sendable, Hashable {
     /// (`created`) trail it (cmux-tui conversation_tabs_wire.rs, bead in the commit). Shown as it
     /// came, the store listed the daemon's tab BESIDE the provisional one until the reply, and the
     /// strip grew one in while the other closed on every Cmd-T (hq-1d 2026-10-14).
-    /// Nothing on the event names its create, so it is taken for one only when that cannot be
-    /// wrong in practice: the pane has exactly ONE pending create intent without a tab, its record
-    /// is the same (agent session host and session, page, route), and the tab is the newest in
-    /// the pane. Otherwise (two quick Cmd-T, a tab of another kind or record) the tab shows as it
-    /// came and the echo or reply settles the stand-in as before.
+    /// Nothing on the event names its create. The daemon runs this client's requests in the
+    /// order it sent them, so the tab is the OLDEST pending create of the pane that has no tab
+    /// yet and asks for the same record (agent session host and session, page, route), when the
+    /// tab is the newest in the pane. A cancelled create counts (its tab is then hidden, never
+    /// shown). The old rule took it only when exactly one create waited; with two quick Cmd-T,
+    /// or a Cmd-T, Cmd-W, Cmd-T, the tab showed as it came: beside the stand-in, or a tab the
+    /// person had closed came back until its echo (tab-spam-race). Should the guess ever be
+    /// wrong, the echo or reply naming each tab corrects it (`echoed`, `created`).
     @MainActor static func matched(_ event: DaemonEvent, in store: DaemonStore) {
         guard case .tabAdded(let delta) = event, delta.clientTransactionID == nil, delta.entity.kind == .conversation,
               let tab = store.tabsBySurface[delta.surface],
               !store.intentLog.entries.contains(where: { $0.createdSurface == delta.surface }) else { return }
-        let waiting = store.intentLog.entries.filter { entry in
-            guard entry.createdSurface == nil, case .createTab(let pane, _) = entry.kind else { return false }
-            return pane == delta.pane
-        }
-        guard waiting.count == 1, let entry = waiting.first, case .createTab(_, let provisional) = entry.kind,
-              provisional.kind == .conversation, let wanted = provisional.conversation else { return }
         let asked = delta.entity.conversation
-        guard wanted.agentSession?.host == asked?.agentSession?.host, wanted.agentSession?.session == asked?.agentSession?.session,
-              wanted.page == asked?.page, wanted.route == asked?.route else { return }
+        let waiting = store.intentLog.entries.first { entry in
+            guard entry.createdSurface == nil, case .createTab(let pane, let provisional) = entry.kind, pane == delta.pane,
+                  provisional.kind == .conversation, let wanted = provisional.conversation else { return false }
+            return wanted.agentSession?.host == asked?.agentSession?.host && wanted.agentSession?.session == asked?.agentSession?.session
+                && wanted.page == asked?.page && wanted.route == asked?.route
+        }
+        guard let entry = waiting, case .createTab(_, let provisional) = entry.kind else { return }
         // The newest daemon tab of the pane (daemon surfaces count up; provisional ones live above them).
         let daemonTabs = store.pane(delta.pane)?.tabs.filter { !isProvisional(surface: $0.surface) } ?? []
         guard daemonTabs.allSatisfy({ $0.surface.rawValue <= delta.surface.rawValue }) else { return }

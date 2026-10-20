@@ -24,6 +24,8 @@ enum IntentUndo: Equatable {
     /// The daemon's tab or pane of a creation the person closed first (``CancelledCreation``).
     case hiddenTab(HiddenTab)
     case hiddenPane(HiddenPane)
+    /// The daemon tabs a close intent took out of the visible records, in removal order.
+    case closedTabs([HiddenTab])
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
     case createdWorkspace(key: WorkspaceKey, inserted: Bool)
@@ -55,6 +57,8 @@ struct PendingIntent {
     var closeRequested = false
     /// The surface the creation's reply named (a split's; a create's is `createdSurface`).
     var replySurface: SurfaceID?
+    /// Closes of a cancelled creation's daemon surface sent so far (a timed-out close is sent again).
+    var closeAttempts = 0
 }
 
 /// The ordered log of pending intents. Pure bookkeeping: the store applies
@@ -183,7 +187,16 @@ struct IntentLog {
     }
 
     mutating func noteCloseRequested(_ transaction: ClientTransactionID) {
-        entries.modifyFirst(where: { $0.transaction == transaction }) { $0.closeRequested = true }
+        entries.modifyFirst(where: { $0.transaction == transaction }) {
+            $0.closeRequested = true
+            $0.closeAttempts += 1
+        }
+    }
+
+    /// The close of a cancelled creation's surface timed out: it may be sent again (at most
+    /// `limit` sends in all). False when it is not pending or is out of attempts.
+    mutating func allowCloseRetry(_ transaction: ClientTransactionID, limit: Int) -> Bool {
+        entries.modifyFirst(where: { $0.transaction == transaction && $0.closeAttempts < limit }) { $0.closeRequested = false }
     }
 
     mutating func noteReplySurface(_ transaction: ClientTransactionID, surface: SurfaceID) {

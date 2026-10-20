@@ -90,8 +90,6 @@ private struct SpamRun {
     /// Tab ids and surfaces the person closed: none may show again.
     var closedIDs: Set<String> = []
     var closedSurfaces: Set<SurfaceID> = []
-    /// The app's `pendingClosed`: daemon tabs whose close is in flight, hidden from the strip.
-    var pendingClosed: Set<SurfaceID> { daemon.state.pendingClosed }
     /// The person's tab order in the strip, newest last; Cmd-W closes the last (the selected one).
     var steps = 0
     var failed = false
@@ -142,8 +140,10 @@ private struct SpamRun {
             closedIDs.insert(tab.id)
             closedSurfaces.insert(tab.surface)
             liveCreates.removeAll { daemon.state.surfaceOf[$0] == tab.surface }
-            daemon.state.pendingClosed.insert(tab.surface)
-            daemon.send(.close(tab.surface, cancelled: nil))
+            // `PaneController.close`: one close intent hides it now; the reply settles it.
+            let transaction = store.intendClose([tab.surface])
+            #expect(transaction != nil, "a shown daemon tab gets a close intent")
+            daemon.send(.closeTab(tab.surface, intent: transaction))
         }
         check("Cmd-W")
     }
@@ -166,10 +166,8 @@ private struct SpamRun {
 
     // MARK: Invariants
 
-    /// The tabs the strip shows: the store's visible records minus closes in flight.
-    func shownTabs() -> [TabModel] {
-        (store.pane(Self.pane)?.tabs ?? []).filter { !pendingClosed.contains($0.surface) }
-    }
+    /// The tabs the strip shows: the store's visible records.
+    func shownTabs() -> [TabModel] { store.pane(Self.pane)?.tabs ?? [] }
 
     mutating func check(_ step: String) {
         steps += 1
@@ -219,22 +217,27 @@ private struct SpamRun {
 private final class SimulatedDaemon {
     enum Request {
         case create(ClientTransactionID, TabSnapshot)
-        /// A close; `cancelled` names the creation the person closed first.
-        case close(SurfaceID, cancelled: ClientTransactionID?)
+        /// A close of a cancelled creation's daemon tab (``CancelledCreationClose``).
+        case close(SurfaceID, cancelled: ClientTransactionID)
+        /// A close of a shown daemon tab, under its close intent (``PaneController.close``).
+        case closeTab(SurfaceID, intent: ClientTransactionID?)
     }
 
     enum Reply {
         case created(ClientTransactionID, SurfaceID, sequence: UInt64)
         case createFailed(ClientTransactionID)
-        case closed(SurfaceID, cancelled: ClientTransactionID?, ok: Bool)
+        /// `committed`: the daemon closed it; `replied`: its reply came (else the deadline passed).
+        case closed(SurfaceID, cancelled: ClientTransactionID?, intent: ClientTransactionID?, committed: Bool, replied: Bool,
+                    sequence: UInt64)
     }
 
     struct State {
         var tabs: [SurfaceID] = [SpamRun.baseSurface]
         var surfaceOf: [ClientTransactionID: SurfaceID] = [:]
         var cancelled: Set<ClientTransactionID> = []
+        /// Creates whose refusal the app has (the provisional tab is gone).
         var refused: Set<ClientTransactionID> = []
-        var pendingClosed: Set<SurfaceID> = []
+        var entities: [SurfaceID: TabSnapshot] = [:]
     }
 
     let store: DaemonStore
@@ -248,6 +251,7 @@ private final class SimulatedDaemon {
     private var replies: [Reply] = []
     private var sequence: UInt64 = 0
     private var nextSurface: UInt64 = 100
+    private var snapshots: UInt64 = 0
     private var faults: SplitMix
 
     init(store: DaemonStore, rawTabAddedFirst: Bool, lostReplyRate: Double, createFailureRate: Double, seed: UInt64) {
@@ -263,7 +267,8 @@ private final class SimulatedDaemon {
     static func describe(_ request: Request) -> String {
         switch request {
         case .create(let transaction, _): "create tx=\(transaction.rawValue.prefix(8))"
-        case .close(let surface, let cancelled): "close \(surface.rawValue) cancelled=\(cancelled?.rawValue.prefix(8) ?? "-")"
+        case .close(let surface, let cancelled): "close \(surface.rawValue) cancelled=\(cancelled.rawValue.prefix(8))"
+        case .closeTab(let surface, _): "close \(surface.rawValue)"
         }
     }
 
@@ -271,7 +276,8 @@ private final class SimulatedDaemon {
         switch reply {
         case .created(let transaction, let surface, let sequence): "created tx=\(transaction.rawValue.prefix(8)) \(surface.rawValue) seq=\(sequence)"
         case .createFailed(let transaction): "create failed tx=\(transaction.rawValue.prefix(8))"
-        case .closed(let surface, let cancelled, let ok): "closed \(surface.rawValue) cancelled=\(cancelled?.rawValue.prefix(8) ?? "-") ok=\(ok)"
+        case .closed(let surface, let cancelled, _, let committed, let replied, let sequence):
+            "closed \(surface.rawValue) cancelled=\(cancelled?.rawValue.prefix(8) ?? "-") committed=\(committed) replied=\(replied) seq=\(sequence)"
         }
     }
 
@@ -314,7 +320,6 @@ private final class SimulatedDaemon {
         switch request {
         case .create(let transaction, let provisional):
             if faults.chance(createFailureRate) {
-                state.refused.insert(transaction)
                 replies.append(.createFailed(transaction))
                 return
             }
@@ -325,21 +330,48 @@ private final class SimulatedDaemon {
             var entity = TabSnapshot(surface: surface, tabResourceID: ResourceID(rawValue: "tab_\(surface.rawValue)"), kind: .conversation,
                                      title: "about:blank", browserRenderer: "frontend")
             entity.conversation = provisional.conversation
+            state.entities[surface] = entity
             if rawTabAddedFirst { emit(.tabAdded(delta(surface, entity, transaction: nil))) }
             emit(.tabAdded(delta(surface, entity, transaction: transaction)))
             replies.append(.created(transaction, surface, sequence: sequence))
         case .close(let surface, let cancelled):
-            guard let index = state.tabs.firstIndex(of: surface) else {
-                replies.append(.closed(surface, cancelled: cancelled, ok: false))
-                return
-            }
-            let entity = TabSnapshot(surface: surface, tabResourceID: ResourceID(rawValue: "tab_\(surface.rawValue)"))
-            let closed = delta(surface, entity, transaction: nil)
-            state.tabs.remove(at: index)
-            emit(.tabClosed(closed))
-            // Under load the close commits and its reply is lost (the request's deadline passes).
-            replies.append(.closed(surface, cancelled: cancelled, ok: !faults.chance(lostReplyRate)))
+            runClose(surface, cancelled: cancelled, intent: nil)
+        case .closeTab(let surface, let intent):
+            runClose(surface, cancelled: nil, intent: intent)
         }
+    }
+
+    private func runClose(_ surface: SurfaceID, cancelled: ClientTransactionID?, intent: ClientTransactionID?) {
+        guard let index = state.tabs.firstIndex(of: surface) else {
+            return replies.append(.closed(surface, cancelled: cancelled, intent: intent, committed: false, replied: true, sequence: sequence))
+        }
+        let entity = state.entities[surface] ?? TabSnapshot(surface: surface)
+        let closed = delta(surface, entity, transaction: nil)
+        state.tabs.remove(at: index)
+        state.entities[surface] = nil
+        emit(.tabClosed(closed))
+        // Under load the close commits and its reply is lost (the request's deadline passes).
+        replies.append(.closed(surface, cancelled: cancelled, intent: intent, committed: true,
+                               replied: !faults.chance(lostReplyRate), sequence: sequence))
+    }
+
+    /// `refresh()`: a snapshot of everything the daemon did so far, its barrier the last event's sequence.
+    private func refresh() {
+        let tabs = state.tabs.map { state.entities[$0] ?? TabSnapshot(surface: $0) }
+        let workspace = WorkspaceSnapshot(
+            id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "00000000-0000-4000-8000-000000000001"), name: "1",
+            screens: [ScreenSnapshot(id: ScreenID(rawValue: 2), active: true, activePane: SpamRun.pane, layout: .leaf(SpamRun.pane),
+                                     panes: [PaneSnapshot(id: SpamRun.pane, tabs: tabs)])])
+        snapshots += 1
+        // The resync holds the inbox (`DaemonStore.resync`): the events the snapshot covers are
+        // drained right after it, in its turn, superseded but still settling their echoes.
+        store.apply(snapshot: DaemonTree(workspaceRevision: 1 + snapshots, workspaces: [workspace]))
+        store.snapshotBarrier = max(store.snapshotBarrier, sequence)
+        store.advanceAppliedSequence(to: sequence)
+        let covered = events.filter { $0.sequence <= sequence }
+        events.removeAll { $0.sequence <= sequence }
+        if !covered.isEmpty { _ = store.apply(batch: covered) }
+        log.append("snapshot at \(sequence) (drained \(covered.count) covered events)")
     }
 
     private func deliver(_ envelope: DaemonEventEnvelope) {
@@ -354,14 +386,27 @@ private final class SimulatedDaemon {
             ProvisionalTab.created(transaction, surface: surface, in: store)
             store.noteSettled(transaction, at: sequence)
         case .createFailed(let transaction):
+            state.refused.insert(transaction)
             store.rejectIntent(transaction)
-        case .closed(let surface, let cancelled, let ok):
-            if let cancelled {
-                // The daemon kept it (or the link dropped): the records show what it has.
-                if !ok { store.rejectIntent(cancelled) }
+        case .closed(_, let cancelled?, _, let committed, let replied, _):
+            // `CancelledCreationClose`: a failure shows what the daemon kept; a lost reply
+            // refreshes and sends the close again while the records still hold the tab.
+            if !replied {
+                refresh()
+                store.creations.closeTimedOut(cancelled)
+            } else if !committed {
+                store.rejectIntent(cancelled)
+            }
+        case .closed(_, nil, let intent, let committed, let replied, let sequence):
+            // `PaneController.close`.
+            guard let intent else { return }
+            if !replied {
+                store.noteSettledAtNextSnapshot(intent)
+                refresh()
+            } else if !committed {
+                store.rejectIntent(intent)
             } else {
-                // `PaneController.close`: an unknown outcome refreshes before the strip shows the tab again.
-                state.pendingClosed.remove(surface)
+                store.noteSettled(intent, at: sequence)
             }
         }
     }
