@@ -16,6 +16,7 @@ import { creationResult, issueCreation } from "./generated-creation.ts";
 import { scopedCreationKey, scopedForkSnapshotKey } from "../auth/idempotency-key.ts";
 import { acquireForkSnapshot } from "./fork-capture.ts";
 import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
+import { continueCancellation } from "./creation-cancellation.ts";
 import { recoverWithdrawnImage } from "./image-recovery.ts";
 import { replayVm } from "./replay-vm.ts";
 import { retireVm } from "./retire.ts";
@@ -154,7 +155,7 @@ const createRecorded = <C, S>(
     readonly image?: VmImageAllowed<C>;
     readonly source?: { readonly snapshot: Named<S, SnapshotId>; readonly owns: TenantOwnsResource<C, S> };
   },
-  attempt: { readonly key: string; readonly prior: IdempotencyProgress | null; readonly snapshotId?: string },
+  attempt: { readonly key: string; readonly prior: IdempotencyProgress | null; readonly snapshotId?: string; readonly unkeyed?: string },
 ) =>
   Effect.gen(function* () {
     const upstream = yield* UpstreamClient;
@@ -216,6 +217,11 @@ const createRecorded = <C, S>(
                 ? new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60, budget: "capacity" })
                 : unavailable(),
             ),
+            // An unkeyed caller cannot resume the growth: delete the undersized VM through the verified
+            // cancellation path (tombstone, slot released) rather than leave it unlisted and billed.
+            Effect.catchAll((error) => attempt.unkeyed === undefined ? Effect.fail(error)
+              : discardUnkeyedCreation(caller, proofs.scope, attempt.key, cmuxId, attempt.unkeyed).pipe(Effect.flatMap((discarded) =>
+                Effect.fail(discarded && error._tag !== "QuotaExceeded" ? conflict("The VM could not be grown to the requested size; nothing was kept") : error)))),
           );
     yield* journal.active.pipe(Effect.mapError(() => unavailable()));
     yield* store
@@ -237,6 +243,12 @@ const createRecorded = <C, S>(
     // Uninterruptible: a client that disconnects mid-create must not leave an
     // upstream VM that is neither recorded nor discarded.
   }).pipe(Effect.uninterruptible);
+
+/** Cancels an unkeyed creation whose growth failed; true once its VM is deleted and its slot released. */
+const discardUnkeyedCreation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: string, vmId: string, rawKey: string) => Effect.gen(function* () {
+  if ((yield* (yield* TenantLimits).cancelCreation(caller.value.tenantId, key, vmId)) !== "accepted") return false;
+  return (yield* continueCancellation(caller, scope, rawKey)).state === "cancelled";
+}).pipe(Effect.orElseSucceed(() => false));
 
 /** A committed ownership row repairs completion without allocating again, including after deletion. */
 const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, prior: IdempotencyProgress | null, key: string | null) => Effect.gen(function* () {
@@ -300,7 +312,7 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
             const existing = yield* replayRecordedAttempt(caller, scope, prior, key);
             if (existing !== null) return existing;
             if (key === null) return yield* Effect.fail(unavailable());
-            const attempt = { key, prior };
+            const attempt = { key, prior, ...(generated === undefined ? {} : { unkeyed: generated.key }) };
             if (payload.snapshotId === undefined) {
               return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) }, attempt), resumeSlot(key, prior));
             }

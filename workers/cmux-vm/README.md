@@ -193,7 +193,9 @@ identity and current resource labels still apply. Client-supplied keys are
 never returned or indexed in this history. History persists with its operation. The compatibility check runs the pinned preceding ledger against these
 protected records; that version refuses them and needs current software for recovery.
 
-An uncertain send or failed grow retains the VM and its quota reservation.
+An uncertain send, or a failed grow under a client key, retains the VM and its
+quota reservation. A failed grow without a client key cancels the creation:
+the VM is deleted and tombstoned, its slot is released, and the answer is 409.
 Use the original intent to recover it, or cancel with its handle. A fork that
 used the older snapshot stage without a VM receipt reports unresolved. New
 forks retain their destination ID before capture and stay pending under the
