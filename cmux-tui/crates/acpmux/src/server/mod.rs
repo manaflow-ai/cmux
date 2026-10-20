@@ -945,6 +945,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+mod agent_messages;
 mod change_kind;
 mod chats;
 pub mod conn_auth;
