@@ -320,7 +320,20 @@ public final class HoverCardCoordinator {
 
     /// One key press, click or wheel scroll seen by the dismissal monitor: it ends the card and
     /// passes the event on. Returns the event to deliver, nil when the card took it.
+    ///
+    /// A wheel scroll with the pointer on the shown card is the card's (Lawrence 2026-10-19,
+    /// u3320: "If I open a card, move my mouse over, and start scrolling, the card just
+    /// disappears"): the card ignores the mouse, so the window under it would scroll. The card
+    /// scrolls its own scroll view (a long timeline) instead, stays, and the event goes no further.
     func handleMonitoredEvent(_ event: NSEvent) -> NSEvent? {
+        if event.type == .scrollWheel, let panel, machine.shownTarget != nil, panel.isShowingCard {
+            // A real event names the window under the pointer; a synthesized one may name none.
+            let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
+            if panel.cardFrame.contains(point) {
+                panel.scrollCard(with: event, at: point)
+                return nil
+            }
+        }
         let reason: HoverDismissal = switch event.type {
         case .keyDown: .keyDown
         case .scrollWheel: .scrollWheel
