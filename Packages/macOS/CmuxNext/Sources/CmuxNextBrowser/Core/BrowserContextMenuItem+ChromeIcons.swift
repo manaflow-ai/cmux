@@ -3,12 +3,12 @@ import Foundation
 extension BrowserContextMenuItem {
     /// The Chrome rows that Chrome on macOS draws with an icon by default
     /// (`render_view_context_menu.cc`: `AddItemWithIcon`, not behind
-    /// `kMenuSimplification`), by Chromium command id, with the SF Symbol
-    /// that stands in for Chrome's vector icon.
+    /// `kMenuSimplification`), by Chromium command id, with Chrome's own
+    /// vector icon (a `browser.menu.*` pack name from design/icons/chromium).
     static let chromeIcons: [Int: String] = [
-        50161: "translate", // IDC_CONTENT_CONTEXT_TRANSLATE (kGTranslateIcon)
-        50179: "translate", // IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE
-        35011: "airplayvideo", // IDC_ROUTE_MEDIA, Cast… (kCastIcon)
+        50161: "browser.menu.translate", // IDC_CONTENT_CONTEXT_TRANSLATE (kGTranslateIcon)
+        50179: "browser.menu.translate", // IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE
+        35011: "browser.menu.cast", // IDC_ROUTE_MEDIA, Cast… (kCastChromeRefreshOldIcon)
     ]
 
     /// Pure: `items` (and their children) with the icon Chrome shows on its
