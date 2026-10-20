@@ -16,9 +16,14 @@ public final class MessagesLabHomeView: NSView {
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
+    ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
+    ///     JavaScriptCore Ondine renderer); nil keeps them as text.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
+                diagrams: (any HomeDiagramRendering)? = nil) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
+        // Before the projection maps its first messages, so a diagram never shows as text first.
+        if let diagrams { HomeDiagramRowProvider.install(diagrams) }
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
