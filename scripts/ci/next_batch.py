@@ -337,7 +337,7 @@ CONTEXTS = """contexts(first: 100{after}) {{
   pageInfo {{ hasNextPage endCursor }}
   nodes {{
     __typename
-    ... on CheckRun {{ name status conclusion startedAt completedAt }}
+    ... on CheckRun {{ name status conclusion startedAt checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }}
     ... on StatusContext {{ context state createdAt }}
   }}
 }}"""
@@ -364,17 +364,18 @@ def detail_query(items: list[tuple[str, bool, str | None]]) -> str:
 
 
 def parse_contexts(rollup: list[dict]) -> list[tuple[str, str, str, str, str]]:
-    """(name, status, conclusion, started, completed) per context; newest_checks reduces them."""
+    """(key, name, status, conclusion, started) per context; newest_checks reduces them.
+    A check run's key is its workflow and name, so same-named jobs of two workflows stay apart."""
     checks = []
     for item in rollup:
         if item["__typename"] == "CheckRun":
-            checks.append((item["name"], (item["status"] or "").lower(), (item["conclusion"] or "").lower(),
-                           item.get("startedAt") or "", item.get("completedAt") or ""))
+            workflow = ((((item.get("checkSuite") or {}).get("workflowRun") or {}).get("workflow") or {}).get("name") or "")
+            checks.append((f"{workflow}\0{item['name']}", item["name"], (item["status"] or "").lower(),
+                           (item["conclusion"] or "").lower(), item.get("startedAt") or ""))
         else:
             state = (item["state"] or "").lower()
             status = "completed" if state not in {"pending", "expected"} else "in_progress"
-            created = item.get("createdAt") or ""
-            checks.append((item["context"], status, state, created, created))
+            checks.append(("\0" + item["context"], item["context"], status, state, item.get("createdAt") or ""))
     return checks
 
 
@@ -383,21 +384,23 @@ def newest_checks(runs: list[tuple[str, str, str, str, str]]) -> list[tuple[str,
 
     A head keeps every run of a check (a rerun, a second workflow event, a
     concurrency-cancelled one), and an old red would otherwise hold the PR after
-    a later run passed. A cancelled newest run says nothing about the code, so a
-    successful run of the same check on the same head stands instead (a
-    superseded run that was cancelled after the pass started)."""
-    by_name: dict[str, list[tuple[str, str, str, str, str]]] = {}
+    a later run passed. A run not started yet counts as the newest. A cancelled
+    newest run says nothing about the code, so the newest run of the same check
+    that finished otherwise stands instead (a superseded run cancelled late);
+    with none, the cancelled run counts."""
+    by_key: dict[str, list[tuple[str, str, str, str, str]]] = {}
     for run in runs:
-        by_name.setdefault(run[0], []).append(run)
+        by_key.setdefault(run[0], []).append(run)
     checks = []
-    for name, items in by_name.items():
-        # Stable sort: among runs with the same (or no) start time, the later one in the rollup wins.
-        newest = sorted(items, key=lambda run: run[3])[-1]
-        if newest[1] == "completed" and newest[2] == "cancelled":
-            passed = [run for run in items if run[1] == "completed" and run[2] == "success"]
-            if passed:
-                newest = passed[-1]
-        checks.append((name, newest[1], newest[2]))
+    for items in by_key.values():
+        # Stable sort: among runs with the same start time, the later one in the rollup wins.
+        ordered = sorted(items, key=lambda run: run[4] or "\uffff")
+        newest = ordered[-1]
+        if newest[2] == "completed" and newest[3] == "cancelled":
+            finished = [run for run in ordered if run[2] == "completed" and run[3] != "cancelled"]
+            if finished:
+                newest = finished[-1]
+        checks.append((newest[1], newest[2], newest[3]))
     return checks
 
 
@@ -507,10 +510,10 @@ def red_fast_checks(pr: PullRequest) -> list[str]:
 
 def group_hold(pr: PullRequest) -> str | None:
     """Why a group member can't land with the rest: any failed check of its own,
-    heavy tier and trusted `queue: known base red` included. Stricter than a
-    single PR's bar on purpose: a member refused after the members before it
-    landed would strand the group, so a group waits until every member is
-    clean, a red the base shares included. Each check counts by its newest run
+    heavy tier and trusted `queue: known base red` included. A policy, stricter
+    than a single PR's bar (merge_one doesn't judge checks): a group lands as
+    one, so it waits until every member is clean, a red the base shares
+    included, rather than land members whose own CI is red. Each check counts by its newest run
     (newest_checks), so a rerun that passed clears it."""
     red = sorted({name for name, status, conclusion in pr.checks if status == "completed" and conclusion in RED})
     return "red check " + ", ".join(red) if red else None
@@ -1846,6 +1849,17 @@ class Controller:
                 f"{heavy}. Validated this PR at `{pr.sha[:12]}`.\n\n"
                 "Next: land it yourself on this receipt (`gh pr merge --squash --match-head-commit`).")
 
+    def risk_evidence(self, pr: PullRequest) -> str:
+        """Why the head's `risk evidence` doesn't let it land ("" when every run of it passed)."""
+        try:
+            runs = self.gh.api(f"repos/{self.args.repo}/commits/{pr.sha}/check-runs?check_name=risk%20evidence&per_page=100") or {}
+        except RuntimeError as error:
+            return f"risk evidence unreadable ({str(error)[-120:]})"
+        for run in runs.get("check_runs", []):
+            if run.get("status") != "completed" or (run.get("conclusion") or "") not in PASS:
+                return "risk evidence has not passed on this head"
+        return ""
+
     def merge_one(self, pr: PullRequest, validation: Validation) -> str:
         """Squash-merge the exact head this batch validated through GitHub's merge API.
 
@@ -1856,13 +1870,8 @@ class Controller:
         transient error (5xx, network, "Base branch was modified") is retried once, after checking whether
         GitHub merged anyway; it never marks the PR refused. A real refusal (the head moved, a conflict)
         does, and the PR waits for a push."""
-        try:
-            runs = self.gh.api(f"repos/{self.args.repo}/commits/{pr.sha}/check-runs?check_name=risk%20evidence&per_page=100") or {}
-        except RuntimeError as error:
-            return f"not landed: risk evidence unreadable ({str(error)[-120:]}); the next batch tries again"
-        for run in runs.get("check_runs", []):
-            if run.get("status") != "completed" or (run.get("conclusion") or "") not in PASS:
-                return "not landed: risk evidence has not passed on this head; the next batch tries again"
+        if problem := self.risk_evidence(pr):
+            return f"not landed: {problem}; the next batch tries again"
         code, detail = freeze_check(self.args.repo, pr.number, getattr(self.gh, "env", None) or dict(os.environ))
         if code == 1:
             return f"not landed: frozen ({detail})"
@@ -2072,7 +2081,8 @@ class Controller:
         if refusal := landing_refusal():
             return [(pr, f"not landed: {refusal}") for pr in included]
         # Every member clears the freeze check before any lands: a freeze never splits a group.
-        held = {pr.number: why for pr in included if (why := self.frozen(pr))}
+        # Nor does risk evidence merge_one would refuse (an edited description regrades it).
+        held = {pr.number: why for pr in included if (why := self.frozen(pr) or self.risk_evidence(pr))}
         if held:
             why = "; ".join(f"#{number} {text}" for number, text in held.items())
             return [(pr, f"not landed: {why}") for pr in included]
