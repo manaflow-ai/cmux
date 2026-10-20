@@ -106,6 +106,7 @@ jobs:
           python3 scripts/ci/next_batch.py debounce --reason "$REASON"
 
   batch:
+    environment: cmux-next-batch-agent
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'batch' && github.repository_owner == 'manaflow-ai' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Room for a batch plus a bisect; each validation is one heavy-tier run.

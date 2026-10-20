@@ -1,134 +1,134 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.appearance.backgroundBlur.summary": {
-      "comment": "One-line summary of the window Material setting (Frosted, Glass, Clear Glass, None) in the wallpaper card.",
+    "chiefPet.hide": {
+      "comment": "View menu and command palette: the Show Chief Pet toggle's title while the floating Chief pet shows; running it hides the pet.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Glass shows the desktop through the wallpaper"
+            "value": "Hide Chief Pet"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يُظهر الزجاج الشفاف سطح المكتب عبر الخلفية"
+            "state": "needs_review",
+            "value": "إخفاء رفيق Chief"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Prozirno staklo prikazuje radnu površinu kroz pozadinu"
+            "state": "needs_review",
+            "value": "Sakrij Chief ljubimca"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Klart glas viser skrivebordet gennem baggrunden"
+            "state": "needs_review",
+            "value": "Skjul Chief-kæledyr"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Klares Glas zeigt den Schreibtisch durchs Hintergrundbild"
+            "state": "needs_review",
+            "value": "Chief-Begleiter ausblenden"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "El vidrio claro muestra el escritorio a través del fondo"
+            "state": "needs_review",
+            "value": "Ocultar mascota Chief"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Le verre clair montre le bureau à travers le fond"
+            "state": "needs_review",
+            "value": "Masquer le compagnon Chief"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Il vetro chiaro mostra la scrivania attraverso lo sfondo"
+            "state": "needs_review",
+            "value": "Nascondi mascotte Chief"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "クリアガラスでは壁紙越しにデスクトップが見えます"
+            "state": "needs_review",
+            "value": "Chief ペットを非表示"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កញ្ចក់ថ្លាបង្ហាញផ្ទៃតុតាមរយៈផ្ទាំងរូបភាព"
+            "state": "needs_review",
+            "value": "លាក់សត្វចិញ្ចឹម Chief"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "투명 유리는 배경화면 너머로 데스크탑을 보여 줍니다"
+            "state": "needs_review",
+            "value": "Chief 펫 숨기기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Klart glass viser skrivebordet gjennom bakgrunnen"
+            "state": "needs_review",
+            "value": "Skjul Chief-kjæledyr"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Przezroczyste szkło pokazuje biurko przez tapetę"
+            "state": "needs_review",
+            "value": "Ukryj zwierzaka Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O vidro claro mostra a mesa através do papel de parede"
+            "state": "needs_review",
+            "value": "Ocultar mascote Chief"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Прозрачное стекло показывает рабочий стол сквозь обои"
+            "state": "needs_review",
+            "value": "Скрыть питомца Chief"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "กระจกใสจะแสดงเดสก์ท็อปผ่านภาพพื้นหลัง"
+            "state": "needs_review",
+            "value": "ซ่อนสัตว์เลี้ยง Chief"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Şeffaf Cam, masaüstünü duvar kâğıdının ardından gösterir"
+            "state": "needs_review",
+            "value": "Chief evcil hayvanını gizle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Прозоре скло показує робочий стіл крізь шпалери"
+            "state": "needs_review",
+            "value": "Сховати улюбленця Chief"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kính trong cho thấy màn hình nền qua hình nền"
+            "state": "needs_review",
+            "value": "Ẩn thú cưng Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "透明玻璃会透过墙纸显示桌面"
+            "state": "needs_review",
+            "value": "隐藏 Chief 宠物"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "透明玻璃會透過桌布顯示桌面"
+            "state": "needs_review",
+            "value": "隱藏 Chief 寵物"
           }
         }
       }
@@ -39184,127 +39184,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "value": "Applies Hue and Saturation to the window's tint. Off, they have no effect."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt das Wallpaper-Raster und den Live-Erscheinungsbild-Tuner während der Integration."
+            "value": "Wendet Farbton und Sättigung auf die Tönung des Fensters an. Wenn aus, haben sie keine Wirkung."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affichez la grille de fonds d’écran et le réglage d’apparence en direct pendant leur intégration."
+            "value": "Applique la teinte et la saturation à la coloration de la fenêtre. Désactivé, elles n’ont aucun effet."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اعرض شبكة الخلفيات وضابط المظهر المباشر أثناء دمجهما."
+            "value": "يطبّق درجة اللون والتشبع على صبغة النافذة. عند إيقافه لا يكون لهما أي تأثير."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra la cuadrícula de fondos y el ajustador de apariencia en vivo mientras se integran."
+            "value": "Aplica el tono y la saturación al tinte de la ventana. Desactivado, no tienen efecto."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在整合期間顯示桌布網格與即時外觀調整器。"
+            "value": "將色相與飽和度套用到視窗的色調。關閉時，它們沒有作用。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在集成期间显示墙纸网格和实时外观调节器。"
+            "value": "将色相和饱和度应用到窗口的色调。关闭时，它们不起作用。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "통합 중인 배경화면 그리드와 실시간 모양 조절기를 표시합니다."
+            "value": "색조와 채도를 창의 틴트에 적용합니다. 끄면 아무 효과가 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "統合中の壁紙グリッドとライブ外観チューナーを表示します。"
+            "value": "色相と彩度をウインドウの色合いに適用します。オフのときは効果がありません。"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "Primjenjuje nijansu i zasićenost na ton prozora. Kada je isključeno, nemaju učinka."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "Anvender nuance og mætning på vinduets toning. Når den er slået fra, har de ingen virkning."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "Applica tonalità e saturazione alla tinta della finestra. Se disattivato, non hanno effetto."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "អនុវត្ត Hue និង Saturation ទៅលើពណ៌លាំរបស់បង្អួច។ ពេលបិទ វាគ្មានឥទ្ធិពលទេ។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "Bruker fargetone og metning på vinduets fargetoning. Når den er av, har de ingen virkning."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "Stosuje odcień i nasycenie do zabarwienia okna. Gdy wyłączone, nie mają żadnego efektu."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "Aplica matiz e saturação à tonalidade da janela. Desativado, eles não têm efeito."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "Применяет оттенок и насыщенность к тонированию окна. Когда выключено, они не действуют."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "ใช้ฮิวและความอิ่มตัวของสีกับโทนสีของหน้าต่าง เมื่อปิด ค่าเหล่านี้จะไม่มีผล"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "Ton ve doygunluğu pencerenin renk tonuna uygular. Kapalıyken etkileri olmaz."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "Застосовує відтінок і насиченість до тонування вікна. Коли вимкнено, вони не діють."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show the wallpaper grid and live appearance tuner while they are being integrated."
+            "state": "translated",
+            "value": "Áp dụng Sắc độ và Độ bão hòa cho tông màu của cửa sổ. Khi tắt, chúng không có tác dụng."
           }
         }
       }
@@ -39761,20 +39761,20 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Nijansa"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Nuance"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Tonalità"
           }
         },
         "km": {
@@ -39785,50 +39785,50 @@
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Fargetone"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Odcień"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Matiz"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Оттенок"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "ฮิว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Ton"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Відтінок"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Sắc độ"
           }
         }
       }
@@ -40023,20 +40023,20 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Zasićenost"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Mætning"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Saturazione"
           }
         },
         "km": {
@@ -40047,50 +40047,50 @@
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Metning"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Nasycenie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Saturação"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Насыщенность"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "ความอิ่มตัวของสี"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Doygunluk"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Насиченість"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Độ bão hòa"
           }
         }
       }
@@ -130779,6 +130779,138 @@
         }
       }
     },
+    "settings.appearance.backgroundBlur.summary": {
+      "comment": "One-line summary of the window Material setting (Frosted, Glass, Clear Glass, None) in the wallpaper card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Glass shows the desktop through the wallpaper"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُظهر الزجاج الشفاف سطح المكتب عبر الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozirno staklo prikazuje radnu površinu kroz pozadinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glas viser skrivebordet gennem baggrunden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klares Glas zeigt den Schreibtisch durchs Hintergrundbild"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El vidrio claro muestra el escritorio a través del fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le verre clair montre le bureau à travers le fond"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il vetro chiaro mostra la scrivania attraverso lo sfondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリアガラスでは壁紙越しにデスクトップが見えます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់ថ្លាបង្ហាញផ្ទៃតុតាមរយៈផ្ទាំងរូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "투명 유리는 배경화면 너머로 데스크탑을 보여 줍니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glass viser skrivebordet gjennom bakgrunnen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przezroczyste szkło pokazuje biurko przez tapetę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vidro claro mostra a mesa através do papel de parede"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозрачное стекло показывает рабочий стол сквозь обои"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจกใสจะแสดงเดสก์ท็อปผ่านภาพพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şeffaf Cam, masaüstünü duvar kâğıdının ardından gösterir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозоре скло показує робочий стіл крізь шпалери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kính trong cho thấy màn hình nền qua hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃会透过墙纸显示桌面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃會透過桌布顯示桌面"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.width": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -143142,6 +143274,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "顯示成員的監聽連接埠。"
+          }
+        }
+      }
+    },
+    "settings.layout.scrollAreas": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll Areas"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مناطق التمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Područja za pomicanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rulleområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scrollbereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Áreas de desplazamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zones de défilement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aree di scorrimento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スクロール領域"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំបន់រំកិល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크롤 영역"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rulleområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszary przewijania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Áreas de rolagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Области прокрутки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่เลื่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kaydırma Alanları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Області прокручування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vùng cuộn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "滚动区域"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "捲動區域"
+          }
+        }
+      }
+    },
+    "settings.layout.scrollAreas.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Splits scroll instead of squashing"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تتمرر التقسيمات بدلًا من أن تنضغط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podjele se pomiču umjesto da se sabijaju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdelinger ruller i stedet for at blive klemt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teilungen scrollen, statt gestaucht zu werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las divisiones se desplazan en lugar de comprimirse"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les divisions défilent au lieu d’être écrasées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le divisioni scorrono invece di comprimersi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分割を縮めずにスクロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបំបែករំកិល ជំនួសឱ្យការបង្រួម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "분할 영역을 줄이지 않고 스크롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Delinger ruller i stedet for å bli klemt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podziały przewijają się zamiast się ściskać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As divisões rolam em vez de serem comprimidas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделения прокручиваются, а не сжимаются"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่วนที่แบ่งจะเลื่อนแทนการบีบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölmeler sıkışmak yerine kayar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розділення прокручуються, а не стискаються"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các phần chia cuộn thay vì bị ép lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拆分会滚动而不是被挤压"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分割會捲動而不是被擠壓"
+          }
+        }
+      }
+    },
+    "settings.layout.scrollAreas.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأجزاء المتجاورة التي لا تتسع تتمرر أفقيًا بدلًا من أن تصغر، وكذلك في الأعمدة المثبتة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okna jedno do drugog koja ne stanu pomiču se bočno umjesto da se smanjuju, i u usidrenim kolonama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruder side om side, der ikke er plads til, ruller sidelæns i stedet for at blive mindre, også i dockede kolonner."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nebeneinanderliegende Bereiche, die nicht passen, scrollen seitlich, statt kleiner zu werden, auch in angedockten Spalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los paneles contiguos que no caben se desplazan en horizontal en lugar de encogerse, también en las columnas acopladas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les panneaux côte à côte qui ne tiennent pas défilent horizontalement au lieu de rétrécir, y compris dans les colonnes ancrées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I riquadri affiancati che non entrano scorrono lateralmente invece di rimpicciolirsi, anche nelle colonne agganciate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "横に並んだペインが収まらないときは、縮めずに横にスクロールします。ドックした列でも同じです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនៅជាប់គ្នាដែលមិនសមនឹងរំកិលទៅចំហៀង ជំនួសឱ្យការរួញតូច រួមទាំងក្នុងជួរឈរដែលបានភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "나란히 놓인 창이 들어가지 않으면 줄어들지 않고 가로로 스크롤됩니다. 도킹된 열에서도 같습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruter side om side som ikke får plass, ruller sidelengs i stedet for å krympe, også i dokkede kolonner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panele obok siebie, które się nie mieszczą, przewijają się w bok zamiast się zmniejszać, także w zadokowanych kolumnach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Painéis lado a lado que não cabem rolam na horizontal em vez de encolher, também em colunas fixadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панели рядом, которые не помещаются, прокручиваются вбок, а не сжимаются, в том числе в закреплённых столбцах."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บานหน้าต่างที่วางเคียงกันซึ่งไม่พอดีจะเลื่อนด้านข้างแทนการหดลง รวมถึงในคอลัมน์ที่ปักหมุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yan yana sığmayan bölmeler küçülmek yerine yana kayar; sabitlenmiş sütunlarda da."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панелі поруч, які не вміщуються, прокручуються вбік, а не зменшуються, також у закріплених стовпцях."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các khung cạnh nhau không vừa sẽ cuộn ngang thay vì thu nhỏ, kể cả trong các cột được neo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "并排的窗格放不下时会横向滚动而不是缩小，停靠列中也一样。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "並排的窗格放不下時會橫向捲動而不是縮小，停靠欄中也一樣。"
           }
         }
       }

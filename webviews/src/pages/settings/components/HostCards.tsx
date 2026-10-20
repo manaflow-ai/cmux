@@ -2,7 +2,7 @@
 // (Appearance, where Change Background… lands), the terminal facts (Terminal) and the settings
 // file with its problems (Advanced). Data comes from the host lists; writes run host ops or
 // catalog actions, the palette's paths.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { rowsByKey, type SchemaRow } from "../schema";
@@ -28,40 +28,22 @@ export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKG
  * or tabbing across the grid previews nothing, so it fetches no full-size art. */
 const PREVIEW_DWELL_MS = 150;
 
-/** Over a picture the window at 100% shows the work's own tint instead (the theme's opacity is
- * only the default there), so the slider's last step fell back to it: the slider stops below. */
+/** Over a picture the window caps its tint at 95%, so the art always shows: the slider stops there. */
 const ART_MAX_OPACITY = 0.95;
-const overArtRows = new WeakMap<SchemaRow, Map<number, SchemaRow>>();
+const overArtRows = new WeakMap<SchemaRow, SchemaRow>();
 /**
- * The Opacity row over a picture: it stops at 95%, and it starts at the legibility floor the app
- * reports (`derived_min`), rounded up onto the step grid. The window never paints below that floor,
- * so the slider's travel under it moved nothing (Leo, 10-19: "the slider still doesn't work"). The
- * summary says where it starts and why.
+ * The Opacity row over a picture: its whole travel, stopping at 95%. There is no legibility floor
+ * (Leo, 10-20): readability comes from Opacity and Material, the same over every picture.
  */
-function overArt(row: SchemaRow, floor: number | undefined): SchemaRow {
+function overArt(row: SchemaRow): SchemaRow {
   const range = row.range;
   if (!range) return row;
-  const max = Math.min(range.max, ART_MAX_OPACITY);
-  const min = floor === undefined ? range.min : Math.min(max, onStepGrid(floor, range.min, range.step));
-  let cache = overArtRows.get(row);
-  if (!cache) overArtRows.set(row, (cache = new Map()));
-  let capped = cache.get(min);
+  let capped = overArtRows.get(row);
   if (!capped) {
-    const summary =
-      min > range.min
-        ? { key: null, text: t("settingsWindow.backdropPicker.opacityFloor", `${Math.round(min * 100)}%`) }
-        : row.summary;
-    capped = { ...row, summary, range: { ...range, min, max } };
-    cache.set(min, capped);
+    capped = { ...row, range: { ...range, max: Math.min(range.max, ART_MAX_OPACITY) } };
+    overArtRows.set(row, capped);
   }
   return capped;
-}
-
-/** `value` rounded up to the next step from `origin`, to two decimals (0.62 is 0.65 in steps of 0.05). */
-function onStepGrid(value: number, origin: number, step: number): number {
-  if (!(step > 0)) return value;
-  const steps = Math.ceil((value - origin) / step - 1e-9);
-  return Math.round((origin + steps * step) * 100) / 100;
 }
 
 /** A tile's thumbnail; when the app answers none (a picture that is gone), an empty framed box
@@ -93,6 +75,10 @@ export function useBackdropsShown(): boolean {
  */
 export function Backdrops({ focus = null, workspace = null }: { focus?: string | null; workspace?: string | null }) {
   const store = useStore();
+  // What a tile's badges say to VoiceOver (the ▶ of a video, the cloud of a pending download).
+  // It stands in for the credit tooltip as VoiceOver's description; the credit stays the pointer's
+  // tooltip, and a video's title already names the wallpaper.
+  const describe = useId();
   const state = useSettingsState();
   const { host, rows } = state;
   const [browsing, setBrowsing] = useState(false);
@@ -194,6 +180,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         className={pending ? "backdrop-tile backdrop-pending" : "backdrop-tile"}
         aria-pressed={current === id}
         aria-label={title}
+        aria-describedby={
+          [choice?.video ? `${describe}-video` : null, pending ? `${describe}-pending` : null].filter(Boolean).join(" ") ||
+          undefined
+        }
         /* tooltip-allow: what a click on a cloud tile does, or the credit the one-line tile drops */ title={
           pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : credit
         }
@@ -240,6 +230,13 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
+      {/* Hidden: read only as a tile's description, never as text of their own in the card. */}
+      <span id={`${describe}-video`} hidden>
+        {t("settingsWindow.backdropPicker.video")}
+      </span>
+      <span id={`${describe}-pending`} hidden>
+        {t("settingsWindow.backdropPicker.downloadInSystemSettings")}
+      </span>
       {workspaceBackground && (
         <BackdropScopePicker
           title={workspaceBackground.title}
@@ -256,7 +253,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       <div className="rows">
         {!own && opacity && (
           <SettingRow
-            row={current === "none" ? opacity : overArt(opacity, host?.derived_min?.[BACKGROUND_OPACITY_KEY])}
+            row={current === "none" ? opacity : overArt(opacity)}
             focused={focus === BACKGROUND_OPACITY_KEY}
           />
         )}

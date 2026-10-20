@@ -28,6 +28,7 @@ import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { questionFromPermission, questionSummary, summaryLines, type AgentQuestion } from "./question/model";
 import { decidedQuestion, QUESTION_RECORD } from "./question/record";
+import { DECISION_TEXT, PERMISSION_RECORD, permissionDecision } from "./permissions/record";
 import { isNotification, typedRequest } from "./protocol/client";
 import type { SessionChanged, SessionSummary } from "./protocol/generated/types";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
@@ -42,7 +43,7 @@ import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { SubagentFold } from "./subagents/subagentFold";
+import { SubagentFold, subagentsLeft } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
@@ -713,6 +714,9 @@ export class AcpmuxDirectClient {
   /// The questions asked and not yet decided, by permission id: a decision draws a record of what
   /// was chosen where the card was (`questionRecord`, question/record.ts).
   private askedQuestions = new Map<string, AgentQuestion>();
+  /// The single permission cards asked and not yet answered, by permission id: an answer draws a
+  /// receipt (`permissionRecord`, permissions/record.ts).
+  private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
   private usage: { used: number; size: number } | undefined;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
@@ -1101,6 +1105,7 @@ export class AcpmuxDirectClient {
     this.groupedPermissions.clear();
     this.openQuestions.clear();
     this.askedQuestions.clear();
+    this.askedPermissions.clear();
     this.heldEdits.clear();
     // The chat's commands from its last visit on this page, so `/` lists them before the attach.
     this.commands = (this.selectedSessionId && knownCommands.get(this.selectedSessionId)) || [];
@@ -1176,9 +1181,13 @@ export class AcpmuxDirectClient {
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
-    else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
-    // A new chat's start mode may have changed (a pick in any pane, a config reload): pending
-    // chats ask acpmux again (startMode.ts).
+    // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
+    else if (notification.method === "_acpmux/harnesses_changed") {
+      this.onHarnessesChanged?.();
+      startModeChanged();
+    }
+    // A new chat's start mode may have changed (a pick in any pane, a config reload, the
+    // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
   }
 
@@ -1826,8 +1835,13 @@ export class AcpmuxDirectClient {
       this.openQuestions.add(String(msg.permissionId ?? `permission-${event.seq}`));
       this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
       this.applyPermission({ ...msg, sessionId: event.sessionId });
+      // A single card (not the grouped panel's, not a question's) leaves a receipt once answered.
+      const card = this.pendingPermission;
+      if (!asked && card && card.permissionId === String(msg.permissionId ?? ""))
+        this.askedPermissions.set(card.permissionId, card);
     } else if (event.kind === "permission_decision") {
       this.recordQuestion(event, msg);
+      this.recordPermission(event, msg);
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
       else this.groupedPermissions.clear();
       if (msg.permissionId) this.openQuestions.delete(String(msg.permissionId));
@@ -1871,10 +1885,7 @@ export class AcpmuxDirectClient {
     // the stream again then would split the reply that streams on.
     if (this.rows.has(rowId)) return;
     const question = decidedQuestion(asked, msg.outcome);
-    // The text and tool fold before it close, as a tool call's would: the work after the answer
-    // draws below the record, never in the row above it.
-    this.endAssistantSegment();
-    this.streamingActivity = undefined;
+    this.closeSegment();
     this.rows.set(rowId, {
       id: rowId,
       version: 1,
@@ -1887,6 +1898,53 @@ export class AcpmuxDirectClient {
           ? summaryLines(question, question.state.answer).join("\n")
           : translate("question.cancelled", { prompt: questionSummary(question) }),
     });
+  }
+
+  /// A single permission card, answered, leaves a one-line receipt where it was answered: "Allowed:
+  /// Run npm test", or Denied, Always allowed, Not answered. The grouped panel keeps its own.
+  private recordPermission(event: EventRecord, msg: any): void {
+    const id = msg.permissionId ? String(msg.permissionId) : undefined;
+    const asked = id ? this.askedPermissions.get(id) : undefined;
+    if (!id || !asked) return;
+    this.askedPermissions.delete(id);
+    const rowId = `permission-${id}`;
+    // Drawn already: a resync replays the live records after its rebuild drew them, and closing
+    // the stream again then would split the reply that streams on.
+    if (this.rows.has(rowId)) return;
+    const decision = permissionDecision(asked, msg.outcome);
+    this.closeSegment();
+    this.rows.set(rowId, {
+      id: rowId,
+      version: 1,
+      at: event.at,
+      kind: PERMISSION_RECORD,
+      permission: asked,
+      decision,
+      // What Copy reads; the row draws its words in the pane's language as it is then.
+      text: translate(DECISION_TEXT[decision.kind], {
+        action: asked.title?.trim() || translate("permission.required"),
+        option: decision.kind === "answered" ? decision.option : "",
+      }),
+    });
+  }
+
+  /// The text and tool fold before a record close, as a tool call's would: the work after an answer
+  /// draws below its record, never in the row above it.
+  private closeSegment(): void {
+    this.endAssistantSegment();
+    this.streamingActivity = undefined;
+  }
+
+  /// The subagent group rows that changed, into the transcript.
+  private takeSubagentRows(): void {
+    for (const row of this.subagents.takeRows()) {
+      // A new group ends the text and tool calls before it, like a tool call does.
+      if (!this.rows.has(row.id)) {
+        this.endAssistantSegment();
+        this.streamingActivity = undefined;
+      }
+      this.rows.set(row.id, row);
+    }
   }
 
   private reduce(event: EventRecord): void {
@@ -1937,6 +1995,9 @@ export class AcpmuxDirectClient {
       return;
     }
     if (event.dir === "mux") {
+      // A stopped turn or a gone agent ends the subagents it would never report again.
+      const left = subagentsLeft(event.kind, msg);
+      if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
       if (event.kind === BOOKMARKS_KIND) {
         // Another pane (or the TUI) marked a prompt: the minimap shows acpmux's marks.
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
@@ -2024,6 +2085,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
+        this.subagents.startTurn();
         this.settleCompactions(event.seq);
         // A Stop before this turn never judges it.
         this.stopAnswered(event);
@@ -2082,14 +2144,7 @@ export class AcpmuxDirectClient {
     }
     if (!update) return;
     if (this.subagents.reduce(event, update)) {
-      for (const row of this.subagents.takeRows()) {
-        // A new group ends the text and tool calls before it, like a tool call does.
-        if (!this.rows.has(row.id)) {
-          this.endAssistantSegment();
-          this.streamingActivity = undefined;
-        }
-        this.rows.set(row.id, row);
-      }
+      this.takeSubagentRows();
       return;
     }
     const commands = commandsFromUpdate(update);

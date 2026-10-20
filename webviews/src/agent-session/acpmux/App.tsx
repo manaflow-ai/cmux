@@ -99,8 +99,10 @@ import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
 import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
+import { cardTakesShortcuts } from "./permissionKeys";
 import { QuestionCard } from "./question/QuestionCard";
 import { QUESTION_RECORD } from "./question/record";
+import { DECISION_TEXT, PERMISSION_RECORD } from "./permissions/record";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
@@ -212,6 +214,7 @@ import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
+import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -267,6 +270,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
+import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
@@ -295,6 +299,7 @@ type NativeRegistry = Record<string, MeasurableRenderer>;
 type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
 type RowProps = {
   row: AcpmuxRow;
+  sessionId?: string;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
   controls?: string;
@@ -628,10 +633,13 @@ const MessageRow = memo(
 
 /// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
 const ToolActivityRow = memo(
-  function ToolActivityRow({ row }: RowProps) {
-    return <ToolRows row={row} />;
+  function ToolActivityRow({ row, sessionId }: RowProps) {
+    return <ToolRows row={row} sessionId={sessionId} />;
   },
-  (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
+  (previous, next) =>
+    previous.row.id === next.row.id &&
+    previous.row.version === next.row.version &&
+    previous.sessionId === next.sessionId,
 );
 
 /// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
@@ -777,6 +785,23 @@ const QuestionRecordRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
 const ignoreReply = () => {};
+/// A single permission card's receipt (permissions/record.ts): one muted line, the decision first.
+const PermissionRecordRow = memo(
+  function PermissionRecordRow({ row }: RowProps) {
+    const t = useT();
+    const decision = row.decision;
+    if (!decision) return null;
+    return (
+      <div className="acpmux-permission-record" data-decision={decision.kind}>
+        {t(DECISION_TEXT[decision.kind], {
+          action: row.permission?.title?.trim() || t("permission.required"),
+          option: decision.kind === "answered" ? decision.option : "",
+        })}
+      </div>
+    );
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 /// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
 const SubagentGroupRow = memo(
   function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
@@ -803,10 +828,14 @@ const SubagentOfPillRow = memo(
 );
 /// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
-  function EditedFilesRow({ row, onOpenDiff }: RowProps) {
-    return <EditedFilesCard row={row} onOpenDiff={onOpenDiff} />;
+  function EditedFilesRow({ row, sessionId, onOpenDiff }: RowProps) {
+    return <EditedFilesCard row={row} sessionId={sessionId} onOpenDiff={onOpenDiff} />;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.sessionId === b.sessionId &&
+    a.onOpenDiff === b.onOpenDiff,
 );
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
@@ -858,6 +887,7 @@ const defaultRegistry: NativeRegistry = {
   typing: NoticeRow,
   permission: PermissionRow,
   [QUESTION_RECORD]: QuestionRecordRow,
+  [PERMISSION_RECORD]: PermissionRecordRow,
   [SHELL_ROW]: ShellRow,
   [SUBAGENTS]: SubagentGroupRow,
   [SUBAGENT_ROW]: SubagentRow,
@@ -2510,6 +2540,7 @@ export function VirtualTranscript({
                     >
                       <Component
                         row={row}
+                        sessionId={sessionId}
                         onToggleActivity={onToggleActivity}
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
@@ -2533,9 +2564,10 @@ export function VirtualTranscript({
 const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
   void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
 
-/// Sends a question card's reply: the harness's option (absent cancels) and its answers.
+/// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
+/// shows a refusal (the promise rejects) and takes input again for a retry.
 const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) =>
-  void callNative("chat.permission", {
+  callNative("chat.permission", {
     permissionId: permission.permissionId,
     ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
     ...(sent.answers === undefined ? {} : { answers: sent.answers }),
@@ -2550,11 +2582,18 @@ function PermissionAsk({
   permission,
   harness,
   focusComposer,
+  shownChat,
+  shortcuts,
   waiting = 0,
 }: {
   permission: AcpmuxPermission;
   harness?: string;
   focusComposer?: () => void;
+  /// The chat shown now, read when a deny's instructions are about to go: with it, the card can deny
+  /// with what the agent should do instead (`denyWithFeedback`).
+  shownChat?: { readonly current: string | undefined };
+  /// False while a permission group's panel takes the shortcuts (permissionKeys.ts `cardTakesShortcuts`).
+  shortcuts?: boolean;
   /// More asks waiting behind this one (snapshot `permissionsWaiting`).
   waiting?: number;
 }) {
@@ -2565,7 +2604,9 @@ function PermissionAsk({
         permission={permission}
         harness={harness}
         focusComposer={focusComposer}
+        shortcuts={shortcuts}
         onAnswer={answerPermission(permission)}
+        onDenyWithFeedback={shownChat && denyWithFeedback(permission, shownChat)}
         waiting={waiting}
       />
     );
@@ -2576,6 +2617,24 @@ function PermissionAsk({
     </>
   );
 }
+
+/// Denies `permission`, then gives the agent what to do instead: into the running turn now (a
+/// steer; an agent that cannot steer stops the turn and takes it as the next prompt). Sent only once
+/// acpmux took the deny, so the agent never reads it before its tool is refused, and only to the chat
+/// that asked: another chat shown meanwhile would take it as its own. False when the deny failed.
+const denyWithFeedback =
+  (permission: AcpmuxPermission, shownChat: { readonly current: string | undefined }) =>
+  async (optionId: string, text: string): Promise<boolean> => {
+    const chat = shownChat.current;
+    try {
+      await callNative("chat.permission", { permissionId: permission.permissionId, optionId });
+    } catch {
+      return false;
+    }
+    if (text && shownChat.current === chat)
+      await callNative("chat.send", { text, attachments: [], steer: true }).catch(() => undefined);
+    return true;
+  };
 
 /// The composer chips on the New Tab page (cx-e2aa): no chat exists yet, so a pick starts a deferred
 /// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
@@ -3189,6 +3248,12 @@ function AcpmuxPane() {
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  /// The chat shown now, for a permission card's deny with instructions (PermissionAsk), which reads
+  /// it after the deny goes, never a render's stale copy.
+  const shownChat = useRef(shownSessionId);
+  useLayoutEffect(() => {
+    shownChat.current = shownSessionId;
+  }, [shownSessionId]);
   const summaryHasContent = useMemo(() => chatHasSummaryContent(snapshot.rows), [snapshot.rows]);
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
@@ -4124,6 +4189,7 @@ function AcpmuxPane() {
         applyAgentTheme(theme as never);
         configureChatWidth(theme.chatWidth);
         configureCodexToolRuns(theme.codexToolRuns);
+        configureTurnActionsPlacement(theme.turnActionsPlacement);
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
@@ -5587,9 +5653,11 @@ function AcpmuxPane() {
             <PermissionAsk
               key={individualPermission.permissionId}
               permission={individualPermission}
+              shortcuts={cardTakesShortcuts(snapshot.permissionGroups)}
               waiting={snapshot.permissionsWaiting}
               harness={snapshot.summary?.harness}
               focusComposer={() => composerHandle.current?.focus()}
+              shownChat={shownChat}
             />
           )}
           {secret && (
@@ -6026,6 +6094,24 @@ function AcpmuxPane() {
             .catch(() => undefined),
       }
     : undefined;
+  const chiefDockEnabled = quick && experimentArm(chiefDock) === "on";
+  const quickChiefDock = chiefDockEnabled
+    ? {
+        sessions: composerSnapshot.sessions,
+        currentId: snapshot.sessionId,
+        queueCounts:
+          snapshot.sessionId && snapshot.queue.length > 0
+            ? new Map([[snapshot.sessionId, snapshot.queue.length]])
+            : undefined,
+        steeringIds:
+          snapshot.summary?.steering && snapshot.sessionId && snapshot.queue.length > 0
+            ? new Set([snapshot.sessionId])
+            : undefined,
+        onSelect: selectSession,
+        onNewChat: () => void callNative("chat.new", {}).catch(() => undefined),
+        onMoveToTab: (sessionId: string) => void callNative("chat.openTab", { sessionId }).catch(() => undefined),
+      }
+    : undefined;
   if (quick)
     return (
       <ShortcutsContext.Provider value={shortcuts}>
@@ -6040,6 +6126,7 @@ function AcpmuxPane() {
             }
             composer={composer}
             floating={quickFloating}
+            chiefDock={quickChiefDock}
           />
           {imageView && (
             <ImageViewer
