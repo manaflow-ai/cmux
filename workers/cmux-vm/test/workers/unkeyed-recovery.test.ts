@@ -174,3 +174,10 @@ it("discovers a service fork's retained snapshot before VM admission and resumes
   expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
   expect(allocations()).toHaveLength(1);
 });
+
+it("frees an unkeyed create's slot when the provider definitely rejects it", async () => {
+  h.upstream.fail("create", 429);
+  expect((await create()).status).toBe(429);
+  expect((await create()).status).toBe(201);
+  expect(h.upstream.vms.size).toBe(1);
+});
