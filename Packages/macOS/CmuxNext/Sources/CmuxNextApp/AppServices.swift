@@ -109,6 +109,14 @@ final class AppServices {
     lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
     /// `cmux://vault`: Open Vault as Pane.
     private(set) lazy var vaultPages: VaultPageService = VaultPageService(services: self)
+    /// Where each window's right sidebar remembers its state (tests set a suite of their own).
+    var rightSidebarDefaults: UserDefaults = .standard
+    /// The right sidebar's sections by mode (the file explorer adds Files and Find).
+    private(set) lazy var rightSidebarSections: RightSidebarSections = {
+        let sections = RightSidebarSections()
+        sections.registerAppSections(self)
+        return sections
+    }()
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
