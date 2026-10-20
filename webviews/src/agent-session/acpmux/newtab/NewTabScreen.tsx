@@ -747,6 +747,8 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
+  /// The Cards template (u2851): the field is a pill of its own and the chips sit under it.
+  const pill = template === "cards";
   // Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent composer's
   // location strip; never the home ~ the tab inherited (cx-7fje0). Over the box, or in the stage
   // layout the footer's first item, before the permission mode (Claude Code desktop's footer).
@@ -824,6 +826,37 @@ export function NewTabScreen(props: Props) {
   // The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
   // switch is the one Enter reuses.
   const chips = Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />;
+  // The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
+  // this page draws no context ring. In the stage layout it holds only the mic and Send (the chips
+  // are the quiet footer's under the box); Cards draws it under the pill, with no Send disc.
+  const pickers = (
+    <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
+      <div
+        className="nt-pickers"
+        data-footer-look={plainFooter && !stage ? "plain" : undefined}
+        onPointerDownCapture={touch}
+      >
+        {!stage && chips}
+        <span className="acpmux-composer-actions">
+          {props.accessory}
+          {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
+              none, as Aside's New Tab: Return sends. */}
+          {!pill && (
+            <button
+              type="button"
+              className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
+              aria-label={t("composer.send")}
+              title={t("composer.sendTooltip")}
+              disabled={!text.trim()}
+              onClick={send}
+            >
+              <ArrowUpIcon />
+            </button>
+          )}
+        </span>
+      </div>
+    </ChromeArea>
+  );
   const composer = (
     <>
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
@@ -832,7 +865,7 @@ export function NewTabScreen(props: Props) {
           composer location strip; newtab/screen.css); in the stage layout it is the bar's first item. */}
       <div className="nt-composer">
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
-        {!stage && locationStrip}
+        {!stage && !pill && locationStrip}
         <div ref={setBox} className="nt-box">
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it. */}
           <AttachmentStrip
@@ -918,34 +951,16 @@ export function NewTabScreen(props: Props) {
               </span>
             )}
           </div>
-          {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
-            this page draws no context ring. */}
-          <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-            <div
-              className="nt-pickers"
-              data-footer-look={plainFooter && !stage ? "plain" : undefined}
-              onPointerDownCapture={touch}
-            >
-              {/* In the stage layout the box holds only the field, the mic and Send; the chips are the
-                quiet footer's under it (below). */}
-              {!stage && chips}
-              <span className="acpmux-composer-actions">
-                {props.accessory}
-                {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
-                <button
-                  type="button"
-                  className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
-                  aria-label={t("composer.send")}
-                  title={t("composer.sendTooltip")}
-                  disabled={!text.trim()}
-                  onClick={send}
-                >
-                  <ArrowUpIcon />
-                </button>
-              </span>
-            </div>
-          </ChromeArea>
+          {!pill && pickers}
         </div>
+        {/* Cards (u2851): the project, the agent's chips and the mic are a row under the field, as
+            Aside's New Tab draws them; it steps aside while Search shows its suggestions. */}
+        {pill && (
+          <div className="nt-toolbar">
+            {locationStrip}
+            {pickers}
+          </div>
+        )}
         {stage && (
           // Claude Code desktop's footer, under the box (Leo 2026-10-19; the composer's split): the
           // folder and the permission mode on the left, the model and effort on the right, as text.
@@ -963,6 +978,7 @@ export function NewTabScreen(props: Props) {
       className="nt-screen"
       data-shell={shell || undefined}
       data-template={template}
+      data-mode={mode}
       data-all-chats={allChats || undefined}
       data-layout={stage ? "stage" : undefined}
     >
@@ -1002,7 +1018,7 @@ export function NewTabScreen(props: Props) {
           {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
               browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
               Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
-          {!allChats && (
+          {!allChats && !pill && (
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
               {props.onCreate && (
