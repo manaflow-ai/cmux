@@ -57,9 +57,9 @@ public struct SidebarDocMachines {
 
     /// Sends a move intent as one document move. False: not a move, or the
     /// document is not active (the older path handles it).
-    public func handle(_ intent: SidebarIntent, model: SidebarModel, pinTitle: String, unpinTitle: String) -> Bool {
+    public func handle(_ intent: SidebarIntent, model: SidebarModel, pinTitle: String, unpinTitle: String, undoable: Bool = true) -> Bool {
         guard let store = SidebarDocStore.current, let drag = drag() else { return false }
-        return store.handle(intent, model: model, drag: drag, pinTitle: pinTitle, unpinTitle: unpinTitle)
+        return store.handle(intent, model: model, drag: drag, pinTitle: pinTitle, unpinTitle: unpinTitle, undoable: undoable)
     }
 
     /// Keeps `store` current: it refreshes when the home daemon connects or starts serving the document, and it shows
