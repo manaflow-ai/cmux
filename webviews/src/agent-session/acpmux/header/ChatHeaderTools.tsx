@@ -807,7 +807,13 @@ function ChatMenu({
                   ))}
                 </Submenu>
               ) : (
-                <ChatMenuRow key={row.key} item={row} afterClose={afterClose} />
+                <ChatMenuRow
+                  key={row.key}
+                  item={row}
+                  deferAction={(action) => {
+                    afterClose.current = action;
+                  }}
+                />
               ),
             )}
       </MenuPopup>
@@ -817,13 +823,13 @@ function ChatMenu({
 
 function ChatMenuRow({
   item,
-  afterClose,
+  deferAction,
 }: {
   item: Exclude<ChatMenuItem, "separator">;
-  afterClose: React.MutableRefObject<(() => void) | undefined>;
+  deferAction: (action: () => void) => void;
 }) {
   const shortcut = useShortcut(item.shortcutAction ?? "");
-  const onSelect = item.afterClose && item.onSelect ? () => void (afterClose.current = item.onSelect) : item.onSelect;
+  const onSelect = item.afterClose && item.onSelect ? () => deferAction(item.onSelect!) : item.onSelect;
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={onSelect}>
       <Icon name={item.icon} size={15} />

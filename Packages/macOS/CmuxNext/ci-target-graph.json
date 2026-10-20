@@ -133,6 +133,7 @@
       ],
       "packages": [],
       "reads": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/",
         "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]

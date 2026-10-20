@@ -916,7 +916,7 @@ export function Markdown({
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
   const receivedParser = useRef<IncrementalMarkdown | null>(null);
-  receivedParser.current ??= new IncrementalMarkdown();
+  if (receivedParser.current === null) receivedParser.current = new IncrementalMarkdown();
   const receivedRenders = useMemo(
     () =>
       liveRender && receivedText !== undefined && /```cmux-(?:render|react)\b/i.test(receivedText)

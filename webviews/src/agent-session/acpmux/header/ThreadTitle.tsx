@@ -2,7 +2,7 @@
 // project, as a label, then its title, which renames the chat in place (`pane.rename`): Return or
 // leaving the field keeps the name, Escape puts the old one back.
 import { useRef, useState } from "react";
-import { inputCommandProps } from "../../../ui/inputCommandProps";
+import { CommandInput } from "../../../ui/CommandInput";
 import { useT } from "../i18n";
 import { useNt } from "../newtab/strings";
 import { folderName } from "../summary/ThreadDetails";
@@ -51,7 +51,7 @@ export function ThreadTitle({
         </>
       )}
       {editing ? (
-        <input
+        <CommandInput
           className="acpmux-thread-title__field"
           aria-label={t("chatMenu.rename")}
           defaultValue={shown}
@@ -61,14 +61,14 @@ export function ThreadTitle({
           autoFocus
           onFocus={(event) => event.currentTarget.select()}
           onBlur={(event) => commit(event.currentTarget.value)}
-          {...inputCommandProps({
+          commands={{
             ignoreComposition: true,
             enter: (event) => commit(event.currentTarget.value),
             escape: () => {
               settled.current = true;
               setEditing(false);
             },
-          })}
+          }}
         />
       ) : (
         <button
