@@ -12,7 +12,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p "$tmp/root/cmux-tui" "$tmp/root/scripts/ci" "$tmp/root/scripts/cmux-next"
 cp "$root_dir/scripts/ci/nightly_version.py" "$tmp/root/scripts/ci/"
-cp "$root_dir/scripts/cmux-next/check-version-surfaces.sh" "$tmp/root/scripts/cmux-next/"
+cp "$root_dir/scripts/cmux-next/check-version-surfaces.sh" "$root_dir/scripts/cmux-next/check-version-surfaces.py" "$tmp/root/scripts/cmux-next/"
 cat > "$tmp/root/cmux-tui/Cargo.toml" <<'EOF'
 [package]
 name = "cmux-tui-source-watch"
