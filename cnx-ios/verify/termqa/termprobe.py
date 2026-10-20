@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 
 def container(udid, bundle):
@@ -45,9 +46,15 @@ def echo(udid, bundle, since=0.0, out=None):
 def export(udid, bundle, outdir):
     docs = os.path.join(container(udid, bundle), "Documents/termprobe")
     before = {f: os.path.getmtime(f) for f in glob.glob(os.path.join(docs, "*.txt"))}
+    # Arm the waiter for the app's reply first: the app answers within milliseconds.
+    waiter = subprocess.Popen(["xcrun", "simctl", "spawn", udid, "notifyutil", "-1", "dev.cmux.cnx.termprobe.exported"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.5)  # notifyutil registers its observer after it starts
     subprocess.run(["xcrun", "simctl", "spawn", udid, "notifyutil", "-p", "dev.cmux.cnx.termprobe.export"], check=True)
-    # The app writes on its main thread right after the notification; wait for the files to change.
-    subprocess.run(["xcrun", "simctl", "spawn", udid, "notifyutil", "-1", "dev.cmux.cnx.termprobe.exported"], timeout=20)
+    try:
+        waiter.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        waiter.kill()
     os.makedirs(outdir, exist_ok=True)
     copied = []
     for f in glob.glob(os.path.join(docs, "*.txt")):
