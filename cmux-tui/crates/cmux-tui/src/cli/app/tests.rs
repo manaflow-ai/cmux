@@ -1228,3 +1228,6 @@ fn move_to_window_new_is_move_to_new_window() {
     assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--new=false"])), None);
     assert_eq!(new_window_spelling("workspace rename", &args(&["--new"])), None);
 }
+
+#[path = "right_tests.rs"]
+mod right;
