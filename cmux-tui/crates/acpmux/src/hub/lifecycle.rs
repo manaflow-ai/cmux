@@ -214,7 +214,13 @@ impl Hub {
                     let catalog = self.catalog_ids(agent).await;
                     let full = format!("{head}/{m}");
                     let m = if !catalog.is_empty() && !catalog.iter().any(|id| id == m) && catalog.contains(&full) { full } else { m.clone() };
-                    if let Err(e) = self.set_model(&session, &m).await {
+                    // A start value this session's harness does not list (its account
+                    // lacks it): the harness accepts set_model, then fails every prompt.
+                    let reported = self.reported_model_ids(agent);
+                    if model_soft && !super::start_defaults::offers(&reported, &m) {
+                        tracing::warn!(harness = agent, model = %m, "start model skipped: not offered by the harness");
+                        self.append(&session, "mux", "start_default_skipped", json!({"modelId": m, "error": "the harness does not offer this model"}));
+                    } else if let Err(e) = self.set_model(&session, &m).await {
                         // A start value the harness refuses (start_defaults.rs): the
                         // chat runs the harness's own default instead.
                         if model_soft {
