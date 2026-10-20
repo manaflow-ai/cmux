@@ -4,7 +4,7 @@ import { call, DEV_PROJECT, PROD_PROJECT, register, token } from "./helpers.ts"
 describe("HTTP API", () => {
   it("health is public", async () => {
     const r = await call("GET", "/v1/health", undefined)
-    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.9.0", stackProjects: [DEV_PROJECT, PROD_PROJECT] } })
+    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.10.0", stackProjects: [DEV_PROJECT, PROD_PROJECT] } })
     expect(r.json).toHaveProperty("colo")
   })
 
@@ -40,12 +40,15 @@ describe("HTTP API", () => {
     expect(bad.status).toBe(400)
   })
 
-  it("lists team macs with presence fields", async () => {
+  it("lists the caller's own team macs with presence fields, never a teammate's", async () => {
     const bob = await token("bob")
     const id = await register(bob, "mac", "team-a", "Bob's Mac")
-    const r = await call("GET", "/v1/teams/team-a/macs", await token("alice"))
+    const r = await call("GET", "/v1/teams/team-a/macs", bob)
     expect(r.status).toBe(200)
     expect(r.json.macs.find((m: any) => m.deviceId === id)).toEqual({ deviceId: id, name: "Bob's Mac", online: false, lastSeenAt: null, ownerUserId: "bob" })
+    const asAlice = await call("GET", "/v1/teams/team-a/macs", await token("alice"))
+    expect(asAlice.status).toBe(200)
+    expect(asAlice.json.macs.some((m: any) => m.deviceId === id || m.ownerUserId !== "alice")).toBe(false)
     expect((await call("GET", "/v1/teams/team-a/macs", await token("mallory"))).status).toBe(403)
   })
 
@@ -110,8 +113,10 @@ describe("dev and production Stack projects", () => {
   it("membership comes from the caller's own project", async () => {
     const pat = await prod("pat")
     const mac = await register(pat, "mac", "team-p", "Pat's Mac")
+    // Prod alice is a member of team-p (200), but Pat's Mac is Pat's alone.
     const listed = await call("GET", "/v1/teams/team-p/macs", await prod("alice"))
-    expect(listed.json.macs).toEqual([{ deviceId: mac, name: "Pat's Mac", online: false, lastSeenAt: null, ownerUserId: "pat" }])
+    expect(listed).toEqual({ status: 200, json: { macs: [] } })
+    expect((await call("GET", "/v1/teams/team-p/macs", pat)).json.macs).toEqual([{ deviceId: mac, name: "Pat's Mac", online: false, lastSeenAt: null, ownerUserId: "pat" }])
     // Dev alice is in dev team-a, not in prod team-p; prod alice is not in dev team-a.
     expect((await call("GET", "/v1/teams/team-p/macs", await token("alice"))).status).toBe(403)
     expect((await call("GET", "/v1/teams/team-a/macs", await prod("alice"))).status).toBe(403)
