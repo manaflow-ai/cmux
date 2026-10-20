@@ -12,8 +12,8 @@ Read the matching skill before changing an area, then only the references needed
   Start with `python3 scripts/verify-local.py`; docs and portable tooling need no app build.
   Run repository commands only in a [trusted checkout](docs/contributor-verification.md#trust-boundary),
   including `verify-local.py --help`, `--list` and `--repo`. Push does not run checks for you.
-- Use [CONTRIBUTING.md](CONTRIBUTING.md#getting-started) for setup. Outside cmuxterm-hq-created
-  checkouts, set `CMUX_DEV_BACKEND_MODE=local` for dev builds. Follow [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md)
+- Use [CONTRIBUTING.md](CONTRIBUTING.md#getting-started) for setup. Tagged reloads default to
+  `CMUX_DEV_BACKEND_MODE=local`; cmux-next needs no shared backend. Follow [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md)
   for commands and cache reuse; team fleet tasks start at
   [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md).
   Never use bare `xcodebuild` or an untagged `cmux DEV.app`. Clean up only your own tags.
@@ -26,8 +26,9 @@ Read the matching skill before changing an area, then only the references needed
   user may. Reproduce in a tagged build and attach profiling to its PID.
 - Dogfood through `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, never `/tmp/cmux-cli`.
   Never report raw `.app` paths or `file://` URLs.
-- App-linked code (`App/`, `CLI/` and their packages) must
-  remain [Swift 6.0 compatible](skills/cmux-architecture/references/swift-6-0-compatibility.md).
+- The app package needs Swift tools 6.2 and deploys to macOS 14; the classic Swift 6.0 rule
+  does not apply here. Check Release compiles and macOS 14 limits with
+  [toolchain compatibility](skills/cmux-architecture/references/swift-6-0-compatibility.md).
 
 ## Swift namespace convention
 

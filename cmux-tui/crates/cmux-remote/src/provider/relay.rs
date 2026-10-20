@@ -23,6 +23,7 @@ use tokio::net::TcpStream;
 use tokio::process::Command;
 use tokio::sync::{Mutex, mpsc, oneshot, watch};
 use tokio::task::{Id, JoinSet};
+use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
@@ -51,7 +52,15 @@ const RELAY_BATCH_HEADER_BYTES: usize = 8;
 const RELAY_BATCH_ENTRY_HEADER_BYTES: usize = 4;
 const MAX_RELAY_BATCH_FRAMES: usize = 32;
 const RELAY_BATCH_QUEUE_FRAMES: usize = 128;
-const RELAY_BATCH_DELAY: Duration = Duration::from_millis(1);
+// A batched sender lingers to fill a batch only after this many consecutive
+// sends each began within RELAY_BURST_LINGER of the previous one finishing.
+// A flood builds that streak within microseconds; typed input at human pace,
+// its echo and their acknowledgements do not. Interactive frames wait on the
+// timer (at most RELAY_BURST_LINGER per hop, as every frame did before) only
+// while the sender is saturated or a request-response loop runs faster than
+// one round trip per RELAY_BURST_LINGER.
+const RELAY_BURST_SENDS: usize = 4;
+const RELAY_BURST_LINGER: Duration = Duration::from_millis(1);
 const MAX_RELAY_INCOMING_TASKS: usize = 64;
 
 type CredentialFuture = Pin<Box<dyn Future<Output = Result<String, ()>> + Send + 'static>>;
@@ -615,6 +624,8 @@ async fn run_batched_relay_sender(
     terminal: watch::Sender<Option<LinkError>>,
 ) {
     let mut deferred = None;
+    let mut last_send_finished: Option<Instant> = None;
+    let mut burst_sends = 0_usize;
     loop {
         let command = match deferred.take() {
             Some(command) => command,
@@ -626,10 +637,22 @@ async fn run_batched_relay_sender(
                 }
             },
         };
+        let back_to_back =
+            last_send_finished.is_some_and(|finished| finished.elapsed() < RELAY_BURST_LINGER);
+        burst_sends = if back_to_back { burst_sends.saturating_add(1) } else { 0 };
         let result = match command {
             RelayCircuitCommand::Frame(first) => {
                 let mut frames = vec![first];
-                tokio::time::sleep(RELAY_BATCH_DELAY).await;
+                // Interactive traffic normally leaves without a timer: one yield lets
+                // frames produced in the same scheduler pass join this batch,
+                // and frames queued while the previous send was in flight are
+                // drained below. Only sustained output waits to fill a batch,
+                // which keeps the relay's message count down during floods.
+                if burst_sends < RELAY_BURST_SENDS {
+                    tokio::task::yield_now().await;
+                } else if commands.len() + 1 < MAX_RELAY_BATCH_FRAMES {
+                    tokio::time::sleep(RELAY_BURST_LINGER).await;
+                }
                 while frames.len() < MAX_RELAY_BATCH_FRAMES {
                     let Ok(command) = commands.try_recv() else {
                         break;
@@ -681,6 +704,7 @@ async fn run_batched_relay_sender(
             terminal.send_replace(Some(error));
             return;
         }
+        last_send_finished = Some(Instant::now());
     }
 }
 

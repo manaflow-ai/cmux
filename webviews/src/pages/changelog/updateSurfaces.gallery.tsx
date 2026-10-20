@@ -87,7 +87,7 @@ export default componentEntry<Props>({
   },
   variants: {
     card: {
-      note: 'Card #01 Compact list (u2441): "Updated to nightly 3845050", the top changes one line each, the count of the rest beside See What\'s New, the x on hover only. The composer\'s surface on a plain page.',
+      note: "Card #01 Compact list (u2441): \"Updated to nightly 3845050\", the top changes one line each, the count of the rest beside See What's New, the x on hover only. The composer's surface on a plain page.",
       props: { surface: "card", data: base },
     },
     "card-wallpaper": {

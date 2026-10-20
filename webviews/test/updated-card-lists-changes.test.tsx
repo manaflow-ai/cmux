@@ -32,7 +32,6 @@ afterAll(() => {
   }
 });
 
-
 // The Updated card lists the update's top changes right on it (u2441, gallery #01 "Compact list",
 // 2026-10-19): the user wants to see what's new on the card, not one headline and a button. Every
 // listed title shows; the count is only the changes not listed.
@@ -45,7 +44,12 @@ const data = {
   source: "whatsNew" as const,
   language: "en",
   items: [
-    { id: "dictation", title: "Dictation progress is announced to VoiceOver", summary: "Hears recording.", category: "fixed" as const },
+    {
+      id: "dictation",
+      title: "Dictation progress is announced to VoiceOver",
+      summary: "Hears recording.",
+      category: "fixed" as const,
+    },
     { id: "new-tab", title: "New Tab names its project and machine at once", summary: null, category: "new" as const },
     { id: "smooth", title: "Chats stay smooth while an agent streams", summary: null, category: "improved" as const },
   ],
@@ -62,7 +66,9 @@ async function renderCard(d: typeof data) {
   root = createRoot(host);
   const noop = () => undefined;
   await act(async () =>
-    root!.render(<UpdatedCard data={d} strings={createStrings(table)} actions={{ openChangelog: noop, dismiss: noop }} />),
+    root!.render(
+      <UpdatedCard data={d} strings={createStrings(table)} actions={{ openChangelog: noop, dismiss: noop }} />,
+    ),
   );
 }
 
