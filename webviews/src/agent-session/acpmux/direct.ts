@@ -1919,14 +1919,15 @@ export class AcpmuxDirectClient {
         // Another agent's message or harness bookkeeping (conversation/incomingMessage.ts): the row
         // keeps the sender's words, or the typed prompt without the bookkeeping. Bookkeeping alone
         // keeps an empty row that draws nothing, so the answer it brought stays its own turn
-        // (turns.ts). Retry resends the prompt as the agent got it (`resend`).
+        // (turns.ts). Retry resends a message as the agent got it (`resend`); a notice, like
+        // bookkeeping, is the harness's, not a prompt to send again, so it offers no Retry.
         const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg);
         const raw = String(msg.text ?? "");
         const shown =
           incoming?.kind === "message"
             ? { text: incoming.message.text, incoming, resend: raw }
             : incoming?.kind === "notice"
-              ? { text: incoming.text, incoming, resend: raw }
+              ? { text: incoming.text, incoming }
               : incoming?.kind === "hidden"
                 ? { text: "", incoming }
                 : { text: incoming?.kind === "prompt" ? incoming.text : raw };

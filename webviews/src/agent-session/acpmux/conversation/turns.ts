@@ -334,8 +334,10 @@ function shapeTurn(
     ...summary,
     folded: work.length > 0,
     text: answer?.text ?? summary.text,
-    // Retry sends the prompt as the agent got it: an incoming message with its sender.
+    // Retry sends the prompt as the agent got it: an incoming message with its sender. A
+    // notification is the harness's, not a prompt to send again (incomingMessage.ts).
     ...(retryable &&
+      user.incoming?.kind !== "notice" &&
       (user.resend ?? user.text) && {
         prompt: user.resend ?? user.text,
         retryRowId: user.id,
