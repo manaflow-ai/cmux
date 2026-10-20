@@ -12,6 +12,7 @@ extension WorkspaceDetailView {
     var detailSurfaceContent: some View {
         #if os(iOS)
         let surface = activeSurface
+        let terminalIsVisible = surface == .terminal && !isAgentGUIVisible
         // Captured at body time (the same evaluation as `shouldAutoFocus` in
         // `detailContent()`), so a chrome-driven terminal switch — which
         // suppresses the target's autofocus until the remount's `onAppear`
@@ -24,10 +25,22 @@ extension WorkspaceDetailView {
         )
         ZStack {
             detailContent()
-                .opacity(surface == .terminal ? 1 : 0)
-                .allowsHitTesting(surface == .terminal)
-                .accessibilityHidden(surface != .terminal)
-            if surface == .browser, let browser = activeBrowser {
+                .opacity(terminalIsVisible ? 1 : 0)
+                .allowsHitTesting(terminalIsVisible)
+                .accessibilityHidden(!terminalIsVisible)
+            if isAgentGUIVisible, let terminal = selectedTerminal {
+                AgentChatSurfaceView(
+                    surface: MobileSurfacePreview(
+                        id: .init(rawValue: terminal.id.rawValue),
+                        kind: .agentSession,
+                        title: terminal.name
+                    ),
+                    source: store.makeChatEventSource(),
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    preferredTerminalID: terminal.id.rawValue
+                )
+                .id("terminal-chat|\(workspace.rpcWorkspaceID.rawValue)|\(terminal.id.rawValue)|\(effectiveConnectionStatus)")
+            } else if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             } else if surface == .browser {
@@ -81,15 +94,26 @@ extension WorkspaceDetailView {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if workspaceChangesHint != nil {
-                WorkspaceChangesHintBanner(
-                    openChanges: openWorkspaceChanges,
-                    dismiss: dismissWorkspaceChangesHint
-                )
+            VStack(spacing: 0) {
+                if canShowAgentViewMode {
+                    AgentViewModePicker(
+                        isGUI: isAgentGUIVisible,
+                        selectGUI: { isGUI in
+                            dismissTerminalKeyboardForChrome()
+                            agentGUITerminalID = isGUI ? selectedTerminalID : nil
+                        }
+                    )
+                }
+                if workspaceChangesHint != nil {
+                    WorkspaceChangesHintBanner(
+                        openChanges: openWorkspaceChanges,
+                        dismiss: dismissWorkspaceChangesHint
+                    )
+                }
             }
         }
         .onChange(of: surface) { _, newSurface in
-            if newSurface == .terminal {
+            if newSurface == .terminal && !isAgentGUIVisible {
                 // The surface stayed mounted under the chrome, so no attach
                 // autofocus fires on return; refocus explicitly. Never while
                 // input is blocked: a disconnected terminal's keystrokes
@@ -124,6 +148,17 @@ extension WorkspaceDetailView {
         }
         let canOpenOnMac = store.supportsSurfaceFocus(in: workspace.id)
         switch renderer {
+        case .fallbackCard where macSurface.kind == .agentSession:
+            // Agent sessions have a native, typed transcript path on iOS.
+            // Recreate the owner when connection availability changes so a
+            // surface that was opened during recovery can attach as soon as
+            // the paired Mac is reachable again.
+            AgentChatSurfaceView(
+                surface: macSurface,
+                source: store.makeChatEventSource(),
+                workspaceID: workspace.rpcWorkspaceID.rawValue
+            )
+            .id("agent-chat|\(macSurface.id.rawValue)|\(effectiveConnectionStatus)")
         case .todo(let todo):
             // The capability set empties while the connection recovers, so it
             // doubles as the "Mac can take mutations right now" signal; the

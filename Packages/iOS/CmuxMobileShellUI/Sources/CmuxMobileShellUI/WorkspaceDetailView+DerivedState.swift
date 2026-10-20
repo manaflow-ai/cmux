@@ -48,7 +48,26 @@ extension WorkspaceDetailView {
     /// the band is supported and the terminal is the visible surface (the
     /// opacity-swapped siblings keep the opaque bar).
     var terminalScrollEdgeGlassActive: Bool {
-        terminalScrollEdgeBandEnabled && activeSurface == .terminal
+        terminalScrollEdgeBandEnabled && activeSurface == .terminal && !isAgentGUIVisible
+    }
+
+    var canShowAgentViewMode: Bool {
+        #if os(iOS)
+        activeSurface == .terminal
+            && selectedTerminalID != nil
+            && sshHostID == nil
+            && store.externalHostID(ofWorkspace: workspace.id) == nil
+        #else
+        false
+        #endif
+    }
+
+    var isAgentGUIVisible: Bool {
+        #if os(iOS)
+        canShowAgentViewMode && agentGUITerminalID == selectedTerminalID
+        #else
+        false
+        #endif
     }
 
     /// iOS renders the workspace title as a custom principal toolbar item. Keep

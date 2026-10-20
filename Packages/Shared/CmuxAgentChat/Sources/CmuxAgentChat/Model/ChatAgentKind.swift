@@ -38,8 +38,20 @@ public enum ChatAgentKind: Sendable, Equatable, Hashable {
         switch self {
         case .claude: return "Claude"
         case .codex: return "Codex"
-        case .other(let source): return source.capitalized
+        case .other(let source):
+            // OpenCode is intentionally carried as an ``other`` value for
+            // wire compatibility with older Macs. Preserve its brand casing
+            // in every native client instead of displaying "Opencode".
+            return source.caseInsensitiveCompare("opencode") == .orderedSame
+                ? "OpenCode"
+                : source.capitalized
         }
+    }
+
+    /// Whether this source is the OpenCode CLI while retaining the
+    /// forward-compatible ``other`` representation on the wire.
+    public var isOpenCode: Bool {
+        sourceName.caseInsensitiveCompare("opencode") == .orderedSame
     }
 }
 

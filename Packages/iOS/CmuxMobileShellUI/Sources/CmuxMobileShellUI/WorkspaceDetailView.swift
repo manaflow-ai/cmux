@@ -147,6 +147,9 @@ struct WorkspaceDetailView: View {
     @State var isWorkspaceChangesSheetPresented = false
     @State var workspaceChangesHint: MobileWorkspaceChangesHint?
     @State var artifactGalleryRefreshSignal = TerminalArtifactGalleryRefreshSignal.initial
+    /// GUI mode belongs to the selected terminal, so changing tabs cannot
+    /// silently send a prompt to another terminal's agent.
+    @State var agentGUITerminalID: String?
     @Environment(\.scenePhase) var scenePhase
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
@@ -400,7 +403,7 @@ struct WorkspaceDetailView: View {
 
     #if os(iOS)
     var altScreenNoticeIsVisible: Bool {
-        guard let selectedTerminalID else { return false }
+        guard !isAgentGUIVisible, let selectedTerminalID else { return false }
         return store.isAlternateScreen(surfaceID: selectedTerminalID)
             && displaySettings.showAltScreenNotice
     }

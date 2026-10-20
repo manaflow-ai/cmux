@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxMobileHost
 import Foundation
@@ -13,6 +14,9 @@ struct AgentChatTranscriptResolver: Sendable {
     private let claudeConfigRoot: URL
     /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
     let codexConfigRoot: URL
+    /// OpenCode's SQLite session database (`$OPENCODE_DB` or its documented
+    /// XDG/default location).
+    private let openCodeDatabaseURL: URL
 
     /// Creates a resolver.
     ///
@@ -32,6 +36,13 @@ struct AgentChatTranscriptResolver: Sendable {
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
+        var openCodeEnvironment = environment
+        // `homeDirectory` is injectable for resolver tests. Keep OpenCode's
+        // default path aligned with that injected home when the caller did
+        // not provide an explicit HOME override.
+        if openCodeEnvironment["HOME"] == nil {
+            openCodeEnvironment["HOME"] = homeDirectory.path
+        }
         self.homeDirectory = homeDirectory
         self.claudeConfigRoot = Self.configRoot(
             override: environment["CLAUDE_CONFIG_DIR"],
@@ -41,6 +52,7 @@ struct AgentChatTranscriptResolver: Sendable {
             override: environment["CODEX_HOME"],
             default: homeDirectory.appendingPathComponent(".codex", isDirectory: true)
         )
+        self.openCodeDatabaseURL = OpenCodePaths(environment: openCodeEnvironment).databaseURL
     }
 
     /// Resolves a config-dir root from an env override, expanding a leading `~`,
@@ -71,6 +83,8 @@ struct AgentChatTranscriptResolver: Sendable {
             return claudeFallbackPath(record: record)
         case .codex:
             return codexFallbackPath(sessionID: record.sessionID, deadline: deadline)
+        case .other(let source) where source == "opencode":
+            return openCodeFallbackPath()
         case .other:
             return nil
         }
@@ -87,7 +101,11 @@ struct AgentChatTranscriptResolver: Sendable {
         switch record.agentKind {
         case .claude:
             return claudeFallbackPath(record: record)
-        case .codex, .other:
+        case .codex:
+            return nil
+        case .other(let source) where source == "opencode":
+            return openCodeFallbackPath()
+        case .other:
             return nil
         }
     }
@@ -108,6 +126,11 @@ struct AgentChatTranscriptResolver: Sendable {
             .appendingPathComponent("\(record.hookStoreLookupSessionID).jsonl", isDirectory: false)
             .path
         return fileManager.fileExists(atPath: path) ? path : nil
+    }
+
+    private func openCodeFallbackPath() -> String? {
+        let path = openCodeDatabaseURL.path
+        return FileManager.default.fileExists(atPath: path) ? path : nil
     }
 
     /// Codex rollout files are named `rollout-<timestamp>-<session-uuid>.jsonl`

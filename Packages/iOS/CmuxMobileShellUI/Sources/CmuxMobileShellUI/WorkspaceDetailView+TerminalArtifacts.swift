@@ -16,6 +16,7 @@ extension WorkspaceDetailView {
     @ViewBuilder
     func terminalArtifactSurface(terminalID: String) -> some View {
     let shouldAutoFocus = activeSurface == .terminal
+        && !isAgentGUIVisible
         && store.shouldAutoFocusTerminalSurface(terminalID)
         && !store.isComposerPresented
     // SSH terminals have no Mac artifact scan; their Files chip browses the
@@ -29,11 +30,11 @@ extension WorkspaceDetailView {
             population: .workspace, workspaceCount: 1, surfaceCount: workspace.surfaces.count
         ),
         fontSize: MobileTerminalFontPreference.defaultSize,
-        terminalPresentationIsActive: scenePhase == .active,
+        terminalPresentationIsActive: scenePhase == .active && !isAgentGUIVisible,
         // Do not let a terminal reattach steal focus while the
         // composer owns or intentionally withholds the keyboard.
         autoFocusOnWindowAttach: shouldAutoFocus,
-        isComposerActive: store.isComposerPresented,
+        isComposerActive: store.isComposerPresented || isAgentGUIVisible,
         terminalTheme: store.activeTerminalTheme,
         topContentInset: terminalSurfaceTopContentInset,
         bottomSafeAreaInset: terminalSurfaceBottomSafeAreaInset,

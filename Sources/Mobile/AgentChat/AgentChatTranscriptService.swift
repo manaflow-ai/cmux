@@ -389,6 +389,11 @@ final class AgentChatTranscriptService {
         switch record.agentKind {
         case .codex:
             return true
+        case .other(let source) where source == "opencode":
+            // OpenCode's transcript is one shared SQLite database. The
+            // resolver can check that database cheaply; do not hide an ended
+            // OpenCode session merely because it has no JSONL path.
+            return true
         case .claude, .other:
             return endedListability.shouldList(record, resolver: resolver, now: now())
         }
@@ -624,6 +629,7 @@ final class AgentChatTranscriptService {
         let endedRecordIsListable: Bool
         if record.state == .ended {
             endedRecordIsListable = record.agentKind == .codex
+                || record.agentKind == .other("opencode")
                 || endedListability.update(record, previous: previous, resolver: resolver, now: now())
         } else {
             endedListability.remove(sessionID: record.sessionID)
