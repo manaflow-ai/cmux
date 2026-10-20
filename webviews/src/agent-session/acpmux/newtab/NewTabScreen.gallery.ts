@@ -25,6 +25,22 @@ const reasoningChat = () =>
 const ALBUM_ART =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACU0lEQVR42tXPCTcTAAAH8P8nkZJyC8uSRUNzX8uRNS0amvvMckSOJkcTOXJHJCJHkyOyHJEjckS8Xr16vXr1en2E9jX+3+D3g5labZ6ttrxx0yorxyYr1zYz1y4jzyEjX5B+yzGtQJha4JRa6JxyW5Rc5JJc7JpULE4scUso9Ui4I4nXeKo03qoyn+t3/eLKA2IrAmMrgmMqpcqqEOW9sGva8GhtRFS1LOq+/GpNpKJGoaiNuvIgOrJOKa+PkdfHXW5QyRrjZQ8TI5qSLjWlhDenhbekh7VmhrZlhbZlh7SrL3bkSB/lSTvzgzsLgroKgx4XBXaXBPSU+vdo/J+U+fWW+z6t9O0Dtb7Kpw/Ueq13P6j11V7PQK2v8RoAtb7WcwDU+jrJIKj1DZLnoNY3XhgCtb7JYxjU+mb3YVDrW91HQK1vdxsFtb5D/ALU+k6xDtT6rvM6UOu7XcdAre9xeQlqfa/LOKj1fecmQK3vF02AWj8gmgS1ftB5CtT6obOvQK0fcZoGtX7UEKDW687MgFo/JnwNav24cBbU+klHPaj1U6f1oNZPC96AWj8jmAO1ftZhHtR6vf08qPVz9gug1i/YLYJav3jqLaj1S7ZLoNYvGwLU+hWbZVDr16zfgVq/br0Cav2G1Sqo9ZuWq6DWb1msgVq/Y7EOav2u+XtQ6/fMNkCt3zcEqPUHJzdBrT888QHU+s+mW6DWfzHdBrX+6/FtUOu/meyAWv/dZBfU+h/HPoJa//PoHqj1v4z3QK3/bbwPav2fI59Arf9rdABq/T+jw/8n7vrBWnViYgAAAABJRU5ErkJggg==";
 
+/// The typed-tab-match variants' omnibar: open tabs, a workspace and visited pages that match "release".
+const RELEASE_OMNIBAR = {
+  tabs: [
+    { id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev", icon: SITE_ICON },
+    { id: "tab-2", kind: "terminal", title: "release build", detail: "~/src/release" },
+  ],
+  workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
+  folders: [CWD],
+  commands: [],
+  // A visited page with its site's icon, and one whose icon is still loading (the glyph).
+  history: [
+    { url: "https://cmux.dev/release", title: "cmux release notes", icon: OTHER_SITE_ICON },
+    { url: "https://example.com/release", title: "example release" },
+  ],
+};
+
 /// What plays, as the host pushes it (`nowPlaying`): Spotify's track with its art.
 const nowPlayingTrack = (playing: boolean) => ({
   title: "Weightless",
@@ -171,6 +187,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
     "agent-session/acpmux/newtab/WidgetCards.tsx#WidgetCards",
+    "agent-session/acpmux/newtab/StageCards.tsx",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "ui/HideableChrome.tsx#HideableChrome",
@@ -223,6 +240,11 @@ export default agentPaneEntry({
     "reasoning-chip": {
       note: "Before any chat: the Reasoning chip names the level acpmux starts Claude Code on (Medium) and opens the reasoning menu on its own, apart from the model chip.",
       ready: newTab(),
+      snapshot: reasoningChat(),
+    },
+    "reasoning-chip-stage": {
+      note: "The Default template's stage layout before any chat: its own composer at the foot of the page, the model and Reasoning chips in the box, text at rest, the soft pill only on the hovered one.",
+      ready: newTab({ template: "default" }),
       snapshot: reasoningChat(),
     },
     // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
@@ -332,6 +354,39 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-widget-tip") !== null);
       },
     },
+    "stage-layout": {
+      note: "The Default template's layout (Leo 2026-10-19, Claude Code desktop's new-session screen): the composer at the foot with the plain footer (folder and mode left, model and effort right); over it, centered, the environment card (this project checked, the other projects, Choose environment) and the suggested actions card (the chats that need you, then New terminal, New browser tab, New chat); the recent chats under them.",
+      ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
+        const composer = ctx.document.querySelector(".nt-composer")!.getBoundingClientRect();
+        const env = ctx.document.querySelector(".nt-env")!.getBoundingClientRect();
+        if (env.bottom > composer.top) throw new Error("the environment card is not above the composer");
+      },
+    },
+    "stage-hover": {
+      note: "A pointer over a chat that needs you: its hover card floats over the page, offset from the row, solid, never over the row's own text.",
+      ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
+        await ctx.hover({ selector: ".nt-suggest-chat" });
+        // The card settled: its fade-in ended, so the capture shows the solid card, not a ghost.
+        await ctx.waitFor(() => {
+          const card = ctx.document.querySelector<HTMLElement>(".nt-hovercard");
+          return (
+            !!card &&
+            !card.hasAttribute("data-starting-style") &&
+            ctx.document.defaultView?.getComputedStyle(card).opacity === "1"
+          );
+        });
+        const row = ctx.document.querySelector(".nt-suggest-chat .nt-stage-text")!.getBoundingClientRect();
+        const card = ctx.document.querySelector(".nt-hovercard")!.getBoundingClientRect();
+        if (card.bottom > row.top && card.top < row.bottom) throw new Error("the hover card covers its row's text");
+      },
+    },
     "no-harness-installed": {
       note: "No harness installed (Leo 2026-10-14): the composer's chip says Add harness and opens the Harnesses page. No line under the field, no grey placeholder pills.",
       // The mock daemon answers with no harness, as acpmux does on a Mac without an agent CLI.
@@ -339,9 +394,9 @@ export default agentPaneEntry({
       mockHarnesses: [],
       snapshot: { ...noChat(), catalog: [] },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-pickers .acpmux-add-harness") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-composer .acpmux-add-harness") !== null);
         if (ctx.document.querySelector(".nt-no-agent")) throw new Error("a No agent to ask line shows under the field");
-        const chip = ctx.document.querySelector(".nt-pickers .acpmux-add-harness")!.getBoundingClientRect();
+        const chip = ctx.document.querySelector(".nt-composer .acpmux-add-harness")!.getBoundingClientRect();
         if (chip.height > 32) throw new Error(`the Add harness chip is ${chip.height}px tall, not one chip`);
       },
     },
@@ -705,23 +760,15 @@ export default agentPaneEntry({
         );
       },
     },
+    "typed-tab-match-stage": {
+      note: "The Default template's stage layout with text that matches open tabs: the composer at the foot, so the rows open above it (popup-escape).",
+      ready: newTab({ template: "default", omnibar: RELEASE_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+    },
     "typed-tab-match": {
       note: "Text that matches open tabs, workspaces and visited pages: Ask first (Return's), a web search, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
-        omnibar: {
-          tabs: [
-            { id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev", icon: SITE_ICON },
-            { id: "tab-2", kind: "terminal", title: "release build", detail: "~/src/release" },
-          ],
-          workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
-          folders: [CWD],
-          commands: [],
-          // A visited page with its site's icon, and one whose icon is still loading (the glyph).
-          history: [
-            { url: "https://cmux.dev/release", title: "cmux release notes", icon: OTHER_SITE_ICON },
-            { url: "https://example.com/release", title: "example release" },
-          ],
-        },
+        omnibar: RELEASE_OMNIBAR,
       }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {

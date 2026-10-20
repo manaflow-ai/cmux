@@ -101,6 +101,7 @@ on:
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - tests/test_ci_target_graph.py
+      - scripts/cmux-next/check-package-dependency-lists.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -301,6 +302,7 @@ on:
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - tests/test_ci_target_graph.py
+      - scripts/cmux-next/check-package-dependency-lists.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -550,14 +552,11 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
-      # actions: read lets the probe read the cmux-tui artifacts runs. A
-      # same-repository pull request whose merge tree is not published also
-      # dispatches one cmux-tui artifacts run (actions: write) on a
-      # cmux-tui-pin-<sha12> ref it creates (contents: write). Fork pull
-      # requests never dispatch (CMUX_TUI_TREE_DISPATCH is empty for them) and
-      # GitHub gives them a read-only token whatever this block says.
-      actions: write
-      contents: write
+      # This job executes the checked-out revision's routing and probe scripts,
+      # including on same-repository pull requests. It may inspect Actions and
+      # source, but only trusted default-branch controls may mutate either.
+      actions: read
+      contents: read
       pull-requests: read
     outputs:
       native: ${{ steps.route.outputs.native }}
@@ -693,15 +692,13 @@ jobs:
         # Where the tree jobs may run: a dispatch on another ref runs no macOS job.
         if: (steps.route.outputs.daemon == 'true' || steps.route.outputs.scheme == 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))
         env:
-          # Push and dispatch runs: the pushed commit's artifacts runs publish
-          # the tree. A pull request: the base push's runs when its merge keeps
-          # the base tree, else one artifacts run this probe dispatches for the
-          # merge tree (same-repository pull requests only).
-          # A scheduled DEV run owns its exact SHA but may need to start the
-          # cmux-tui publisher when that tree is cold. Leave the publisher SHA
-          # empty so pin-cmux-tui.sh takes the dispatch path below.
+          # Push runs use the artifacts run already started by that protected
+          # branch. Pull requests may fall back to the base tree; a missing own
+          # tree fails closed because this checked-out revision cannot dispatch.
+          # A scheduled DEV run likewise owns its exact SHA without mutation
+          # authority; only trusted controls may start a publisher.
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
-          CMUX_TUI_TREE_DISPATCH: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true) && '1' || '' }}
+          CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           GH_TOKEN: ${{ github.token }}
@@ -769,11 +766,10 @@ jobs:
         id: tree-final
         if: steps.marker-upload.outcome == 'success'
         env:
-          # A scheduled DEV run owns its exact SHA but may need to start the
-          # cmux-tui publisher when that tree is cold. Leave the publisher SHA
-          # empty so pin-cmux-tui.sh takes the dispatch path below.
+          # A scheduled DEV run owns its exact SHA. A cold tree fails closed;
+          # this checked-out revision never starts a publisher.
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
-          CMUX_TUI_TREE_DISPATCH: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true) && '1' || '' }}
+          CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
@@ -799,10 +795,9 @@ jobs:
           fi
 
   # A cmux NEXT DEV daily run builds exactly the SHA main's dispatcher asked
-  # for. When its cmux-tui tree is cold, path routing starts the publisher and
-  # defers; the same-tree run a publication starts runs only while the
-  # feat-cmux-next tip is still that SHA, so on a busy branch no DEV build was
-  # published (from 01:59Z on 2026-10-14). This waits on Linux for the tree,
+  # for. When its cmux-tui tree is cold, path routing defers without acquiring
+  # mutation authority; a trusted publisher may still satisfy the wait. This
+  # waits on Linux for the tree,
   # then cmux-scheme-compile builds the DEV app in this run
   # (scripts/cmux-next/wait-dev-daily-tree.sh, tested by
   # scripts/cmux-next/tests/wait-dev-daily-tree.test.sh).
@@ -813,10 +808,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     permissions:
-      # As path routing: the probe reads the cmux-tui artifacts runs and may
-      # start the publisher again if its run is gone.
-      actions: write
-      contents: write
+      # The selected revision may inspect a publisher, never start one.
+      actions: read
+      contents: read
     outputs:
       tree_state: ${{ steps.wait.outputs.tree_state }}
       tree_fetch_key: ${{ steps.wait.outputs.tree_fetch_key }}
@@ -829,7 +823,7 @@ jobs:
         id: wait
         env:
           CMUX_TUI_TREE_PUBLISHER_SHA: ""
-          CMUX_TUI_TREE_DISPATCH: "1"
+          CMUX_TUI_TREE_DISPATCH: ""
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/wait-dev-daily-tree.sh
 
@@ -1348,6 +1342,16 @@ jobs:
           python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
 
+      # The CmuxNextAppTests dependencies are one sorted entry per line, so two
+      # pull requests adding different modules merge cleanly; the long lines they
+      # all appended to conflicted on nearly every open pull request.
+      - name: Package dependency lists sorted
+        id: package-dependency-lists
+        continue-on-error: true
+        run: |
+          python3 scripts/cmux-next/check-package-dependency-lists.py
+          python3 scripts/cmux-next/tests/test_check_package_dependency_lists.py
+
       # The web bundle source key covers every file outside webviews/ that a bundle
       # imports, and the publish and routing path lists name each one (cx-wtsf3).
       - name: Web bundle key inputs
@@ -1490,6 +1494,7 @@ jobs:
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
+            ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted
             ${{ steps.web-bundle-key-inputs.outcome }}|Web bundle key inputs
             ${{ steps.companion-workflows.outcome }}|Companion workflows
             ${{ steps.dev-update-classic-import.outcome }}|DEV update and classic import scripts

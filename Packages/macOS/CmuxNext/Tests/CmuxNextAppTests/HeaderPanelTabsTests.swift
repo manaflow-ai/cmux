@@ -41,6 +41,8 @@ struct HeaderPanelTabsTests {
             row.click("splitRight", toggles: toggles)
             #expect(newSurface()?.target?.id == panel)
             #expect(newSurface()?["cwd"]?.stringValue == row.cwd)
+            // A tab in that pane even with `newTerminal.opensWorkspace` on (TabLifecycle.newTerminal).
+            #expect(newSurface()?.opensTabInPane == true)
             #expect(row.order == ["chat", "browser"])
             #expect(row.invocations["splitRight"] == nil)
         }

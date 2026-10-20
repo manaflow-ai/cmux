@@ -143,6 +143,16 @@ export function renderBridgeScript(theme: string, css: string): string {
         if (!rect.height) return;
         top = Math.min(top, rect.top); bottom = Math.max(bottom, rect.bottom);
       });
+      // Text can sit directly in body without an element box. Measure its line bounds,
+      // never the viewport-sized body's own box.
+      Array.from(body.childNodes).forEach(function (node) {
+        if (node.nodeType !== 3 || !node.textContent.trim()) return;
+        var range = document.createRange();
+        range.selectNodeContents(node);
+        var rect = range.getBoundingClientRect();
+        if (!rect.height) return;
+        top = Math.min(top, rect.top); bottom = Math.max(bottom, rect.bottom);
+      });
       var content = bottom > top ? bottom - top : 0;
       var margins = (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
       var height = content + (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0) + margins;

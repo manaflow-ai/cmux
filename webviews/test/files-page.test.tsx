@@ -8,7 +8,15 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "Element",
+  "customElements",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
@@ -21,6 +29,7 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    Element: window.Element,
     // The file icons' sprite comes from @pierre/trees, which registers its element on import.
     customElements: window.customElements,
     IS_REACT_ACT_ENVIRONMENT: true,
@@ -157,4 +166,45 @@ test("the Files tree keeps up with its folder", async () => {
   act(() => root!.render(<FilesPage key="no-host" store={hostless} strings={strings} />));
   await act(() => hostless.start());
   expect(host.textContent).toBe(strings.t("files.page.unavailable"));
+});
+
+test("search result menus open and copy the file inside a collapsed folder", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { FilesPage } = await import("../src/pages/files/FilesPage");
+  const { FilesStore } = await import("../src/pages/files/store");
+  const { MockFilesProvider } = await import("../src/pages/files/mockProvider");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/files/generated/strings.json")).default;
+  const strings = createStrings(table);
+  const provider = new MockFilesProvider();
+  const copied: string[] = [];
+  const store = new FilesStore(provider, async (text) => void copied.push(text));
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<FilesPage store={store} strings={strings} />));
+  await act(() => store.start());
+  await act(() => store.search("main"));
+  expect(store.getSnapshot().expanded.has("src")).toBe(false);
+  expect(store.getSnapshot().rows.some((row) => row.path === "src/main.ts")).toBe(false);
+  const result = host.querySelector<HTMLElement>('[role="treeitem"]')!;
+  await act(async () => {
+    result.dispatchEvent(new host.ownerDocument.defaultView!.MouseEvent("pointerdown", { bubbles: true }));
+  });
+  expect(store.getSnapshot().selected).toBe("src/main.ts");
+  const selectMenu = async (key: string) => {
+    await act(async () => {
+      result.dispatchEvent(new host.ownerDocument.defaultView!.MouseEvent("contextmenu", { bubbles: true }));
+    });
+    const item = [...host.ownerDocument.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (item) => item.textContent === strings.t(key),
+    );
+    expect(item).toBeDefined();
+    await act(async () => item!.click());
+  };
+  await selectMenu("files.menu.copyPath");
+  expect(copied).toEqual(["/Users/you/code/app/src/main.ts"]);
+  await selectMenu("files.menu.copyRelativePath");
+  expect(copied.at(-1)).toBe("src/main.ts");
+  await selectMenu("files.menu.open");
+  expect(provider.opened).toEqual(["src/main.ts"]);
 });

@@ -51,6 +51,7 @@ enum AppActions {
         SidebarGroupByActions.bind(into: registry, context: context)
         SidebarWorkspaceTabsToggle.bind(into: registry, context: context)
         SidebarMinimalToggle.bind(into: registry, context: context)
+        MatchTerminalBackgroundToggle.bind(into: registry, context: context)
         SidebarDensityActions.bind(into: registry, context: context)
         SettingsHandlers.bind(into: registry, context: context)
         AppearanceHandlers.bind(into: registry, context: context)
@@ -108,6 +109,7 @@ enum AppActions {
         context.observeRefusals()
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
+        ActionRouting.installSidebarUserIntent(services)
         WindowKeyTable.install(services)
         // One owner per action: a second binding silently replaces the first. The check is a test
         // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
