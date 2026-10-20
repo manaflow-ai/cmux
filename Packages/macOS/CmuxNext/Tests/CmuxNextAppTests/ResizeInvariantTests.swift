@@ -41,6 +41,7 @@ import Testing
                 // The superview's autoresize alone, before any layout pass.
                 root.setFrameSize(size)
                 #expect(backdrop.bounds.size == size, "the backdrop does not follow the window at \(size)")
+                #expect(backdrop.artView.layer?.contents != nil, "\(art) shows no image")
                 #expect(backdrop.artView.frame == backdrop.bounds, "\(art) does not fill the window at \(size)")
                 #expect(backdrop.artView.layer?.contentsGravity == .resizeAspectFill, "\(art) is not aspect-filled")
                 #expect(backdrop.artView.layer?.contentsRect == CGRect(x: 0, y: 0, width: 1, height: 1),

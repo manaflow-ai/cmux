@@ -1,4 +1,3 @@
-public import Foundation
 
 /// Where a painting's subject is: a normalized box in the artwork, measured from the top-left
 /// corner (the faces, the ship, the vase). Catalog data: the window aspect-fills every work the
