@@ -12,7 +12,8 @@ sessions and all Chief data.
 
 ## 1. Decisions (defaults picked by Chief, the user can override)
 
-- One search window. Cmd+P opens it with no scope. Cmd+Shift+A opens the same window with the
+- One search window, and it is Cmd+P (user, 2026-10-20: "cmd p also searches through everything
+  including scrollback"). Cmd+P opens it with no scope. Cmd+Shift+A opens the same window with the
   scope chip "Chats & agents" set; Backspace on an empty field (or the chip's x) clears it.
 - The index lives in the cmux-tui daemon (Rust). The daemon already sees every PTY byte, every
   ACP/acpmux session and the workspace model, and it outlives app restarts and updates. Swift
@@ -187,7 +188,10 @@ penalty for gaps and for path depth. The basename of `Sources/App/ContentView.sw
 million paths ~ 60 MiB), prefiltered by a 64-bit "letters present" mask per name, so fuzzy over a
 million names is a linear pass of mask checks plus scoring the survivors (target under 5 ms).
 
-### 7.3 Ranking: one list across all sources
+### 7.3 Ranking: one list across all sources, every signal
+
+User (2026-10-20): Cmd+P searches everything, scrollback included, with "super smart ordering that
+takes into account title, workspace name, chat, etc., all the possible details".
 
 The engine returns one list, names and content together, best first (section 10.3). Every hit
 gets a match tier on one shared scale, so a terminal error can beat a file name:
@@ -196,19 +200,28 @@ gets a match tier on one shared scale, so a terminal error can beat a file name:
 | --- | --- | --- |
 | 5 | a doc line is the whole query | the name (or a path's basename) is the query |
 | 4 | the query as a phrase, every word a whole word | the name or basename starts with the query |
-| 3 | every word starts a word (`migrat` in `migration failed`) | the query is contiguous at a word start (`migrat` in `db-migrations-DESIGN.md`) |
+| 3 | every word starts a word (`migrat` in `migration failed`); or some words matched only the place (below) | the query is contiguous at a word start; or some words matched only the place |
 | 2 | the query as a phrase anywhere | the query is contiguous anywhere |
-| 1 | every word somewhere in the doc | fuzzy: letters in order (fzf style; quality breaks ties) |
+| 1 | every word somewhere in the doc | fuzzy: letters in order (fzf style) |
 
-Score = tier x 1000 + (kind weight - 1) x 500 + 400 x recency + frecency (at most 300) + name
-quality / 3 (0..33). Kind weights: `chief` 1.2, `chat` 1.15, `command` 1.1, names 1.1, `scrollback`
-and `file` 1.0, `page` 0.95, `screen` 0.9. Recency = `exp(-age / 7 days)` (a name's age is its last
-use; a file's is its mtime). Frecency: +1 per open of the hit's target, half-life 3 days, keyed by
-target (Raycast/Alfred), 100 points per unit up to 300.
+The place: each target (terminal, tab, pane, chat, Chief) has a `TargetContext`: workspace name and
+id, sidebar group, tab or pane title, cwd, git branch, agent or harness. A query word may match the
+place instead of the text ("cmux-next migration" finds the migration error printed in a cmux-next
+terminal; "website server" finds the `server` tab of the website workspace). One word (the anchor:
+every word no place holds, else the longest) must be in the text or the name, so the place alone
+never makes a hit.
 
-Example ("migrat"): the 2-minute-old scrollback line `error: migration 0042 failed` and the file
-`db-migrations-DESIGN.md` (edited yesterday) are both tier 3 with weight 1.0, so recency puts the
-error first. A tier never crosses another (recency + frecency + weight stay under 1000).
+Score = tier x 1000, plus signals that together stay under 1000 (so a tier never flips):
+
+| signal | points |
+| --- | --- |
+| kind weight: `chief` 1.2, `chat` 1.15, `command` and names 1.1, `scrollback`, `file` 1.0, `page` 0.95, `screen` 0.9 | (weight - 1) x 500: -50..+100 |
+| recency `exp(-age / 7 days)` (doc time; a name's last use; a file's mtime) | 0..250 |
+| opens (frecency): +1 per open of the target, half-life 3 days | 100 per unit, at most 200 |
+| focus history: +1 per focus of the target, half-life 1 hour | 75 per unit, at most 150 |
+| same workspace as the user is in | 100 |
+| query words that name the place (context or title) | 60 each, at most 150 |
+| name match quality: length, and how far in the match starts | 0..33 |
 
 Collection: the engine collects up to 4x `limit` content candidates newest first and every name
 candidate that passes the letter mask, scores them all, and returns the top `limit`.
@@ -241,90 +254,16 @@ the fleet; never on the user's Mac).
 
 Goal: p50 >= 100x faster than warm rg on the 10 GB corpus, p99 under 50 ms.
 
-## 9. Engine plan and status
+Budgets (user, 2026-10-20), each a guard test in `tests/budgets.rs` (failing-first commit
+932efe26649), run on the Mac mini fleet:
 
-1. This doc (engine sections).
-2. Crate `cmux-tui/crates/cmux-search`: fold, trigram postings, live + sealed segments, query,
-   fuzzy name table, ranking. Failing-first tests (red commit), then implementation (green).
-3. Bench harness + perf guard; first numbers on a Mac mini.
-4. Daemon wiring: `search.query`, `search.opened`, `search.stats`, capability `search-v1`;
-   capture hooks (scrollback, alt-screen frames, OSC 133, model names) first, then ACP, Chief,
-   files, pages.
-5. CLI `cmux search` and MCP tool `search_query`.
-6. Remove `cmux-history::SearchIndex` and `history_search` once `search-v1` serves.
+| budget | guard |
+| --- | --- |
+| first results under 16 ms per keystroke at 100 workspaces with large scrollback | 100 workspaces, 600 terminals, 20,000 files, 512 MiB scrollback sealed to disk; every prefix of 10 typed queries; p99 <= 16 ms, slowest <= 32 ms |
+| incremental updates, no rescans | appending 8 MiB to the full index runs at >= 0.5x the empty-index rate; new text is found by the next query |
+| bounded memory | resident engine memory <= 64 MiB per GiB of sealed text (sealed segments keep only block and trigram key tables in memory; text, docs and postings are read with pread). The live segment adds at most 64 MiB of text plus its postings |
+| near-zero idle CPU | the engine owns no threads or timers; a 500 ms idle window uses < 5 ms of CPU |
 
-Coordination: a247 (sidebar search button opens the palette in Search mode: that mode becomes
-this window), a182/a97 (Cmd+Shift+P palette speed: actions stay in-app), a268 (daemon tab write
-slowness: search capture must never block the daemon's main loop; it runs on its own thread with
-a bounded channel and drops to backfill when full), a257 (Memory Inspector: Chief memory is a
-`chief` source here, read-only).
-
-## 10. UI (owned by the Search-everything UI agent)
-
-Mocks: `plans/cmux-next/search-everything-gallery/index.html` (5 live looks, light and dark,
-type in any of them). Recommended: look A.
-
-### 10.1 One window, built on the palette's `search` scope
-
-- The window is the palette panel on the `search` scope (a247, plans/cmux-next/sidebar-search.md).
-  No second panel, field or ranker. Cmd+P opens `palette.open {scope: search}`; Cmd+Shift+A opens
-  the same with the chip "Chats & agents" (daemon scopes `["chat", "chief"]`); the sidebar button
-  opens it anchored. Cmd+Shift+P stays the command list. Old Cmd+P (Go to) rows are all inside
-  Search, so nothing is lost; `palette.goToTab` / `tab.search` stay as aliases for scripts.
-- Backspace on an empty field, or the chip's x, removes the chip and searches everything with the
-  query kept.
-
-### 10.2 Layout (look A)
-
-- Field row: scope chip (if any), query, a small "ms" readout in DEBUG builds only.
-- Source chips row under the field: All, Terminal, Chats & agents, Chief, Files, Tabs, Web,
-  Settings, Commands, each with its live hit count. Tab / Shift+Tab move between them, Cmd+1..9
-  pick one. A chip is the same thing as a scope (it sets the daemon `scopes` and filters app rows).
-- Left: one list ranked across all sources (the engine's "Top hit" row first, under "Best match",
-  then "More"). Not grouped: grouping (look B) lets a weak section sit above the best hit, and
-  section order jumps while typing. Inside a single source chip the list is flat.
-- Row: source icon (colored tile), title with highlights, place (workspace, terminal, line
-  number, harness), and one snippet line with the matched words marked (`highlights` UTF-16
-  ranges from the hit). Right edge: age, or the shortcut for a command.
-- Right: preview of the selected row (`listWithDetail`, palette-scopes 3.3), loaded lazily:
-  - scrollback / command: about 6 lines around the hit with line numbers, the hit line marked;
-    Return jumps the terminal to that line and flashes it.
-  - screen (old full-screen TUI frame): the saved frame text, monospaced, words marked; Return
-    opens the frame read-only, Cmd+Return goes to the live terminal.
-  - chat / chief: the message as a bubble with the one before and after; Return opens the chat
-    scrolled to that message.
-  - file: lines around the hit; Return opens it at the line.
-  - setting, command, tab, page: key/value rows and the row's actions.
-- Footer: key hints (arrows, Return, Cmd+Return split, Tab source, Cmd+K actions) and the count.
-
-### 10.3 Ordering in the merged list
-
-App rows (actions, settings, workspaces, tabs; palette ranker, instant) and daemon hits
-(streamed) are merged by a normalized score: each list's scores are mapped to 0..1 by match class
-(exact title > word-start title > title anywhere > content word-start > content anywhere), then
-recency and frecency (engine 7.3) break ties. Rule that stops the list jumping: rows already shown
-above the selected row never move when a later daemon batch arrives; new hits insert below it.
-
-### 10.4 Empty state
-
-Recent searches (last 5 queries, from the daemon frecency file) and Recent places (palette
-frecency over all kinds), plus one hint line with the prefixes: `>` commands, `@` chats and agents,
-`#` files, `/` settings, `!` terminal output.
-
-### 10.5 Speed and motion
-
-- Every keystroke paints app rows from the in-memory snapshot in under 16 ms (palette ranker, off
-  main); daemon hits arrive in later batches. The query is cancelled on each keystroke
-  (`search.cancel`).
-- Until the daemon serves `search-v1`, the app uses a stub source (no rows, no error) so the
-  window ships on its own.
-- Reduce Motion: no fades or slides; selection and preview change instantly.
-
-### 10.6 UI plan
-
-1. Mocks and this section (done).
-2. Daemon search source in the palette (`PaletteQueryProvider`, a247 phase 2): async,
-   generation-tagged, cancelled per keystroke, stubbed until `search.query` exists.
-3. Cmd+P and Cmd+Shift+A open the `search` scope (Chats & agents chip for Cmd+Shift+A).
-4. Source chips row and the preview pane.
-5. Strings in all 21 locales; failing-first tests for each step on the Mac minis.
+Not covered by these guards: a query running while the worker seals a 64 MiB segment (sealing
+holds the engine for its encode and write), and the daemon's own idle wakeups (the daemon test
+`cmux_next_daemon_idle_has_no_periodic_wakeups` covers those).
