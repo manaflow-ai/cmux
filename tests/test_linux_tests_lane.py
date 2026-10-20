@@ -102,6 +102,37 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('bun test "./$file"', run)
 
 
+class RunStepTests(unittest.TestCase):
+    """Actions runs a step under `bash -e`, so a failing file stopped the loop: run
+    39348727248 named 14 files and tested 3."""
+
+    def test_a_failing_file_does_not_stop_the_rest(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
+        script = next(step["run"] for step in steps if 'bun test "./$file"' in step.get("run", ""))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pkg").mkdir()
+            for name in ("a.test.ts", "b.test.ts"):
+                (root / "pkg" / name).write_text("")
+            (root / "plan.tsv").write_text("pkg\ta.test.ts b.test.ts\n")
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "bun").write_text(
+                '#!/usr/bin/env bash\necho "$2" >> "$RAN"\n[ "$2" != ./a.test.ts ]\n')
+            (bin_dir / "bun").chmod(0o755)
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": tmp,
+                   "FILE_TIMEOUT": "30", "GITHUB_STEP_SUMMARY": str(root / "summary.md"),
+                   "RAN": str(root / "ran.txt")}
+            result = subprocess.run(["bash", "-e", "-c", script], cwd=root, env=env,
+                                    capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertEqual((root / "ran.txt").read_text().split(), ["./a.test.ts", "./b.test.ts"])
+            summary = (root / "summary.md").read_text()
+            self.assertIn("`pkg/a.test.ts` | failed (1)", summary)
+            self.assertIn("`pkg/b.test.ts` | pass", summary)
+
+
 class WrapperTests(unittest.TestCase):
     """Argument errors stop before any GitHub call (gh is not on PATH here)."""
 
