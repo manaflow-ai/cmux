@@ -146,6 +146,8 @@ test("Change Background… on a workspace chooses that workspace's own backgroun
   const follow = picker.querySelector<HTMLButtonElement>('[aria-label="Same as All Workspaces"]')!;
   expect(follow.getAttribute("aria-pressed")).toBe("true");
   expect(picker.textContent).not.toContain("Choose Image");
+  // Material is the window's, not the workspace's: it stays in the card on This Workspace too.
+  expect(picker.querySelector('[data-row-key="appearance.backgroundBlur"]')).not.toBeNull();
 
   const none = picker.querySelector<HTMLButtonElement>('[aria-label="No wallpaper"]')!;
   const appPreviews = runs(page, "cmux.settings.preview").length;
