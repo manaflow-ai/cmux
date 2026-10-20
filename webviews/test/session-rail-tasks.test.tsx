@@ -6,7 +6,13 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { SessionRail } from "../src/agent-session/acpmux/summary/SessionRail";
-import { mergeProcess, processesOf, type RailProcess } from "../src/agent-session/acpmux/summary/sessionProcesses";
+import {
+  mergeProcess,
+  processesOf,
+  useSessionProcesses,
+  type ProcessSource,
+  type RailProcess,
+} from "../src/agent-session/acpmux/summary/sessionProcesses";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -147,4 +153,90 @@ test("a session whose processes all finished keeps the card with only its count"
   expect(tasks.querySelector(".acpmux-rail-tasks__finished")?.textContent).toBe("1 finished");
   // No Stop without a way to stop.
   expect(tasks.querySelector("button.acpmux-rail-task__stop")).toBeNull();
+});
+
+/// A client whose list answers when the test says, and whose updates the test sends.
+function fakeSource() {
+  const listeners = new Set<(process: unknown) => void>();
+  const lists: { sessionId: string; answer: (reply: unknown) => void; fail: () => void }[] = [];
+  const source: ProcessSource = {
+    listProcesses: (sessionId) =>
+      new Promise((answer, fail) => lists.push({ sessionId, answer, fail: () => fail(new Error("refused")) })),
+    watchProcesses: (listener) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
+  const send = (process: unknown) => act(async () => listeners.forEach((listener) => listener(process)));
+  return { source, lists, listeners, send };
+}
+
+let seen: readonly RailProcess[] = [];
+function Probe({ source, sessionId }: { source: ProcessSource; sessionId: string }) {
+  seen = useSessionProcesses(source, sessionId, true);
+  return null;
+}
+const mount = (container: HTMLElement, source: ProcessSource, sessionId: string) =>
+  act(async () => {
+    root ??= createRoot(container);
+    root.render(<Probe source={source} sessionId={sessionId} />);
+  });
+const states = () => seen.map((process) => `${process.id}:${process.state}`);
+
+test("an update that arrives before the list wins over the list's older record", async () => {
+  const container = installDom();
+  const { source, lists, send } = fakeSource();
+  await mount(container, source, "s1");
+  await send(wire("a", "bun run dev", "killed", 1_000, 5_000));
+  await act(async () =>
+    lists[0]!.answer({ processes: [wire("a", "bun run dev", "running", 1_000), wire("b", "vite", "running", 2_000)] }),
+  );
+  expect(states()).toEqual(["s1/a:killed", "s1/b:running"]);
+  // Later updates still land.
+  await send(wire("b", "vite", "exited", 2_000, 9_000));
+  expect(states()).toEqual(["s1/a:killed", "s1/b:exited"]);
+});
+
+test("a refused list keeps what the updates said; another chat starts empty; a new client lists again", async () => {
+  const container = installDom();
+  const first = fakeSource();
+  await mount(container, first.source, "s1");
+  await first.send(wire("a", "bun run dev", "running", 1_000));
+  await act(async () => lists(first)[0]!.fail());
+  expect(states()).toEqual(["s1/a:running"]);
+
+  // Another chat: none of s1's, and s1's listener is gone.
+  await mount(container, first.source, "s2");
+  expect(seen).toEqual([]);
+  expect(first.listeners.size).toBe(1);
+  expect(lists(first).map((list) => list.sessionId)).toEqual(["s1", "s2"]);
+
+  // A reconnect hands over a new client: it subscribes there and lists again.
+  const second = fakeSource();
+  await mount(container, second.source, "s2");
+  expect(first.listeners.size).toBe(0);
+  expect(second.listeners.size).toBe(1);
+  await act(async () =>
+    lists(second)[0]!.answer({
+      processes: [{ ...wire("c", "tsc --watch", "running", 3_000), id: "s2/c", sessionId: "s2" }],
+    }),
+  );
+  expect(states()).toEqual(["s2/c:running"]);
+});
+const lists = (fake: ReturnType<typeof fakeSource>) => fake.lists;
+
+test("a refused Stop says so and can be tried again", async () => {
+  const container = installDom();
+  let refuse = true;
+  await render(container, processesOf({ processes: [wire("a", "bun run dev", "running", 1_000)] }, "s1"), async () => {
+    if (refuse) throw new Error("refused");
+  });
+  const stop = () => card(container)!.querySelector<HTMLButtonElement>("button.acpmux-rail-task__stop")!;
+  await act(async () => stop().click());
+  expect(stop().getAttribute("data-state")).toBe("failed");
+  expect(stop().getAttribute("aria-label")).toBe("Couldn’t stop bun run dev");
+  expect(stop().disabled).toBe(false);
+  refuse = false;
+  await act(async () => stop().click());
+  expect(stop().getAttribute("data-state")).toBe("stopping");
 });

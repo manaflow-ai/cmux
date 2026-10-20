@@ -1333,9 +1333,6 @@ export class AcpmuxDirectClient {
     });
   }
 
-  /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
-  /// sends Claude's stop_task and answers with Claude's answer, and the subagent ends as cancelled
-  /// when Claude stops it. A Claude that never answers fails it after 10 s.
   /// Chat `sessionId`'s background processes (acpmux docs/background-processes.md).
   listProcesses(sessionId: string): Promise<unknown> {
     return this.request("_acpmux/process/list", { sessionId });
@@ -1353,6 +1350,9 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/process/kill", { processId }, 10_000);
   }
 
+  /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
+  /// sends Claude's stop_task and answers with Claude's answer, and the subagent ends as cancelled
+  /// when Claude stops it. A Claude that never answers fails it after 10 s.
   stopSubagent(subagentSessionId: string): Promise<unknown> {
     if (!this.selectedSessionId) return Promise.reject(new Error());
     return this.request("_acpmux/subagent_stop", { sessionId: this.selectedSessionId, subagentSessionId }, 10_000);

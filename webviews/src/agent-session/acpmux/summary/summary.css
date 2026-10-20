@@ -211,7 +211,7 @@
 /* Background tasks: a running command, how long it has run, and Stop. */
 .acpmux-rail-task{display:flex;align-items:center;gap:8px;min-height:26px;padding:2px 4px 2px 8px}
 .acpmux-rail-task>svg{flex:none;color:var(--agent-muted)}
-.acpmux-rail-task__command{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:var(--font-mono);font-size:var(--text-detail)}
+.acpmux-rail-task__command{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-rail-task__time{flex:none;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .acpmux-rail-task__stop{flex:none;display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:5px;background:none;color:var(--agent-muted);cursor:default}
 .acpmux-rail-task__stop:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
