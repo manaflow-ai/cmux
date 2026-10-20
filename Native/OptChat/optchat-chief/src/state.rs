@@ -676,7 +676,10 @@ impl StateFile {
     /// Where a turn's attached files are saved (`brain::files`): the
     /// `attachments` folder beside the state, in the Chief's home.
     pub fn attachments_dir(&self) -> PathBuf {
-        self.path.parent().unwrap_or_else(|| Path::new(".")).join("attachments")
+        self.path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("attachments")
     }
 
     pub fn new(path: &Path) -> StateFile {
