@@ -60,6 +60,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out).
     private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled())
+    /// Whether the Now Playing card is put away (its x, Hide, Hide Until Relaunch; u2437), for every window's sidebar.
+    let nowPlayingCard = NowPlayingCardDismissal()
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
     /// Background tabs whose title changed (the strip's unread dot).

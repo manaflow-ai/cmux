@@ -58,7 +58,14 @@ on:
       - 'webviews/**'
       - 'agent-chat/**'
       - 'scripts/cmux-next/media/tours/**'
+  # The batch queue tours a group's combined branch (docs/ci/cmux-next-batch.md#groups):
+  # base_sha is the stack's base, so the path map takes the union of the members' tours.
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: Commit the tour compares against (the batch stack's base); empty tours nothing
+        required: false
+        default: ''
 
 permissions: {}
 
@@ -73,7 +80,7 @@ concurrency:
 jobs:
   route:
     name: Pick the tour runner
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'media-tour') && (github.event.action != 'labeled' || github.event.label.name == 'media-tour')) }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.base_sha != '' || github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'media-tour') && (github.event.action != 'labeled' || github.event.label.name == 'media-tour')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -126,8 +133,9 @@ jobs:
         env:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          PR_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
-          SAME_REPO: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+          PR_XCODE_APP: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          # A batch dispatch (docs/ci/cmux-next-batch.md#groups) tours a branch of this repository.
+          SAME_REPO: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository }}
           FORCE_MAC: ${{ contains(github.event.pull_request.labels.*.name, 'media-tour-mac') }}
         run: |
           force=()
@@ -152,16 +160,16 @@ jobs:
     outputs:
       is_ui: ${{ steps.scope.outputs.is_ui }}
     env:
-      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       # GhosttyKit comes prebuilt; the ghostty CLI helper zig build is skipped.
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
       # One tag per PR (one for all merges) keeps its DerivedData warm across
       # updates; base and head use separate tags so the two apps never share
       # state or sockets.
-      TOUR_TAG: ci-media-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || 'feat-cmux-next' }}
+      TOUR_TAG: ci-media-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && 'batch' || 'feat-cmux-next' }}
       # A merge tour compares the previous feat-cmux-next head with the merge.
-      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha || github.event.before || github.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -386,7 +394,8 @@ jobs:
   publish:
     name: Post the tour media
     needs: [route, tour]
-    if: ${{ !cancelled() && needs.route.result == 'success' }}
+    # A batch dispatch has no PR to post on: the queue reads the tour's artifact.
+    if: ${{ github.event_name != 'workflow_dispatch' && !cancelled() && needs.route.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # contents: write reaches the pr-media branch; main and the feature

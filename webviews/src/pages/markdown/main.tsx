@@ -26,6 +26,7 @@ import type { ReadingSettingsActions } from "./ReadingSettings";
 import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
 import { L } from "./strings";
+import { storedTableWidths } from "./tables";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
@@ -103,6 +104,7 @@ function editorHost(
       linkLabel: (key) => strings.t(LINK_LABELS[key]),
     },
     imageURL,
+    tableWidths: storedTableWidths(() => config()?.path),
     highlight(code, language, refresh) {
       const look = store.getState().look;
       highlighter ??= new CodeHighlighter(codeThemes(markdownCodeTheme(look.settings), look.appearance));
