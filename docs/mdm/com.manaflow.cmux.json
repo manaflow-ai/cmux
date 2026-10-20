@@ -3109,6 +3109,75 @@
       "title" : "Show Hover Cards",
       "type" : "boolean"
     },
+    "sidebar.hoverCards.groups.delay" : {
+      "default" : 600,
+      "description" : "How long the pointer rests on a group before its summary card opens.",
+      "maximum" : 5000,
+      "minimum" : 0,
+      "title" : "Group Card Delay",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.groups.maxMembers" : {
+      "default" : 8,
+      "description" : "The most members a group's card lists by name.",
+      "maximum" : 50,
+      "minimum" : 1,
+      "title" : "Group Card Members",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.groups.order" : {
+      "default" : "status",
+      "description" : "Which part of a group's card comes first.",
+      "enum" : [
+        "status",
+        "members",
+        "activity"
+      ],
+      "title" : "Group Card Leads With",
+      "type" : "string"
+    },
+    "sidebar.hoverCards.groups.sections.activity" : {
+      "default" : true,
+      "description" : "Show the member that changed last, and when.",
+      "title" : "Group Card: Latest Activity",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.git" : {
+      "default" : true,
+      "description" : "Show the members' git branches.",
+      "title" : "Group Card: Branches",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.members" : {
+      "default" : true,
+      "description" : "Show the member count and the members' names.",
+      "title" : "Group Card: Members",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.ports" : {
+      "default" : true,
+      "description" : "Show the members' listening ports.",
+      "title" : "Group Card: Ports",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.status" : {
+      "default" : true,
+      "description" : "Show how many members work, wait, failed or have unread items.",
+      "title" : "Group Card: Status",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.tabGroups" : {
+      "default" : true,
+      "description" : "A summary card opens when the pointer rests on a tab group's chip.",
+      "title" : "Cards on Tab Groups",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.workspaceGroups" : {
+      "default" : true,
+      "description" : "A summary card opens when the pointer rests on a workspace group's header.",
+      "title" : "Cards on Workspace Groups",
+      "type" : "boolean"
+    },
     "sidebar.hoverCards.layout" : {
       "default" : "timeline",
       "description" : "What a workspace's hover card shows: its history of prompts and waits, its details, or both.",

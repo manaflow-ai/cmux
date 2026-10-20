@@ -132,6 +132,9 @@ public final class DesignSettings {
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
     /// `sidebar.hoverCards.layout`, `.sections.*` and `.maxRows`: what a workspace card shows (u3320).
     public var workspaceHoverCard = WorkspaceHoverCardOptions()
+    /// `sidebar.hoverCards.groups.*`: whether group headers and tab group chips open a card, after
+    /// how long, and what it shows (Lawrence 2026-10-20).
+    public var groupHoverCard = GroupHoverCardOptions()
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
