@@ -17,6 +17,16 @@ public final class SidebarDocStore {
     /// Changes whenever what the sidebar draws may have changed (a load, a
     /// batch, an intent): the bridge rebuilds its rows on it.
     public private(set) var version: UInt64 = 0
+    /// Moves when a batch folded or opened groups and changed nothing else
+    /// (`lastFolds`): no row is rebuilt for a fold, each window applies it to
+    /// its own rows (plans/cmux-next/state-ownership-DESIGN.md).
+    public private(set) var foldRevision: UInt64 = 0
+    /// The groups the last fold-only batch folded (id to `collapsed`).
+    @ObservationIgnored public private(set) var lastFolds: [String: Bool] = [:]
+    /// Each group's confirmed fold, read without observation: the sidebar maps a group's
+    /// `collapsed` from it, so a fold's echo rebuilds nothing (`SidebarDocProjection` keeps the
+    /// fold it was built with).
+    @ObservationIgnored public private(set) var groupFolds: [String: Bool] = [:]
     /// The document is loaded and the daemon serves it: the sidebar draws
     /// it. False keeps the older path.
     public private(set) var isActive = false
@@ -72,6 +82,8 @@ public final class SidebarDocStore {
     @ObservationIgnored private var failedLoads = 0
     /// Refs already sent to `sidebar.adopt` this session.
     @ObservationIgnored private var adopting: Set<SidebarDocWorkspaceRef> = []
+    /// What to run when a fold (`setGroupCollapsed`) is refused, by its key.
+    @ObservationIgnored private var foldRefusals: [String: @MainActor () -> Void] = [:]
 
     /// The app's one document store (one home session per app); the
     /// App's composition root sets it.
@@ -118,6 +130,7 @@ public final class SidebarDocStore {
             for key in answering { mirror.reject(key) }
             self.unanswered.subtract(answering)
             self.records = records
+            self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
             self.isActive = true
             self.bump()
             let early = self.earlyBatches
@@ -138,9 +151,16 @@ public final class SidebarDocStore {
         case .stale: return
         case .refetch: return refresh()
         case .applied(let revision):
-            records.apply(batch: data)
+            let folds = records.apply(batch: data)
             if let revision { records.revision = revision }
-            bump()
+            guard let folds else {
+                groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
+                return bump()
+            }
+            // Folds only: the windows fold their own rows (`foldRevision`); nothing is rebuilt.
+            groupFolds.merge(folds) { _, new in new }
+            lastFolds = folds
+            foldRevision &+= 1
         }
     }
 
@@ -198,6 +218,25 @@ public final class SidebarDocStore {
         }
     }
 
+    /// Folds or opens `group` in the document (the owner of record; other clients follow it). The
+    /// sidebar already shows the fold (it is view state the window applies at once): this sends one
+    /// `group.update` with the value, not a toggle, so fast clicks each send what they show, and it
+    /// rebuilds no row, now or at the echo. `refused` runs when the daemon or the mirror refuses it.
+    public func setGroupCollapsed(_ group: String, _ collapsed: Bool, refused: @escaping @MainActor () -> Void) {
+        let ops: [[String: Any]] = [["op": "group.update", "id": group, "patch": ["collapsed": collapsed]]]
+        guard let data = try? JSONSerialization.data(withJSONObject: ops) else { return refused() }
+        let intent = SidebarMirrorIntent.apply(data, key: Self.newKey())
+        foldRefusals[intent.idempotencyKey] = refused
+        do {
+            try submit(intent, title: Self.moveTitle, undoable: false, redraws: false) { remote, key, stamped in
+                try await remote.apply(ops: stamped ?? data, key: key)
+            }
+        } catch {
+            foldRefusals[intent.idempotencyKey] = nil
+            refused()
+        }
+    }
+
     /// Sends reducer ops (`[{op: ...}]`, JSON objects) as one `sidebar.apply`:
     /// group edits, adopt-then-move. `undoable` false (a collapse) puts no undo step.
     public func send(ops: [[String: Any]], title: String, undoable: Bool = true) {
@@ -236,7 +275,8 @@ public final class SidebarDocStore {
     }
 
     /// Applies `intent` to the mirror and sends it; throws (after telling every list) when it is refused at once.
-    private func submit(_ intent: SidebarMirrorIntent, title: String, undoable: Bool,
+    /// `redraws` false (a fold): the rows the mirror orders do not change, so no rebuild follows the intent.
+    private func submit(_ intent: SidebarMirrorIntent, title: String, undoable: Bool, redraws: Bool = true,
                         _ body: @escaping @MainActor (any SidebarDocRemote, String, Data?) async throws -> SidebarDocReply) throws(SidebarDocSendRefusal) {
         lastIntentKey = intent.idempotencyKey
         func refused(_ message: String) -> SidebarDocSendRefusal {
@@ -252,7 +292,7 @@ public final class SidebarDocStore {
         } catch {
             throw refused(SidebarDocStrings.unavailable)
         }
-        bump()
+        if redraws { bump() }
         let key = intent.idempotencyKey
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
         let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
@@ -267,9 +307,10 @@ public final class SidebarDocStore {
                     // Answered only after an unanswered ask: the daemon replays a committed change without a new
                     // echo, and the first echo may have gone to a closed connection. The next load settles the key.
                     if asked > 1 { self.settleByLoad(key) }
+                    self.foldRefusals[key] = nil
                     // A no-op change echoes no batch: its intent must not stay pending.
                     if !reply.hasInverse {
-                        self.drop(key)
+                        self.drop(key, redraws: redraws)
                         NotificationCenter.default.post(name: Self.settledNotification, object: self, userInfo: ["key": key])
                     }
                     if undoable, reply.hasInverse {
@@ -291,10 +332,13 @@ public final class SidebarDocStore {
                     if error is SidebarDocUnsettled {
                         // Never answered: the daemon may have the change. The rows keep the optimistic look until the
                         // next load shows the document (the change stays, or the rows spring back once).
+                        // A fold stops holding its look: the load shows the document's fold.
+                        self.foldRefusals.removeValue(forKey: key)?()
                         self.settleByLoad(key)
                         return
                     }
                     // The daemon refused it: no batch will echo the key. The rows spring back once.
+                    self.foldRefusals.removeValue(forKey: key)?()
                     self.drop(key)
                     self.refuse(SidebarDocStrings.describe(error), key: key)
                     return
@@ -312,9 +356,9 @@ public final class SidebarDocStore {
         refresh()
     }
 
-    private func drop(_ key: String) {
+    private func drop(_ key: String, redraws: Bool = true) {
         mirror?.reject(key)
-        bump()
+        if redraws { bump() }
     }
 
     private func bump() { version &+= 1 }
