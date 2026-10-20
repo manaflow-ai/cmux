@@ -8,6 +8,7 @@ import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import migration1 from "../../migrations/0001_cmux_vm_ownership.sql?raw";
 import creationReceipts from "../../migrations/0010_cmux_vm_creation_receipts.sql?raw";
+import uncommittedCreations from "../../migrations/0012_cmux_vm_uncommitted_creations.sql?raw";
 import migration2 from "../../migrations/0002_cmux_vm_display_name_audit.sql?raw";
 import { hashApiKey, generateApiKey } from "../../src/auth/credentials.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
@@ -17,7 +18,7 @@ import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId } from "../..
 let pg: PGlite;
 let layer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditStore>;
 
-const migrations = [migration1, migration2, creationReceipts, creationReceiptIndex];
+const migrations = [migration1, migration2, creationReceipts, creationReceiptIndex, uncommittedCreations];
 
 const run = <A, E>(effect: Effect.Effect<A, E, OwnershipStore | ApiKeyStore | AuditStore>) => Effect.runPromise(Effect.provide(effect, layer));
 
@@ -292,4 +293,21 @@ it("finds the latest tenant-scoped creation receipt after journal retention, inc
   if (latest === null) throw Error("missing receipt");
   await run(store.markDeleted(tenantId, "vm", latest.receipt.id, new Date()));
   expect((await run(store.findCreation(tenantId, key)))?.deleted).toBe(true);
+});
+
+it("keeps an uncommitted creation listed but out of the live count until the same allocation commits it", async () => {
+  const store = await run(OwnershipStore), tenantId = TenantId.make("team_pending"), key = "b".repeat(64), cmuxId = newVmId();
+  const row: OwnedResource = { cmuxId, tenantId, kind: "vm", upstreamId: UpstreamId.make("pending-upstream"), createdBy: "user:x", createdAt: new Date("2026-10-01T00:00:00Z"), displayName: null, labels: {}, creation: { key, receipt: { id: cmuxId, displayName: null, labels: {}, idleTimeoutSeconds: 300 } } };
+  await run(store.record({ ...row, committed: false }));
+  expect(await run(store.allocationStatus(tenantId, cmuxId))).toBe("pending");
+  expect(await run(store.pendingCreation(tenantId, cmuxId))).toBe(key);
+  expect((await run(store.findCreation(tenantId, key)))?.committed).toBe(false);
+  expect(await run(store.countLive(tenantId, "vm"))).toBe(0);
+  expect((await run(store.listPage(tenantId, "vm", { limit: 10, after: null, only: null, labels: null }))).map((r) => r.committed)).toEqual([false]);
+  await run(store.record(row));
+  await run(store.record({ ...row, committed: false }));
+  expect(await run(store.allocationStatus(tenantId, cmuxId))).toBe("live");
+  expect(await run(store.pendingCreation(tenantId, cmuxId))).toBeNull();
+  expect(await run(store.countLive(tenantId, "vm"))).toBe(1);
+  expect(Option.map(await run(store.find(tenantId, "vm", cmuxId)), (r) => r.committed)).toEqual(Option.some(undefined));
 });

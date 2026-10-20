@@ -7424,6 +7424,13 @@
           },
           "updatedAt": {
             "type": "string"
+          },
+          "creation": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ],
+            "description": "Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM."
           }
         },
         "additionalProperties": false
@@ -7823,6 +7830,13 @@
           },
           "updatedAt": {
             "type": "string"
+          },
+          "creation": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ],
+            "description": "Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM."
           },
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"

@@ -77,8 +77,8 @@ snapshot succeeds and the create fails, the caller gets 503 `ForkIncomplete`
 with the snapshot's id, the snapshot stays in the tenant's ownership rows, and
 a retry with the same `Idempotency-Key` creates from it without a second
 snapshot. Create with `resources` boots the largest base size inside the
-request and then grows it. Without an idempotency key, a failed grow deletes
-the new VM (409). A keyed create retains its allocation for recovery instead.
+request and then grows it. A failed grow keeps the new VM as an uncommitted
+creation instead of deleting it (see "Recover a create without a client key").
 
 Use the same `Idempotency-Key` and request body when retrying a create or fork.
 Before provider I/O, the API durably retains the public allocation ID, original
@@ -160,10 +160,15 @@ identity and current resource labels still apply. Client-supplied keys are
 never returned or indexed in this history. History persists with its operation. The compatibility check runs the pinned preceding ledger against these
 protected records; that version refuses them and needs current software for recovery.
 
-An uncertain send, or a failed grow under a client key, retains the VM and its
-quota reservation. A failed grow without a client key cancels the creation:
-the VM is deleted and tombstoned, its slot is released, and the answer is 409.
-Use the original intent to recover it, or cancel with its handle. A fork that
+An uncertain send or failed grow retains the VM and its quota reservation.
+Use the original intent to recover it, or cancel with its handle. After a
+failed grow (503, or 429 when the provider is out of capacity) the VM is
+recorded as uncommitted: `GET /v1/vms` and `GET /v1/vms/{vmId}` show it with
+`creation: "pending"`, and the creation status stays `pending`. It is never
+replayed or settled as a finished create, and it keeps its quota slot. Retry
+the create with the same key (or `creationKey`) to grow and commit it;
+reconcile commits it once the VM already meets the requested size. Deleting
+it cancels the creation and frees the slot. A fork that
 retained its snapshot but has not admitted a VM allocation reports unresolved;
 retry the original fork with its handle. Interrupted snapshot acquisition is a
 separate recovery gap; a VM creation handle does not prove a snapshot's outcome.

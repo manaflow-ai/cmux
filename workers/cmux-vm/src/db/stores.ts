@@ -18,6 +18,8 @@ export interface OwnedResource {
   readonly createdAt: Date;
   readonly displayName: string | null;
   readonly labels: Readonly<Record<string, string>>;
+  /** False while the create that made this VM has not finished (its growth failed); absent means committed. */
+  readonly committed?: boolean;
 }
 
 /** Keyset position for paging newest first: the last row of the previous page. */
@@ -61,15 +63,20 @@ export interface ApiKeyRecord {
 }
 
 export interface OwnershipStoreService {
-  readonly findCreation: (tenantId: TenantId, key: string) => Effect.Effect<{ readonly receipt: VmCreationReceipt; readonly labels: Readonly<Record<string, string>>; readonly createdBy: string; readonly deleted: boolean } | null, StoreError>;
-  /** Recovery must distinguish a tombstone from an allocation never recorded. No private IDs leave this read. */
-  readonly allocationStatus: (tenantId: TenantId, cmuxId: string) => Effect.Effect<"absent" | "live" | "deleted", StoreError>;
+  readonly findCreation: (tenantId: TenantId, key: string) => Effect.Effect<{ readonly receipt: VmCreationReceipt; readonly labels: Readonly<Record<string, string>>; readonly createdBy: string; readonly deleted: boolean; readonly committed: boolean } | null, StoreError>;
+  /**
+   * Recovery must distinguish a tombstone from an allocation never recorded, and a committed creation from a
+   * recorded but unfinished one ("pending"). No private IDs leave this read.
+   */
+  readonly allocationStatus: (tenantId: TenantId, cmuxId: string) => Effect.Effect<"absent" | "pending" | "live" | "deleted", StoreError>;
+  /** The creation key of this live VM while its creation has not committed, else null. */
+  readonly pendingCreation: (tenantId: TenantId, cmuxId: string) => Effect.Effect<string | null, StoreError>;
   /** The caller's own resource of this kind, or none. */
   readonly find: (tenantId: TenantId, kind: ResourceKind, cmuxId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
   readonly record: (resource: OwnedResource) => Effect.Effect<void, StoreError>;
   /** The tenant's live resources of this kind, newest first. */
   readonly listPage: (tenantId: TenantId, kind: ResourceKind, options: ListPageOptions) => Effect.Effect<ReadonlyArray<OwnedResource>, StoreError>;
-  /** How many live resources of this kind the tenant has. */
+  /** How many live committed resources of this kind the tenant has; an uncommitted VM's slot is its creation's reservation. */
   readonly countLive: (tenantId: TenantId, kind: ResourceKind) => Effect.Effect<number, StoreError>;
   /** Marks the tenant's resource deleted; later reads do not find it. */
   readonly markDeleted: (tenantId: TenantId, kind: ResourceKind, cmuxId: string, at: Date) => Effect.Effect<void, StoreError>;
@@ -113,11 +120,12 @@ const ResourceRow = Schema.Struct({
   created_at: Schema.Union(Schema.DateFromSelf, Schema.Date),
   display_name: Schema.NullOr(Schema.String),
   labels: Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.String })),
+  committed: Schema.Boolean,
 });
 
 const CountRow = Schema.Struct({ live: Schema.Union(Schema.Number, Schema.NumberFromString) });
 
-const RESOURCE_COLUMNS = "tenant_id, kind, cmux_id, upstream_id, created_by, created_at, display_name, labels::text AS labels";
+const RESOURCE_COLUMNS = "tenant_id, kind, cmux_id, upstream_id, created_by, created_at, display_name, labels::text AS labels, committed";
 
 const toOwned = (row: typeof ResourceRow.Type): OwnedResource => ({
   tenantId: row.tenant_id,
@@ -128,6 +136,7 @@ const toOwned = (row: typeof ResourceRow.Type): OwnedResource => ({
   createdAt: row.created_at,
   displayName: row.display_name,
   labels: row.labels,
+  ...(row.committed ? {} : { committed: false }),
 });
 
 const ApiKeyRow = Schema.Struct({
@@ -146,13 +155,17 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
     const sql = yield* SqlClient;
 
     const ownership: OwnershipStoreService = {
-      findCreation: (tenantId, key) => sql.query("ownership.findCreation", `SELECT creation_receipt::text AS receipt, labels::text AS labels, created_by, deleted_at IS NOT NULL AS deleted FROM cmux_vm.resources WHERE tenant_id = $1 AND creation_key = $2 AND kind = 'vm' ORDER BY created_at DESC, cmux_id DESC LIMIT 1`, [tenantId, key]).pipe(
-        Effect.flatMap(decodeRows(Schema.Struct({ receipt: Schema.parseJson(VmCreationReceipt), labels: Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.String })), created_by: Schema.String, deleted: Schema.Boolean }), "ownership.findCreation")),
-        Effect.map((rows) => rows[0] === undefined ? null : ({ receipt: rows[0].receipt, labels: rows[0].labels, createdBy: rows[0].created_by, deleted: rows[0].deleted })),
+      findCreation: (tenantId, key) => sql.query("ownership.findCreation", `SELECT creation_receipt::text AS receipt, labels::text AS labels, created_by, deleted_at IS NOT NULL AS deleted, committed FROM cmux_vm.resources WHERE tenant_id = $1 AND creation_key = $2 AND kind = 'vm' ORDER BY created_at DESC, cmux_id DESC LIMIT 1`, [tenantId, key]).pipe(
+        Effect.flatMap(decodeRows(Schema.Struct({ receipt: Schema.parseJson(VmCreationReceipt), labels: Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.String })), created_by: Schema.String, deleted: Schema.Boolean, committed: Schema.Boolean }), "ownership.findCreation")),
+        Effect.map((rows) => rows[0] === undefined ? null : ({ receipt: rows[0].receipt, labels: rows[0].labels, createdBy: rows[0].created_by, deleted: rows[0].deleted, committed: rows[0].committed })),
       ),
-      allocationStatus: (tenantId, cmuxId) => sql.query("ownership.allocationStatus", `SELECT deleted_at IS NOT NULL AS deleted FROM cmux_vm.resources WHERE tenant_id = $1 AND cmux_id = $2 AND kind = 'vm' LIMIT 1`, [tenantId, cmuxId]).pipe(
-        Effect.flatMap(decodeRows(Schema.Struct({ deleted: Schema.Boolean }), "ownership.allocationStatus")),
-        Effect.map((rows) => rows[0] === undefined ? "absent" as const : rows[0].deleted ? "deleted" as const : "live" as const),
+      allocationStatus: (tenantId, cmuxId) => sql.query("ownership.allocationStatus", `SELECT deleted_at IS NOT NULL AS deleted, committed FROM cmux_vm.resources WHERE tenant_id = $1 AND cmux_id = $2 AND kind = 'vm' LIMIT 1`, [tenantId, cmuxId]).pipe(
+        Effect.flatMap(decodeRows(Schema.Struct({ deleted: Schema.Boolean, committed: Schema.Boolean }), "ownership.allocationStatus")),
+        Effect.map((rows) => rows[0] === undefined ? "absent" as const : rows[0].deleted ? "deleted" as const : rows[0].committed ? "live" as const : "pending" as const),
+      ),
+      pendingCreation: (tenantId, cmuxId) => sql.query("ownership.pendingCreation", `SELECT creation_key AS key FROM cmux_vm.resources WHERE tenant_id = $1 AND cmux_id = $2 AND kind = 'vm' AND deleted_at IS NULL AND NOT committed AND creation_key IS NOT NULL LIMIT 1`, [tenantId, cmuxId]).pipe(
+        Effect.flatMap(decodeRows(Schema.Struct({ key: Schema.String }), "ownership.pendingCreation")),
+        Effect.map((rows) => rows[0]?.key ?? null),
       ),
       find: (tenantId, kind, cmuxId) =>
         sql
@@ -180,13 +193,15 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           JSON.stringify(resource.labels),
           resource.creation?.key ?? null,
           resource.creation === undefined ? null : JSON.stringify(resource.creation.receipt),
+          resource.committed ?? true,
         ];
         return sql
           .query(
             "ownership.record",
-            `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels, creation_key, creation_receipt)
-             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::text::jsonb, $9, $10::text::jsonb)
-             ON CONFLICT (cmux_id) DO UPDATE SET cmux_id = EXCLUDED.cmux_id
+            // Recording the same allocation again may commit it, never uncommit it.
+            `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels, creation_key, creation_receipt, committed)
+             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::text::jsonb, $9, $10::text::jsonb, $11)
+             ON CONFLICT (cmux_id) DO UPDATE SET committed = resources.committed OR EXCLUDED.committed
              WHERE resources.tenant_id = EXCLUDED.tenant_id AND resources.kind = EXCLUDED.kind
                AND resources.upstream_id = EXCLUDED.upstream_id AND resources.created_by = EXCLUDED.created_by
                AND resources.display_name IS NOT DISTINCT FROM EXCLUDED.display_name AND resources.labels = EXCLUDED.labels
@@ -229,7 +244,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
         sql
           .query(
             "ownership.count",
-            `SELECT count(*)::int AS live FROM cmux_vm.resources WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL`,
+            `SELECT count(*)::int AS live FROM cmux_vm.resources WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL AND committed`,
             [tenantId, kind],
           )
           .pipe(

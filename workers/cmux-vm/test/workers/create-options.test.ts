@@ -51,19 +51,22 @@ describe("resources", () => {
     expect(t.upstream.callsTo("POST", /\/resize$/)).toHaveLength(0);
   });
 
-  it("deletes the new VM, frees its slot and answers 409 when growing an unkeyed create fails", async () => {
-    const t = await harness({ maxVms: 1 });
+  it("retains the allocation and returns its recovery handle when growing fails", async () => {
+    const t = await harness();
     const key = await t.addKey(TENANT_A, ["vm:write"]);
     t.upstream.fail("resize", 409);
 
     const response = await create(t, key, { resources: { diskMib: 50000 } });
 
-    expect(response.status).toBe(409);
-    // Nothing billed is left behind: the provider VM is gone and no live ownership row remains.
-    expect(t.upstream.vms.size).toBe(0);
-    expect(t.upstream.callsTo("DELETE", /^\/v5\/vms\//)).toHaveLength(1);
-    expect(t.resources.filter((row) => row.kind === "vm" && !t.isDeleted(row.cmuxId))).toHaveLength(0);
-    expect((await create(t, key, {})).status).toBe(201);
+    expect(response.status).toBe(503);
+    const { creationKey } = await response.json<{ creationKey: string }>();
+    expect(creationKey).toMatch(/^vcr_[0-9a-hjkmnp-tv-z]{26}$/);
+    expect(t.upstream.vms.size).toBe(1);
+    const retry = await create(t, key, { resources: { diskMib: 50000 } }, { "idempotency-key": creationKey });
+    expect(retry.status).toBe(201);
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
+    expect(t.upstream.vms.size).toBe(1);
+    expect(t.resources.filter((row) => row.kind === "vm")).toHaveLength(1);
   });
 
   it("rejects sizes outside the allowed range", async () => {
