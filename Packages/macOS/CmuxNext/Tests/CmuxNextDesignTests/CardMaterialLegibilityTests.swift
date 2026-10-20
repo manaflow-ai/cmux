@@ -29,6 +29,8 @@ import Testing
         scope.setOverride(try #require(ThemeSpec("Card \(name)")), input: input, animated: false)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        // The test owns the window; a close must not release it a second time.
+        window.isReleasedWhenClosed = false
         let root = try #require(window.contentView)
         scope.root(root)
         let panel = Glass.makeOverlayPanel(content: NSTextField(labelWithString: "Workspace"),
