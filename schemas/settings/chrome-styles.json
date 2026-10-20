@@ -39,7 +39,7 @@
     },
     "chrome.mainPane.borderlessStep": {
       "type": "number",
-      "meaning": "Share of the separate shade the shared surface keeps when no line parts the sidebar from the main pane (unset: 0.35)."
+      "meaning": "Share of the separate shade the shared surface keeps when no line parts the sidebar from the main pane (unset: 0, one color)."
     },
     "chrome.floatingPanes": {
       "type": "bool",
@@ -53,8 +53,10 @@
       "title": "Default",
       "symbol": "macwindow",
       "keywords": [],
-      "summary": "Today's defaults; nothing changes.",
-      "implies": {}
+      "summary": "Today's defaults, with the sidebar on the window's color and a hairline on its edge.",
+      "implies": {
+        "sidebar.border": true
+      }
     },
     {
       "id": "card",
@@ -68,11 +70,11 @@
         "dividers",
         "minimal"
       ],
-      "summary": "The curved main pane on one color; a line only between panes, no outline on a lone pane, no shade.",
+      "summary": "The curved main pane on one color; a line only between panes, no outline on a lone pane, no shade; a hairline on the sidebar's edge.",
       "implies": {
         "chrome.mainPane.curved": true,
         "layout.paneSeparation": "dividers",
-        "sidebar.border": false,
+        "sidebar.border": true,
         "appearance.sidebarSurface": "same",
         "chrome.mainPane.borderlessStep": 0
       }
@@ -88,11 +90,11 @@
         "outline",
         "borders"
       ],
-      "summary": "The curved main pane on one color; each pane outlined.",
+      "summary": "The curved main pane on one color; each pane outlined; a hairline on the sidebar's edge.",
       "implies": {
         "chrome.mainPane.curved": true,
         "layout.paneSeparation": "borders",
-        "sidebar.border": false,
+        "sidebar.border": true,
         "appearance.sidebarSurface": "same",
         "chrome.mainPane.borderlessStep": 0
       }
@@ -108,11 +110,11 @@
         "dividers",
         "minimal"
       ],
-      "summary": "No card, one color, edge to edge; a line only between panes.",
+      "summary": "No card, one color, edge to edge; a line only between panes; a hairline on the sidebar's edge.",
       "implies": {
         "chrome.mainPane.curved": false,
         "layout.paneSeparation": "dividers",
-        "sidebar.border": false,
+        "sidebar.border": true,
         "appearance.sidebarSurface": "same",
         "chrome.mainPane.borderlessStep": 0
       }
@@ -170,11 +172,11 @@
         "gaps",
         "borders"
       ],
-      "summary": "No card, one color; every pane its own outlined rounded card with small gaps.",
+      "summary": "No card, one color; every pane its own outlined rounded card with small gaps; a hairline on the sidebar's edge.",
       "implies": {
         "chrome.mainPane.curved": false,
         "layout.paneSeparation": "borders",
-        "sidebar.border": false,
+        "sidebar.border": true,
         "appearance.sidebarSurface": "same",
         "chrome.mainPane.borderlessStep": 0
       }

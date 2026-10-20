@@ -17,7 +17,14 @@ import { commonmark, imageSchema, linkSchema } from "@milkdown/kit/preset/common
 import { gfm } from "@milkdown/kit/preset/gfm";
 import type { Mark, Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
 import { Plugin, PluginKey, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
-import { Decoration, DecorationSet, type EditorView, type NodeViewConstructor } from "@milkdown/kit/prose/view";
+import { TableView } from "@milkdown/kit/prose/tables";
+import {
+  Decoration,
+  DecorationSet,
+  type EditorView,
+  type NodeViewConstructor,
+  type ViewMutationRecord,
+} from "@milkdown/kit/prose/view";
 import { ParserState, type SerializerState } from "@milkdown/kit/transformer";
 import { $nodeSchema, $prose } from "@milkdown/kit/utils";
 import "../../markdown-task-checkbox.css";
@@ -25,12 +32,15 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TaskCheckbox } from "../../ui/TaskCheckbox";
 import {
+  autolinkPlugin,
   brokenLinkPlugin,
   caretAt,
-  hoverCardPlugin,
-  LinkPopover,
+  followCursorPlugin,
+  linkBubblePlugin,
   pasteLinkPlugin,
   refreshLinks,
+  type AutolinkSpelling,
+  type LinkBubbleSlot,
   type LinkHost,
 } from "./linkEditing";
 import { findHeading } from "./links";
@@ -64,7 +74,7 @@ export interface MarkdownEditorHost {
   htmlPreview?(html: string): DocumentFragment | null;
   /** The workspace's GitHub `owner/repo`, used for bare issue references. */
   githubRepository?: string;
-  /** Link checks, hover card strings and path completion. */
+  /** Link checks, the link bubble's strings, path completion and copying. */
   links?: LinkHost;
 }
 
@@ -83,7 +93,7 @@ export interface MarkdownEditorOptions {
   readOnly?: boolean;
   /** Called for every document change the user made (not loads or editor normalization). */
   onUserEdit?(): void;
-  /** Where the link hover card and popover state goes (the page renders it: LinkOverlayHost). */
+  /** Where the link bubble's state goes (the page renders it: LinkOverlayHost). */
   overlays?: LinkOverlays;
 }
 
@@ -121,15 +131,26 @@ const rawSchema = $nodeSchema(RAW_NODE, () => ({
   },
 }));
 
-type ReferenceData = { data?: { cmuxReference?: unknown } };
+type ReferenceData = { data?: { cmuxReference?: unknown; cmuxAutolink?: AutolinkSpelling } };
 
-/** Links keep a reference (`[text][ref]`) through edits: written back as a reference, not inline. */
+/** The mdast node a bare-URL autolink is written as (`literalAutolinkHandler` writes it verbatim). */
+const LITERAL_AUTOLINK = "cmuxLiteralAutolink";
+
+/** Writes a bare-URL autolink as its text: the default `link` handler would write `<url>`. */
+function literalAutolinkHandler(node: { value?: unknown }): string {
+  return String(node.value ?? "");
+}
+
+/**
+ * Links keep their spelling through edits: a reference (`[text][ref]`) is written back as a
+ * reference, a bare URL (GFM autolink) as a bare URL, `<url>` as `<url>`, the rest inline.
+ */
 const referenceLinkSchema = linkSchema.extendSchema((previous) => (ctx) => {
   const base = previous(ctx);
   return {
     ...base,
-    attrs: { ...base.attrs, reference: { default: null } },
-    // The reference is markdown-only; the anchor gets the base attributes.
+    attrs: { ...base.attrs, reference: { default: null }, autolink: { default: null } },
+    // The reference and spelling are markdown-only; the anchor gets the base attributes.
     toDOM: (mark: Mark) => base.toDOM!(mark.type.create({ href: mark.attrs.href, title: mark.attrs.title }), true),
     parseMarkdown: {
       match: base.parseMarkdown.match,
@@ -138,6 +159,7 @@ const referenceLinkSchema = linkSchema.extendSchema((previous) => (ctx) => {
           href: node.url as string,
           title: (node.title as string | null) ?? null,
           reference: (node as ReferenceData).data?.cmuxReference ?? null,
+          autolink: (node as ReferenceData).data?.cmuxAutolink ?? null,
         });
         state.next(node.children);
         state.closeMark(markType);
@@ -147,6 +169,13 @@ const referenceLinkSchema = linkSchema.extendSchema((previous) => (ctx) => {
       match: base.toMarkdown.match,
       runner: (state, mark, node) => {
         const reference = mark.attrs.reference as Record<string, string> | null;
+        const href = String(mark.attrs.href ?? "");
+        const text = node.textContent;
+        // A bare URL stays bare while its text is still the URL (GFM adds `http://` to `www.`).
+        if (mark.attrs.autolink === "literal" && !mark.attrs.title && (text === href || `http://${text}` === href)) {
+          state.withMark(mark, LITERAL_AUTOLINK, undefined, { value: text });
+          return;
+        }
         if (!reference) return base.toMarkdown.runner(state, mark, node);
         // `[text]` and `[text][]` use the text as the label: once the text changes, write the
         // full form `[text][label]` so the link keeps its definition.
@@ -223,6 +252,7 @@ export class MarkdownEditor {
           rule: "-" as const,
           listItemIndent: "one" as const,
           incrementListMarker: true,
+          handlers: { ...options.handlers, [LITERAL_AUTOLINK]: literalAutolinkHandler },
         }));
         ctx.update(editorViewOptionsCtx, (options) => ({
           ...options,
@@ -254,6 +284,7 @@ export class MarkdownEditor {
       .use(history)
       // Before Milkdown's clipboard, so a pasted URL becomes a link.
       .use(pasteLinkPlugin(() => this.readOnly))
+      .use(autolinkPlugin(() => this.readOnly))
       .use(clipboard)
       .use(rawSchema)
       .use(activeBlockPlugin)
@@ -262,7 +293,20 @@ export class MarkdownEditor {
       .use(userEditPlugin(() => this.options.onUserEdit?.()))
       .use(codeHighlightPlugin(host));
     if (host.links)
-      editor.use(brokenLinkPlugin(host.links)).use(hoverCardPlugin(host.links, () => this.readOnly, this.overlays));
+      editor
+        .use(brokenLinkPlugin(host.links))
+        .use(followCursorPlugin())
+        .use(
+          linkBubblePlugin(
+            {
+              host: host.links,
+              overlays: this.overlays,
+              readOnly: () => this.readOnly,
+              openLink: (href) => host.openLink(href),
+            },
+            this.bubble,
+          ),
+        );
     await editor.create();
     this.editor = editor;
     editor.action((ctx) => {
@@ -343,15 +387,12 @@ export class MarkdownEditor {
     if (this.view && this.options.host.links) refreshLinks(this.view);
   }
 
-  private popover: LinkPopover | null = null;
+  private readonly bubble: LinkBubbleSlot = { current: null };
 
-  /** The link popover on the selection (the `link` page command, Cmd-K). */
+  /** The link bubble's edit form on the selection or the link at the caret (the `link` page command, Cmd-K). */
   openLinkPopover(): void {
-    const view = this.view;
-    const links = this.options.host.links;
-    if (!view || !links || this.readOnly) return;
-    this.popover ??= new LinkPopover(view, links, this.overlays);
-    this.popover.show();
+    if (!this.view || !this.options.host.links || this.readOnly) return;
+    this.bubble.current?.editAtSelection();
   }
 
   /** A click on a task item's box (left of its text) checks or unchecks it. */
@@ -649,6 +690,10 @@ function nodeViews(host: MarkdownEditorHost): Record<string, NodeViewConstructor
   return {
     code_block: (node, view, getPos) => new CodeBlockView(node, view, getPos, host),
     [RAW_NODE]: (node, view, getPos) => new RawBlockView(node, view, getPos, host),
+    // Each table sits in prosemirror-tables' `.tableWrapper` (its min-width 100px a column), the
+    // box a wide table scrolls sideways in (styles.css, MARKDOWN-TABLE-SCROLL). gfm's plugins leave
+    // out columnResizing, which would install this view, so the editor names it here.
+    table: (node) => new ScrollingTableView(node, 100),
     image: (node) => {
       const img = document.createElement("img");
       const apply = (next: ProseNode) => {
@@ -668,6 +713,15 @@ function nodeViews(host: MarkdownEditorHost): Record<string, NodeViewConstructor
       };
     },
   };
+}
+
+/** prosemirror-tables' TableView, minus one re-render: the wrapper's scroll mark
+ * (`data-cmux-scrolling`, scrollers.ts) is an attribute change ProseMirror would read as an edit,
+ * redrawing the table and dropping its sideways scroll on the first wheel step. */
+class ScrollingTableView extends TableView {
+  override ignoreMutation(record: ViewMutationRecord): boolean {
+    return (record.type === "attributes" && record.target === this.dom) || super.ignoreMutation(record);
+  }
 }
 
 /** Puts the caret at the start of a node's text, so clicking a preview edits its source. */
