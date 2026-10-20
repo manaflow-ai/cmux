@@ -79,6 +79,9 @@ jobs:
       - name: Role changes retire idle Cloud sockets
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/cloud-role-sockets.test.ts
+      - name: Cloud authority admission and delivery races
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/cloud-socket-authority.test.ts
       - name: Cloud tenant and adapter behavior
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/team-vm-api test/cloud-vm-api

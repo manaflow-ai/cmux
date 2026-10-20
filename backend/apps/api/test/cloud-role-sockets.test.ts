@@ -65,6 +65,7 @@ describe("Cloud wire membership authority", { timeout: 60_000 }, () => {
     try {
       await redeliverRoleNotice(team.team, member.user, `team:${other.team}`)
       await redeliverRoleNotice(team.team, member.user, `team:${team.team}`, other.team)
+      await redeliverRoleNotice(team.team, member.user, `team:${other.team}`, other.team, other.team)
       expect(await openCloudSockets(team.team, member.user)).toBe(1)
       expect((await provisionRole(team.team, member.user, "member", crypto.randomUUID())).frames.some((f) => f.t === "reject")).toBe(false)
       await deliverRoleNotices(team.team)

@@ -15,8 +15,8 @@ export const openCloudSockets = (team: string, user: string): Promise<number> =>
 export const deliverRoleNotices = (team: string) => fireAlarm(teamStub(team))
 
 /** A redelivery trigger carries no authority; CloudDO must read its own team's current membership. */
-export const redeliverRoleNotice = async (team: string, user: string, source = `team:${team}`, payloadTeam = team) => {
-  const result = await inDO(cloudStub(team), async (instance) => instance.systemDeliver(team, source, [
+export const redeliverRoleNotice = async (team: string, user: string, source = `team:${team}`, payloadTeam = team, deliveryTeam = team) => {
+  const result = await inDO(cloudStub(team), async (instance) => instance.systemDeliver(deliveryTeam, source, [
     { id: 77, op: "team.member_authority.changed", key: `role-notice:${crypto.randomUUID()}`, params: { team: payloadTeam, user } }
   ]))
   expect(result.done).toEqual([77])
