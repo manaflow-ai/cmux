@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "build": "3950030677001",
+  "notes": "notes/3950030677001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22309,
+      "title": "Agent pane: show agent pair pauses with Resume",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22338,
+      "title": "agent pane: MCP tool calls read as one line and open to pretty request and response",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22593,
+      "title": "cmux NEXT: New Workspace in Group puts the workspace in the group",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22341,
+      "title": "Agent chat: the wheel over Jump to latest and the composer scrolls the transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22401,
+      "title": "cmux NEXT: a group's +, Delete and Ungroup work on the sidebar document",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22592,
+      "title": "ci(cmux-next): the read-only PR tree probe defers to main's merge-tree publisher (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22589,
+      "title": "cmux NEXT Chief pet: Message the Chief from any app on Ctrl-Option-Cmd-C",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22588,
+      "title": "cmux-next checks: clear the l10n, CEF license, tier routing and namespace base reds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22492,
+      "title": "cmux NEXT: a guard refuses views that re-read on a switch back or every mount",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22563,
+      "title": "cmux NEXT Chief pet: notices open toward the side with room as you drag it; the profile menu shows or hides it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22476,
+      "title": "fix(cmux-next): clear the main-thread concurrency and crash-class reds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22148,
+      "title": "ci(ios): detect iOS changes from a depth-2 merge-commit checkout (~55s to ~1s)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22126,
+      "title": "PR autofix: a settings-only regeneration no longer rewrites the docs shortcuts; refuse a stale shortcuts copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22374,
+      "title": "cmux NEXT Home: the Chief's front page says what it does, and the placeholder cat is gone",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22374/ec2b45d5/next-chief-settings-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "ec2b45d5",
+      "tour": "chief-settings"
+    },
+    {
+      "pr": 22480,
+      "title": "cmux NEXT agent pane: a chat you switch back to replays no row, reply or code entrance",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
