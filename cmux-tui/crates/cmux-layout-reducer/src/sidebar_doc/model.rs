@@ -201,6 +201,8 @@ pub struct Section {
     pub order: String,
     #[serde(default)]
     pub keeps_closed: bool,
+    #[serde(skip)]
+    pub host_group: bool,
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
 }
@@ -259,6 +261,7 @@ impl From<SectionWire> for Section {
             room: wire.room,
             order: wire.order,
             keeps_closed: wire.keeps_closed,
+            host_group: false,
             extra: wire.extra,
         }
     }
@@ -287,6 +290,7 @@ impl Section {
             room: None,
             order: String::new(),
             keeps_closed,
+            host_group: false,
             extra: Map::new(),
         }
     }
@@ -561,6 +565,8 @@ pub struct SectionPatch {
     pub keeps_closed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scroll: Option<Scroll>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_group: Option<bool>,
 }
 
 /// An item's own fields; a group's fields go through `group.update`.
