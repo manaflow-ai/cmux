@@ -157,22 +157,12 @@ class Mac:
                 shutil.rmtree(self.app)
             subprocess.run(["ditto", self.source_app, self.app], check=True)
             self._bundle = self._tag = None
-            p = self.info
-            res = os.path.join(self.app, "Contents/Resources")
-            pb(p, f"Set :LSEnvironment:CMUX_SHELL_INTEGRATION_DIR {res}/shell-integration")
-            pb(p, f"Set :LSEnvironment:CMUX_BUNDLED_CLI_PATH {res}/bin/cmux")
-            pb(p, f"Set :LSEnvironment:CMUXD_UNIX_PATH {os.path.expanduser('~')}/Library/Application Support/cmux/cmuxd-dev-{self.tag}.sock")
-            pb(p, "Delete :LSEnvironment:CMUXTERM_REPO_ROOT", check=False)
-            pb(p, "Delete :SUFeedURL", check=False)
-            pb(p, "Delete :SUPublicEDKey", check=False)
-            for key, value in (("CMUX_NEXT_CONFIG_FILE", self.config), ("CMUX_AUTH_CREDENTIALS_FILE", self.creds),
-                               ("CMUX_NEXT_IPHONE_PAIRING_SEED", self.pairing_seed)):
-                pb(p, f"Delete :LSEnvironment:{key}", check=False)
-                pb(p, f"Add :LSEnvironment:{key} string {value}")
-            subprocess.run(["codesign", "--force", "--sign", "-", "--preserve-metadata=entitlements,requirements,flags,runtime", self.app],
-                           check=True, capture_output=True)
+            # The copy stays byte for byte the fleet's (never an Info.plist edit or a
+            # re-sign: a new ad hoc identity's Keychain reads wait on an unseen prompt and
+            # cnx-hostd never starts). Its rig settings go in at launch (open --env).
             subprocess.run(["xattr", "-dr", "com.apple.quarantine", self.app], capture_output=True)
             open(stamp, "w").write(src_id)
+
         # Settings: the documented person path for a test instance (hand edit of its own cmux-next.json).
         cfg = {}
         if os.path.exists(self.config):
@@ -200,6 +190,19 @@ class Mac:
             subprocess.run(["xcrun", "swiftc", "-O", "-o", term, src], check=True, capture_output=True)
         return self
 
+    def rig_env(self):
+        """The rig's settings for the app, passed at launch (open --env): its own
+        config, credentials and pairing seed, and paths into this copy."""
+        res = os.path.join(self.app, "Contents/Resources")
+        return {
+            "CMUX_SHELL_INTEGRATION_DIR": f"{res}/shell-integration",
+            "CMUX_BUNDLED_CLI_PATH": f"{res}/bin/cmux",
+            "CMUXD_UNIX_PATH": f"{os.path.expanduser('~')}/Library/Application Support/cmux/cmuxd-dev-{self.tag}.sock",
+            "CMUX_NEXT_CONFIG_FILE": self.config,
+            "CMUX_AUTH_CREDENTIALS_FILE": self.creds,
+            "CMUX_NEXT_IPHONE_PAIRING_SEED": self.pairing_seed,
+        }
+
     # ---- lifecycle ---------------------------------------------------------
     def main_pids(self):
         exe_dir = os.path.join(self.app, "Contents/MacOS/")
@@ -221,7 +224,7 @@ class Mac:
             # launch_env (for example CNX_VIDEO_DROP_PERMILLE, which the app hands to
             # cnx-hostd) goes the same way.
             rb_host = os.environ.get("CNX_E2E_RB_HOST", "")
-            env = dict(self.launch_env, **({"CMUX_NEXT_RB_HOST": rb_host} if rb_host else {}))
+            env = dict(self.rig_env(), **self.launch_env, **({"CMUX_NEXT_RB_HOST": rb_host} if rb_host else {}))
             flags = [x for k, v in env.items() for x in ("--env", f"{k}={v}")]
             subprocess.run(["open", "-g", "-j", "-n", *flags, self.app], check=True)
         deadline = time.time() + timeout
