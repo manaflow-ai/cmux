@@ -506,42 +506,6 @@
           "aliases": []
         },
         {
-          "id": "home.switchView",
-          "title": {
-            "en": "Switch Home View",
-            "ar": "تبديل عرض الصفحة الرئيسية",
-            "bs": "Promijeni prikaz početne",
-            "da": "Skift visning af Hjem",
-            "de": "Home-Ansicht wechseln",
-            "es": "Cambiar vista de Inicio",
-            "fr": "Changer la vue de l’accueil",
-            "it": "Cambia vista di Home",
-            "ja": "ホームの表示を切り替え",
-            "km": "ប្តូរទិដ្ឋភាពទំព័រដើម",
-            "ko": "홈 보기 전환",
-            "no": "Bytt visning av Hjem",
-            "pl": "Przełącz widok strony głównej",
-            "pt-BR": "Alternar visualização do Início",
-            "ru": "Переключить вид главной",
-            "th": "สลับมุมมองหน้าแรก",
-            "tr": "Ana Sayfa Görünümünü Değiştir",
-            "uk": "Перемкнути вид головної",
-            "vi": "Chuyển chế độ xem Trang chủ",
-            "zh-CN": "切换主页视图",
-            "zh-TW": "切換首頁檢視"
-          },
-          "shortcut": {
-            "key": "h",
-            "modifiers": [
-              "ctrl",
-              "opt",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
           "id": "focusHistoryBack",
           "title": {
             "en": "Go Back",
@@ -1112,6 +1076,47 @@
                   "key": "\t",
                   "modifiers": [
                     "shift"
+                  ]
+                }
+              ],
+              "when": "paletteOpen"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.toggleActions",
+          "title": {
+            "en": "Palette: Show or Hide Actions",
+            "ar": "لوحة الأوامر: إظهار الإجراءات أو إخفاؤها",
+            "bs": "Paleta: prikaži ili sakrij radnje",
+            "da": "Palet: Vis eller skjul handlinger",
+            "de": "Palette: Aktionen ein- oder ausblenden",
+            "es": "Paleta: mostrar u ocultar acciones",
+            "fr": "Palette : afficher ou masquer les actions",
+            "it": "Tavolozza: mostra o nascondi azioni",
+            "ja": "パレット: アクションの表示を切り替え",
+            "km": "បន្ទះ៖ បង្ហាញ ឬលាក់សកម្មភាព",
+            "ko": "팔레트: 작업 표시 또는 숨기기",
+            "no": "Palett: Vis eller skjul handlinger",
+            "pl": "Paleta: Pokaż lub ukryj akcje",
+            "pt-BR": "Paleta: Mostrar ou Ocultar Ações",
+            "ru": "Палитра: показать или скрыть действия",
+            "th": "แผงคำสั่ง: แสดงหรือซ่อนการทำงาน",
+            "tr": "Palet: Eylemleri Göster veya Gizle",
+            "uk": "Палітра: показати або сховати дії",
+            "vi": "Bảng lệnh: Hiện hoặc ẩn thao tác",
+            "zh-CN": "面板：显示或隐藏操作",
+            "zh-TW": "命令面板：顯示或隱藏動作"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "k",
+                  "modifiers": [
+                    "cmd"
                   ]
                 }
               ],
@@ -5474,7 +5479,20 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "=",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "markdownZoomOut",
@@ -7128,7 +7146,7 @@
         {
           "id": "toggleUnread",
           "title": {
-            "en": "Toggle Unread",
+            "en": "Toggle Tab Unread",
             "ar": "تبديل غير المقروء",
             "bs": "Prebaci nepročitano",
             "da": "Skift ulæst",
@@ -7136,7 +7154,7 @@
             "es": "Alternar no leído",
             "fr": "Marquer comme lu/non lu",
             "it": "Segna come letto/non letto",
-            "ja": "未読を切り替え",
+            "ja": "タブの未読を切り替え",
             "km": "បិទ/បើកមិនទាន់អាន",
             "ko": "읽지 않음 토글",
             "no": "Veksle ulest",
@@ -7506,40 +7524,6 @@
             "key": "m",
             "modifiers": [
               "ctrl",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
-          "id": "agentPane.searchFiles",
-          "title": {
-            "en": "Search Files…",
-            "ar": "البحث في الملفات…",
-            "bs": "Pretraži datoteke…",
-            "da": "Søg i filer…",
-            "de": "Dateien durchsuchen…",
-            "es": "Buscar archivos…",
-            "fr": "Rechercher des fichiers…",
-            "it": "Cerca file…",
-            "ja": "ファイルを検索…",
-            "km": "ស្វែងរកឯកសារ…",
-            "ko": "파일 검색…",
-            "no": "Søk i filer…",
-            "pl": "Szukaj plików…",
-            "pt-BR": "Buscar arquivos…",
-            "ru": "Поиск файлов…",
-            "th": "ค้นหาไฟล์…",
-            "tr": "Dosyalarda ara…",
-            "uk": "Пошук файлів…",
-            "vi": "Tìm tệp…",
-            "zh-CN": "搜索文件…",
-            "zh-TW": "搜尋檔案…"
-          },
-          "shortcut": {
-            "key": "p",
-            "modifiers": [
               "cmd"
             ]
           },

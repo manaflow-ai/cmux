@@ -13,6 +13,8 @@ public enum HomeLiveEvent: Hashable, Sendable {
     case snapshot(conversation: ConversationID, runs: [HomeLiveRunSnapshot])
     /// A run record changed (`conversation-run-changed`): its reply key and status.
     case run(HomeLiveRunChange)
+    /// A running run's talk rows, read after a snapshot: the segments the owner already freed.
+    case rows(conversation: ConversationID, author: ParticipantID, run: String, steps: [HomeLiveRunSnapshot.Step])
 
     var conversation: ConversationID {
         switch self {
@@ -20,6 +22,7 @@ public enum HomeLiveEvent: Hashable, Sendable {
         case .activity(let activity): activity.conversation
         case .snapshot(let conversation, _): conversation
         case .run(let change): change.conversation
+        case .rows(let conversation, _, _, _): conversation
         }
     }
 }
@@ -80,12 +83,15 @@ public struct HomeLiveRunSnapshot: Hashable, Sendable {
         /// The last frame the text includes.
         public var seq: UInt64
         public var text: String
+        /// A row's place in the run (the owner's `Step.seq`); nil for a live step.
+        public var place: UInt64?
 
-        public init(step: String, isTalk: Bool, seq: UInt64, text: String) {
+        public init(step: String, isTalk: Bool, seq: UInt64, text: String, place: UInt64? = nil) {
             self.step = step
             self.isTalk = isTalk
             self.seq = seq
             self.text = text
+            self.place = place
         }
     }
 

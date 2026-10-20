@@ -1180,137 +1180,6 @@
         }
       }
     },
-    "handlers.misc.failed.markUnread": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The daemon cannot mark a notification unread."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デーモンは通知を未読に戻せません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يمكن للخدمة تعليم إشعار كغير مقروء."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Daemon ne može označiti obavještenje kao nepročitano."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dæmonen kan ikke markere en notifikation som ulæst."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der Daemon kann eine Benachrichtigung nicht als ungelesen markieren."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El daemon no puede marcar una notificación como no leída."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le daemon ne peut pas marquer une notification comme non lue."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Il daemon non può segnare una notifica come non letta."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "daemon មិនអាចសម្គាល់ការជូនដំណឹងថាមិនទាន់អានបានទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "데몬은 알림을 읽지 않음으로 표시할 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Daemonen kan ikke merke et varsel som ulest."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Demon nie może oznaczyć powiadomienia jako nieprzeczytanego."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O daemon não pode marcar uma notificação como não lida."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Демон не может отметить уведомление непрочитанным."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "daemon ไม่สามารถทำเครื่องหมายการแจ้งเตือนว่ายังไม่อ่านได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Arka plan hizmeti bir bildirimi okunmadı olarak işaretleyemez."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Демон не може позначити сповіщення непрочитаним."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Daemon không thể đánh dấu thông báo là chưa đọc."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "守护进程无法将通知标记为未读。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "背景程式無法將通知標記為未讀。"
-          }
-        }
-      }
-    },
     "handlers.misc.failed.noAgentSession": {
       "extractionState": "manual",
       "localizations": {
@@ -10408,6 +10277,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "尚未向任何代理傳送過提示。"
+          }
+        }
+      }
+    },
+    "handlers.browserPage.wakeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The hibernated page did not wake in time; retry"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تستيقظ الصفحة المُسبَتة في الوقت المحدد؛ أعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uspavana stranica se nije probudila na vrijeme; pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den dvaletilstandede side vågnede ikke i tide; prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die ruhende Seite wurde nicht rechtzeitig geweckt; erneut versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La página hibernada no se reactivó a tiempo; vuelve a intentarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La page en veille ne s’est pas réveillée à temps ; réessayez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pagina ibernata non si è riattivata in tempo; riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "休止中のページが時間内に再開しませんでした。もう一度お試しください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រដែលកំពុងសម្រាកមិនបានភ្ញាក់ទាន់ពេលទេ សូមព្យាយាមម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "절전 중인 페이지가 제때 깨어나지 않았습니다. 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den dvalende siden våknet ikke i tide; prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uśpiona strona nie wybudziła się na czas; spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A página hibernada não foi reativada a tempo; tente novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спящая страница не проснулась вовремя; повторите попытку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าที่พักไว้ไม่ตื่นขึ้นทันเวลา โปรดลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uykudaki sayfa zamanında uyanmadı; yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приспана сторінка не прокинулася вчасно; повторіть спробу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang đang ngủ đông không được đánh thức kịp; hãy thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "休眠的页面未能及时唤醒；请重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "休眠的頁面未能及時喚醒；請重試"
           }
         }
       }

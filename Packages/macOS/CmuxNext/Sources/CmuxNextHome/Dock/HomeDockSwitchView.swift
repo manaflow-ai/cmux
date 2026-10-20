@@ -1,10 +1,30 @@
 public import AppKit
+import CmuxNextDesign
 
-/// The two views of the docked Home (`home.switchView`).
+/// The two views of the docked Home: the sidebar's Home entry (`messages`) and its Channels entry
+/// (`channels`), selected with `home.switchView` (hq-6d cx-frn2y).
 public enum HomeDockMode: String, CaseIterable, Sendable {
     case messages, channels
 
     public var other: HomeDockMode { self == .messages ? .channels : .messages }
+
+    /// Whether the view may show: Messages always; Channels while `home.channelsEnabled` is on (the
+    /// palette's Enable Channels; Lawrence 2026-10-15).
+    @MainActor public var isEnabled: Bool { self == .messages || DesignSettings.shared.homeChannelsEnabled }
+
+    /// Refusals of `home.switchView` and of the page's `cmux.host.home.switchView`.
+    public static var invalidViewMessage: String {
+        String(localized: "homeDock.switch.invalidView", defaultValue: "Home has two views: messages and channels.", bundle: .module)
+    }
+
+    public static var channelsOffMessage: String {
+        String(localized: "homeDock.switch.channelsOff", defaultValue: "Channels is off. Turn it on with Enable Channels in the command palette.",
+               bundle: .module)
+    }
+
+    public static var classicMessage: String {
+        String(localized: "homeDock.switch.classic", defaultValue: "Classic Home has only the Messages view.", bundle: .module)
+    }
 }
 
 /// The selection a switch carries over (the permalink's parts).
@@ -28,42 +48,34 @@ public struct HomeDockSelection: Equatable, Sendable {
     }
 }
 
-/// The docked Home's tab content (cx-ebm.59.5; Lawrence 2026-10-14: "bring imessage chief back by
-/// default instead of slack", "easy way to open slack ... we want to iterate on both UIs at the same
-/// time"). One native header with the "Messages | Channels" switch at its top left, over one of two
-/// views of the same Home data. The app's subclass makes the two views (Messages, the native
-/// MessagesLab list and transcript; Channels, hq-ec's `home-channels` page) and answers their
-/// selection; this view owns the header, the switch, the order of switches and which view shows.
-/// Each view is made on its first show and kept, so a switch back keeps its scroll, draft and
-/// selection. The switch hands the selection over as a permalink.
+/// The docked Home's tab content (cx-ebm.59.5, cx-frn2y; Lawrence 2026-10-15: "toggle between
+/// messages/channels should be via cmd shift p (in fact should just be 2 diff things in section like
+/// Home and Channels ..."). One of two views of the same Home data fills it, with no header: the
+/// sidebar's Home entry shows Messages (the native MessagesLab list and transcript), its Channels
+/// entry shows hq-ec's `home-channels` page. The app's subclass makes the two views and answers
+/// their selection; this view owns which view shows and the order of switches. Each view is made on
+/// its first show and kept, so a switch back keeps its scroll, draft and selection. A switch hands
+/// the selection over as a permalink.
 open class HomeDockSwitchView: NSView {
-    public let header = NSView()
-    public let control: HomeDockSwitchControl
     private let content = NSView()
     public private(set) var mode: HomeDockMode
     /// The selection the last switch handed over (debug and GUI proofs).
     public private(set) var lastHandoff: HomeDockSelection?
+    /// Told the view each time one shows (the sidebar marks its entry).
+    public var onShow: (@MainActor (HomeDockMode) -> Void)?
+    /// Work that lives as long as this view (the Channels setting watch); cancelled by `close()`.
+    public var tasks: [Task<Void, Never>] = []
     private var made: [HomeDockMode: NSView] = [:]
-    /// A switch in flight: a second one waits for it, so two quick clicks end on the last choice.
+    /// A switch in flight: a second one waits for it, so two quick selections end on the last one.
     private var switching: Task<Void, Never>?
     /// Work that needs this view in a window (a sheet, the keyboard).
     private var windowWaiters: [@MainActor () -> Void] = []
-    public static let headerHeight: CGFloat = 30
 
     public init(mode: HomeDockMode) {
         self.mode = mode
-        control = HomeDockSwitchControl(labels: [HomeStrings.dockMessages, HomeStrings.dockChannels], trackingMode: .selectOne,
-                                        target: nil, action: nil)
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.homeDock")
-        control.segmentStyle = .rounded
-        control.controlSize = .small
-        control.toolTip = HomeStrings.dockSwitchHelp
-        control.setAccessibilityIdentifier("cmux.homeDock.switch")
-        control.target = self
-        control.action = #selector(controlChanged)
-        header.addSubview(control)
-        addSubview(header)
+        content.autoresizingMask = [.width, .height]
         addSubview(content)
         show(mode)
     }
@@ -85,8 +97,12 @@ open class HomeDockSwitchView: NSView {
     /// `mode`'s primary input takes the keyboard.
     open func focusContent(_ mode: HomeDockMode) {}
 
-    /// The tab closed: a switch in flight stops.
-    open func close() { switching?.cancel() }
+    /// The tab closed: a switch in flight and this view's tasks stop.
+    open func close() {
+        switching?.cancel()
+        for task in tasks { task.cancel() }
+        tasks = []
+    }
 
     // MARK: Switching
 
@@ -105,23 +121,12 @@ open class HomeDockSwitchView: NSView {
 
     override open func layout() {
         super.layout()
-        let height = Self.headerHeight
-        header.frame = NSRect(x: 0, y: bounds.height - height, width: bounds.width, height: height)
-        control.sizeToFit()
-        // Top left, centered in the header's height.
-        control.setFrameOrigin(NSPoint(x: 8, y: ((height - control.frame.height) / 2).rounded()))
-        content.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - height))
-    }
-
-    @objc private func controlChanged() {
-        // Not compared with `mode`: a switch in flight has not changed it yet, and the last click wins.
-        let index = control.selectedSegment
-        guard HomeDockMode.allCases.indices.contains(index) else { return }
-        switchTo(HomeDockMode.allCases[index])
+        content.frame = bounds
     }
 
     /// Switches to `target` (the other view when nil) with `selection`, else the current selection
-    /// handed over. Two quick switches run in order, so the last one wins.
+    /// handed over. Two quick switches run in order, so the last one wins. A view that may not show
+    /// (`HomeDockMode.isEnabled`: Channels while it is off) is not switched to; callers refuse first.
     public func switchTo(_ target: HomeDockMode?, selection given: HomeDockSelection? = nil) {
         let previous = switching
         // task-owner: one switch; a page answer is bounded by the subclass's selection deadline.
@@ -129,9 +134,10 @@ open class HomeDockSwitchView: NSView {
             await previous?.value
             guard let self else { return }
             let target = target ?? mode.other
+            guard target.isEnabled else { return }
             guard target != mode else {
                 if let given { open(given) }
-                return syncControl()
+                return
             }
             var selection = given
             if selection == nil { selection = await currentSelection() }
@@ -167,16 +173,6 @@ open class HomeDockSwitchView: NSView {
                 content.addSubview(view)
             }
         }
-        syncControl()
+        onShow?(target)
     }
-
-    private func syncControl() {
-        control.selectedSegment = HomeDockMode.allCases.firstIndex(of: mode) ?? 0
-    }
-}
-
-/// The header switch: a click on it works in a window that is not key (no first click lost to
-/// window activation), like a toolbar control.
-public final class HomeDockSwitchControl: NSSegmentedControl {
-    override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

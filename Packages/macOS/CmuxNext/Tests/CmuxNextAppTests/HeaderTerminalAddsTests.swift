@@ -50,4 +50,74 @@ struct HeaderTerminalAddsTests {
             #expect(row.order == ["chat"])
         }
     }
+
+    /// A click adds a terminal and never closes one, so the Terminal button never shows lit, while
+    /// the other buttons still light for their splits.
+    @Test func theTerminalButtonNeverShowsLit() {
+        with(adds: true) {
+            let row = HeaderSplitOrderTests.Row(), toggles = AgentChatSplitToggles()
+            row.click("splitRight", toggles: toggles)
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == [])
+            row.click("splitBrowserRight", toggles: toggles)
+            row.click("splitRight", toggles: toggles)
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitBrowserRight"])
+        }
+    }
+
+    /// Turned off after three adds, the button toggles again: the terminals the adds opened stay and
+    /// still line up the row, so the next click opens a terminal right of the last one and the
+    /// click after closes it (not one close per remaining terminal).
+    @Test func turnedOffMidSessionTheButtonTogglesAgain() {
+        let row = HeaderSplitOrderTests.Row(), toggles = AgentChatSplitToggles()
+        with(adds: true) {
+            for _ in 0..<3 { row.click("splitRight", toggles: toggles) }
+        }
+        #expect(row.order == ["chat", "terminal", "terminal", "terminal"])
+        let added = Array(row.tabs.dropFirst())
+        with(adds: false) {
+            row.click("splitRight", toggles: toggles)
+            #expect(row.invocations["splitRight"]?.target?.id == added.last)
+            #expect(Array(row.tabs.prefix(4)) == [row.chat] + added)
+            #expect(row.order == ["chat", "terminal", "terminal", "terminal", "terminal"])
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitRight"])
+            row.click("splitRight", toggles: toggles)
+            #expect(row.tabs == [row.chat] + added)
+            row.click("splitRight", toggles: toggles)
+            #expect(row.invocations["splitRight"]?.target?.id == added.last)
+            #expect(row.order == ["chat", "terminal", "terminal", "terminal", "terminal"])
+        }
+    }
+
+    /// Split Down's terminal stays its own after adds and a toggle off: the button still lights for
+    /// it and its click closes it, never a terminal the Terminal button opened.
+    @Test func splitDownKeepsItsTerminalAfterAdds() {
+        let row = HeaderSplitOrderTests.Row(), toggles = AgentChatSplitToggles()
+        row.click("splitDown", toggles: toggles)
+        let down = row.tabs[1]
+        with(adds: true) {
+            for _ in 0..<3 { row.click("splitRight", toggles: toggles) }
+        }
+        let added = row.tabs.filter { $0 != row.chat && $0 != down }
+        with(adds: false) {
+            row.click("splitRight", toggles: toggles)
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit.contains("splitDown"))
+            row.click("splitDown", toggles: toggles)
+            #expect(!row.tabs.contains(down))
+            #expect(added.allSatisfy(row.tabs.contains))
+        }
+    }
+
+    /// Many adds keep the other buttons' splits: Browser stays lit and its next click closes its
+    /// browser rather than opening a second one.
+    @Test func manyAddsKeepTheOtherButtonsSplits() {
+        with(adds: true) {
+            let row = HeaderSplitOrderTests.Row(), toggles = AgentChatSplitToggles()
+            row.click("splitBrowserRight", toggles: toggles)
+            for _ in 0..<8 { row.click("splitRight", toggles: toggles) }
+            #expect(row.order == ["chat", "browser"] + Array(repeating: "terminal", count: 8))
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitBrowserRight"])
+            row.click("splitBrowserRight", toggles: toggles)
+            #expect(row.order == ["chat"] + Array(repeating: "terminal", count: 8))
+        }
+    }
 }

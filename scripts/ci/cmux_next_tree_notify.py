@@ -137,6 +137,12 @@ def dispatch_refs(marker: dict, repo: str) -> list[str]:
 
 def is_current(api: Api, repo: str, marker: dict) -> bool:
     if marker["origin"] == "push":
+        # A scheduled DEV build owns an immutable SHA. Its tree may finish
+        # after feat-cmux-next advances, so the branch pointer is not an
+        # admission signal for this marker. same-tree mode checks out the
+        # recorded SHA and the publisher's source gate verifies it again.
+        if marker.get("dev_daily"):
+            return True
         head = api.get(f"repos/{repo}/git/ref/heads/{marker['branch']}")
         return head.get("object", {}).get("sha") == marker["sha"]
     pull = api.get(f"repos/{repo}/pulls/{marker['pr']}")

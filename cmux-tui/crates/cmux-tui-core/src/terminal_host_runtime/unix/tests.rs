@@ -133,7 +133,7 @@ fn exited_host_fixture_with_parser_at(
         stream_progress: TerminalStreamProgress::default(),
         writer: Mutex::new(Box::new(std::io::sink())),
         master: Mutex::new(Box::new(TestHostMaster {
-            size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap()),
+            size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)),
         })),
         killer: Mutex::new(Box::new(TestHostKiller)),
         pid: None,
@@ -240,6 +240,7 @@ fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease
         supports_viewer_size_priority: true,
         supports_pty_custody: false,
         supports_program_status: false,
+        supports_shell_activity: false,
         orphan_grace_secs: None,
     };
     let record_path = record.record_path(&root);
@@ -271,6 +272,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         supports_viewer_size_priority: false,
         supports_pty_custody: false,
         supports_program_status: false,
+        supports_shell_activity: false,
         orphan_grace_secs: None,
     };
     let record_path = std::env::temp_dir().join(format!(
@@ -297,6 +299,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
             cwd: None,
             osc_progress: String::new(),
             program_status: None,
+            shell_activity: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,

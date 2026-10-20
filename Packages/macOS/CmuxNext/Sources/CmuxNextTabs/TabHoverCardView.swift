@@ -18,9 +18,9 @@ final class TabHoverCardView: NSView {
 
     static var cardWidth: CGFloat { thumbnailSize.width + 2 * padding }
 
-    let titleLabel = NSTextField(wrappingLabelWithString: "")
+    let titleLabel = ChromeLabel(wrappingLabelWithString: "")
     /// Where the tab is (a page's host, a folder and branch), or a group's member titles.
-    let subtitleLabel = NSTextField(wrappingLabelWithString: "")
+    let subtitleLabel = ChromeLabel(wrappingLabelWithString: "")
     /// What the tab does and for how long, and the agent's model.
     let statusLabel = TabHoverCardView.caption()
     /// The program's own words on its status (OSC 7501, cx-6so.36.9): one line, in a quieter
@@ -105,8 +105,8 @@ final class TabHoverCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    private static func caption() -> NSTextField {
-        let field = NSTextField(labelWithString: "")
+    private static func caption() -> ChromeLabel {
+        let field = ChromeLabel(labelWithString: "")
         field.font = Typography.caption
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
@@ -171,7 +171,7 @@ final class TabHoverCardView: NSView {
     }
 
     /// A row shows only with text; a stack row that hides gives up its line.
-    private func set(_ label: NSTextField, _ text: String?) {
+    private func set(_ label: ChromeLabel, _ text: String?) {
         label.stringValue = text ?? ""
         label.isHidden = (text ?? "").isEmpty
         rowsTop?.constant = rows.arrangedSubviews.allSatisfy(\.isHidden) ? 0 : Metrics.space1
@@ -217,7 +217,7 @@ extension TabHoverCardView: HoverCardTextReporting {
     /// The card's shown lines, top to bottom (`debug.hover_cards`, tests).
     var reportedLines: [String] {
         [titleLabel.stringValue] + rows.arrangedSubviews.compactMap { view in
-            guard !view.isHidden, let field = view as? NSTextField, !field.stringValue.isEmpty else { return nil }
+            guard !view.isHidden, let field = view as? any ShownText, !field.stringValue.isEmpty else { return nil }
             return field.stringValue
         }
     }

@@ -12,6 +12,17 @@
 //! `/proc/self/exe` (no path in their argv, and a running binary cannot be
 //! written), so this module only returns that there.
 //!
+//! The slim host: when the daemon called [`use_sibling_host`] and a regular
+//! file `cmux-tui-host` sits beside its (canonical) executable, the copy is
+//! of that small binary instead, as `<sha256>/cmux-tui-host`: an idle host
+//! re-exec'd from the monolith mapped ~390 dylib images and cost ~3.7 MB.
+//! The sibling is never looked up on `PATH`. After it is copied and verified,
+//! the copy runs once with `--version` and must print `cmux-tui-host
+//! <identity>`, the daemon's own build identity; a missing sibling, a failed
+//! copy or another answer leaves this daemon on the copy of its own
+//! executable as before. Both binaries take the same arguments
+//! (`__terminal-host --bootstrap-stdio ...`).
+//!
 //! Safety of the copy: the root and each `<sha256>` directory are `0700` and
 //! owned by the user, or the copy is not used; the copy is written to a
 //! temporary file (an APFS `clonefile`, else a plain copy, never a hard
@@ -36,6 +47,26 @@ pub fn terminal_host_executable() -> io::Result<PathBuf> {
     imp::terminal_host_executable()
 }
 
+/// Make the executable for terminal hosts ready on a background thread, once
+/// per process: on macOS hash, copy and verify it, then run the copy once
+/// (`--version`), so its first exec has paid its code-signature check. A
+/// daemon calls it when it starts serving; without it the first terminal of
+/// the daemon paid both (the SHA-256 of the daemon's executable and of its
+/// copy, the clone, and the first exec of a new copy: 0.75-0.97 s on macOS,
+/// later terminals 55-110 ms; cx-b4sjc). A terminal that starts meanwhile
+/// waits only for what is left of the install. Elsewhere it does nothing.
+pub fn prepare_in_background() {
+    imp::prepare_in_background();
+}
+
+/// Let terminal hosts run from the slim `cmux-tui-host` beside this
+/// executable when that binary reports `identity` (macOS; elsewhere it does
+/// nothing). The cmux-tui daemon calls it once at start with its build
+/// identity, before any terminal starts.
+pub fn use_sibling_host(identity: &'static str) {
+    imp::use_sibling_host(identity);
+}
+
 /// Hold the shared in-use lock of the copy this process runs from, if it
 /// runs from one. A terminal host calls it once at start.
 pub fn hold_in_use_lock() {
@@ -44,7 +75,7 @@ pub fn hold_in_use_lock() {
 
 /// Spawn a terminal host from [`terminal_host_executable`]. Its command line
 /// is `cmux-tui __terminal-host ...` with no path, also when the daemon's own
-/// executable is used. A spawn that fails from the copy is retried once from
+/// executable or the slim host is used. A spawn that fails from the copy is retried once from
 /// the daemon's own executable, and the copy is not used again.
 pub fn spawn_host(
     configure: impl Fn(&mut std::process::Command),
@@ -77,6 +108,10 @@ mod imp {
     }
 
     pub(super) fn hold_in_use_lock() {}
+
+    pub(super) fn use_sibling_host(_identity: &'static str) {}
+
+    pub(super) fn prepare_in_background() {}
 
     pub(super) fn copy_failed(_path: &std::path::Path) {}
 }

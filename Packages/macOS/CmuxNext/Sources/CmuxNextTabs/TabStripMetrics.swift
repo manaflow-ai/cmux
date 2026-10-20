@@ -1,5 +1,5 @@
 public import CoreGraphics
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Every size the strip uses, derived from the CmuxNextDesign density tokens
 /// (`Metrics`, 2 pt grid). Plain data so layout math is testable with fixed
@@ -9,10 +9,15 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var maxTabWidth: CGFloat
     /// Narrowest an inactive tab gets before the strip starts to scroll.
     public var minInactiveTabWidth: CGFloat
-    /// The selected tab never gets narrower than this, so it keeps room for
-    /// its icon and close button while the others shrink to icons.
+    /// The selected tab never gets narrower than this (nor than the inactive
+    /// minimum), so it keeps room for its icon, title and close button.
     public var minActiveTabWidth: CGFloat
+    /// `tabs.overflow`: with `.scroll` both minimums are `scrollTabMinWidth`.
+    public var overflow: TabOverflow
     public var pinnedTabWidth: CGFloat
+    /// Chrome's strip geometry (design-tokens.json `motion.tabStrip`, at the UI scale): open and
+    /// close widths, the minimum widths above, the reorder threshold, closing mode.
+    public var chrome: MotionTabStrip
     /// Width of every unpinned tab in `.compact` style.
     public var compactTabWidth: CGFloat
     /// Extra space between the last pinned tab and the first unpinned tab.
@@ -100,8 +105,10 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Reads the design tokens for the current density.
     public init() {
         maxTabWidth = Metrics.tabMaxWidth
-        minInactiveTabWidth = Metrics.tabMinWidth
-        pinnedTabWidth = Metrics.tabMinWidth
+        chrome = MotionTabStrip(comfortable: Metrics.density == .comfortable).scaled(by: Metrics.scale(1))
+        // Chrome crowding: every tab shrinks evenly to the active minimum, then the inactive ones to theirs.
+        // The minimums and the pinned width are settings (defaults: the shared tokens); min <= max.
+        pinnedTabWidth = Metrics.tabPinnedWidth
         compactTabWidth = TabTunables.compactTabWidth.value
         pinnedGroupGap = TabTunables.pinnedGroupGap.value
         contentLeadingInset = Metrics.tabContentLeadingInset
@@ -113,14 +120,27 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value
         badgeSize = TabTunables.badgeSize.value
-        minActiveTabWidth = contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
+        // Never narrower than the active tab's icon and close button need (comfortable density), never
+        // wider than the max; the inactive minimum never passes the active one.
+        let activeFloor = contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
+        overflow = DesignSettings.shared.tabOverflow
+        switch overflow {
+        case .shrink:
+            // A larger inactive minimum (a user's) raises the active one, never the other way round.
+            minInactiveTabWidth = min(Metrics.tabMinInactiveWidth, maxTabWidth)
+            minActiveTabWidth = min(max(Metrics.tabMinActiveWidth, activeFloor, minInactiveTabWidth), maxTabWidth)
+        case .scroll:
+            // Scrolling tabs: every unpinned tab stays this wide, then the strip scrolls.
+            minActiveTabWidth = min(max(TabTunables.scrollTabMinWidth.value, activeFloor), maxTabWidth)
+            minInactiveTabWidth = minActiveTabWidth
+        }
         closeMinContentsWidth = TabTunables.closeMinContentsWidth.value
         titleMinVisibleWidth = TabTunables.titleMinVisibleWidth.value
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
         // The strip's edges are the content border's edges (the chrome line).
         stripHorizontalPadding = PaneChromeMetrics.pillLeading
-        stripTopOutset = Metrics.panePadding
+        stripTopOutset = Metrics.stripTopOutset
         newTabButtonWidth = Metrics.controlHeight
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset

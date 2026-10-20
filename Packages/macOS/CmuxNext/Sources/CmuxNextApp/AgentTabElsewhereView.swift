@@ -6,7 +6,7 @@ import CmuxNextIcons
 /// another Mac's acpmux, and only that Mac attaches to it ("This chat runs on <machine>").
 final class AgentTabElsewhereView: NSView {
     private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
 
     /// The glyph drawn (tests).
     var glyph: NSImage? { icon.image }

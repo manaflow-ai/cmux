@@ -18,7 +18,8 @@ const built = fs.existsSync(page);
 if (!built && process.env.CI) throw new Error(`agent-pane-no-capsules: ${page} is not built`);
 if (!built) console.warn("agent-pane-no-capsules: skipping (run scripts/cmux-next/build-agent-pane-web.sh)");
 
-/** Capsules by nature: a toggle's track, a slider's track and fill, a progress bar, drawn lines. */
+/** Capsules by nature: a toggle's track, a slider's track and fill, a progress bar, and drawn lines.
+ * The composer's model, effort and access chips are small-radius rects again (Leo 2026-10-19). */
 const SHAPES = new Set([
   ".acpmux-switch",
   ".acpmux-effort-track",
