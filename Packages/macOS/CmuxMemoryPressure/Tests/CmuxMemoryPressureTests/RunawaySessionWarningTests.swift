@@ -104,6 +104,7 @@ struct RunawaySessionWarningTests {
         #expect(labeler.label(arguments: ["node", "/app/node_modules/.bin/next", "dev"], processName: "node") == "next dev")
         #expect(labeler.label(arguments: ["/usr/local/bin/node", "--inspect", "server.js"], processName: "node") == "server.js")
         #expect(labeler.label(arguments: ["/usr/bin/make", "-j8"], processName: "make") == "make -j8")
+        #expect(labeler.label(arguments: ["/usr/bin/python3.12", "-u", "train.py"], processName: "python3.12") == "train.py")
         #expect(labeler.label(arguments: [], processName: "node") == "node")
         let long = labeler.label(arguments: ["tool"] + Array(repeating: "argument", count: 20), processName: "tool")
         #expect(long.count == 60)

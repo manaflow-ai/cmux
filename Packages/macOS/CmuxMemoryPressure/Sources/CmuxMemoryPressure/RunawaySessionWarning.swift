@@ -177,13 +177,20 @@ public struct RunawaySessionCommandLabeler: Sendable {
         var words = arguments.filter { !$0.isEmpty }
         guard let first = words.first else { return processName }
         words[0] = basename(first)
-        if interpreters.contains(words[0]),
+        if isInterpreter(words[0]),
            let scriptIndex = words.indices.dropFirst().first(where: { !words[$0].hasPrefix("-") }) {
             words = [basename(words[scriptIndex])] + words[(scriptIndex + 1)...]
         }
         let label = words.joined(separator: " ")
         guard label.count > maximumLength else { return label }
         return String(label.prefix(maximumLength - 1)) + "…"
+    }
+
+    /// Versioned names such as `python3.12` count as their interpreter.
+    private func isInterpreter(_ name: String) -> Bool {
+        interpreters.contains(name) || interpreters.contains {
+            name.hasPrefix($0) && name.dropFirst($0.count).allSatisfy { $0.isNumber || $0 == "." }
+        }
     }
 
     private func basename(_ path: String) -> String {

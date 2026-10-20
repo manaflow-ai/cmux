@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 
 extension AppDelegate {
@@ -6,7 +7,8 @@ extension AppDelegate {
     /// process-tree accounting timer; global pressure is handled through
     /// responder registration. Aggregate pressure is intentionally isolated to
     /// its idle-agent-hibernation responder. Resource diagnostics never enter
-    /// the user notification pipeline.
+    /// the user notification pipeline; the one exception is the runaway
+    /// terminal warning, which posts without hooks or notification commands.
     func startPaneMemoryGuardrailIfNeeded() {
         let guardrail = PaneMemoryGuardrail.shared
         guardrail.paneProvider = { [weak self] in
@@ -78,8 +80,10 @@ extension AppDelegate {
         }
         monitor.onSampleApplied = { sampledAt in
             browserMemoryBudget.enforceBudget(now: sampledAt)
+            // A system pressure event measures right away, between ticks.
             runawayWarnings.evaluate()
         }
+        runawayWarnings.start()
         monitor.start()
     }
 
@@ -103,7 +107,11 @@ extension AppDelegate {
                 warning.detailText
             ),
             cooldownKey: "runaway-pane-tree.\(warning.panelId.uuidString)",
-            cooldownInterval: 300
+            cooldownInterval: 300,
+            // Hooks and notification commands spawn processes, which can fail
+            // or add load while the process table or memory is exhausted.
+            resolvedHooks: [],
+            effects: TerminalNotificationPolicyEffectsPatch(command: false)
         )
     }
 

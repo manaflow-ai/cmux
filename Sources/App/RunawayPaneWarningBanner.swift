@@ -1,28 +1,18 @@
 import CmuxFoundation
 import SwiftUI
 
-/// Top-of-content banner naming the terminal whose process tree is running
-/// away (tab, workspace, command, process count, memory), with an action to
-/// stop that tree. Mounted once per window over the workspace content and
-/// shows only warnings for workspaces that window owns.
+/// Banner naming the terminal whose process tree is running away (tab,
+/// workspace, command, process count, memory), with an action to stop that
+/// tree. Hosted natively above the terminal portals by
+/// `RunawayPaneWarningOverlay`; takes a value snapshot and closures only.
 struct RunawayPaneWarningBanner: View {
-    let center: RunawayPaneWarningCenter
-    let tabManager: TabManager
-    @State private var confirmingWarning: RunawayPaneWarning?
+    let warning: RunawayPaneWarning
+    let onStop: (RunawayPaneWarning) -> Void
+    let onDismiss: (RunawayPaneWarning) -> Void
+    @State private var isConfirming = false
 
     var body: some View {
-        let warning = center.warnings.first { warning in
-            tabManager.tabs.contains { $0.id == warning.workspaceId }
-        }
-        Group {
-            if let warning {
-                card(for: warning)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: warning?.key)
+        card(for: warning)
     }
 
     private func card(for warning: RunawayPaneWarning) -> some View {
@@ -48,49 +38,58 @@ struct RunawayPaneWarningBanner: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if !warning.canStop {
+                    Text(String(
+                        localized: "runawayPaneWarning.cannotStop",
+                        defaultValue: "cmux can't stop this tree from here because it runs in the terminal's shell. Stop it in the terminal."
+                    ))
+                    .cmuxFont(size: 11.5)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Spacer(minLength: 8)
 
             HStack(spacing: 8) {
-                Button(role: .destructive) {
-                    confirmingWarning = warning
-                } label: {
-                    Text(String(localized: "runawayPaneWarning.stop", defaultValue: "Stop Process Tree"))
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .confirmationDialog(
-                    String(
-                        localized: "runawayPaneWarning.confirm.title",
-                        defaultValue: "Stop this terminal's process tree?"
-                    ),
-                    isPresented: Binding(
-                        get: { confirmingWarning?.key == warning.key },
-                        set: { if !$0 { confirmingWarning = nil } }
-                    ),
-                    titleVisibility: .visible
-                ) {
+                if warning.canStop {
                     Button(role: .destructive) {
-                        confirmingWarning = nil
-                        center.stopProcessTree(warning)
+                        isConfirming = true
                     } label: {
-                        Text(String(localized: "runawayPaneWarning.confirm.stop", defaultValue: "Stop"))
+                        Text(String(localized: "runawayPaneWarning.stop", defaultValue: "Stop Process Tree"))
                     }
-                    Button(role: .cancel) {
-                        confirmingWarning = nil
-                    } label: {
-                        Text(String(localized: "runawayPaneWarning.confirm.cancel", defaultValue: "Cancel"))
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .confirmationDialog(
+                        String(
+                            localized: "runawayPaneWarning.confirm.title",
+                            defaultValue: "Stop this terminal's process tree?"
+                        ),
+                        isPresented: $isConfirming,
+                        titleVisibility: .visible
+                    ) {
+                        Button(role: .destructive) {
+                            isConfirming = false
+                            onStop(warning)
+                        } label: {
+                            Text(String(localized: "runawayPaneWarning.confirm.stop", defaultValue: "Stop"))
+                        }
+                        Button(role: .cancel) {
+                            isConfirming = false
+                        } label: {
+                            Text(String(localized: "runawayPaneWarning.confirm.cancel", defaultValue: "Cancel"))
+                        }
+                    } message: {
+                        Text(String(
+                            localized: "runawayPaneWarning.confirm.message",
+                            defaultValue: "cmux sends SIGTERM, then SIGKILL, to every job running in this terminal, including nested shells and suspended jobs. The terminal's own shell stays open."
+                        ))
                     }
-                } message: {
-                    Text(String(
-                        localized: "runawayPaneWarning.confirm.message",
-                        defaultValue: "cmux sends SIGTERM, then SIGKILL, to every job running in this terminal. The shell stays open."
-                    ))
                 }
 
                 Button {
-                    center.dismiss(warning)
+                    onDismiss(warning)
                 } label: {
                     Image(systemName: "xmark")
                         .cmuxFont(size: 11, weight: .semibold)
@@ -114,7 +113,6 @@ struct RunawayPaneWarningBanner: View {
                 )
         )
         .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
-        .frame(maxWidth: 600)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RunawayPaneWarningBanner")
     }
