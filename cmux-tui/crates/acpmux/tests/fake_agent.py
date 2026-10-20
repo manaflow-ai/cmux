@@ -717,6 +717,9 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
+        if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
+            continue
         if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
             sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")
             sys.stderr.flush()
@@ -848,6 +851,10 @@ def main():
             # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
             if os.environ.get("FAKE_ASK_MODE") == "1":
                 result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}
+            # FAKE_NEW_MODE=<id>: a new chat starts in that mode, as a harness whose own settings
+            # choose it (not its argv).
+            if os.environ.get("FAKE_NEW_MODE") and "modes" in result:
+                result["modes"]["currentModeId"] = os.environ["FAKE_NEW_MODE"]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
             # FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts,
             # before any prompt.
@@ -880,6 +887,18 @@ def main():
                 threading.Thread(target=finish_load, daemon=True).start()
                 continue
             update(params["sessionId"], {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "replayed"}})
+            # FAKE_LOAD_MODE=<id>: the load restores the chat's own mode, as an adapter that keeps
+            # it with the conversation does (with FAKE_FULL_ACCESS=1, a full-access one too).
+            load_mode = os.environ.get("FAKE_LOAD_MODE")
+            if load_mode:
+                offered = [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]
+                if os.environ.get("FAKE_FULL_ACCESS") == "1":
+                    offered.append({"id": "full-access", "name": "Full access"})
+                # FAKE_LOAD_ONLY_MODE=1: the loaded chat offers only that mode, nothing lower.
+                if os.environ.get("FAKE_LOAD_ONLY_MODE") == "1":
+                    offered = [m for m in offered if m["id"] == load_mode]
+                send({"jsonrpc": "2.0", "id": rid, "result": {"modes": {"currentModeId": load_mode, "availableModes": offered}}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": None})
         elif m == "session/fork":
             sessions += 1

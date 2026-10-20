@@ -134,6 +134,7 @@
       "packages": [],
       "reads": [
         "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
+        "cmux-tui/spec/",
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
     },
@@ -185,15 +186,12 @@
         "CmuxNextDiff",
         "CmuxNextErrorJournal",
         "CmuxNextFeed",
-        "CmuxNextFiles",
-        "CmuxNextFilesUI",
         "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
-        "CmuxNextHostedChief",
         "CmuxNextIcons",
         "CmuxNextKeepAwake",
         "CmuxNextLayout",
@@ -213,7 +211,6 @@
         "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
         "CmuxNextResources",
-        "CmuxNextScreenshots",
         "CmuxNextServer",
         "CmuxNextServerHelper",
         "CmuxNextSettings",
@@ -225,7 +222,6 @@
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
         "CmuxNextUpdater",
-        "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
         "CmuxNextWorkspaceNaming",
         "CmuxNextWorkspaceRepair"
@@ -269,8 +265,6 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDiff",
-        "CmuxNextFeed",
-        "CmuxNextFileGrid",
         "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -282,13 +276,10 @@
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteLocalhostService",
-        "CmuxNextScreenshots",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
-        "CmuxNextVSCodeServer",
-        "CmuxNextWakeups",
-        "CmuxNextWorkspaceNaming"
+        "CmuxNextWakeups"
       ],
       "packages": [
         "CmuxAgentQuestion",
@@ -300,7 +291,6 @@
       "reads": [
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
-        "Resources/markdown-viewer/ondine.min.js",
         "plans/cmux-next/",
         "schemas/keybindings/keybinding-vectors.json",
         "scripts/cmux-next/bundle-ghostty-resources.sh",
@@ -661,37 +651,6 @@
       ],
       "packages": []
     },
-    "CmuxNextFileGrid": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid",
-      "targets": [],
-      "packages": []
-    },
-    "CmuxNextFiles": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFiles",
-      "targets": [],
-      "packages": []
-    },
-    "CmuxNextFilesTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFilesTests",
-      "targets": [
-        "CmuxNextFiles"
-      ],
-      "packages": [],
-      "reads": []
-    },
-    "CmuxNextFilesUI": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI",
-      "targets": [
-        "CmuxNextCompat",
-        "CmuxNextDesign",
-        "CmuxNextFiles"
-      ],
-      "packages": []
-    },
     "CmuxNextFloating": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFloating",
@@ -772,16 +731,6 @@
         "CmuxAgentQuestion",
         "CmuxHomeCore"
       ]
-    },
-    "CmuxNextHostedChief": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief",
-      "targets": [
-        "CmuxNextCompat",
-        "CmuxNextDaemon",
-        "CmuxNextHomeEngine"
-      ],
-      "packages": []
     },
     "CmuxNextIcons": {
       "kind": "regular",
@@ -1061,24 +1010,6 @@
       ],
       "packages": []
     },
-    "CmuxNextScreenshots": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
-      "targets": [
-        "CmuxNextFileGrid"
-      ],
-      "packages": []
-    },
-    "CmuxNextScreenshotsTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests",
-      "targets": [
-        "CmuxNextFileGrid",
-        "CmuxNextScreenshots"
-      ],
-      "packages": [],
-      "reads": []
-    },
     "CmuxNextServer": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextServer",
@@ -1227,21 +1158,6 @@
       "packages": [
         "CmuxUpdater"
       ]
-    },
-    "CmuxNextVSCodeServer": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextVSCodeServer",
-      "targets": [],
-      "packages": []
-    },
-    "CmuxNextVSCodeServerTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextVSCodeServerTests",
-      "targets": [
-        "CmuxNextVSCodeServer"
-      ],
-      "packages": [],
-      "reads": []
     },
     "CmuxNextWakeups": {
       "kind": "regular",

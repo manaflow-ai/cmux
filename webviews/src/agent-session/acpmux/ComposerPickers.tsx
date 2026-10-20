@@ -1140,9 +1140,14 @@ export function ContextRing({
   );
 }
 
-/// Modes that skip approvals (such as "Full access") draw in the theme's warning color.
+// The markers of cmux-tui/spec/full-access-modes.json, the rule acpmux and the app enforce.
+const FULL_ACCESS_MARKERS = ["bypass", "fullaccess", "yolo", "dangerous", "autoapprove", "skippermissions"];
+
+/// Modes that skip approvals (such as "Full access") draw in the theme's warning color: lowercased,
+/// without `-`, `_` or spaces, the id contains a full-access marker.
 export function unrestricted(modeId: string): boolean {
-  return /bypass|full|yolo|dangerous|auto[-_ ]?approve/i.test(modeId);
+  const folded = modeId.toLowerCase().replace(/[-_ ]/g, "");
+  return FULL_ACCESS_MARKERS.some((marker) => folded.includes(marker));
 }
 
 /// A pick that returns "keep" leaves the menu open (e.g. a row that expands the menu).
