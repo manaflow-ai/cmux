@@ -2265,6 +2265,13 @@
               "enabled": "选择远程 tmux 工作区后，“新建工作区”会在该工作区的主机上启动 tmux 会话。"
             }
           }
+        },
+        "chief": {
+          "description": "Chief（主页代理）：是否显示，以及使用的运行框架、模型和推理强度。",
+          "enabled": "显示主页行和 Chief 入口。设为 false 时，将隐藏主页行、打开 Chief 快捷键、菜单项和命令面板条目。",
+          "harness": "Chief 使用的代理运行框架：claude（Claude Code）或 codex（Codex）。",
+          "model": "传递给运行框架的模型。留空则使用运行框架的默认值。",
+          "effort": "传递给运行框架的推理强度，例如 low、medium 或 high。留空则使用运行框架的默认值。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

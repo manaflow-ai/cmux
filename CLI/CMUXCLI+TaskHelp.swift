@@ -208,6 +208,14 @@ extension CMUXCLI {
         \(String(localized: "cli.help.agents.messages", defaultValue: "agent messages [on|off|status] [<target>] [--workspace]"))
         agent-hibernation <on|off>
         agent-hibernation <hibernate|wake> <surface>
+        chief open
+        chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>|--worktree <repo> [--branch <name>]] [--agent-arg <arg>] [--focus|--no-focus] [--wait-working [--timeout <s>]] [--json] (-- <task>|--prompt-file <path|->)
+        chief send [--conversation <id>] [--from <name>] [--no-reply] <text|->
+        chief status|conversations [--json]
+        chief read [--conversation <id>] [--limit <n>] [--json]
+        chief stop [--conversation <id>]
+        chief home
+        chief memory <add <text|->|list|forget <id>|path> [--json]
         claude-teams [claude-args...]
         codex-teams [codex-args...]
         omo [opencode-args...]
@@ -236,8 +244,8 @@ extension CMUXCLI {
         move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
         new-split <left|right|up|down> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>] [--command <text>] [--focus <true|false>]
         focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-        new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--command <text>] [--focus <true|false>]
-        new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--command <text>] [--focus <true|false>]
+        new-pane [--type <terminal|browser|simulator|chief>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--command <text>] [--focus <true|false>]
+        new-surface [--type <terminal|browser|simulator|agent-session|chief>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--command <text>] [--focus <true|false>]
         close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
         move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
         split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
