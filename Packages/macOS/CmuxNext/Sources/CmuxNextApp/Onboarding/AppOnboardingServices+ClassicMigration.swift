@@ -60,9 +60,8 @@ extension AppOnboardingServices {
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
         guard classicMigrationRunsAtLaunch else { return }
         do {
-            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace) { plan in
-                await ClassicImportConfirmation(plan: plan, services: services).ask()
-            }
+            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
+                                                   confirmation: confirmClassicImport)
             guard !outcome.opened.isEmpty, let notice = owner.classicImportNotice else { return }
             ClassicImportStrings.toast(notice, in: services.windows.active?.window)
         } catch {
@@ -80,6 +79,12 @@ extension AppOnboardingServices {
         }
         owner.classicMigrationRun = run
         return try await run.value
+    }
+
+    /// The one confirmation path for launch and manual migration.
+    func confirmClassicImport(_ plan: ClassicImportPlan) async -> Bool {
+        if let confirmation = owner.classicMigrationConfirmation { return await confirmation(plan) }
+        return await ClassicImportConfirmation(plan: plan, services: services).ask()
     }
 
     private func runClassicMigration(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String?,

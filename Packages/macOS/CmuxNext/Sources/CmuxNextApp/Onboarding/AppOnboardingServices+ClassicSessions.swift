@@ -40,9 +40,7 @@ extension AppOnboardingServices {
     /// already open here (the migration ledger knows which ones came over),
     /// with its window, group, color and pin. See ``migrateClassic(_:firstWorkspace:confirmation:)``.
     func importClassicSessions() async throws -> ClassicImportSummary? {
-        let outcome = try await migrateClassic(.manual) { plan in
-            await ClassicImportConfirmation(plan: plan, services: services).ask()
-        }
+        let outcome = try await migrateClassic(.manual, confirmation: confirmClassicImport)
         return outcome.confirmed ? outcome.summary : nil
     }
 
