@@ -89,11 +89,7 @@ impl Brain {
         }
         // A reply to a group message goes into that message's thread
         // (`reply_threads`): the run shows there while it works.
-        if let Some((root, _)) = turn
-            .answers
-            .first()
-            .and_then(|id| self.reply_threads.get(id))
-        {
+        if let Some((root, _)) = self.reply_thread(&conversation, &turn.answers) {
             run.insert("thread_root".into(), serde_json::json!(root));
         }
         let Some(daemon) = self.daemon.as_mut() else {

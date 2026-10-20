@@ -15,6 +15,7 @@ import {
   ArrowUpIcon,
   AtIcon,
   BuildIcon,
+  ContextRing,
   PaperclipIcon,
   Picker,
   PlusIcon,
@@ -26,6 +27,7 @@ import {
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
+import { ComposerFoot } from "./ComposerFoot";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -187,6 +189,8 @@ type Props = {
   onConnect?(kind: "ssh" | "cloud"): void;
   /// This Mac's name for the location row.
   localName?: string;
+  /// Preview features on: the location row's computer is the environment picker (ComposerContext).
+  environments?: boolean;
   /// A started chat's folder menu: a new chat in `cwd`, in a tab of its own.
   onNewChat?(cwd: string): void;
   /// Shell mode (`!` first): runs `command` on the chat's machine in its folder, its block in the
@@ -244,6 +248,7 @@ export function Composer({
   onBrowseFolder,
   onConnect,
   localName,
+  environments,
   onNewChat,
   onShell,
   onShellInterrupt,
@@ -333,11 +338,12 @@ export function Composer({
   const sendButton = useRef<HTMLButtonElement>(null);
   // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
-  useRowFit(bar);
   // The session's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx).
   const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css).
-  const { plainFooter } = useComposerSettings();
+  const { plainFooter, showContextUsage } = useComposerSettings();
+  useRowFit(bar, plainFooter);
+  const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -1033,6 +1039,8 @@ export function Composer({
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}
+      {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
+      environments={environments}
       onProject={
         onProject &&
         ((cwd, peer) => {
@@ -1197,7 +1205,14 @@ export function Composer({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
-          <div ref={bar} className="acpmux-composer-bar" data-footer-look={plainFooter ? "plain" : undefined}>
+          {/* Claude Code's split (Leo 2026-10-19), the plain footer's default: the box keeps +, the
+              prompt, the mic and Send or Stop; the mode, model and effort sit in a quiet row under
+              it (ComposerFoot below). The other look keeps them all in this row. */}
+          <div
+            ref={plainFooter ? undefined : bar}
+            className={plainFooter ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
+            data-footer-look={plainFooter ? "plain" : undefined}
+          >
             <input
               ref={chooser}
               className="acpmux-attach-input"
@@ -1217,6 +1232,7 @@ export function Composer({
             ) : (
               <Picker
                 label={t(COMPOSER_LABELS.add)}
+                tooltip={t(COMPOSER_LABELS.add)}
                 className="acpmux-composer-plus"
                 button={<PlusIcon />}
                 align="start"
@@ -1288,9 +1304,11 @@ export function Composer({
             {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
                 compact row): grants live in the permission mode's Access menu, one lock. */}
             {/* The chips hand up the speed option the bolt before the mic draws (FastToggle.tsx). */}
-            <SpeedToggleHost.Provider value={setSpeed}>
-              <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
-            </SpeedToggleHost.Provider>
+            {!plainFooter && (
+              <SpeedToggleHost.Provider value={setSpeed}>
+                <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+              </SpeedToggleHost.Provider>
+            )}
             <span className="acpmux-composer-actions">
               {/* Steer comes in at the cluster's leading edge, so the mic and Send keep their places
                   when typing during a turn turns Stop into Steer and Send (hq#1957). */}
@@ -1310,8 +1328,8 @@ export function Composer({
                   {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
                 </button>
               )}
-              {speed && <FastToggle speed={speed} />}
-              {/* The mic leaves a narrow row (composerRowFit.ts micHidden). */}
+              {!plainFooter && speed && <FastToggle speed={speed} />}
+              {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
                 <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
                   {accessory}
@@ -1352,6 +1370,21 @@ export function Composer({
           </div>
         </ChromeArea>
       </div>
+      {plainFooter && (
+        <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
+          <ComposerFoot ref={bar}>
+            <SpeedToggleHost.Provider value={setSpeed}>
+              <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+            </SpeedToggleHost.Provider>
+            {speed && <FastToggle speed={speed} />}
+            {/* Claude Code ends the row on the context ring. It keeps its place before the chat
+                reports usage (inert, ContextRing), so the first report moves nothing in the row
+                (hq#1957: the composer holds still while a turn runs); the context-usage setting
+                hides it (showContextUsage). */}
+            {showContextUsage && <ContextRing used={usage?.used} size={usage?.size} working={snapshot.isWorking} />}
+          </ComposerFoot>
+        </ChromeArea>
+      )}
     </form>
   );
 }

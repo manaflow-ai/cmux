@@ -474,6 +474,11 @@ Object.assign(variants, {
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
+  "search-results-theme": variant("general", {
+    allThemes: true,
+    steps: [input("[data-settings-search]", "theme")],
+    note: "Theme rows in search results use the Theme section's picker and accent popup.",
+  }),
   "search-empty": variant("general", { steps: [input("[data-settings-search]", "no-such-setting")] }),
   "reset-confirmation": variant("advanced", { steps: [click("[data-reset-all]"), wait("[data-confirm-reset-all]")] }),
   "theme-picker": variant("theme", {
@@ -510,6 +515,30 @@ Object.assign(variants, {
     allThemes: true,
     options: { values: { "appearance.theme": "Gruvbox Dark", "appearance.appTheme": "Rose Pine" } },
     note: "An app theme apart from the terminal theme (appearance.appTheme).",
+  }),
+  "theme-app-light-dark": variant("theme", {
+    allThemes: true,
+    options: {
+      values: {
+        "appearance.theme": "light:Catppuccin Latte,dark:Catppuccin Mocha",
+        "appearance.appTheme": "light:Rose Pine Dawn,dark:Rose Pine",
+        "appearance.accent": "magenta",
+      },
+    },
+    note: "One Theme card: the terminal and the app theme each with Match System Appearance, then the accent.",
+  }),
+  "theme-long-name": variant("theme", {
+    allThemes: true,
+    options: {
+      values: { "appearance.theme": "Builtin Pastel Dark Solarized Tango Long Name", "appearance.accent": "blue" },
+    },
+    note: "A long theme name ellipsizes; every popup keeps its one width.",
+  }),
+  "theme-accent": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula", "appearance.accent": "theme" } },
+    steps: [click("[data-accent-picker]"), wait("[data-accent-option]")],
+    note: "The accent swatch popup: each choice's color on the app theme, the check on the right.",
   }),
   "theme-managed": variant("theme", {
     allThemes: true,
@@ -663,6 +692,15 @@ Object.assign(variants, {
     steps: [wait("[data-agent-harness]")],
     note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
   }),
+  // Settings > Agents > Chiefs (u2586): every Chief; a row opens the same editor as Home.
+  "agents-chiefs": variant("agents", {
+    steps: [wait('[data-card="chiefs"] [data-chief]')],
+    note: "Chiefs: picture, name, role, backend and a Locked badge; New Chief opens the editor.",
+  }),
+  "agents-chief-editor": variant("agents", {
+    steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
+    note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],
@@ -807,9 +845,11 @@ export default settingsPageEntry({
   widths: { narrow: 480, normal: 1000, wide: 1440 },
   covers: [
     "page:cmux.settings",
+    "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
@@ -839,6 +879,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
+    "pages/settings/editors/AccentRowEditor.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",
     "pages/settings/editors/DomainListEditor.tsx",
@@ -849,6 +890,7 @@ export default settingsPageEntry({
     "pages/settings/editors/NumberEditor.tsx",
     "pages/settings/editors/NumberField.tsx",
     "pages/settings/editors/SearchTemplateEditor.tsx",
+    "pages/settings/editors/ThemeRowEditor.tsx",
     "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",

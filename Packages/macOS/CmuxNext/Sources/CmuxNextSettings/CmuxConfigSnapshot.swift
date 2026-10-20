@@ -45,7 +45,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeKeepLocation = false, homeChannelsEnabled = false, homeChiefPetEnabled = false, homeChiefPetMascot = HomeChiefPetSetting.defaultMascot
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault, classicHome = CmuxConfigSnapshot.classicHomeDefault
-    /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
+    /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
     public var browserLinkClicks: BrowserLinkClickSetting = .fallback
@@ -94,6 +94,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
     public var newPanePlacement: NewPanePlacement = CmuxConfigSnapshot.newPanePlacementFallback
     public var tileBrowsers: Bool = CmuxConfigSnapshot.tileBrowsersFallback
+    /// `layout.linkPlacement`: where an opened link or path lands (``LinkPlacement``).
+    public var linkPlacement: LinkPlacement = .fallback
     /// `workspaces.newPlacement` (`WorkspaceListSettings`).
     public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementFallback
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
@@ -165,6 +167,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tasksLayout: TasksLayoutPreference = TasksLayoutSetting().fallback
     /// `picker.pinned`: the cmux picker's pinned folders (absolute paths).
     public var pickerPinned: [String] = []
+    /// `screenshots.*`: the Screenshots pane's app search and extra folders.
+    public var screenshots = ScreenshotsSettings()
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -199,6 +203,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sessions = SessionSettings()
     /// `agents.subsessions.*`: sub-session limits; the acpmux daemon enforces them.
     public var subsessions = SubsessionSettings()
+    /// `mobile.*`: whether the app runs its iPhone host.
+    public var mobile = MobileSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -328,6 +334,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (pinned, pinnedDiagnostics) = PickerPinnedSetting.parse(root, home: NSHomeDirectory())
         snapshot.pickerPinned = pinned
         snapshot.diagnostics += pinnedDiagnostics
+        snapshot.screenshots = ScreenshotsSettings.parse(root, home: NSHomeDirectory(), diagnostics: &snapshot.diagnostics)
         let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
@@ -341,6 +348,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)
         snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
         snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)

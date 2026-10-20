@@ -33,7 +33,7 @@ public final class AgentPaneView: NSView {
     /// The newest device chats for the New Tab cards.
     public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
     /// The newest recently closed items for the New Tab page's Recently Closed section.
-    public var recentlyClosed: [AgentPaneClosedItem] = [] { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
+    public var recentlyClosed: AgentPaneClosedList = .empty { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
@@ -91,6 +91,8 @@ public final class AgentPaneView: NSView {
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     static let processPool = WKProcessPool()
+    /// The web content process groups of the agent pages in ``processPool`` (8 pages per process).
+    static let processGroups = WebProcessGroups()
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -150,7 +152,9 @@ public final class AgentPaneView: NSView {
             // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
             ConsoleErrorCapture(page: "agent-pane").install(in: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
-            webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
+            // Pages share web content processes, 8 per process (WebProcessGroups): a process per
+            // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
+            webView = Self.processGroups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
             #if DEBUG
             // Automation launches (capture slots) keep a covered window's page drawing, as
             // PageWebView does: WebKit hid the covered New Tab page, so it never drew (cx-zjtn.6).
@@ -183,10 +187,8 @@ public final class AgentPaneView: NSView {
         if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
             webView.setValue(false, forKey: "drawsBackground")
         }
-        #if DEBUG
-        // Web Inspector and profiling for the pane (debug.agent_pane).
+        // Web Inspector and profiling for the pane in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
-        #endif
         model.onSaveFile = { [weak self] save in try await self?.savePanel.save(save, window: self?.window) ?? false }
         model.onChooseFiles = { [weak self] in await AgentPaneFilePicker.pick(window: self?.window) }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }

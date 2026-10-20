@@ -1994,14 +1994,6 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let r = model.range(top, top + 1)
         return min(model.count - 1, r.first { model.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) > top } ?? r.lowerBound) // checked
     }
-    /// True when an outgoing row (the model's outgoing flag) shows a link card for
-    /// `url` in a visible cell: the LinkPresentation fallback runs only then.
-    func outgoingLinkOnScreen(_ url: String) -> Bool {
-        for case let cell as RowCell in collection.visibleCells {
-            if case let .part(pr)? = cell.spec?.kind, pr.outgoing, case let .link(u, _, _, _, _) = pr.part, u == url { return true }
-        }
-        return false
-    }
     /// Outgoing link cards on screen with no title yet (a pending or domain card, no image).
     func visibleUntitledOutgoingLinks() -> [String] {
         var out: [String] = []

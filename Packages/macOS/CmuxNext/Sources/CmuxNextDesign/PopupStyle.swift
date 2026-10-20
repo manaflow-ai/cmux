@@ -99,6 +99,15 @@ public final class PopupHostView: NSView {
     public var travelMargin: CGFloat = 0 {
         didSet { if travelMargin != oldValue { placeCard() } }
     }
+    /// The card's corner radius, which the shadow follows: the popup radius, or a popup that
+    /// copies another app's radius (the Extensions bubble, Chrome's 12).
+    public var cornerRadius: CGFloat = PopupStyle.standard.cornerRadius {
+        didSet {
+            guard cornerRadius != oldValue else { return }
+            if let surface = card as? OverlaySurfaceView { surface.cornerRadius = cornerRadius }
+            placeCard()
+        }
+    }
 
     /// `card` sizes by its frame (the host lays it out). An
     /// `OverlaySurfaceView` card takes the popup radius.
@@ -141,7 +150,7 @@ public final class PopupHostView: NSView {
         card.frame = frame
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let radius = PopupStyle.standard.cornerRadius
+        let radius = cornerRadius
         let shape = CGPath(roundedRect: frame, cornerWidth: radius, cornerHeight: radius, transform: nil)
         shadowLayer.frame = bounds
         shadowLayer.shadowPath = shape

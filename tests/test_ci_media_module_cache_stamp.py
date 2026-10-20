@@ -23,6 +23,11 @@ retry cleared and failed again (7 in a row on cmux-ci-media-feat-cmux-next-base)
 checkouts in SourcePackages stay) and stamps the dir right away: what is left
 was built from no other pin, whether the build then succeeds or not.
 
+Each tour now builds in the slot it claims on the Mac (scripts/ci/
+media_tag_lock.py claim, DerivedData/cmux-ci-media-slot<N>-{base,head}), reused
+by whichever pull request tours next, so each slot dir has its own stamp and a
+pin change clears each slot's modules on that slot's own next build.
+
 This checks the script on a fake source tree and DerivedData, then runs the
 workflow's build step with a stand-in reload.sh that fails like Xcode did
 when a module precompiled from an older pin is still there, or when its build
@@ -39,8 +44,10 @@ import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "scripts", "ci", "media_module_cache_stamp.py")
+BUILD_SCRIPT = os.path.join(ROOT, "scripts", "ci", "media_build_app.sh")
+CACHE_SCRIPT = os.path.join(ROOT, "scripts", "ci", "media_app_cache.py")
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-next-media.yml")
-STEP_NAME = "Build base and head tagged apps"
+STEP_NAMES = ("Build the base app", "Build the head app")
 PIN_A = "a" * 64
 PIN_B = "b" * 64
 MODULES = "Build/Intermediates.noindex/SwiftExplicitPrecompiledModules"
@@ -176,13 +183,12 @@ def make_derived_modules_again(derived):
         os.makedirs(os.path.join(derived, relative), exist_ok=True)
 
 
-def build_step():
+def build_steps():
     with open(WORKFLOW) as handle:
         workflow = yaml.safe_load(handle)
-    for step in workflow["jobs"]["tour"]["steps"]:
-        if step.get("name") == STEP_NAME:
-            return step
-    return None
+    by_name = {step.get("name"): step for step in workflow["jobs"]["tour"]["steps"]}
+    steps = [by_name.get(name) for name in STEP_NAMES]
+    return None if None in steps else steps
 
 
 def fake_checkout(path, pin):
@@ -190,13 +196,14 @@ def fake_checkout(path, pin):
     write(os.path.join(path, "scripts", "reload.sh"), FAKE_RELOAD)
     os.chmod(os.path.join(path, "scripts", "reload.sh"), 0o755)
     os.makedirs(os.path.join(path, "scripts", "ci"))
-    shutil.copy(SCRIPT, os.path.join(path, "scripts", "ci"))
+    for script in (SCRIPT, BUILD_SCRIPT, CACHE_SCRIPT):
+        shutil.copy(script, os.path.join(path, "scripts", "ci"))
 
 
 def scenario_workflow_step():
-    step = build_step()
-    _check(step is not None, f"the tour job has a '{STEP_NAME}' step")
-    if step is None:
+    steps = build_steps()
+    _check(steps is not None, f"the tour job has {STEP_NAMES} steps")
+    if steps is None:
         return
     with tempfile.TemporaryDirectory() as tmp:
         home = os.path.join(tmp, "home")
@@ -212,25 +219,50 @@ def scenario_workflow_step():
             GITHUB_WORKSPACE=workspace,
             RUNNER_TEMP=runner_temp,
             GITHUB_OUTPUT=os.path.join(tmp, "output"),
-            TOUR_TAG="ci-media-pr-9",
+            RUNNER_NAME="runner-1",
+            MEDIA_TOUR_CI=os.path.join(workspace, "scripts", "ci"),
+            MEDIA_APP_RECIPE="0123456789ab",
+            MERGE_BASE="0" * 40,
+            BASE_APP="",
         )
 
-        def tour():
-            result = subprocess.run(["bash", "-c", step["run"]], cwd=workspace, env=env,
-                                    capture_output=True, text=True)
-            print(result.stdout + result.stderr)
+        def tour(slot=0):
+            for step in steps:
+                result = subprocess.run(["bash", "-c", step["run"]], cwd=workspace, env=dict(env, TOUR_TAG=f"ci-media-slot{slot}"),
+                                        capture_output=True, text=True)
+                print(result.stdout + result.stderr)
+                if result.returncode != 0:
+                    break
             return result
+
+        def head_pin(slot=0):
+            pcm = os.path.join(home, f"Library/Developer/Xcode/DerivedData/cmux-ci-media-slot{slot}-head",
+                               MODULES, "GhosttyNextKit.pcm")
+            if not os.path.isfile(pcm):
+                return None
+            with open(pcm) as handle:
+                return handle.read().strip()
 
         _check(tour().returncode == 0, "a cold tour builds base and head")
         _check(tour().returncode == 0, "a warm tour with the same pins builds")
-        # The pull request's next head moves the GhosttyNextKit pin.
+        # The next pull request toured in this slot moves the GhosttyNextKit pin.
         set_pin(workspace, PIN_B)
         _check(tour().returncode == 0, "a warm tour after a GhosttyNextKit pin change builds")
         _check(tour().returncode == 0, "the next tour at the new pin builds warm")
-        pcm = os.path.join(home, "Library/Developer/Xcode/DerivedData/cmux-ci-media-pr-9-head",
-                           MODULES, "GhosttyNextKit.pcm")
-        built = open(pcm).read().strip() if os.path.isfile(pcm) else None
+        built = head_pin()
         _check(built == PIN_B, f"the head's module is rebuilt from the new pin (found {built and built[:9]})")
+
+        # A concurrent tour builds slot 1 at the old pin; the next pin change
+        # reaches slot 1 first, then slot 0.
+        set_pin(workspace, PIN_A)
+        _check(tour(1).returncode == 0, "a cold slot 1 builds base and head")
+        _check(head_pin(1) == PIN_A and head_pin(0) == PIN_B, "slot 1 builds into its own DerivedData")
+        set_pin(workspace, PIN_B)
+        _check(tour(1).returncode == 0, "slot 1 rebuilds its modules after its own pin change")
+        _check(head_pin(1) == PIN_B, "slot 1's module now has the new pin")
+        set_pin(workspace, PIN_A)
+        _check(tour(0).returncode == 0, "slot 0 clears its modules on its own pin change")
+        _check(head_pin(0) == PIN_A and head_pin(1) == PIN_B, "clearing slot 0 leaves slot 1 warm")
 
 
 def main():

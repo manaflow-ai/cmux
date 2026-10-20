@@ -207,6 +207,7 @@ mod cmd_terminals;
 mod creating_input;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
+mod column_move;
 mod command_history;
 mod page_credential;
 mod page_files;
@@ -274,6 +275,7 @@ pub use socket_path::{
 pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
+mod chief_engine_mirror;
 mod chief_inspect;
 mod chief_manage;
 mod chief_registry_resource;
@@ -316,6 +318,8 @@ pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
 pub const DOCK_COLUMN_ROLE_CAPABILITY: &str = "dock-column-role-v1";
 /// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
 pub const ROWS_CAPABILITY: &str = "rows-v1";
+/// `move-column`: a whole viewport column moves one place left or right.
+pub const COLUMN_MOVE_CAPABILITY: &str = "column-move-v1";
 /// `kind` (`pty` | `browser`) and `url` on `split` and `new-pane-right`.
 pub const PANE_BROWSER_KIND_CAPABILITY: &str = "pane-browser-kind-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
@@ -436,6 +440,13 @@ pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-
 /// resource's `extra.marked_unread`. It needs no notification; clients clear
 /// it when the person views the tab.
 pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
+/// A workspace's description: `description` on `workspace.update` (null
+/// clears it) and the workspace snapshot's `extra.description` while set.
+pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";
+/// A workspace's manual task status (classic cmux lanes `todo`, `working`,
+/// `needs-attention`, `review`, `done`): `task_status` on `workspace.update`
+/// (null is automatic) and the workspace snapshot's `extra.task_status`.
+pub const WORKSPACE_STATUS_CAPABILITY: &str = "workspace-status-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -536,6 +547,12 @@ pub const SESSION_JOURNAL_PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROT
 pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
 pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
 pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
+
+/// The API revisions this build speaks: `(current, oldest it translates)`
+/// (server/api_revision_wire.rs, cmux-tui/spec/api-compat.json).
+pub fn api_revision_range() -> (u32, u32) {
+    api_revision_wire::identify_fields()
+}
 mod protocol_key;
 #[cfg(test)]
 use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
@@ -672,6 +689,10 @@ enum Command {
     Identify {
         #[serde(default)]
         machine_metadata: bool,
+        /// Adds `api_revision`, `min_api_revision`, `crate_version`,
+        /// `install` and `update_command` (server/api_revision_wire.rs).
+        #[serde(default)]
+        revisions: bool,
     },
     BrowserHostProvider,
     SubscribeActivity,
@@ -762,6 +783,13 @@ enum Command {
         /// (server/api_revision_wire.rs). Absent: revision 12.
         #[serde(default)]
         api_revision: Option<u32>,
+        /// The client's release (`cmux --version`), for refusals and logs.
+        #[serde(default)]
+        version: Option<String>,
+        /// How the client was installed (`npm`, `pypi`, `app`, `other`),
+        /// so a refusal names its update command.
+        #[serde(default)]
+        install: Option<String>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -1598,6 +1626,8 @@ enum Command {
     MoveTabToColumn(tab_column::MoveTabToColumnParams),
     NewRow(rows::NewRowParams),
     SetRowHeights(rows::SetRowHeightsParams),
+    /// Move a whole viewport column one place (`column-move-v1`).
+    MoveColumn(column_move::MoveColumnParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -2785,6 +2815,10 @@ mod pinned_columns_tests;
 #[cfg(test)]
 #[path = "server/rows_tests.rs"]
 mod rows_tests;
+
+#[cfg(test)]
+#[path = "server/column_move_tests.rs"]
+mod column_move_tests;
 
 #[cfg(test)]
 #[path = "server/pane_browser_kind_tests.rs"]
