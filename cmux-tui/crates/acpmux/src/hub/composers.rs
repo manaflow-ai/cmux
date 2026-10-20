@@ -216,7 +216,7 @@ impl Hub {
     pub fn composers_view(&self, session: &Session) -> Value {
         let c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
         let mut drafts: Vec<&Draft> = c.drafts.values().collect();
-        drafts.sort_by(|a, b| b.order.cmp(&a.order));
+        drafts.sort_by_key(|d| std::cmp::Reverse(d.order));
         let composers: Vec<Value> = drafts
             .into_iter()
             .map(|d| {
