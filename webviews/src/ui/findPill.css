@@ -36,6 +36,21 @@
   pointer-events: auto;
 }
 
+/* Reduce Transparency: an opaque pill, also on a page that does not load the shared tokens. */
+@media (prefers-reduced-transparency: reduce) {
+  .find-pill {
+    background: var(--surface-popup, Canvas);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+:root[data-reduce-transparency] .find-pill {
+  background: var(--surface-popup, Canvas);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 @keyframes find-pill-in {
   from {
     opacity: 0;
