@@ -39,8 +39,20 @@ struct BrowserFocusModeEscapeExit: Equatable {
     ///   - timestamp: The event's timestamp (seconds since boot).
     ///   - focusModeTab: The tab in browser focus mode that has the keyboard, nil when none.
     mutating func handle(isPlainEscape: Bool, isRepeat: Bool, timestamp: TimeInterval, focusModeTab: String?) -> Outcome {
-        // Red: not implemented yet.
-        return .pass
+        guard let tab = focusModeTab, isPlainEscape else {
+            reset()
+            return .pass
+        }
+        if isRepeat { return .consume }
+        if lastEscapeTimestamp == timestamp { return .consume }
+        lastEscapeTimestamp = timestamp
+        if armedTab == tab, let armedAt, timestamp - armedAt <= Self.sequenceInterval {
+            reset()
+            return .exit(tab: tab)
+        }
+        armedTab = tab
+        armedAt = timestamp
+        return .forwardToPage
     }
 
     /// Disarms (focus mode ended, focus moved, a non-Escape key).

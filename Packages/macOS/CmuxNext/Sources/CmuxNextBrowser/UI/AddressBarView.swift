@@ -282,8 +282,23 @@ public final class AddressBarView: NSView {
     /// the first Escape armed the exit, "Esc again to exit". It fades in and
     /// out (at once under Reduce Motion or the app's motion setting).
     public func setFocusModeBadge(armed: Bool?) {
-        // Red: not implemented yet.
-        focusModeBadgeWanted = false
+        if let armed { focusModeBadgeView.show(armed: armed) }
+        let shown = armed != nil
+        guard focusModeBadgeWanted != shown else { return }
+        focusModeBadgeWanted = shown
+        if !shown {
+            Motion.animate(.fadeOut, in: focusModeBadgeView, { focusModeBadgeView.animator().alphaValue = 0 }) { [weak self] in
+                // Shown again while fading out: stay visible.
+                guard let self, !focusModeBadgeWanted else { return }
+                focusModeBadgeView.isHidden = true
+                updateBadgeSpace()
+            }
+        } else {
+            focusModeBadgeView.alphaValue = 0
+            focusModeBadgeView.isHidden = false
+            updateBadgeSpace()
+            Motion.animate(.fadeIn, in: focusModeBadgeView) { focusModeBadgeView.animator().alphaValue = 1 }
+        }
     }
 
     /// Whether the focus mode badge shows (or is fading in); tests, diagnostics.

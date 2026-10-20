@@ -35,7 +35,11 @@ enum BrowserHandlers {
                 throw ActionFailure(message: MiscHandlerStrings.noBrowser)
             }
             if window.focus.state.pane != pane.paneKey { window.focus.send(.focusPane(pane.paneKey, source: .intent)) }
-            window.focus.send(.toggleBrowserFocusMode(tab: entry.tab.id.rawValue))
+            let tab = entry.tab.id.rawValue
+            window.focus.send(.toggleBrowserFocusMode(tab: tab))
+            // Entering puts the keyboard in the page (classic cmux parity): from the
+            // address bar or find bar, focus mode would wait for a click otherwise.
+            if window.focus.state.browserFocusMode.contains(tab) { window.focus.send(.focusTarget(.content, source: .intent)) }
         })
         // Any focused web view (WebInspectorTarget): disabled with the reason while none is.
         registry.bind("toggleBrowserDeveloperTools", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: { invocation in
