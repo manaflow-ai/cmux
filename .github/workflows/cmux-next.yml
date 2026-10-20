@@ -1456,6 +1456,7 @@ jobs:
             Backdrop art export
             Package conventions lint
             Browser chrome icons
+            Dialog buttons show their keys (u2647)
           OUTCOMES: |
             ${{ steps.godfiles-swift.outcome }}|God files and types (Swift)
             ${{ steps.godfiles-rust.outcome }}|God files (cmux-tui Rust)
