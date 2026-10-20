@@ -136,7 +136,8 @@ class Place(unittest.TestCase):
     def test_jobs_an_idle_mini_took_and_gui_jobs_stay_off_blacksmith(self):
         result = cascade.place(env(), ("fast-tier",), {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("swift-canary", "cmux-scheme-compile")}))
-        self.assertEqual(result.retry_runner, LARGE)
+        # 12 vCPU is now 2 of 5 with this run's jobs, 6 vCPU 0 of 10.
+        self.assertEqual(result.retry_runner, SMALL)
 
     def test_an_idle_mini_given_a_job_that_does_not_run_still_takes_one_that_does(self):
         # fast-tier is on its fast-lane runner (not in CASCADE_RUNS), yet idle_placement named it for
@@ -159,6 +160,12 @@ class Place(unittest.TestCase):
         result = cascade.place(env(), (), {LARGE: 4, SMALL: 9}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("fast-tier",), SMALL: ("swift-canary",)}))
         self.assertIn("cmux-scheme-compile stay queued on the owned label", result.why)
+
+    def test_the_overflow_counts_the_slots_this_run_just_took(self):
+        # 6 vCPU had one free slot and this run's fast-tier took it: the overflow has none left.
+        result = cascade.place(env(), (), {LARGE: 5, SMALL: 9}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(result.jobs, none_placed(**{SMALL: ("fast-tier",)}))
+        self.assertEqual(result.retry_runner, "")
 
     def test_unread_counts_place_nothing(self):
         self.assertEqual(cascade.place(env(), (), None, None).jobs, none_placed())
@@ -344,7 +351,9 @@ class Stall(unittest.TestCase):
         live, waiting = {LARGE: 0, SMALL: 9}, {LARGE: 1, SMALL: 0}
         self.assertEqual(cascade.retry_label(live, waiting), LARGE)
         seen = cascade.Seen(waits={LARGE: 30.0, SMALL: 0.0}, hosted=0)
-        self.assertEqual(cascade.place(env(), (), live, waiting, seen).retry_runner, SMALL)
+        self.assertEqual(cascade.place(env(), (), {LARGE: 0, SMALL: 5}, waiting, seen).retry_runner, SMALL)
+        # The one free 6 vCPU slot goes to this run's fast-tier, so no label is left for the overflow.
+        self.assertEqual(cascade.place(env(), (), live, waiting, seen).retry_runner, "")
         # Both stalled: no Blacksmith label; the overflow waits on the owned label.
         both = cascade.Seen(waits={LARGE: 30.0, SMALL: 30.0}, hosted=0)
         self.assertEqual(cascade.place(env(), (), live, {LARGE: 1, SMALL: 1}, both).retry_runner, "")

@@ -264,7 +264,6 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         # Without the queue count no slot is known free, so the overflow keeps the owned label too.
         return Placement(empty, "", f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count "
                                     "Blacksmith's queue; no job leaves the minis' queue")
-    retry = retry_label(live, waiting, stall)
     runs = set((env.get("CASCADE_RUNS") or "").split())
     # idle_placement() hands the idle minis to the first JOBS, running or not, and
     # every side job takes the side label whatever owned_jobs says: so the idle
@@ -273,6 +272,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     candidates = running[len(owned):]
     hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
     placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free)
+    # The overflow label counts the slots this run's own jobs just took.
+    retry = retry_label(live, {label: waiting.get(label, 0) + len(placed.get(label, ())) for label in LABELS}, stall)
     load = ", ".join(f"`{label}` {live[label]} in flight + {waiting[label]} queued of {CAPACITY[label]}"
                      + (f" (stalled: oldest queued {seen.waits[label]:.0f} min)" if label in stall and seen else "")
                      for label in LABELS)
