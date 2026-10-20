@@ -1,0 +1,185 @@
+name: cmux-next fast-tier seed
+
+# Seeds the R2 cache the cmux-next fast tier restores when it lands on
+# Blacksmith (cmux-next.yml fast-tier). Owned minis keep their builds on their
+# own SSD and never read it.
+#
+# NEXT has its own bucket, cmux-ci-cache-next, and its own writer environment,
+# next-cache-writer, whose deployment branches are feat-cmux-next only: NEXT
+# code never holds main's cache-writer credentials or writes main's
+# cmux-ci-cache bucket (tests/test_ci_pull_request_caches_are_read_only.py).
+# Pull requests read the bucket's public URL and hold no credential.
+#
+# A seed is one cold build of exactly what the fast tier builds, on the pool the
+# fast tier overflows to, plus the input-time manifest the fast tier replays
+# (scripts/ci/e2e_warm_derived_data.py) so a pull request rebuilds only the
+# files that differ from the seed. It runs when the newest seed is older than
+# SEED_INTERVAL_MINUTES (scripts/cmux-next/fast-tier-seed-due.py), and prunes
+# seeds older than a day that no pointer names (scripts/ci/r2_cache_prune.py).
+on:
+  push:
+    branches: [feat-cmux-next]
+
+permissions: {}
+
+# One seed at a time. A running seed finishes; a newer push replaces only the
+# pending one.
+concurrency:
+  group: cmux-next-fast-tier-seed-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SEED_INTERVAL_MINUTES: "30"
+  CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+  CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+
+jobs:
+  due:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Is a fast-tier seed due
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    outputs:
+      due: ${{ steps.due.outputs.due }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next/fast-tier-seed-due.py
+            scripts/ci/r2_cache_census.py
+          sparse-checkout-cone-mode: false
+
+      - name: Check the newest seed's age
+        id: due
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: |
+          set -euo pipefail
+          python3 -I scripts/cmux-next/fast-tier-seed-due.py --minutes "$SEED_INTERVAL_MINUTES" \
+            --endpoint-url "$CI_CACHE_R2_ENDPOINT" --bucket "$CI_CACHE_R2_BUCKET" | tee -a "$GITHUB_OUTPUT"
+
+  seed:
+    needs: due
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.due.outputs.due == 'true' }}
+    name: Seed the fast-tier build cache
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+    timeout-minutes: 30
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    # As in the fast tier (cmux-next.yml): cmux-tui-core builds libghostty-vt from ghostty-next.
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Compute fast-tier cache keys
+        id: fast-cache-key
+        run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
+
+      # Before the build: the times the products are built from. The fast tier
+      # replays them onto every file whose content is unchanged.
+      - name: Record the build's input times
+        run: |
+          set -euo pipefail
+          mkdir -p Packages/macOS/CmuxNext/.build
+          python3 -I scripts/ci/e2e_warm_derived_data.py record "$GITHUB_WORKSPACE" "$RUNNER_TEMP/cmux-fast-tier-input-mtimes.json"
+          mv "$RUNNER_TEMP/cmux-fast-tier-input-mtimes.json" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
+
+      # The seed is the build. A red test entry still leaves a good build, so
+      # only the builds decide whether it saves.
+      - name: Run the fast tier
+        id: tier
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/fast-tier.py --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+
+      - name: Check that every build passed
+        id: built
+        run: |
+          set -euo pipefail
+          python3 -I - "$RUNNER_TEMP/cmux-next-fast-tier.json" <<'EOF'
+          import json, sys
+          builds = json.load(open(sys.argv[1]))["builds"]
+          for build in builds:
+              print(f"{build['status']:5} {build['seconds']:8.1f}s {build['command']}")
+          sys.exit(0 if builds and all(b["status"] == "pass" for b in builds) else 1)
+          EOF
+          du -sh Packages/macOS/CmuxNext/.build Packages/Shared/CmuxHomeRender/.build cmux-tui/target | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The swift archive goes last: its pointer is what a fast tier restores
+      # by prefix, and by then the other two archives of this commit exist.
+      - name: Save the CmuxHomeRender build
+        if: ${{ steps.built.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: Packages/Shared/CmuxHomeRender/.build
+          key: ${{ steps.fast-cache-key.outputs.home-key }}
+
+      - name: Save the cmux-tui cargo target
+        if: ${{ steps.built.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.fast-cache-key.outputs.cargo-key }}
+
+      - name: Save the CmuxNext build
+        if: ${{ steps.built.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: Packages/macOS/CmuxNext/.build
+          key: ${{ steps.fast-cache-key.outputs.swift-key }}
+
+      - name: Prune seeds older than a day
+        if: ${{ success() }}
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: python3 -I scripts/ci/r2_cache_prune.py --endpoint-url "$CI_CACHE_R2_ENDPOINT" --bucket "$CI_CACHE_R2_BUCKET" --delete
+
+      - name: Upload the seed's timing receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-fast-tier-seed-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-fast-tier.json
+          if-no-files-found: ignore

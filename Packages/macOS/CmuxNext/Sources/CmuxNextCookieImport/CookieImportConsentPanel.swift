@@ -147,6 +147,7 @@ final class CookieImportConsentPanel {
         label.font = .systemFont(ofSize: size, weight: weight)
         label.textColor = secondary ? .secondaryLabelColor : .labelColor
         label.isSelectable = true
+        label.focusRingType = .none
         label.setContentCompressionResistancePriority(.required, for: .vertical)
         return label
     }

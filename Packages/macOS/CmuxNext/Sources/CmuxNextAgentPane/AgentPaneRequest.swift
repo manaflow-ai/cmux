@@ -63,6 +63,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case newTabContext
     /// The identified New Tab field mounted and took DOM focus.
     case newTabInputReady(String)
+    /// A local page's newest chats as JSON text (`newTab.warm {warm}`): the next New Tab page's
+    /// context carries it (``AgentPaneNewTab/warm``), so its first frame lists them.
+    case newTabWarm(String)
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.

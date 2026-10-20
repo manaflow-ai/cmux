@@ -15,7 +15,11 @@ OASDIFF_SHA256=7c8939fc49b75ee11fec66a5b83b37a2fca6aee109fed85013b1ba2ac2a1ee7f
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-git fetch --quiet --depth=1 origin "refs/heads/${base_ref}"
+# Depth 1 only in a shallow checkout: in a full clone --depth writes
+# .git/shallow and truncates history for every worktree sharing it.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+git fetch --quiet ${depth[@]+"${depth[@]}"} origin "refs/heads/${base_ref}"
 if ! git show "FETCH_HEAD:workers/cmux-vm/openapi.json" > "$work/base.json" 2>/dev/null; then
   echo "base branch ${base_ref} has no workers/cmux-vm/openapi.json; nothing to compare"
   exit 0

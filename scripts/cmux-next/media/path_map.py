@@ -23,7 +23,7 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "hover-card", "glass", "home", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "pinned-tabs", "hover-card", "glass", "home", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
@@ -35,6 +35,8 @@ UI_ROOTS = (
 NEW_TAB = re.compile(r"(?:new.?tab|NewTab)", re.IGNORECASE)
 AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IGNORECASE)
 NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
+# Pinned tabs and the tab strip's close rules: the pinned-tabs tour pins, closes others and unpins.
+PINNED_TABS = re.compile(r"(?:Pinned|PinCommands|/Pins/)")
 # The sidebar's workspace hover card (its surface and content), in dark, light and over art.
 HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|HoverCards/HoverCardPanel)")
 # Themes, glass and background art: the glass tour shows them over art and opaque.
@@ -70,6 +72,8 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("agent-pane")
     if NOW_PLAYING.search(normalized):
         selected.append("now-playing")
+    if PINNED_TABS.search(normalized):
+        selected.append("pinned-tabs")
     if HOVER_CARD.search(normalized):
         selected.append("hover-card")
     if GLASS.search(normalized):
