@@ -31,6 +31,14 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Settings toggle `agent.suggestedTasks` is on; ``AcpmuxHost`` reads it at each daemon start, so a running
     /// daemon keeps the value it started with.
     public var offersSessionTools = false
+    /// Whether the daemon this app spawns keeps the agent message runaway guard on (acpmux
+    /// `hub/agent_pairs.rs`); off, it gets ``agentPairGuardKey`` `0`. The Debug Settings toggle
+    /// `agent.pairGuard`, read at each daemon start like ``offersSessionTools``.
+    public var agentPairGuard = true
+    /// The guard's cap and its window in seconds (`agent.pairCap`, `agent.pairWindow`); `0` turns
+    /// the cap off. Passed as ``agentPairCapKey`` and ``agentPairWindowKey`` while the guard is on.
+    public var agentPairCap = 20
+    public var agentPairWindowSeconds = 600
 
     /// The Computer Use variables (AgentActivitySocketSource.Configuration).
     /// The spawn environment drops all three when inherited and takes only
@@ -39,6 +47,11 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public static let computerUseHostKey = "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"
     /// acpmux `agent_tools::OFFER_TOOLS_ENV`: `1` gives sessions `offer_session`.
     public static let offerToolsKey = "ACPMUX_OFFER_TOOLS"
+    /// acpmux `hub::agent_pairs::GUARD_ENV`: `0` turns the agent message runaway guard off.
+    public static let agentPairGuardKey = "ACPMUX_AGENT_PAIR_GUARD"
+    /// acpmux `hub::agent_pairs::MAX_MESSAGES_ENV` and `WINDOW_ENV`.
+    public static let agentPairCapKey = "ACPMUX_AGENT_PAIR_MAX_MESSAGES"
+    public static let agentPairWindowKey = "ACPMUX_AGENT_PAIR_WINDOW_SECS"
 
     /// The build-session kill switch (cx-9ettq): with either set, acpmux
     /// starts no agent and the Chief host does not start. A GUI test job sets
