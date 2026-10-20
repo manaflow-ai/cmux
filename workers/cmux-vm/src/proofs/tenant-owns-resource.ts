@@ -19,9 +19,10 @@ const TenantOwnsResource = defineProof("TenantOwnsResource");
 
 /** The tenant of caller `C` owns the public resource named `R`, and `C` may reach it. */
 export interface TenantOwnsResource<C, R> extends Proof<"TenantOwnsResource", [C, R]> {
-  /** The ownership row's display name and labels (public data, not evidence). */
+  /** The ownership row's display name, labels and creation state (public data, not evidence). */
   readonly displayName: string | null;
   readonly labels: Readonly<Record<string, string>>;
+  readonly committed: boolean;
 }
 
 const evidence = new WeakMap<object, UpstreamId>();
@@ -55,6 +56,7 @@ const mint = <C, R>(caller: Named<C, Principal>, resource: Named<R, unknown>, ro
     ...TenantOwnsResource.prove(caller, resource),
     displayName: row.displayName,
     labels: row.labels,
+    committed: row.committed !== false,
   });
   evidence.set(proof, row.upstreamId);
   return proof;
@@ -96,7 +98,7 @@ export const tenantOwnsDevice = <C, R>(caller: Named<C, Principal>, device: Name
 export const tenantOwnsTunnel = <C, R>(caller: Named<C, Principal>, tunnel: Named<R, TunnelId>) => owns(caller, tunnel, "tunnel");
 
 /** What a list handler may read from an ownership row; the upstream id stays with the proof. */
-export type OwnedRowView = Pick<OwnedResource, "cmuxId" | "displayName" | "createdAt" | "labels">;
+export type OwnedRowView = Pick<OwnedResource, "cmuxId" | "displayName" | "createdAt" | "labels" | "committed">;
 
 /** One row of a list page, with its ownership proof, scoped to the callback. */
 export type OwnedVmVisitor<C, A, E, R> = <V>(vm: Named<V, VmId>, owns: TenantOwnsResource<C, V>, row: OwnedRowView) => Effect.Effect<A, E, R>;
@@ -152,7 +154,7 @@ export const visitOwnedVms = <C, A, E, R>(
         if (Option.isNone(parsed)) return Effect.succeed(Option.none<A>());
         return name(parsed.value, (vm) => {
           const owns: TenantOwnsResource<C, NameOf<typeof vm>> = mint(caller, vm, row);
-          const view: OwnedRowView = { cmuxId: row.cmuxId, displayName: row.displayName, createdAt: row.createdAt, labels: row.labels };
+          const view: OwnedRowView = { cmuxId: row.cmuxId, displayName: row.displayName, createdAt: row.createdAt, labels: row.labels, ...(row.committed === false ? { committed: false } : {}) };
           return Effect.map(visit(vm, owns, view), Option.some);
         });
       },
