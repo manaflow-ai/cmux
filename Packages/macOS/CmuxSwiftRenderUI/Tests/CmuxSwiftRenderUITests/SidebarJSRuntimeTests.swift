@@ -322,6 +322,27 @@ struct SidebarJSRuntimeTests {
         #expect(node.props["tappable"] == nil)
     }
 
+    /// `.spin` chains like `.rotation`, and a live binding starts and stops
+    /// it in place.
+    @Test func spinReachesTheNodeAndBindsLive() throws {
+        let runtime = SidebarJSRuntime()
+        runtime.start(source: """
+        sidebar(() => HStack([
+            Text("a").spin(1.5),
+            Text("b").spin(),
+            Text("c").spin(() => (data.busy() ? 1 : 0)),
+        ]))
+        """)
+        #expect(runtime.errorMessage == nil)
+        let root = try #require(runtime.store.rootId.flatMap { runtime.store.node($0) })
+        let nodes = try root.children.map { try #require(runtime.store.node($0)) }
+        #expect(nodes[0].props["spin"] == .number(1.5))
+        #expect(nodes[1].props["spin"] == .bool(true))
+        #expect(nodes[2].props["spin"] == .number(0))
+        runtime.updateData(key: "busy", value: .bool(true))
+        #expect(nodes[2].props["spin"] == .number(1))
+    }
+
     @Test func programErrorSurfacesWithLine() {
         let runtime = SidebarJSRuntime()
         let ok = runtime.start(source: "sidebar(() => notAFunction())")
