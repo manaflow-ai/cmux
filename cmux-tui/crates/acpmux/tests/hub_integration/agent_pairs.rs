@@ -23,7 +23,7 @@ const SUBSESSION_SEND: &str = "_acpmux/subsession/send";
 /// The person key the hubs of these tests hold, as a daemon the app started does.
 const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-fn hub_in(dir: Option<&Path>) -> Arc<Hub> {
+fn config(dir: Option<&Path>) -> Config {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
         "defaultHarness": "fake",
@@ -31,6 +31,11 @@ fn hub_in(dir: Option<&Path>) -> Arc<Hub> {
     }))
     .unwrap();
     cfg.store.mode = if dir.is_some() { StoreMode::Local } else { StoreMode::Memory };
+    cfg
+}
+
+fn hub_in(dir: Option<&Path>) -> Arc<Hub> {
+    let cfg = config(dir);
     let store = acpmux::store::open(&cfg.store, dir.unwrap_or(Path::new("/nonexistent"))).unwrap();
     let hub = Hub::new(cfg, store);
     let _ = hub.person.install_spawn_key(PERSON_KEY);
@@ -538,4 +543,55 @@ async fn a_held_send_message_with_interrupt_does_not_stop_the_receivers_turn() {
     let ended = c.records(&child, "turn_result").await;
     assert!(ended.is_empty(), "a held interrupt stopped the child's turn: {ended:?}");
     assert!(!c.ran(&child, "i1").await, "the queued messages still wait behind the turn");
+}
+
+/// A daemon that stops after the person resumed a pair but before it delivered what the pair
+/// held: the next daemon keeps delivering it, in order, without another resume and without
+/// pausing the pair again behind a transcript that already reads "resumed".
+#[tokio::test]
+async fn a_restart_during_a_resume_keeps_delivering_what_was_held() {
+    let dir = std::env::temp_dir().join(format!("acpmux-pairs-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(Some(&dir));
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("d{i}"), "please check the build").await;
+    }
+    assert!(held(&c.message(&a, &b, "d2", "please check the build").await));
+    assert!(held(&c.message(&a, &b, "d3", "something else").await));
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    // The resume's records, as the stopped daemon wrote them before its first delivery.
+    let store = acpmux::store::open(&config(Some(&dir)).store, &dir).unwrap();
+    for (session, peer) in [(&b, &a), (&a, &b)] {
+        let last = store.events(session, 0, usize::MAX).unwrap().last().map_or(0, |r| r.seq);
+        let record = acpmux::store::EventRecord {
+            seq: last + 1,
+            at: acpmux::store::now_ms(),
+            dir: "mux".into(),
+            kind: "agent_pair_resumed".into(),
+            msg: json!({"peer": peer, "by": "request", "delivered": 2}),
+            host_seq: None,
+        };
+        store.append(session, &record).unwrap();
+    }
+    store.flush().unwrap();
+    drop(store);
+
+    let hub = hub_in(Some(&dir));
+    hub.resume_queues();
+    let mut c = Client::open(&hub);
+    c.wait_ran(&b, "d2").await;
+    c.wait_ran(&b, "d3").await;
+    let ids = c.ran_ids(&b).await;
+    let at = |id: &str| ids.iter().position(|x| x == id).unwrap();
+    assert!(at("d2") < at("d3"), "in order: {ids:?}");
+    assert_eq!(c.records(&b, "agent_pair_paused").await.len(), 1, "not paused again");
+    // Delivered, the pair starts over.
+    let after = c.message(&a, &b, "d4", "new after the restart").await;
+    assert!(after.get("error").is_none(), "{after}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }
