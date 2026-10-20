@@ -92,7 +92,7 @@ test("the app theme's Match System Appearance follows the terminal's until the a
   const appSwitch = () => themeRow(page!, "app-match")!.querySelector<HTMLButtonElement>("[role=switch]")!;
   expect(appSwitch().disabled).toBe(true);
   expect(themeRow(page, "app-match")!.textContent).toContain("Follows the terminal theme");
-  await run(() => page!.store.set("appearance.appTheme", "Rose Pine"));
+  await run(() => page!.store.set("appearance.appTheme", "Gruvbox Dark"));
   expect(appSwitch().disabled).toBe(false);
   await click(appSwitch());
   expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({
