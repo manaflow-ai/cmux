@@ -414,8 +414,10 @@
 .cv-user__edit-button:hover {
   background: var(--cv-faint-rule);
 }
+/* Send is the theme inverted: a text-color fill with the page's opaque color for its label. Not
+   --agent-surface, a translucent tint that left the label invisible on the light fill in dark themes. */
 .cv-user__edit-button--send {
-  color: var(--agent-surface);
+  color: var(--cmux-surface-solid, var(--acpmux-base));
   background: var(--cv-text);
   box-shadow: none;
 }
