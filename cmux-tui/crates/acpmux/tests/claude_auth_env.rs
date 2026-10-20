@@ -333,13 +333,14 @@ async fn a_turn_session_key_becomes_the_subrouter_session_header() {
         "SUBROUTER_SESSION_KEY": "two words\nX-Evil: 1", "SUBROUTER_SESSION_HEADER": "1"});
     let harnesses = json!({"claude": claude(turn), "bare": claude(bare), "sub": claude(sub), "bad": claude(bad)});
     let daemon_turn = [("SUBROUTER_SESSION_KEY", "daemon-turn"), ("SUBROUTER_SESSION_HEADER", "1")];
-    let d = start(&dir, harnesses, &daemon_turn).await;
     for (harness, want) in [
         ("claude", json!("X-Subrouter-Agent: claude\nX-Subrouter-Session: optchat-c0eb-turn")),
         ("bare", json!("X-Subrouter-Session: optchat-c0eb-compact")),
         ("sub", json!(route)),
         ("bad", json!(route)),
     ] {
+        // One daemon per case: `ask` names every session "auth".
+        let d = start(&dir, harnesses.clone(), &daemon_turn).await;
         let (reply, _) = ask(&d, harness).await;
         assert_eq!(found(&reply)["customHeaders"], want, "{harness}: {reply:?}");
     }
