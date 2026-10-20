@@ -26,9 +26,11 @@ export class VmReceiverGenerations {
       if (stored && (!version(stored.scope) || !version(stored.generation) || !version(stored.previous)
         || !/^[0-9a-f]{32}$/.test(stored.attempt) || !["starting", "ready", "stopped"].includes(stored.phase))) throw new Error("receiving incarnation unavailable")
       const current = stored?.scope === scope ? stored : undefined
+      // Closed scopes still observe the machine's latest stored incarnation.
+      // A delayed initial request must not reset a newer authority scope.
       const view: ReceiverGeneration = current
         ? { machine, generation: current.generation, phase: current.phase }
-        : { machine, generation: hash(["cmux-vm-receiver-generation-v1", scope, "idle"]), phase: "idle" }
+        : { machine, generation: hash(["cmux-vm-receiver-generation-v1", scope, "idle", ...(stored ? [stored.generation] : [])]), phase: "idle" }
       let changed = false
       const finish = (reply: Reply): Reply => {
         audit({ phase: request.phase, machine, changed, outcome: reply.ok ? "ok" : "refused", ...(reply.ok ? { generation: reply.value.generation } : {}) })
