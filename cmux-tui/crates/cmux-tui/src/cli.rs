@@ -6,6 +6,7 @@
 
 #[cfg(unix)]
 mod action_hint;
+mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
 mod agents;
@@ -17,6 +18,7 @@ mod app;
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+mod capability_cache;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
@@ -40,6 +42,13 @@ pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
+
+/// `cmux host enable|disable|status|serve|allow|deny|list|dial` (remote
+/// hosting, every platform), on the `cmux` surface only, like the other
+/// `host` verbs.
+pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
+    Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
+}
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;
@@ -397,8 +406,10 @@ fn run_app_action_fallback(args: &[String]) -> Option<i32> {
         return None;
     }
     let name = command_args[..words].join(" ");
-    app::run_cli_action(&global, &name, &command_args[words..])
-        .or_else(|| action_hint::report(&name, global.output))
+    // `<noun> move-to-window --new` is `<noun> move-to-new-window`.
+    let (name, rest) = app::new_window_spelling(&name, &command_args[words..])
+        .unwrap_or_else(|| (name, command_args[words..].to_vec()));
+    app::run_cli_action(&global, &name, &rest).or_else(|| action_hint::report(&name, global.output))
 }
 
 fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailure> {
@@ -932,7 +943,9 @@ USAGE
   cmux agent message release <message-id> --recipient <agent> --approve|--decline
   cmux agent message unsend <message-id> [--recipient <agent>]
   cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
-  cmux agent list [OPTIONS]
+  cmux agent list [--needs-me] [--state <state>] [--terminal <id>]
+                  [--sort needs-me|recent|none] [--limit <n>] [--counts]
+  cmux agent <agent> focus
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]

@@ -190,7 +190,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch.
+    /// Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same.
     ConversationImportOp {
         name: "conversation.import",
         class: Mutation,
@@ -232,6 +232,8 @@ pub struct ConversationImportParams {
     pub participants: Option<Vec<HomeParticipantInput>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after_seq: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<bool>,
     pub messages: Vec<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub read_cursors: Option<Value>,
@@ -287,6 +289,54 @@ wire_errors! {
         Forbidden = "forbidden",
         IdempotencyConflict = "idempotency.conflict",
         ImportOutOfOrder = "import_out_of_order",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Page the current members in join order (default 200, at most 1000); pass next as after for the next page. Works for every conversation; a large group's head carries only a roster.
+    ConversationMembersOp {
+        name: "conversation.members",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConversationDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: ConversationMembersParams,
+        result: ConversationMembersResult,
+        error: ConversationMembersError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationMembersParams {
+    pub conversation: ConversationId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationMembersResult {
+    pub members: Vec<HomeParticipant>,
+    pub member_count: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<i64>,
+}
+
+wire_errors! {
+    /// The error codes conversation.members declares.
+    ConversationMembersError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
         KindForbids = "kind_forbids",
         NotParticipant = "not_participant",
         OwnerUnreachable = "owner.unreachable",
@@ -840,67 +890,3 @@ wire_errors! {
         ValidationInvalid = "validation.invalid",
     }
 }
-
-wire_op! {
-    /// Cancel an open item: its poster withdraws it, an adapter reports it answered elsewhere, or the user declines it.
-    FeedCancelOp {
-        name: "feed.cancel",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedCancelParams,
-        result: FeedCancelResult,
-        error: FeedCancelError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCancelParams {
-    pub item: FeedItemId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<FeedCancelReason>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCancelResult {
-    pub item: FeedItem,
-}
-
-wire_errors! {
-    /// The error codes feed.cancel declares.
-    FeedCancelError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Badge counts: open requests, unread active items, open requests by priority.
-    FeedCountsOp {
-        name: "feed.counts",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:FeedDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: FeedCountsParams,
-        result: FeedCountsResult,
-        error: FeedCountsError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCountsParams {}

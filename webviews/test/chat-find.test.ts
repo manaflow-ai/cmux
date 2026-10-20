@@ -69,7 +69,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       const active = [...(highlights.get("acpmux-find-active") ?? [])];
       return {
         open: document.querySelector(".acpmux-find") !== null,
-        count: document.querySelector(".acpmux-find__count")?.textContent ?? "",
+        count: document.querySelector(".acpmux-find .find-pill__count")?.textContent ?? "",
         others: highlights.get("acpmux-find")?.size ?? 0,
         active: active.map((range) => range.toString()),
         // The current match is inside the transcript's viewport.
@@ -134,7 +134,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
         query,
       );
       expect(opened).toBe(true);
-      await page.waitForSelector(".acpmux-find__field");
+      await page.waitForSelector(".acpmux-find .find-pill__field");
       expect(await page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.value)).toBe(query);
 
       const first = await state(page);
@@ -154,7 +154,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       expect(last.inView).toBe(true);
 
       // A query that is nowhere says so.
-      await page.fill(".acpmux-find__field", "zzqqxxnotintranscript");
+      await page.fill(".acpmux-find .find-pill__field", "zzqqxxnotintranscript");
       const none = await state(page);
       expect(none.count).toBe("No results");
       expect(none.active).toEqual([]);
@@ -169,8 +169,8 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       // The app's Find commands arrive as bridge commands: Find opens the bar again with the last
       // query, Find Next steps, Hide Find closes.
       await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("find"));
-      await page.waitForSelector(".acpmux-find__field");
-      await page.fill(".acpmux-find__field", query);
+      await page.waitForSelector(".acpmux-find .find-pill__field");
+      await page.fill(".acpmux-find .find-pill__field", query);
       await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("findNext"));
       expect((await state(page)).count).toBe(`${Math.min(2, total)} of ${total}`);
       await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("hideFind"));
@@ -191,7 +191,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       await cdp.send("Emulation.setCPUThrottlingRate", { rate: 40 });
       // Only in the test command's output: found, its group opened, highlighted and in view.
       await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), "1504.40ms");
-      await page.waitForSelector(".acpmux-find__field");
+      await page.waitForSelector(".acpmux-find .find-pill__field");
       const activeIs = (text: string) =>
         page
           .waitForFunction(
@@ -216,7 +216,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
 
       // Only in the edit of upload.test.ts: found, and its edits group opens on the diff. (The diff
       // draws in @pierre/diffs' shadow root, where the page's highlights do not reach.)
-      await page.fill(".acpmux-find__field", "failNext");
+      await page.fill(".acpmux-find .find-pill__field", "failNext");
       await page.waitForFunction(
         () =>
           [...document.querySelectorAll<HTMLElement>(".acpmux-scroll button[aria-expanded]")].some(
@@ -231,7 +231,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
 
       // The counter and the highlight agree: each step through a command's matches lands on a
       // different drawn match (a group's summary line and a call's title are not counted).
-      await page.fill(".acpmux-find__field", "bun test");
+      await page.fill(".acpmux-find .find-pill__field", "bun test");
       const total = Number(/of (\d+)/.exec((await state(page)).count)?.[1] ?? 0);
       expect(total).toBeGreaterThan(1);
       const seen = new Set<string>();
@@ -252,6 +252,41 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       }
       expect(seen.has("none")).toBe(false);
       expect(seen.size).toBe(total);
+      await page.close();
+    });
+
+    // A starved page (#19761, op-next-cmdclick's runs on 10-13) measures the fold Find opened for
+    // seconds, and each late measure pushes the match down. Find holds it in view until it stops
+    // moving, not for a fixed 600 ms: here the match moves down for 2 s from when it is drawn, inside
+    // its command's capped output (a scroller of its own), so the hold must scroll that box too.
+    test("keeps a Find match in view while what is above it keeps measuring", async () => {
+      if (!installed) return;
+      const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+      await openChat(page);
+      await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), "1504.40ms");
+      await page.waitForSelector(".acpmux-find .find-pill__field");
+      // As soon as the match is drawn, while Find is still bringing it into view.
+      await page.waitForFunction(
+        () =>
+          ((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active")?.size ??
+            0) > 0,
+        null,
+        { timeout: 10_000 },
+      );
+      await page.evaluate(async () => {
+        const range = [
+          ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ?? []),
+        ][0];
+        const block = range?.startContainer.parentElement;
+        if (!block) throw new Error("no current match");
+        // 40 steps of 20 px over 2 s: more than the output box and the viewport.
+        for (let step = 1; step <= 40; step += 1) {
+          block.style.marginTop = `${step * 20}px`;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      });
+      await settleInView(page);
+      expect((await state(page)).inView).toBe(true);
       await page.close();
     });
   });

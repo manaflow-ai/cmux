@@ -4,8 +4,14 @@
 use super::*;
 
 /// `session/update` kinds that carry no renderable transcript content.
-const NON_TRANSCRIPT_UPDATES: &[&str] =
-    &["usage_update", "available_commands_update", "current_mode_update", "config_option_update"];
+const NON_TRANSCRIPT_UPDATES: &[&str] = &[
+    "usage_update",
+    "available_commands_update",
+    "current_mode_update",
+    "config_option_update",
+    // A compaction's summary is context a handoff carries, not a chat row.
+    "compaction_summary",
+];
 
 /// Mux records a chat client renders. `turn_end` and `turn_error` are left
 /// out because every turn also records `turn_result`.
@@ -15,6 +21,12 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "dequeued",
     "queue_removed",
     "prompt_retracted",
+    // Edit queued prompt, Move up / Move down, and a queue a failed turn holds:
+    // the queue a chat client shows changes with them.
+    "queue_updated",
+    "queue_order",
+    "queue_paused",
+    "queue_resumed",
     "turn_started",
     "turn_result",
     "permission_request",
@@ -32,6 +44,12 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "model",
     "stopped",
     "exited",
+    // The agent process started again: a client reads a subagent the old
+    // process left running as stopped, as `processes.rs` does its processes.
+    "resumed",
+    "reopened",
+    "host_started",
+    "host_ended",
 ];
 
 /// Which records a page or a live event stream carries. `kinds` entries are
@@ -181,5 +199,48 @@ impl Hub {
         found.reverse();
         page.events = found;
         Ok(page)
+    }
+}
+
+#[cfg(test)]
+mod transcript_kind_tests {
+    use super::*;
+
+    fn mux(kind: &str) -> EventRecord {
+        EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg: json!({}),
+            host_seq: None,
+        }
+    }
+
+    /// A chat client that follows `transcript` sees every change to the
+    /// queue it shows: Edit queued prompt (`queue_updated`), Move up / Move
+    /// down (`queue_order`), and a queue held after a failed turn.
+    #[test]
+    fn queue_edits_are_transcript_records() {
+        for kind in [
+            "queued",
+            "dequeued",
+            "queue_removed",
+            "queue_updated",
+            "queue_order",
+            "queue_paused",
+            "queue_resumed",
+        ] {
+            assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
+        }
+    }
+
+    /// A chat client reads a subagent nothing will end any more as stopped
+    /// when the agent process behind the chat went away or started again.
+    #[test]
+    fn agent_process_changes_are_transcript_records() {
+        for kind in ["stopped", "exited", "resumed", "reopened", "host_started", "host_ended"] {
+            assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
+        }
     }
 }

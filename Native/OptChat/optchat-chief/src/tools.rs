@@ -54,11 +54,277 @@ pub trait Orchestrator: Send + Sync {
         let _ = effort;
         self.spawn(tasks, cwd)
     }
+    /// `spawn` at `effort` and `place` (`"cloud"`: on the cloud peer,
+    /// `"local"`: on this host; None: the saved default
+    /// (`control cloud`), else `OPTCHAT_SUBAGENT_PEER`, else local).
+    fn spawn_placed(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+    ) -> Result<String, String> {
+        let _ = place;
+        self.spawn_with_effort(tasks, cwd, effort)
+    }
     /// Sends `message` to subagent `id`.
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
+    /// `tell` with an idempotency key: a repeat of `key` is not sent again.
+    fn tell_keyed(&self, id: &str, message: &str, key: Option<&str>) -> Result<String, String> {
+        let _ = key;
+        self.tell(id, message)
+    }
+    /// `tell_keyed` with `queue`: true waits for the running turn (a
+    /// low-priority FYI) instead of interrupting it.
+    fn tell_with(
+        &self,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+        queue: bool,
+    ) -> Result<String, String> {
+        let _ = queue;
+        self.tell_keyed(id, message, key)
+    }
+    /// `control(action, ...)`: see, interrupt, answer, pause, resume,
+    /// cancel, restart, reorder subagents and set the live cap.
+    fn control(&self, request: ControlCall) -> Result<String, String> {
+        let _ = request;
+        Err("this Chief host has no subagent control".into())
+    }
     /// Subagent `id`'s whole chat (`zoom("a<N>")`), one page from
     /// character `at`.
     fn agent_chat(&self, id: &str, at: u64) -> Result<String, String>;
+    /// `react(id, reaction)`: a tapback on the user message of view line `id`.
+    fn react(&self, id: u64, reaction: &str) -> Result<String, String> {
+        let _ = (id, reaction);
+        Err("this Chief host cannot react".into())
+    }
+    /// `reply(id, text)`: `text` now, in the thread of the user message of
+    /// view line `id`.
+    fn reply(&self, id: u64, text: &str) -> Result<String, String> {
+        let _ = (id, text);
+        Err("this Chief host cannot reply in a thread".into())
+    }
+    /// `send(text, attachments, reply_to)`: one message posted now.
+    fn send(&self, call: SendCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host cannot send".into())
+    }
+    /// `stop()`: ends the running turn now; its final text is not posted.
+    fn stop_turn(&self) -> Result<String, String> {
+        Err("this Chief host cannot stop a turn".into())
+    }
+    /// `sleep(seconds, note, until)`: ends the turn and wakes the Chief later.
+    fn sleep(&self, call: SleepCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host cannot sleep".into())
+    }
+    /// `escalate_auth`: subagent `agent` needs the user's sign-in; the Chief
+    /// gets it as an urgent note (ahead of the queue, steered into a running
+    /// turn) and drives the sign-in (skill `chief-auth-escalation`).
+    fn escalate_auth(&self, agent: &str, request: &AuthEscalation) -> Result<String, String> {
+        let _ = (agent, request);
+        Err("this Chief host takes no sign-in escalations".into())
+    }
+    /// `peers` for subagent `caller`: every other subagent with its title
+    /// and state (acp-chief-issues.md #11).
+    fn peers(&self, caller: &str) -> Result<String, String> {
+        let _ = caller;
+        Err("this Chief host runs no subagents".into())
+    }
+    /// `tell` from subagent `from` to subagent `id`: the message says who
+    /// sent it; never to itself.
+    fn peer_tell(
+        &self,
+        from: &str,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+    ) -> Result<String, String> {
+        let _ = (from, id, message, key);
+        Err("this Chief host runs no subagents".into())
+    }
+}
+
+/// One `send` call (plans/cmux-next/chief-tools-DESIGN.md).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SendCall {
+    /// The message's Markdown text.
+    pub text: Option<String>,
+    /// Local paths (`/abs`, `~/rel`, `file://`) uploaded as attachments, or
+    /// `http(s)` URLs added as their own lines.
+    pub attachments: Vec<String>,
+    /// The view line id of the user message whose thread it goes into.
+    pub reply_to: Option<u64>,
+}
+
+impl SendCall {
+    fn parse(args: &Value) -> Result<SendCall, String> {
+        let text = args
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned);
+        let attachments: Vec<String> = match args.get("attachments") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(items)) => items
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(str::trim)
+                        .filter(|t| !t.is_empty())
+                        .map(str::to_owned)
+                        .ok_or("send: each attachment must be a path or URL text")
+                })
+                .collect::<Result<_, _>>()?,
+            Some(Value::String(one)) if !one.trim().is_empty() => vec![one.trim().to_owned()],
+            Some(_) => return Err("send: `attachments` must be a list of paths or URLs".into()),
+        };
+        if attachments.len() > MAX_SEND_ATTACHMENTS {
+            return Err(format!(
+                "send: at most {MAX_SEND_ATTACHMENTS} attachments per message"
+            ));
+        }
+        if text.is_none() && attachments.is_empty() {
+            return Err("send: give `text`, `attachments` or both".into());
+        }
+        let reply_to = match args.get("reply_to") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                    .ok_or("send: `reply_to` must be a message's line id")?,
+            ),
+        };
+        Ok(SendCall {
+            text,
+            attachments,
+            reply_to,
+        })
+    }
+
+    fn to_json(&self) -> Value {
+        let mut v = json!({"tool": "send"});
+        if let Some(t) = &self.text {
+            v["text"] = json!(t);
+        }
+        if !self.attachments.is_empty() {
+            v["attachments"] = json!(self.attachments);
+        }
+        if let Some(id) = self.reply_to {
+            v["reply_to"] = json!(id);
+        }
+        v
+    }
+}
+
+/// Most attachments one `send` takes.
+pub const MAX_SEND_ATTACHMENTS: usize = 10;
+
+/// Shortest `sleep` (a turn costs more than a shorter wait saves).
+pub const SLEEP_MIN_SECONDS: u64 = 30;
+/// Longest `sleep`: a day.
+pub const SLEEP_MAX_SECONDS: u64 = 86_400;
+
+impl SleepCall {
+    fn parse(args: &Value) -> Result<SleepCall, String> {
+        let seconds = args
+            .get("seconds")
+            .and_then(|v| {
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+            })
+            .ok_or("sleep: `seconds` must be a non-negative integer")?;
+        if seconds != 0 && !(SLEEP_MIN_SECONDS..=SLEEP_MAX_SECONDS).contains(&seconds) {
+            return Err(format!(
+                "sleep: `seconds` is {SLEEP_MIN_SECONDS} to {SLEEP_MAX_SECONDS} (0 clears every pending wake)"
+            ));
+        }
+        let text = |key: &str| {
+            args.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned)
+        };
+        let until = text("until");
+        if let Some(u) = until.as_deref()
+            && !matches!(u, "time" | "event")
+        {
+            return Err("sleep: `until` is time or event".into());
+        }
+        Ok(SleepCall {
+            seconds,
+            note: text("note"),
+            until,
+        })
+    }
+
+    fn to_json(&self) -> Value {
+        let mut v = json!({"tool": "sleep", "seconds": self.seconds});
+        if let Some(n) = &self.note {
+            v["note"] = json!(n);
+        }
+        if let Some(u) = &self.until {
+            v["until"] = json!(u);
+        }
+        v
+    }
+}
+
+/// One `sleep` call.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SleepCall {
+    /// How long until the wake; 0 clears every pending wake.
+    pub seconds: u64,
+    /// Why: shown in the wake note.
+    pub note: Option<String>,
+    /// `time` (default) or `event`.
+    pub until: Option<String>,
+}
+
+/// What a subagent's `escalate_auth` asks for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthEscalation {
+    /// The site's host name, for example `npmjs.com`.
+    pub site: String,
+    /// The page where the sign-in starts.
+    pub url: String,
+    /// Why the subagent needs it (one line).
+    pub reason: String,
+    /// One of [`AUTH_KINDS`].
+    pub kind: String,
+}
+
+/// The kinds of sign-in `escalate_auth` takes.
+pub const AUTH_KINDS: [&str; 4] = ["password", "passkey", "2fa", "oauth"];
+
+impl AuthEscalation {
+    /// The note the Chief reads: who, where, what, and the skill to follow.
+    pub fn note(&self, agent: &str) -> String {
+        format!(
+            "[{agent}] needs a sign-in ({kind}) on {site}: {reason}. Page: {url}. Urgent: follow the chief-auth-escalation skill now: open or reuse a browser tab in Home's right pane on that page, fill what you may (never read or type a password; use passkeys, the password manager's autofill or WebAuthn), press the passkey or security-key button so macOS shows the Touch ID sheet, then post one line \"Needs you: touch the sensor ({site})\", watch the tab and tell({agent}) when it is signed in.",
+            kind = self.kind,
+            site = self.site,
+            reason = self.reason,
+            url = self.url,
+        )
+    }
+}
+
+/// The subagent id (`a<N>`) in an acpmux session name
+/// (`optchat-sub-<home id>-a<N>`, maybe with acpmux's `-<n>` suffix).
+pub fn subagent_of_session(name: &str) -> Option<String> {
+    let rest = name.trim().strip_prefix("optchat-sub-")?;
+    // The home id first, then the subagent id.
+    rest.split('-')
+        .skip(1)
+        .find(|part| {
+            part.len() > 1 && part.starts_with('a') && part[1..].chars().all(|c| c.is_ascii_digit())
+        })
+        .map(str::to_owned)
 }
 
 /// What `chief zoom|date|spawn|tell WORDS` asks: the tool call, its usage
@@ -89,6 +355,30 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         ("spawn", tasks) if !tasks.is_empty() && tasks[0] != "--cwd" => {
             Call::parse("spawn", &serde_json::json!({"tasks": tasks}))
         }
+        ("react", [id, reaction]) => Call::parse(
+            "react",
+            &serde_json::json!({"id": id, "reaction": reaction}),
+        ),
+        ("reply", [id, text @ ..]) if !text.is_empty() => Call::parse(
+            "reply",
+            &serde_json::json!({"id": id, "text": text.join(" ")}),
+        ),
+        ("send", ["--reply-to", id, text @ ..]) if !text.is_empty() => Call::parse(
+            "send",
+            &serde_json::json!({"reply_to": id, "text": text.join(" ")}),
+        ),
+        ("send", text) if !text.is_empty() && text[0] != "--reply-to" => {
+            Call::parse("send", &serde_json::json!({"text": text.join(" ")}))
+        }
+        ("stop", []) => Call::parse("stop", &serde_json::json!({})),
+        ("sleep", [seconds, note @ ..]) => {
+            let mut v = serde_json::json!({"seconds": seconds});
+            if !note.is_empty() {
+                v["note"] = serde_json::json!(note.join(" "));
+            }
+            Call::parse("sleep", &v)
+        }
+        ("peers", []) => Call::parse("peers", &serde_json::json!({})),
         ("profile", []) => Call::parse("profile", &serde_json::json!({})),
         ("profile", [args]) => match serde_json::from_str::<Value>(args) {
             Ok(v @ Value::Object(_)) => Call::parse("profile", &v),
@@ -99,6 +389,42 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             Ok(v @ Value::Object(_)) => Call::parse("chiefs", &v),
             _ => return Ok(Command::Usage(usage(tool))),
         },
+        ("control", []) => Call::parse("control", &serde_json::json!({"action": "status"})),
+        ("control", ["status", id]) => Call::parse(
+            "control",
+            &serde_json::json!({"action": "status", "id": id}),
+        ),
+        ("control", ["cap", n]) => {
+            Call::parse("control", &serde_json::json!({"action": "cap", "n": n}))
+        }
+        ("control", ["cloud", peer]) => Call::parse(
+            "control",
+            &serde_json::json!({"action": "cloud", "peer": peer}),
+        ),
+        ("control", ["answer", id, option]) => Call::parse(
+            "control",
+            &serde_json::json!({"action": "answer", "id": id, "option": option}),
+        ),
+        ("control", [action, id, message @ ..]) => {
+            let mut v = serde_json::json!({"action": action, "id": id});
+            if !message.is_empty() {
+                v["message"] = serde_json::json!(message.join(" "));
+            }
+            Call::parse("control", &v)
+        }
+        ("control", [action]) => Call::parse("control", &serde_json::json!({"action": action})),
+        ("tell", ["--queue", id, message @ ..]) if !message.is_empty() => Call::parse(
+            "tell",
+            &serde_json::json!({"id": id, "message": message.join(" "), "queue": true}),
+        ),
+        ("escalate-auth" | "escalate_auth", [kind, site, url, reason @ ..])
+            if !reason.is_empty() =>
+        {
+            Call::parse(
+                "escalate_auth",
+                &serde_json::json!({"kind": kind, "site": site, "url": url, "reason": reason.join(" ")}),
+            )
+        }
         ("tell", [id, message @ ..]) if !message.is_empty() => Call::parse(
             "tell",
             &serde_json::json!({"id": id, "message": message.join(" ")}),
@@ -115,10 +441,21 @@ pub fn usage(tool: &str) -> String {
         match tool {
             "zoom" => "ID N | SUBAGENT [AT]",
             "date" => "ID",
+            "react" => "ID like|love|laugh|emphasize|question|dislike|ack",
+            "reply" => "ID \"text\"",
+            "send" => "[--reply-to ID] \"text\"",
+            "stop" => "",
+            "sleep" => "SECONDS [\"note\"]",
+            "escalate-auth" | "escalate_auth" =>
+                "password|passkey|2fa|oauth SITE URL \"why you need it\"",
+            "peers" => "",
             "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
             "profile" => "['{\"role\": \"...\", \"avatar_path\": \"/path/pic.png\"}']",
             "chiefs" =>
                 "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
+            "control" =>
+                "status [ID] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N | cloud [PEER[,PEER...]|off]",
+            "tell" => "[--queue] ID \"message\"",
             _ => "ID \"message\"",
         }
     )
@@ -131,6 +468,101 @@ pub fn agent_id(id: &str) -> bool {
 
 /// The efforts `spawn` takes (acpmux maps them onto the harness's own).
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// Where `spawn` runs its subagents (`place`).
+pub const PLACES: [&str; 2] = ["cloud", "local"];
+
+/// The `control` tool's actions.
+pub const CONTROL_ACTIONS: [&str; 10] = [
+    "status",
+    "interrupt",
+    "answer",
+    "pause",
+    "resume",
+    "cancel",
+    "restart",
+    "priority",
+    "cap",
+    "cloud",
+];
+
+/// One `control` call.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ControlCall {
+    pub action: String,
+    pub id: Option<String>,
+    pub message: Option<String>,
+    pub option: Option<String>,
+    pub n: Option<u64>,
+    /// `cloud`: the acpmux peer cloud subagents run on, or `off`.
+    pub peer: Option<String>,
+}
+
+impl ControlCall {
+    fn parse(args: &Value) -> Result<ControlCall, String> {
+        let text = |key: &str| {
+            args.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned)
+        };
+        let action = text("action").unwrap_or_else(|| "status".to_owned());
+        if !CONTROL_ACTIONS.contains(&action.as_str()) {
+            return Err(format!(
+                "control: no action {action}; one of {}",
+                CONTROL_ACTIONS.join(", ")
+            ));
+        }
+        let n = match args.get("n") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                    .ok_or("control: `n` must be a non-negative integer")?,
+            ),
+        };
+        let call = ControlCall {
+            action,
+            id: text("id"),
+            message: text("message"),
+            option: text("option"),
+            n,
+            peer: text("peer"),
+        };
+        let needs_id = !matches!(call.action.as_str(), "status" | "cap" | "cloud");
+        if needs_id && call.id.is_none() {
+            return Err(format!("control {}: `id` is required", call.action));
+        }
+        if call.action == "answer" && call.option.is_none() {
+            return Err("control answer: `option` is required (an option id, or `deny`)".into());
+        }
+        if call.action == "cap" && call.n.is_none() {
+            return Err("control cap: `n` is required (0: no cap)".into());
+        }
+        Ok(call)
+    }
+
+    fn to_json(&self) -> Value {
+        let mut v = json!({"tool": "control", "action": self.action});
+        if let Some(id) = &self.id {
+            v["id"] = json!(id);
+        }
+        if let Some(m) = &self.message {
+            v["message"] = json!(m);
+        }
+        if let Some(o) = &self.option {
+            v["option"] = json!(o);
+        }
+        if let Some(n) = self.n {
+            v["n"] = json!(n);
+        }
+        if let Some(p) = &self.peer {
+            v["peer"] = json!(p);
+        }
+        v
+    }
+}
 
 /// One tool call.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -154,11 +586,48 @@ pub enum Call {
         cwd: Option<String>,
         /// How hard they think; None: as hard as the calling turn.
         effort: Option<String>,
+        /// `cloud` or `local`; None: the saved default (`control cloud`).
+        place: Option<String>,
     },
     Tell {
         id: String,
         message: String,
+        /// Idempotency key: a repeat is not sent again.
+        key: Option<String>,
+        /// Wait for the running turn instead of interrupting it (a
+        /// low-priority FYI); false: steer, else interrupt.
+        queue: bool,
     },
+    /// `react` (brain/replies.rs): a tapback on the user message of view
+    /// line `id`.
+    React {
+        id: u64,
+        reaction: String,
+    },
+    /// `reply` (brain/replies.rs): `text` now, in the thread of the user
+    /// message of view line `id`.
+    Reply {
+        id: u64,
+        text: String,
+    },
+    /// `send` (brain/send.rs): one message now, with files, optionally in
+    /// a thread.
+    Send(SendCall),
+    /// `stop` (brain/wakes.rs): ends the running turn now.
+    Stop,
+    /// `sleep` (brain/wakes.rs): ends the turn and wakes the Chief later.
+    Sleep(SleepCall),
+    /// `control` (brain/control.rs): subagent control.
+    Control(ControlCall),
+    /// `escalate_auth` (a subagent's only write tool): the Chief drives a
+    /// sign-in for it. `agent` is the caller's own id as it claims it; the
+    /// host prefers the id its session binding gives (turn_caller.rs).
+    EscalateAuth {
+        request: AuthEscalation,
+        agent: Option<String>,
+    },
+    /// `peers`: a subagent's list of the other subagents.
+    Peers,
     /// `profile` (chief_profile.rs): read or change the Chief's own record.
     Profile {
         args: Value,
@@ -233,7 +702,23 @@ impl Call {
                         EFFORTS.join(", ")
                     ));
                 }
-                Ok(Call::Spawn { tasks, cwd, effort })
+                let place = args
+                    .get("place")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|e| !e.is_empty())
+                    .map(str::to_owned);
+                if let Some(p) = place.as_deref()
+                    && !PLACES.contains(&p)
+                {
+                    return Err(format!("spawn: no place {p}; one of {}", PLACES.join(", ")));
+                }
+                Ok(Call::Spawn {
+                    tasks,
+                    cwd,
+                    effort,
+                    place,
+                })
             }
             "tell" => {
                 let text = |key: &str| {
@@ -247,8 +732,71 @@ impl Call {
                 Ok(Call::Tell {
                     id: text("id")?,
                     message: text("message")?,
+                    key: text("key").ok(),
+                    queue: args.get("queue").and_then(Value::as_bool).unwrap_or(false),
                 })
             }
+            "react" => {
+                let reaction = args
+                    .get("reaction")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .ok_or("react: `reaction` must be one of like, love, laugh, emphasize, question, dislike, ack, or one emoji")?;
+                crate::brain::reaction(reaction)?;
+                Ok(Call::React {
+                    id: num("id")?,
+                    reaction: reaction.to_owned(),
+                })
+            }
+            "reply" => {
+                let text = args
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .ok_or("reply: `text` must be a non-empty text")?;
+                Ok(Call::Reply {
+                    id: num("id")?,
+                    text: text.to_owned(),
+                })
+            }
+            "send" => SendCall::parse(args).map(Call::Send),
+            "stop" => Ok(Call::Stop),
+            "sleep" => SleepCall::parse(args).map(Call::Sleep),
+            "control" => ControlCall::parse(args).map(Call::Control),
+            "escalate_auth" => {
+                let text = |key: &str| {
+                    args.get(key)
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|t| !t.is_empty())
+                        .map(str::to_owned)
+                        .ok_or_else(|| format!("escalate_auth: `{key}` must be a non-empty text"))
+                };
+                let kind = text("kind")?.to_ascii_lowercase();
+                if !AUTH_KINDS.contains(&kind.as_str()) {
+                    return Err(format!(
+                        "escalate_auth: no kind {kind}; one of {}",
+                        AUTH_KINDS.join(", ")
+                    ));
+                }
+                let url = text("url")?;
+                if !(url.starts_with("https://") || url.starts_with("http://")) {
+                    return Err("escalate_auth: `url` must be an http(s) page".into());
+                }
+                let site = text("site")?;
+                Ok(Call::EscalateAuth {
+                    request: AuthEscalation {
+                        site,
+                        url,
+                        reason: text("reason")?,
+                        kind,
+                    },
+                    agent: text("agent").ok().filter(|a| agent_id(a)),
+                })
+            }
+            "peers" => Ok(Call::Peers),
             "profile" => {
                 let mut args = args.as_object().cloned().unwrap_or_default();
                 // The socket request's own keys are not the tool's arguments.
@@ -281,10 +829,18 @@ impl Call {
             Call::Date { id } => memory.date(id),
             Call::Spawn { .. }
             | Call::Tell { .. }
+            | Call::React { .. }
+            | Call::Reply { .. }
+            | Call::Send(_)
+            | Call::Stop
+            | Call::Sleep(_)
+            | Call::Control(_)
+            | Call::Peers
             | Call::ZoomAgent { .. }
+            | Call::EscalateAuth { .. }
             | Call::Profile { .. }
             | Call::Chiefs { .. } => {
-                "spawn, tell, profile, chiefs and a subagent's zoom are served by the Chief host"
+                "spawn, tell, peers, profile, chiefs and a subagent's zoom are served by the Chief host"
                     .to_owned()
             }
         }
@@ -295,8 +851,17 @@ impl Call {
             Call::Zoom { id, n } => json!({"tool": "zoom", "id": id, "n": n}),
             Call::ZoomAgent { id, at } => json!({"tool": "zoom", "id": id, "at": at}),
             Call::Date { id } => json!({"tool": "date", "id": id}),
-            Call::Spawn { tasks, cwd, effort } => {
+            Call::Peers => json!({"tool": "peers"}),
+            Call::Spawn {
+                tasks,
+                cwd,
+                effort,
+                place,
+            } => {
                 let mut v = json!({"tool": "spawn", "tasks": tasks});
+                if let Some(place) = place {
+                    v["place"] = json!(place);
+                }
                 if let Some(cwd) = cwd {
                     v["cwd"] = json!(cwd);
                 }
@@ -305,7 +870,42 @@ impl Call {
                 }
                 v
             }
-            Call::Tell { id, message } => json!({"tool": "tell", "id": id, "message": message}),
+            Call::Tell {
+                id,
+                message,
+                key,
+                queue,
+            } => {
+                let mut v = json!({"tool": "tell", "id": id, "message": message});
+                if let Some(key) = key {
+                    v["key"] = json!(key);
+                }
+                if *queue {
+                    v["queue"] = json!(true);
+                }
+                v
+            }
+            Call::React { id, reaction } => {
+                json!({"tool": "react", "id": id, "reaction": reaction})
+            }
+            Call::Reply { id, text } => json!({"tool": "reply", "id": id, "text": text}),
+            Call::Send(c) => c.to_json(),
+            Call::Stop => json!({"tool": "stop"}),
+            Call::Sleep(c) => c.to_json(),
+            Call::Control(c) => c.to_json(),
+            Call::EscalateAuth { request, agent } => {
+                let mut v = json!({
+                    "tool": "escalate_auth",
+                    "site": request.site,
+                    "url": request.url,
+                    "reason": request.reason,
+                    "kind": request.kind,
+                });
+                if let Some(agent) = agent {
+                    v["agent"] = json!(agent);
+                }
+                v
+            }
             Call::Profile { args } => {
                 let mut v = args.clone();
                 if !v.is_object() {
@@ -365,6 +965,11 @@ pub struct Served {
     /// This Chief's record and grant (chief_profile.rs); None: every tool,
     /// no `profile` (no registry, as before Chiefs had records).
     pub chief: Option<Arc<crate::chief_profile::ChiefTools>>,
+    /// How a caller is bound to its acpmux session (`turn_caller.rs`): only
+    /// a caller under one of this Chief's turn sessions gets `chiefs`, and a
+    /// caller under one of its subagents is a subagent whatever it says.
+    /// None: no caller is a turn.
+    pub turn: Option<crate::turn_caller::TurnBinding>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -387,6 +992,7 @@ pub fn serve_with(
             control,
             inspector: None,
             chief: None,
+            turn: None,
         },
     )
 }
@@ -410,6 +1016,26 @@ pub fn serve_all(path: &Path, served: Served) -> std::io::Result<()> {
 
 fn connection(conn: UnixStream, served: &Served) {
     let memory = &*served.memory;
+    // The caller's session role, read once, when a call first needs it.
+    let peer = crate::acpmux_peer::peer_pid(&conn).ok();
+    let role_cell = std::cell::OnceCell::new();
+    let role = || {
+        *role_cell.get_or_init(|| match (&served.turn, peer) {
+            (Some(binding), Some(pid)) => binding.role_of(pid),
+            _ => crate::turn_caller::Role::Other,
+        })
+    };
+    // The subagent id of a caller under a subagent session (its own
+    // session name, never the request's word): who a `tell` comes from.
+    let caller_cell = std::cell::OnceCell::new();
+    let caller = || {
+        caller_cell
+            .get_or_init(|| match (&served.turn, peer) {
+                (Some(binding), Some(pid)) => binding.subagent_of(pid),
+                _ => None,
+            })
+            .clone()
+    };
     let control = served.control.as_ref();
     let Ok(mut out) = conn.try_clone() else {
         return;
@@ -419,6 +1045,31 @@ fn connection(conn: UnixStream, served: &Served) {
         let answer = match serde_json::from_str::<Value>(&line) {
             Ok(req) => {
                 let tool = req.get("tool").and_then(Value::as_str).unwrap_or("");
+                // These are owner/host controls, not model tools. A caller
+                // bound to one of this Chief's subagent sessions never gets
+                // them, even if it clears the advisory `from` marker.
+                if matches!(
+                    tool,
+                    "settings"
+                        | "spawn_policy"
+                        | "engine"
+                        | "stop"
+                        | "inspect"
+                        | "grant"
+                        | "browse"
+                ) && role() == crate::turn_caller::Role::Subagent
+                {
+                    if writeln!(
+                        out,
+                        "{}",
+                        json!({"error": "subagents have no owner controls"})
+                    )
+                    .is_err()
+                    {
+                        return;
+                    }
+                    continue;
+                }
                 // Not a model tool: the `browse` command asks the live host.
                 if tool == "settings" || tool == "spawn_policy" {
                     let ask = match req.get("key").and_then(Value::as_str) {
@@ -488,10 +1139,16 @@ fn connection(conn: UnixStream, served: &Served) {
                 }
                 if tool == "inspect" {
                     let answer = match &served.inspector {
+                        // Changes only from a caller that is none of the
+                        // Chief's own sessions (the app through its daemon,
+                        // the owner's CLI): the Chief never rewrites its memory.
                         Some(inspector) => crate::inspect::tool_answer(
                             inspector,
                             &req,
                             crate::inspect::INSPECT_MAX_BYTES,
+                            role() == crate::turn_caller::Role::Other
+                                && req.get("from").and_then(Value::as_str) != Some("subagent")
+                                && !peer.is_some_and(crate::turn_caller::under_this_process),
                         ),
                         None => {
                             json!({"status": 503, "error": "the inspector is off on this host"})
@@ -520,25 +1177,54 @@ fn connection(conn: UnixStream, served: &Served) {
                     }
                     continue;
                 }
-                // A subagent's tools (its MCP server or launcher) say so:
-                // section 9 gives subagents zoom and date, not spawn.
-                let subagent = req.get("from").and_then(Value::as_str) == Some("subagent");
+                // Section 9 gives subagents zoom and date, not spawn. A
+                // caller under a subagent session is one whatever it says;
+                // its tools (MCP server or launcher) also say so, which can
+                // only add the refusal.
+                let subagent = req.get("from").and_then(Value::as_str) == Some("subagent")
+                    || role() == crate::turn_caller::Role::Subagent;
                 let grant = served.chief.as_ref().map(|c| c.grant());
                 let grant = grant.as_ref();
                 let answer = match Call::parse(tool, &req) {
+                    // A subagent tells another subagent (acp-chief-issues.md
+                    // #11), as the one its session is; never as the Chief.
+                    Ok(Call::Tell {
+                        id, message, key, ..
+                    }) if subagent => match (&served.orchestrator, caller()) {
+                        (Some(o), Some(from)) => o.peer_tell(&from, &id, &message, key.as_deref()),
+                        (Some(_), None) => Err(
+                            "tell: only a subagent session of this Chief may tell another subagent"
+                                .to_owned(),
+                        ),
+                        (None, _) => Err("this Chief host runs no subagents".to_owned()),
+                    },
+                    Ok(Call::Peers) => match &served.orchestrator {
+                        Some(o) => o.peers(&caller().unwrap_or_default()),
+                        None => Err("this Chief host runs no subagents".to_owned()),
+                    },
                     Ok(
                         Call::Spawn { .. }
-                        | Call::Tell { .. }
+                        | Call::React { .. }
+                        | Call::Reply { .. }
+                        | Call::Send(_)
+                        | Call::Stop
+                        | Call::Sleep(_)
+                        | Call::Control(_)
                         | Call::Profile { .. }
                         | Call::Chiefs { .. },
-                    ) if subagent => {
-                        Err("subagents have no spawn, tell, profile or chiefs".to_owned())
-                    }
+                    ) if subagent => Err(
+                        "subagents have no spawn, react, reply, send, stop, sleep, control, profile or chiefs"
+                            .to_owned(),
+                    ),
                     // `chiefs` only for this host's own turn: the turn key the
-                    // host gave its turn sessions alone (rule C: a subagent,
-                    // or any process without it, gets nothing).
+                    // host gave its turn sessions alone, from a caller that
+                    // runs under one of them (rule C: a subagent, any other
+                    // session or process, with the key or not, gets nothing).
                     Ok(Call::Chiefs { args, turn_key }) => match &served.chief {
-                        Some(chief) if chief.is_turn(turn_key.as_deref()) => {
+                        Some(chief)
+                            if chief.is_turn(turn_key.as_deref())
+                                && role() == crate::turn_caller::Role::Turn =>
+                        {
                             chief.chiefs_call(&args)
                         }
                         Some(_) => Err(NOT_THE_TURN.to_owned()),
@@ -548,21 +1234,78 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Spawn { .. }) if grant.is_some_and(|g| !g.allows("spawn")) => {
                         Err(crate::chief_profile::Grant::refusal("spawn"))
                     }
-                    Ok(Call::Tell { .. }) if grant.is_some_and(|g| !g.allows("tell")) => {
+                    // control rides on the tell grant: both steer subagents.
+                    Ok(Call::Tell { .. } | Call::Control(_))
+                        if grant.is_some_and(|g| !g.allows("tell")) =>
+                    {
                         Err(crate::chief_profile::Grant::refusal("tell"))
                     }
                     Ok(Call::Profile { args }) => match &served.chief {
                         Some(chief) => chief.profile_call(&args),
                         None => Err(crate::chief_profile::Grant::refusal("profile")),
                     },
-                    Ok(Call::Spawn { tasks, cwd, effort }) => match &served.orchestrator {
-                        Some(o) => o.spawn_with_effort(tasks, cwd, effort),
+                    Ok(Call::Spawn {
+                        tasks,
+                        cwd,
+                        effort,
+                        place,
+                    }) => match &served.orchestrator {
+                        Some(o) => o.spawn_placed(tasks, cwd, effort, place),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
-                    Ok(Call::Tell { id, message }) => match &served.orchestrator {
-                        Some(o) => o.tell(&id, &message),
+                    Ok(Call::Tell {
+                        id,
+                        message,
+                        key,
+                        queue,
+                    }) => match &served.orchestrator {
+                        Some(o) => o.tell_with(&id, &message, key.as_deref(), queue),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
+                    Ok(Call::React { id, reaction }) => match &served.orchestrator {
+                        Some(o) => o.react(id, &reaction),
+                        None => Err("this Chief host has no conversation to react in".to_owned()),
+                    },
+                    Ok(Call::Reply { id, text }) => match &served.orchestrator {
+                        Some(o) => o.reply(id, &text),
+                        None => Err("this Chief host has no conversation to reply in".to_owned()),
+                    },
+                    Ok(Call::Send(call)) => match &served.orchestrator {
+                        Some(o) => o.send(call),
+                        None => Err("this Chief host has no conversation to send in".to_owned()),
+                    },
+                    Ok(Call::Stop) => match &served.orchestrator {
+                        Some(o) => o.stop_turn(),
+                        None => Err("this Chief host runs no turns".to_owned()),
+                    },
+                    Ok(Call::Sleep(call)) => match &served.orchestrator {
+                        Some(o) => o.sleep(call),
+                        None => Err("this Chief host runs no turns".to_owned()),
+                    },
+                    Ok(Call::Control(request)) => match &served.orchestrator {
+                        Some(o) => o.control(request),
+                        None => Err("this Chief host runs no subagents".to_owned()),
+                    },
+                    // Only a subagent escalates; its id comes from its bound
+                    // session when there is one, else from what it says.
+                    Ok(Call::EscalateAuth { request, agent }) => {
+                        let bound = match (&served.turn, peer) {
+                            (Some(binding), Some(pid)) => binding.subagent_of(pid),
+                            _ => None,
+                        };
+                        match (&served.orchestrator, bound.or(agent)) {
+                            (_, None) if !subagent => Err(
+                                "escalate_auth is a subagent's tool; the Chief drives sign-ins itself"
+                                    .to_owned(),
+                            ),
+                            (_, None) => Err(
+                                "escalate_auth: cannot tell which subagent you are; pass `agent` (a<N>)"
+                                    .to_owned(),
+                            ),
+                            (Some(o), Some(id)) => o.escalate_auth(&id, &request),
+                            (None, Some(_)) => Err("this Chief host runs no subagents".to_owned()),
+                        }
+                    }
                     // A subagent may read another's chat too (the reference
                     // client gives zoom to every agent).
                     Ok(Call::ZoomAgent { id, at }) => match &served.orchestrator {
@@ -610,8 +1353,26 @@ pub fn ask(path: &Path, call: Call) -> Result<String, String> {
     ask_json(path, &call.to_json())
 }
 
+/// `call` with the caller's own subagent id when it is an `escalate_auth`
+/// that names none: from `ACPMUX_SESSION_NAME` (acpmux sets it for every
+/// agent it starts, and a subagent's tools inherit it).
+pub fn with_caller(call: Call, session_name: Option<&str>) -> Call {
+    match call {
+        Call::EscalateAuth {
+            request,
+            agent: None,
+        } => Call::EscalateAuth {
+            request,
+            agent: session_name.and_then(subagent_of_session),
+        },
+        other => other,
+    }
+}
+
 /// Asks the host on `path` as a subagent's tools (no spawn, no tell).
 pub fn ask_as(path: &Path, call: Call, subagent: bool) -> Result<String, String> {
+    let name = std::env::var("ACPMUX_SESSION_NAME").ok();
+    let call = with_caller(call, name.as_deref());
     let mut request = call.to_json();
     if subagent {
         request["from"] = json!("subagent");

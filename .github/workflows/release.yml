@@ -351,7 +351,10 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+          DERIVED_PUBLIC_KEY=$(
+            printf '%s' "$SPARKLE_PRIVATE_KEY" |
+              env -u SPARKLE_PRIVATE_KEY swift scripts/derive_sparkle_public_key.swift --stdin
+          )
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
@@ -385,6 +388,13 @@ jobs:
         run: |
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
+          # The remote browser host the Embed remote browser host phase puts in
+          # Contents/Helpers (phone browser tabs, arm64). From R2 with the same key;
+          # unavailable, the app builds without it (the phase warns). A digest
+          # mismatch fails here. The tailnet store is not reachable from runners.
+          if [[ -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
+            CMUX_RB_HOST_NO_STORE=1 scripts/cmux-next/ensure-remote-browser-host.sh --optional >/dev/null
+          fi
 
       # THIRD_PARTY_LICENSES.md for exactly what this release bundles: the
       # daemon, app host and Cloud server come from this commit's cmux-tui tree

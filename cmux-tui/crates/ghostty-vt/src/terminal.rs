@@ -460,6 +460,24 @@ impl Terminal {
             unsafe { sys::ghostty_terminal_free(raw) };
             return Err(error);
         }
+        // Grapheme clustering (DEC mode 2027) defaults on, as Ghostty's
+        // `grapheme-width-method = unicode` default sets it in every viewer
+        // that loads a Ghostty config. With it off here the host grid and the
+        // viewers disagree on emoji widths, so cursors and reflow drift apart.
+        let grapheme_default = sys::GhosttyTerminalModeConfig {
+            mode: sys::ghostty_mode_new(2027, false),
+            value: true,
+        };
+        if let Err(error) = check(unsafe {
+            sys::ghostty_terminal_set(
+                raw,
+                sys::GHOSTTY_TERMINAL_OPT_MODE_DEFAULT,
+                (&grapheme_default as *const sys::GhosttyTerminalModeConfig).cast(),
+            )
+        }) {
+            unsafe { sys::ghostty_terminal_free(raw) };
+            return Err(error);
+        }
 
         let mut term = Terminal {
             raw,
@@ -1020,9 +1038,9 @@ impl Terminal {
             cell_width: cell_width_px,
             cell_height: cell_height_px,
         };
-        self.bump_history_epoch();
-        self.reset_history_anchor();
         if reflows {
+            self.bump_history_epoch();
+            self.reset_history_anchor();
             self.history_markers_reflowed();
         }
         Ok(())

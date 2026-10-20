@@ -135,6 +135,14 @@ final class SidebarRegionView: NSView {
         apply(shown)
     }
 
+    /// Lays the shown content out again at `width` when that differs from the width it was
+    /// laid out at: a list block's row is resized with the list (a sidebar resize), and its
+    /// rows must take the new width, not keep the one they were first laid out at.
+    func fit(width: CGFloat) {
+        guard width != self.width, let content else { return }
+        update(content, width: width)
+    }
+
     /// Shows `content` (a list block, `SidebarBlockRowView`): animated, the
     /// items spring to their new frames, as the list's rows do for a gap.
     func show(_ content: Content, width: CGFloat, animated: Bool) {
@@ -172,7 +180,7 @@ final class SidebarRegionView: NSView {
         layoutResult = Self.layout(shown, width: width)
         if layoutResult.height != height { onHeightChange?() }
         guard animated else { return apply(shown) }
-        Motion.animate(.move, in: self, {
+        Motion.sidebar.animate(.move, in: self, {
             self.animatesFrames = true
             self.apply(shown)
             self.animatesFrames = false
@@ -191,20 +199,7 @@ final class SidebarRegionView: NSView {
     private static func layout(_ content: Content, width: CGFloat) -> SidebarRegionLayout {
         SidebarRegionLayout.make(sections: content.sections, width: width, look: content.look,
                                  collapsed: content.collapsed, metrics: content.metrics,
-                                 labelWidths: labelWidths(content), appHeights: content.appHeights,
-                                 iconWidths: iconWidths(content))
-    }
-
-    /// Icon-only items wider than a square: the profile avatar and its
-    /// chevron (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2).
-    private static func iconWidths(_ content: Content) -> [LayoutItemID: CGFloat] {
-        var widths: [LayoutItemID: CGFloat] = [:]
-        for section in content.sections {
-            for item in section.items where content.infos[item.id]?.avatar != nil {
-                widths[item.id] = SidebarStyle.avatarControlWidth
-            }
-        }
-        return widths
+                                 labelWidths: labelWidths(content, width: width), appHeights: content.appHeights)
     }
 
     private func place(_ view: NSView, _ frame: CGRect, new: Bool = false) {
@@ -212,16 +207,25 @@ final class SidebarRegionView: NSView {
         if animatesFrames, !new { view.animator().frame = frame } else if springsFrames { Motion.withoutAnimation { view.frame = frame } } else { view.frame = frame }
     }
 
-    /// Icon + label width of every item of an inline section.
-    private static func labelWidths(_ content: Content) -> [LayoutItemID: CGFloat] {
+    /// Icon + label width of every item of an inline section; the profile
+    /// control's avatar + name width where the line has room for it.
+    private static func labelWidths(_ content: Content, width: CGFloat) -> [LayoutItemID: CGFloat] {
         var widths: [LayoutItemID: CGFloat] = [:]
         let font = SidebarStyle.titleFont
+        let line = width - content.metrics.inset * 2
         // Inline lines and span grids (R53) draw labeled items with icon and label.
         for section in content.sections where section.arrangement.layout == .inline
             || (section.arrangement.layout == .grid && section.items.contains { $0.span != nil }) {
-            for item in section.items where item.showsLabel {
+            for item in section.items {
                 let info = content.infos[item.id] ?? .fallback(for: item)
-                widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, activity: info.activity != .idle)
+                // The profile control alone on an inline line (the default footer) is one chip,
+                // avatar, name and chevron, whether or not the item asks for a label (Leo
+                // 2026-10-20, #14893); without room, or beside other items, it keeps its look.
+                if info.avatar != nil, section.arrangement.layout == .inline, section.items.count == 1 {
+                    widths[item.id] = SidebarItemRowView.profileChipWidth(rowHeight: content.metrics.rowHeight, available: line)
+                } else if item.showsLabel {
+                    widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, activity: info.activity != .idle)
+                }
             }
         }
         return widths
@@ -238,6 +242,7 @@ final class SidebarRegionView: NSView {
                 let new = headerViews[id] == nil
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
+                view.setAccessibilityIdentifier("cmux.sidebar.region.\(id.rawValue)")
                 place(view, row.frame, new: new)
             case let .app(id):
                 guard let section = sections[id], let view = appViews[id] ?? appView?(section) else { continue }
@@ -268,6 +273,7 @@ final class SidebarRegionView: NSView {
                 default: section.look == .builtIn ? .builtIn : .list
                 }
                 view.configure(activeInfo(content.infos[id] ?? .fallback(for: item), id), style: style)
+                view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
                 view.activatesOnPress = item.ref.activatesOnPress
                 place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for

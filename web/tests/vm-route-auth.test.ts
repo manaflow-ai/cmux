@@ -226,7 +226,7 @@ const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const cmuxRemoteApproveRoute = await import("../app/api/vm/[id]/cmux-remote/approve/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
 const forkRoute = await import("../app/api/vm/[id]/fork/route");
-const _snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
+const snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
 const { POST: tunnelPOST, GET: tunnelGET } = await import("../app/api/vm/tunnel/route");
 const revokeAccessRoute = await import("../app/api/vm/leases/revoke/route");
@@ -1655,6 +1655,9 @@ describe("VM REST auth", () => {
       amount: 1,
       details: { amount: 1 },
       message: "This team has no Cloud VM create credits left.",
+      upgradeRequired: true,
+      upgradePlanId: "max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_create_credits",
     });
   });
 
@@ -1716,6 +1719,9 @@ describe("VM REST auth", () => {
       error: "vm_create_credits_insufficient",
       amount: 1,
       message: "Your account has no Cloud VM create credits left.",
+      upgradeRequired: true,
+      upgradePlanId: "max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_create_credits",
     });
     expect(payload.message).not.toContain("team");
     expect(payload.action).not.toContain("team");
@@ -2798,6 +2804,48 @@ describe("VM REST auth", () => {
     expect(payload.message).toContain("Cloud VM service");
     expect(payload.action).toContain("default Cloud VM service");
     expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("rejects overlong idempotency keys before every provider allocation workflow", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const headers = {
+      "idempotency-key": "x".repeat(129),
+      origin: "https://cmux.test",
+    };
+    const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
+    const routes = [
+      () => POST(new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      })),
+      () => forkRoute.POST(new Request("https://cmux.test/api/vm/provider-vm-1/fork", {
+        method: "POST",
+        headers,
+        body: "{}",
+      }), context),
+      () => snapshotRoute.POST(new Request("https://cmux.test/api/vm/provider-vm-1/snapshot", {
+        method: "POST",
+        headers,
+        body: "{}",
+      }), context),
+      () => restoreRoute.POST(new Request("https://cmux.test/api/vm/restore", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ snapshotId: "snapshot-1" }),
+      })),
+    ];
+
+    for (const invoke of routes) {
+      runVmWorkflow.mockClear();
+      const response = await invoke();
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: "vm_idempotency_key_too_long",
+        details: { maxLength: 128 },
+      });
+      expect(runVmWorkflow).not.toHaveBeenCalled();
+    }
   });
 
   test("returns client errors for invalid restore request bodies", async () => {

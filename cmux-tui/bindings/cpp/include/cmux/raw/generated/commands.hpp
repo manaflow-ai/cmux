@@ -85,7 +85,11 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_conversation_snapshot(const CloudConversationSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_subscribe(const CloudConversationSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_thread(const CloudConversationThreadRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_typing(const CloudConversationTypingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_unsubscribe(const CloudConversationUnsubscribeRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_host_replica_clear(const CloudHostReplicaClearRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_host_replica_set(const CloudHostReplicaSetRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_host_replica_status(const CloudHostReplicaStatusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_inbox_list(const CloudInboxListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_inbox_op(const CloudInboxOpRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_inbox_subscribe(const CloudInboxSubscribeRequest& request = {}, RequestOptions options = {});
@@ -94,6 +98,7 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_mux_subscribe(const CloudMuxSubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_mux_unsubscribe(const CloudMuxUnsubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_participant_avatar_get(const CloudParticipantAvatarGetRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_requests_list(const CloudRequestsListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_clear(const CloudSessionClearRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_set(const CloudSessionSetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_status(const CloudSessionStatusRequest& request = {}, RequestOptions options = {});
@@ -181,6 +186,7 @@ public:
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer_by_terminal(const MintTerminalRendererByTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BookmarkChangeResult> move_bookmark(const MoveBookmarkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_browser_profile(const MoveBrowserProfileRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> move_column(const MoveColumnRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_personal_group(const MovePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_profile(const MoveProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_screen(const MoveScreenRequest& request, RequestOptions options = {});
@@ -213,6 +219,7 @@ public:
     [[nodiscard]] Result<JsonValue> page_credential(const PageCredentialRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> pairing_response(const PairingResponseRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PaneNeighborResult> pane_neighbor(const PaneNeighborRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> park_tabs(const ParkTabsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PasteImageResult> paste_image(const PasteImageRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> pin_workspace(const PinWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PingResult> ping(const PingRequest& request = {}, RequestOptions options = {});
@@ -290,6 +297,7 @@ public:
     [[nodiscard]] Result<TerminalHistoryPagesResult> terminal_history(const TerminalHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalReadRangeResult> terminal_read_range(const TerminalReadRangeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalResourcesResult> terminal_resources(const TerminalResourcesRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalResumeCommandResult> terminal_resume_command(const TerminalResumeCommandRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<LayoutUndoResult> undo_layout(const UndoLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> ungroup_screen_group(const UngroupScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<UngroupTabGroupResult> ungroup_tab_group(const UngroupTabGroupRequest& request, RequestOptions options = {});

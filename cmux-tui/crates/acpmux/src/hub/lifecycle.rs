@@ -28,6 +28,7 @@ impl Hub {
             workspace_id,
             keep_harness_mode,
             route,
+            subsession,
         } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
@@ -124,6 +125,7 @@ impl Hub {
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
+        meta.subsession = subsession;
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
@@ -175,6 +177,8 @@ impl Hub {
                             "session name {n:?} is taken"
                         )));
                     }
+                    // Named by the person: no generated title (`titles.rs`).
+                    meta.title_source = Some(super::titles::NAMED.to_owned());
                     n
                 }
                 // A pooled harness was started under its name: keep it.
@@ -373,7 +377,7 @@ impl Hub {
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
             match self.adopt_pooled(session, pooled).await {
-                Ok(child) => return Ok(child),
+                Ok(child) => return Ok(self.keep_account_home(session, profile, child)),
                 // Not promotable: it was ended; start cold below.
                 Err(e) => tracing::warn!(session = %session.id, "pooled session not taken: {e:#}"),
             }
@@ -386,7 +390,7 @@ impl Hub {
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
         match tokio::time::timeout(budget, self.cold_start(session, profile)).await {
-            Ok(result) => result,
+            Ok(result) => result.map(|child| self.keep_account_home(session, profile, child)),
             Err(_) => {
                 self.abandon_cold_start(session, budget).await;
                 Err(RpcError::deadline_exceeded("agent_start", budget))
@@ -590,7 +594,10 @@ impl Hub {
             tokio::spawn(async move { hub.inbound_loop(s, rx).await });
         }
 
-        let init = child.request(method::INITIALIZE, super::pool::initialize_params()).await?;
+        let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
+            Ok(v) => v,
+            Err(e) => return Err(Self::explain_start_failure(session, e).await),
+        };
         let supports_load = init
             .get("agentCapabilities")
             .and_then(|c| c.get("loadSession"))
@@ -620,6 +627,7 @@ impl Hub {
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
                 if let Err(e) = primed {
+                    let e = Self::explain_start_failure(session, e).await;
                     return Err(RpcError::internal(format!("claude did not start: {}", e.message)));
                 }
             }
@@ -688,9 +696,13 @@ impl Hub {
         };
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
-            let res = child
+            let res = match child
                 .request(method::SESSION_NEW, self.acp_params(&session.id, &meta, profile, None))
-                .await?;
+                .await
+            {
+                Ok(v) => v,
+                Err(e) => return Err(Self::explain_start_failure(session, e).await),
+            };
             let sid = res
                 .get("sessionId")
                 .and_then(Value::as_str)

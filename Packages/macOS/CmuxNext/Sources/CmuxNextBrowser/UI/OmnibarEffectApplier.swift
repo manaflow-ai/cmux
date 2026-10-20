@@ -49,7 +49,15 @@ import Foundation
         applyPopup(presentation)
         guard let field, !field.hasMarkedText else { return }
         let signature = Written(text: presentation.text, style: presentation.style, editorActive: field.isFieldEditorActive)
-        if field.currentText != presentation.text || written != signature {
+        // Write only what the field lacks: other text, the field editor
+        // arriving or leaving (its text takes plain attributes, the resting
+        // field the compact URL style), or a new resting style. A keystroke
+        // the field editor already holds is never written back: replacing
+        // the editor's text storage on every key relaid the line and reset
+        // the caret (u2573: flashes while typing).
+        let editorChanged = written?.editorActive != signature.editorActive
+        let restingStyleChanged = !signature.editorActive && written?.style != signature.style
+        if field.currentText != presentation.text || editorChanged || restingStyleChanged {
             field.write(presentation.text, style: presentation.style)
             textWrites += 1
         }

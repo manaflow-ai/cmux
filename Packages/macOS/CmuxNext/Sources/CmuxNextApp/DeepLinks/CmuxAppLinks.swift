@@ -1,8 +1,10 @@
 import CmuxNextActions
+import CmuxNextLayout
 import Foundation
 
 /// A click on a cmux app link in rendered Markdown (the Home transcript, an agent chat, a
-/// Markdown file page) or a terminal: `cmux://workspace/<ws_…>`, `pane/<pane_…>`, `tab/<tab_…>`,
+/// Markdown file page) or a terminal: a path (`file:///…`, ``openPath(_:services:)``),
+/// `cmux://workspace/<ws_…>`, `pane/<pane_…>`, `tab/<tab_…>`,
 /// `session/<id>`, or a Chief subagent's `chief/<home id>/session/<id>` (optchat-chief
 /// `workspaces::subagent_link`). The Chief and its documents write the `cmux` scheme whatever the
 /// build, so the link is opened as this build's `link.open` (the one shared path) and never goes
@@ -16,9 +18,38 @@ enum CmuxAppLinks {
     @MainActor
     @discardableResult
     static func open(_ url: URL, services: AppServices) -> Bool {
+        if url.isFileURL { return openPath(url, services: services) }
         guard let link = link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost),
               let text = link.url(scheme: services.linkScheme)?.absoluteString else { return false }
         return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)], origin: .user))
+    }
+
+    /// A path link (`file:///…`: Home's form of a path an agent wrote): a file opens in the
+    /// file pages, a folder in a terminal started there, both beside the focused pane
+    /// (``LinkOpener``, which shows why a file cannot open). Never handed to the system. The disk check
+    /// runs off the main thread, after the click returns. False for a URL that is no
+    /// absolute file path.
+    @MainActor
+    static func openPath(_ url: URL, services: AppServices) -> Bool {
+        guard url.isFileURL, url.path.hasPrefix("/") else { return false }
+        let path = url.standardizedFileURL.path
+        // task-owner: one disk check, then one open
+        Task { @MainActor [weak services] in
+            let isDirectory = await Task.detached(priority: .userInitiated) { () -> Bool in
+                var directory: ObjCBool = false
+                return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+            }.value
+            guard let services else { return }
+            // Beside the pane the link was clicked from (LinkOpener): the pinned Home column, which
+            // takes no tabs, gets the pane on its right or a new split.
+            let source = services.windows.active?.focusedPane
+            if isDirectory {
+                services.linkOpener.openFolder(path, from: source)
+            } else {
+                services.linkOpener.openFile(URL(fileURLWithPath: path), from: source)
+            }
+        }
+        return true
     }
 
     /// The link `url` opens in this app, in the `cmux` scheme or `linkScheme` (this build's): a

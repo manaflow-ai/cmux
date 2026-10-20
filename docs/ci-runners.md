@@ -4,6 +4,14 @@
 
 ## Rules that must never be broken
 
+- Nightlies never use Blacksmith (user decision 2026-10-19). Every
+  `*nightly*.yml` and `*notarization*.yml` job compiles on the trusted minis
+  (`build-nightly-app`; cmux-tui macOS legs on `CI_SIDE_LANE_RUNNER`) or runs on
+  an ephemeral GitHub-hosted image (`ubuntu-24.04`, `macos-26`, `macos-15`):
+  signing, notarization and publishing stay ephemeral. These workflows read no
+  shared runner variable (`LINUX_RUNNER`, `MACOS_RUNNER_*`, ...), so those
+  variables cannot move a nightly back. `tests/test_ci_nightly_off_blacksmith.py`
+  enforces it.
 - CI is minis first. Blacksmith is overflow; do not disable an owned lane to
   make room for a dev build.
 - Every mini must have every pinned Xcode from
@@ -57,6 +65,7 @@ gh variable list --repo manaflow-ai/cmux
 | Variable | Used by | Intended steady state | Fallback baked into the workflow |
 | --- | --- | --- | --- |
 | `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
+| `LINUX_BUILD_RUNNER` | the cmux-tui tree's Linux musl and macOS-on-Linux build legs (`cmux-tui-build-package.yml`), which run every cargo group at once (`scripts/ci/cargo-groups.sh`) | unset | `blacksmith-16vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `CI_TRUSTED_RUNNER` | jobs holding trusted tokens that must run on an ephemeral VM: the required `backend migrations applied` check and `web-complexity-trusted.yml` (`validate-cla-policy.rb` accepts this exact selector for the CLA checks too, with a runner guard step that admits only GitHub-hosted runners and Blacksmith VMs; `cla.yml` and `cla-policy-guard.yml` pin `ubuntu-24.04` until they move to it). Only `ubuntu-24.04`, `blacksmith-2vcpu-ubuntu-2404` or `blacksmith-4vcpu-ubuntu-2404` is accepted; any other value, owned label included, falls back. Set it to `ubuntu-24.04` when Blacksmith stalls, or leave it unset when GitHub-hosted runners stall | unset | `blacksmith-4vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
@@ -875,7 +884,7 @@ incremental builds without trusting an old bundle stamp.
 | `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
 | `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, release and nightly Ghostty helpers | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
 | `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | Blacksmith | signing and store secrets; signing on an owned Mac is unproven |
-| `nightly.yml` `build-nightly-app` | one trusted runner on attempt 1: main push/schedule uses `CI_SEED_TRUSTED_POOL` plus `CI_NIGHTLY_TRUSTED_RUNNER`; a `nightly-next` push uses `CI_NIGHTLY_NEXT_TRUSTED_POOL` plus `CI_NIGHTLY_NEXT_TRUSTED_RUNNER`; Blacksmith 12 vCPU for `rc/**`, dispatches, fast dogfood and every re-run | ci-owned-pool-rescue.yml watches it (`NIGHTLY_WORKFLOW_PATH`): stuck one queue round past `CI_OWNED_POOL_RESCUE_SECONDS`, or refused, its failed jobs re-run on Blacksmith. Its compilation cache keys its own lineage (the mini's workspace path) |
+| `nightly.yml` `build-nightly-app` | one trusted runner on attempt 1: main push/schedule uses `CI_SEED_TRUSTED_POOL` plus `CI_NIGHTLY_TRUSTED_RUNNER`; a `nightly-next` push uses `CI_NIGHTLY_NEXT_TRUSTED_POOL` plus `CI_NIGHTLY_NEXT_TRUSTED_RUNNER`; GitHub-hosted `macos-26` for `rc/**`, dispatches, fast dogfood and every re-run (the trusted hooks refuse those) | ci-owned-pool-rescue.yml watches it (`NIGHTLY_WORKFLOW_PATH`): stuck one queue round past `CI_OWNED_POOL_RESCUE_SECONDS`, or refused, its failed jobs re-run on Blacksmith. Its compilation cache keys its own lineage (the mini's workspace path) |
 | `seed-derived-data` trusted pool | trusted owned pool, push to main | the minis' own j14 seed |
 | `nightly.yml` `refresh-compilation-cache`, `refresh-test-compilation-cache`, `seed-derived-data` Blacksmith pools | Blacksmith | they seed Blacksmith's own lanes: the release cache the nightly fallback restores, and the pull request admission seeds for each Blacksmith pool |
 | `build-ghosttykit`, `cmux-tui-build-package` (artifacts, nightly, release), `relay-publish-npm` | Blacksmith | publish with R2 or release secrets |

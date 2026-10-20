@@ -165,6 +165,24 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let deadline = Instant::now() + Duration::from_secs(10);
     let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
         Ok(identity) => identity,
+        // A timeout is a busy session, not a foreign one: say so, or the
+        // reader restarts a healthy session with another build.
+        Err(ExchangeError::Timeout) => {
+            return local_error(
+                "server.busy",
+                crate::localization::catalog().local_server.identity_timeout,
+                global.output,
+                3,
+            );
+        }
+        Err(ExchangeError::Closed | ExchangeError::Transport) => {
+            return local_error(
+                "server.unavailable",
+                crate::localization::catalog().local_server.communication_failed,
+                global.output,
+                3,
+            );
+        }
         Err(_) => {
             return local_error(
                 "server.identity_failed",
@@ -261,14 +279,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 Ok(stats) => print_success(stats, global.output),
                 Err(ExchangeError::Rejected(_error)) if !supports_stats => local_error(
                     "server.stats_unsupported",
-                    &format!(
-                        "{} {}",
-                        crate::localization::catalog().local_server.stats_unsupported,
-                        super::fix_command::restart_daemon(
-                            &super::fix_command::this_cli(),
-                            std::path::Path::new(&socket_output),
-                        )
-                    ),
+                    crate::localization::catalog().local_server.stats_unsupported,
                     global.output,
                     1,
                 ),

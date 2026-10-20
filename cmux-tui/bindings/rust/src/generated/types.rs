@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb.
+// cmux-tui mux protocol 12, IR 618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -358,6 +358,15 @@ pub struct CloseTerminalResult {
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ColumnMoveDirection {
+    #[serde(rename = "left")]
+    Left,
+    #[serde(rename = "right")]
+    Right,
 }
 
 #[rustfmt::skip]
@@ -926,6 +935,8 @@ pub struct IdMapping {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdentifyResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub api_revision: Optional<u32>,
     pub app: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_commit: Optional<String>,
@@ -935,10 +946,14 @@ pub struct IdentifyResult {
     pub capabilities: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cli_path: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub crate_version: Optional<String>,
     pub daemon_handoff: u64,
     pub generation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ghostty_commit: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub install: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub launch_snapshot_path: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -951,6 +966,8 @@ pub struct IdentifyResult {
     pub machine_name: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_platform: Option<MachinePlatform>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub min_api_revision: Optional<u32>,
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
@@ -958,6 +975,8 @@ pub struct IdentifyResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     pub terminal_revision: u64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub update_command: Optional<String>,
     pub version: String,
     pub workspace_revision: u64,
 }
@@ -2648,6 +2667,13 @@ pub struct TerminalResourcesResult {
     pub missing: Vec<Id>,
     pub sampled_at_ns: u64,
     pub terminals: Vec<TerminalResources>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalResumeCommandResult {
+    pub command: Nullable<String>,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]

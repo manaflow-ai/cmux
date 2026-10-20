@@ -4,7 +4,7 @@ import CmuxNextDaemon
 import ImageIO
 import UniformTypeIdentifiers
 
-/// What the sidebar shows, read from this Chief's files.
+/// What the Chief settings show, read from this Chief's files and its brain.
 public nonisolated struct HomeChiefSnapshot: Sendable {
     var harness: String?
     var model: String?
@@ -17,12 +17,16 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
     /// The brain's `offered` lists (empty until the brain answers).
     var models: [ChiefEngineReport.Model] = []
     var efforts: [String] = []
+    /// What the turns run on (engine.json over the brain's defaults), which
+    /// names each picker's "Default"; nil until the brain answers.
+    var effective: ChiefEngineReport.Engine?
 
-    /// This snapshot with `report`'s offered models and efforts.
+    /// This snapshot with `report`'s offered models and efforts and its effective engine.
     func offering(_ report: ChiefEngineReport) -> HomeChiefSnapshot {
         var snapshot = self
         snapshot.models = report.offered.models
         snapshot.efforts = report.offered.efforts
+        snapshot.effective = report.engine
         return snapshot
     }
 }
@@ -73,6 +77,11 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// The avatar value alone (text or a picture's file name).
     func avatar() -> String? { snapshot().avatar }
 
+    /// engine.json's harness, the brain's saved choice; nil when it saved none.
+    func engineHarness() -> String? {
+        (object(engineFile)["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     /// Whether an avatar value names a picture rather than text: a file
     /// name (no path) with an image extension, e.g. `"avatar": "cat.png"`.
     static func namesPicture(_ avatar: String) -> Bool {
@@ -89,36 +98,52 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// The pictures this writes beside profile.json; choosing another replaces them.
     static let pictureFiles = ["avatar.png", "avatar.gif"]
 
-    /// Makes `source` the Chief's picture (backgrounds plan phase 4): a GIF is copied as it is,
-    /// keeping its motion; a still is drawn at 512 px as a PNG, so a large photo stays small.
+    /// The picture `source` makes, as the Chief's picture is kept: a GIF as it is, keeping its
+    /// motion; a still drawn at 512 px as a PNG, so a large photo stays small.
     /// Throws when it is not a picture ImageIO reads, or a GIF over ``maximumGIFBytes``.
-    public func writePicture(from source: URL) throws {
+    public func pictureData(from source: URL) throws -> ChiefAvatarPicture {
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
         guard let image = CGImageSourceCreateWithURL(source as CFURL, nil), CGImageSourceGetCount(image) > 0,
               let type = (CGImageSourceGetType(image) as String?).flatMap(UTType.init) else { throw CocoaError(.fileReadCorruptFile) }
-        let folder = profileFile.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let gif = type.conforms(to: .gif)
-        let name = gif ? "avatar.gif" : "avatar.png"
-        let partial = folder.appendingPathComponent(name + ".app.tmp")
-        if gif {
+        if type.conforms(to: .gif) {
             let size = (try source.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0
             guard size <= Self.maximumGIFBytes else { throw CocoaError(.fileReadTooLarge) }
-            try? FileManager.default.removeItem(at: partial)
-            try FileManager.default.copyItem(at: source, to: partial)
-        } else {
-            let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
-                                            kCGImageSourceCreateThumbnailWithTransform: true,
-                                            kCGImageSourceThumbnailMaxPixelSize: 512]
-            guard let still = CGImageSourceCreateThumbnailAtIndex(image, 0, options as CFDictionary),
-                  let destination = CGImageDestinationCreateWithURL(partial as CFURL, UTType.png.identifier as CFString, 1, nil)
-            else { throw CocoaError(.fileReadCorruptFile) }
-            CGImageDestinationAddImage(destination, still, nil)
-            guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+            return ChiefAvatarPicture(mediaType: "image/gif", data: try Data(contentsOf: source))
         }
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                        kCGImageSourceCreateThumbnailWithTransform: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: 512]
+        let data = NSMutableData()
+        guard let still = CGImageSourceCreateThumbnailAtIndex(image, 0, options as CFDictionary),
+              let destination = CGImageDestinationCreateWithData(data as CFMutableData, UTType.png.identifier as CFString, 1, nil)
+        else { throw CocoaError(.fileReadCorruptFile) }
+        CGImageDestinationAddImage(destination, still, nil)
+        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        return ChiefAvatarPicture(mediaType: "image/png", data: data as Data)
+    }
+
+    /// Makes `source` the Chief's picture in its files (a cloud Chief's, which has no registry
+    /// on this Mac): ``pictureData(from:)`` beside profile.json.
+    public func writePicture(from source: URL) throws {
+        let picture = try pictureData(from: source)
+        let folder = profileFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let name = picture.mediaType == "image/gif" ? "avatar.gif" : "avatar.png"
+        let partial = folder.appendingPathComponent(name + ".app.tmp")
+        try? FileManager.default.removeItem(at: partial)
+        try picture.data.write(to: partial)
         for old in Self.pictureFiles { try? FileManager.default.removeItem(at: folder.appendingPathComponent(old)) }
         try FileManager.default.moveItem(at: partial, to: folder.appendingPathComponent(name))
         writeAvatar(name)
+    }
+
+    /// The picture file profile.json still names (from before the registry kept pictures), when it
+    /// can be read; nil for a text avatar or none.
+    func legacyPictureFile() -> URL? {
+        guard let avatar = avatar(), Self.namesPicture(avatar) else { return nil }
+        let file = profileFile.deletingLastPathComponent().appendingPathComponent(avatar)
+        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        return FileManager.default.isReadableFile(atPath: file.path) ? file : nil
     }
 
     /// Goes back to the bundled picture: no avatar, and the pictures this wrote removed.
@@ -151,9 +176,20 @@ public nonisolated struct HomeChiefFiles: Sendable {
         return .picture(Self.squared(file) ?? file)
     }
 
+    /// A stable short key of `path` (FNV-1a, as `ChiefHome.host` keys a mux home).
+    private static func pathKey(_ path: String) -> String {
+        var hash: UInt32 = 0x811c_9dc5
+        for byte in path.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 0x0100_0193
+        }
+        return String(format: "%08x", hash)
+    }
+
     /// A copy of a non-square picture cropped to its centred square, as the
     /// header draws it (the list stretches a picture over its disc), cached
-    /// by name and modification date; nil when it is square or unreadable.
+    /// by its path, name and modification date (one copy per Chief); nil when
+    /// it is square or unreadable.
     static func squared(_ file: URL) -> URL? {
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
@@ -166,7 +202,9 @@ public nonisolated struct HomeChiefFiles: Sendable {
         let directory = caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
             .appendingPathComponent("ChiefAvatar", isDirectory: true)
         let stamp = Int(modified?.timeIntervalSince1970 ?? 0)
-        let copy = directory.appendingPathComponent("\(file.deletingPathExtension().lastPathComponent)-\(stamp).png")
+        // Keyed by the picture's full path too: every Chief's file is `avatar.png`, so name and
+        // time alone gave two Chiefs saved in the same second one tile.
+        let copy = directory.appendingPathComponent("\(pathKey(file.path))-\(file.deletingPathExtension().lastPathComponent)-\(stamp).png")
         if FileManager.default.fileExists(atPath: copy.path) { return copy }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         guard let destination = CGImageDestinationCreateWithURL(copy as CFURL, UTType.png.identifier as CFString, 1, nil) else { return nil }

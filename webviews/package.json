@@ -4,15 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/pages/gen-strings.mjs --best-effort",
+    "postinstall": "bun scripts/pages/gen-strings.mjs --best-effort",
     "build": "node scripts/pages/gen-strings.mjs && bun run verify:tanstack-router && bun run typecheck && vp build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
-    "check": "bun run check:browser-lanes && bun run check:layers && bun run check:type-scale && bun run check:status-glyphs && bun run check:system-blue && bun run check:text-focus && vp check && bun run acpmux-protocol:check",
+    "check": "bun run check:browser-lanes && bun run check:layers && bun run check:type-scale && bun run check:status-glyphs && bun run check:system-blue && bun run check:text-focus && bun run check:dialog-keys && bun run check:switch-fetches && vp check && bun run acpmux-protocol:check",
     "check:layers": "python3 ../scripts/cmux-next/check-layers.py",
     "check:type-scale": "python3 ../scripts/cmux-next/gen-type-scale.py --check && python3 ../scripts/cmux-next/check-type-scale.py",
     "check:status-glyphs": "python3 ../scripts/cmux-next/gen-status-glyphs.py --check",
     "check:system-blue": "python3 ../scripts/cmux-next/check-system-blue.py",
     "check:text-focus": "python3 ../scripts/cmux-next/check-text-focus-rings.py",
+    "check:dialog-keys": "python3 -I ../scripts/cmux-next/check-dialog-key-hints.py ..",
+    "check:switch-fetches": "python3 -I ../scripts/cmux-next/check-switch-fetches.py --root ..",
     "check:browser-lanes": "bun scripts/check-browser-test-lanes.ts",
     "check:fix": "vp check --fix",
     "dev": "vp dev",
@@ -39,7 +41,7 @@
     "verify:tanstack-router": "node scripts/verify-tanstack-router-security.mjs",
     "react-doctor": "react-doctor . --full --no-score --fail-on none",
     "react-doctor:ci": "react-doctor . --full --no-score --fail-on none",
-    "gallery:build": "vp build --config vite.config.gallery.ts",
+    "gallery:build": "node scripts/pages/gen-strings.mjs && vp build --config vite.config.gallery.ts",
     "gallery:dev": "vp dev --config vite.config.gallery-dev.ts"
   },
   "dependencies": {

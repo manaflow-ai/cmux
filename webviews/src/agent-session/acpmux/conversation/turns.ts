@@ -12,8 +12,10 @@ import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
-import { editedPaths, toolLabel } from "../toolPaths";
+import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
+import { editedPaths, toolLabel } from "../toolPaths";
+import { isRunning } from "./toolGroups";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -359,7 +361,8 @@ function shapeTurn(
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
-  shaped.push(...turn.slice(end + 1).map(endedPlan));
+  // A turn the agent started on its own while still working keeps its plan live.
+  shaped.push(...turn.slice(end + 1).map(live ? (row) => row : endedPlan));
   return shaped;
 }
 
@@ -405,13 +408,24 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 }
 
 /// A row that draws under a finished turn's fold line rather than inside it: a subagent group,
-/// and the turn's todo list (cx-ncc.80), whose last state is what the turn got done.
+/// the turn's todo list (cx-ncc.80), whose last state is what the turn got done, and the notes
+/// below.
 const staysOut = (row: AcpmuxRow) =>
   isSubagentGroup(row) ||
   (row.kind === "plan" && row.plan !== undefined) ||
   row.kind === "backgroundTask" ||
+  // A compaction or a move to the fallback harness changes what the rest of the turn knows or
+  // who answers it; folded, nobody would see it happened.
+  row.kind === "compaction" ||
+  row.kind === "failover" ||
+  // A paused agent pair waits for the person's Resume.
+  row.kind === "agentPair" ||
+  // Where the session started: what it runs on and how it compacts.
+  row.kind === "sessionStart" ||
   // A session offer waits for the person's Start or Dismiss.
-  row.kind === "sessionOffer";
+  row.kind === "sessionOffer" ||
+  // What the person answered an agent's question, which shaped the rest of the turn.
+  row.kind === QUESTION_RECORD;
 
 /// A finished turn's todo list: a step the agent left in progress no longer spins. The version
 /// moves off the live one (v to 2v + 1), so the memoized row draws again when the turn ends.
@@ -436,7 +450,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
     { id, version: version * 2 + (open ? 1 : 0), at: user.at, kind: WORKED, previous },
     ...(open ? work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })) : []),
     ...before.filter(staysOut).map(endedPlan),
-    ...(final >= 0 ? rows.slice(final) : []),
+    ...(final >= 0 ? rows.slice(final).map(endedPlan) : []),
     ...editsCard(edits),
   ];
 }
@@ -464,6 +478,11 @@ function liveTurn(
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
+  // While a call runs the line names it, as Claude desktop's does (WorkingFor.tsx).
+  else {
+    const doing = inFlightTitle(last);
+    if (doing) status.doing = doing;
+  }
   // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
   // the stored one, so the row draws again, done, once another row follows it.
   const shown =
@@ -500,6 +519,18 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
   return `${label.split(/\s+/, 1)[0]} ${path.split("/").pop() || path}`;
+}
+
+/// The newest call still running in a live turn's latest row, by its title.
+function inFlightTitle(row: AcpmuxRow): string | undefined {
+  if (row.kind !== "activity") return undefined;
+  const items = row.items ?? [];
+  for (let index = items.length - 1; index >= 0; index--) {
+    const tool = items[index]?.tool;
+    // The row's own label, never the call's raw JSON input; a command reads as itself.
+    if (tool && isRunning(tool)) return toolLabel(tool, "", (command) => command).trim() || undefined;
+  }
+  return undefined;
 }
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): a run that text

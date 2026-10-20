@@ -49,6 +49,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "chrome-managed-policy.json",
   "cmux-bashrc",
   "cmux-devbox-boot",
+  "cmux-vm-kind-sync",
   "cmux-tui-state-mount",
   "cmux-motd",
   "cmux-prompt.bash",
@@ -1522,8 +1523,8 @@ export const DEVBOX_AWAITING_REBAKE = [
   {
     layers: "desktop",
     schema: 2,
-    baked: "f221dae31c12",
-    current: "c6bdea67d31807cbc6b8bc1afa66c651bdb4cde3fbb77fbb5b273fe4504b4e5d",
+    baked: "28fce1e49495",
+    current: "d77b614be8fb911bb4bb46e8c7801a1a72454b7738f83a5f0dfa947d6eb7514a",
   },
 ] as const;
 

@@ -55,6 +55,9 @@ pub(crate) fn harness_command(
     // A bound route's provider variables the inherited env must not keep
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);
+    // Your own endpoint (byo_endpoint.rs): the marker is acpmux's own.
+    let own_endpoint = crate::byo_endpoint::Kind::of_env(&env);
+    env.remove(crate::byo_endpoint::OWN_ENDPOINT_KEY);
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
     // The session's workspace is for its computer use server only (agent_displays.rs).
     env.remove(crate::agent_displays::WORKSPACE_KEY);
@@ -66,6 +69,17 @@ pub(crate) fn harness_command(
     }
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = crate::session_scope::command(program, session.map(|(id, _)| id), &env);
+    // The daemon's own prompt-cache switches and turn-scoped values are
+    // never the agent's (a daemon started from inside a Claude Code or Chief
+    // turn can carry them). The profile, preset and session env below may
+    // still set them. So may the login shell (`login_env`, applied after
+    // this removal) when the daemon's own env lacks the key (a daemon from
+    // `spawn_detached` always does); a key the daemon's env has hides the
+    // login value (`login_env::for_children`) unless it started inside a
+    // Claude Code turn (`nested_overrides`).
+    for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
     // Startup files changed since the last read: refresh in the background.
     crate::login_env::refresh_if_changed();
     // The login shell's allow-list for this harness's family (login_env.rs).
@@ -88,8 +102,17 @@ pub(crate) fn harness_command(
     for key in crate::agent_tools::INHERITED_CALLER_ENV {
         cmd.env_remove(key);
     }
+    // A cmux tool allowlist in the daemon's own env (a daemon started from a
+    // Chief turn's shell) is not the agent's: a harness passes its env to
+    // its MCP servers. A turn's preset puts its own value back (`envs`).
+    cmd.env_remove(crate::agent_tools::MCP_TOOLS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
+    }
+    // An Anthropic endpoint harness: no inherited ANTHROPIC_* or Claude
+    // provider switch (the login shell's, the daemon's) overrides its own.
+    if own_endpoint == Some(crate::byo_endpoint::Kind::Anthropic) {
+        crate::byo_endpoint::clear_inherited(&mut cmd, &env);
     }
     if let Some((id, sname)) = session {
         cmd.env("ACPMUX_ENV", "1")
@@ -118,6 +141,17 @@ pub(crate) fn harness_command(
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some());
+    // A Chief turn or compactor (fresh process per turn): one sticky
+    // subrouter account, so its prompt cache stays readable (subrouter_session.rs).
+    let claude_code = profile.kind == crate::config::HarnessKind::ClaudeStdio
+        || family.is_some_and(|f| f.starts_with("claude"));
+    if claude_code {
+        let env = command_env(&cmd);
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        if let Some(headers) = crate::subrouter_session::custom_headers(get) {
+            cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
+        }
+    }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
         (true, Some((id, _))) => crate::claude_auth::remember(id, &command_env(&cmd)),

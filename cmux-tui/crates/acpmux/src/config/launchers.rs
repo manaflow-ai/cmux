@@ -106,18 +106,13 @@ pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
 }
 
 /// `sr claude proxy` (the subrouter account pool).
-fn is_subrouter_proxy(argv: &[String]) -> bool {
+pub fn is_subrouter_proxy(argv: &[String]) -> bool {
     argv.get(1).map(String::as_str) == Some("claude")
         && argv.get(2).map(String::as_str) == Some("proxy")
 }
 
 pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
-    let shown = argv
-        .iter()
-        .enumerate()
-        .map(|(i, w)| if i == 0 { w.rsplit('/').next().unwrap_or(w) } else { w.as_str() })
-        .collect::<Vec<_>>()
-        .join(" ");
+    let shown = argv[0].rsplit('/').next().unwrap_or(&argv[0]);
     let mut cmd = std::process::Command::new(&argv[0]);
     crate::login_env::apply_std(&mut cmd);
     cmd.args(&argv[1..])

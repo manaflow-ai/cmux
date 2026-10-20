@@ -106,10 +106,51 @@ async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, co
 }
 
 // The compare API returns at most this many commits per page and files only on
-// its first page (at most 300). Anything it cannot list in full is refused.
+// its first page (at most 300). It pages through ranges of any length, so the
+// guard reads every page; anything it cannot list in full is refused.
 const COMPARE_PAGE = 100;
-const MAX_RANGE_COMMITS = 1000;
+// A budget, not a history limit: G4 reads each commit of the range once, and
+// the job token allows 15,000 requests an hour. A range over this budget is
+// refused (fail closed) instead of running the token dry halfway through.
+// It was 1000 until 2026-10-20, when a 1782-commit range (1549 of them from
+// one merge) had no smaller step and blocked every nightly (run 39407965731).
+const MAX_RANGE_COMMITS = 10000;
 const COMMIT_FILE_CAP = 3000;
+// Per-commit reads in flight at once. One by one, a 1782-commit range ran the
+// decide job past its 10-minute limit (run 39410930509); 16 stays well under
+// GitHub's secondary rate limit for concurrent requests.
+const READ_CONCURRENCY = 16;
+
+// GitHub answers a read with a 5xx now and then (run 39413299148). A read
+// that fails that way is tried again after a short wait, up to this many
+// times in all; a 4xx or a lasting 5xx still throws (fail closed).
+const READ_ATTEMPTS = 4;
+
+async function retrying(fn, sleep) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!(error?.status >= 500) || attempt >= READ_ATTEMPTS) throw error;
+      await sleep(1000 * 2 ** attempt);
+    }
+  }
+}
+
+// fn over items with at most `limit` calls in flight; results in input order.
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await fn(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 // One compare request, memoized for the life of a decision: the guard reads
 // the same range several times and the job token's quota is shared.
@@ -127,16 +168,20 @@ function comparer(github, owner, repo) {
 // Every commit in base...head (all parents, merges included), from the compare
 // API's paginated commit list. Returns null when the list cannot be read in full.
 async function rangeCommits(compare, base, head) {
-  const commits = [];
-  let total = null;
-  for (let page = 1; page <= MAX_RANGE_COMMITS / COMPARE_PAGE + 1; page += 1) {
-    const data = await compare(`${base}...${head}`, page);
-    total = data.total_commits;
-    const batch = data.commits || [];
-    commits.push(...batch);
-    if (commits.length >= total || batch.length === 0) break;
-  }
+  const first = await compare(`${base}...${head}`, 1);
+  const total = first.total_commits;
   if (typeof total !== 'number' || total > MAX_RANGE_COMMITS) return null;
+  // Page count from the first page's total; every page is read, and the
+  // pages must add up to exactly that many distinct commits.
+  const pages = Math.max(1, Math.ceil(total / COMPARE_PAGE));
+  const commits = [...(first.commits || [])];
+  for (let page = 2; page <= pages; page += 1) {
+    const data = await compare(`${base}...${head}`, page);
+    if (data.total_commits !== total) return null;
+    const batch = data.commits || [];
+    if (batch.length === 0) break;
+    commits.push(...batch);
+  }
   if (commits.length !== total || new Set(commits.map((commit) => commit.sha)).size !== total) return null;
   return commits;
 }
@@ -327,7 +372,7 @@ export async function decide({
   // Every commit in the range, merges and second parents included.
   const commits = await rangeCommits(compare, current, sha);
   if (!commits) {
-    return refuse(`the range ${current}...${sha} has more than ${MAX_RANGE_COMMITS} commits or the compare API did not list them all`, { sha, current });
+    return refuse(`the range ${current}...${sha} has more than ${MAX_RANGE_COMMITS} commits (the per-commit read budget) or the compare API did not list them all`, { sha, current });
   }
   const rangeSet = new Set(commits.map((commit) => commit.sha));
 
@@ -349,11 +394,10 @@ export async function decide({
   // surface (a commit whose file list GitHub truncates counts as touching).
   // A change no single commit shows (a merge that kept the other side's
   // version) is attributed to the range's merge commits.
-  const detailed = [];
-  for (const commit of commits) {
-    const full = await commitWithFiles(github, owner, repo, commit.sha);
-    detailed.push(full || { sha: commit.sha, truncated: true, files: [], parents: commit.parents || [] });
-  }
+  const detailed = await mapLimit(commits, READ_CONCURRENCY, async (commit) => {
+    const full = await retrying(() => commitWithFiles(github, owner, repo, commit.sha), sleep);
+    return full || { sha: commit.sha, truncated: true, files: [], parents: commit.parents || [] };
+  });
   const touching = detailed.filter((commit) => commit.truncated || commit.files.some(touches));
   // A surface path that no commit's own diff lists changed through a merge
   // resolution: every merge commit in the range is a lander for it.
@@ -370,11 +414,12 @@ export async function decide({
   const actors = await pushActors(github, owner, repo, compare, new Set(touching.map((commit) => commit.sha)), rangeSet, current);
   const landers = new Set();
   const unresolved = [];
-  for (const commit of touching) {
-    const logins = await landersOf(github, owner, repo, commit, actors);
+  const landerSets = await mapLimit(touching, READ_CONCURRENCY, (commit) => retrying(() => landersOf(github, owner, repo, commit, actors), sleep));
+  touching.forEach((commit, index) => {
+    const logins = landerSets[index];
     if (!logins) unresolved.push(commit.sha);
     else logins.forEach((login) => landers.add(login));
-  }
+  });
   if (unresolved.length && policy.require_non_lander_approver) {
     return refuse(`no push actor found for ${unresolved.join(', ')}; the landers of the release surface change are unknown`, { sha, current, surfaceFiles });
   }
@@ -418,6 +463,53 @@ export async function pendingPromotions({ github, owner, repo, runId }) {
   return pending;
 }
 
+// The promote job runs in one concurrency group (nightly-next-promote) without
+// cancel-in-progress, so there is one writer. GitHub keeps only one waiting job
+// in that group and cancels it when another request arrives, so a late request
+// for an older commit can evict the waiting request for a newer one. Each
+// promotion request's run title names its commit (nightly.yml `run-name`); keep
+// REQUEST_TITLE and that expression in step. QUEUE_EVICTED is the annotation
+// GitHub leaves on an evicted job; a request a person cancelled gets a
+// different one and stays cancelled.
+const REQUEST_TITLE = /^Promote nightly-next to ([0-9a-f]{40})$/;
+const QUEUE_EVICTED = 'Canceling since a higher priority waiting request for nightly-next-promote exists';
+const PROMOTE_JOB = 'promote-nightly-next';
+const EVICTED_MAX_AGE_MS = 24 * 3_600_000;
+
+// The promotion requests on main that GitHub cancelled in the promote queue in
+// the last day (the newest page of cancelled dispatch runs): { runId, sha,
+// status: 'evicted' }. Reading the annotation needs `checks: read`.
+export async function evictedPromotions({ github, owner, repo, runId, now = () => Date.now(), warn = () => {} }) {
+  const { data } = await github.rest.actions.listWorkflowRuns({
+    owner, repo, workflow_id: 'nightly.yml', event: 'workflow_dispatch', branch: 'main', status: 'cancelled', per_page: 30,
+  });
+  const evicted = [];
+  for (const run of data.workflow_runs || []) {
+    const sha = REQUEST_TITLE.exec(run.display_title || '')?.[1];
+    if (!sha || run.id === runId || evicted.some((other) => other.sha === sha)) continue;
+    if (now() - Date.parse(run.created_at) > EVICTED_MAX_AGE_MS) continue;
+    const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+      owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+    });
+    const job = jobs.find((candidate) => candidate.name === PROMOTE_JOB);
+    if (!job || job.conclusion !== 'cancelled') continue;
+    // One run's unreadable annotations (a 403 or 404) skip that run only; the
+    // other evicted requests, the ones this scan exists to keep, still count.
+    let annotations;
+    try {
+      ({ data: annotations } = await github.rest.checks.listAnnotations({ owner, repo, check_run_id: job.id, per_page: 100 }));
+    } catch (error) {
+      if (error.status !== 403 && error.status !== 404) throw error;
+      warn(`Could not read whether promotion request run ${run.id} was cancelled in the promote queue (${error.status}); skipping it.`);
+      continue;
+    }
+    if ((annotations || []).some((annotation) => annotation.message === QUEUE_EVICTED)) {
+      evicted.push({ runId: run.id, sha, status: 'evicted' });
+    }
+  }
+  return evicted;
+}
+
 // Newest request wins. A request is cheap to repeat but an approval is not, and
 // requests arrive out of order (an older commit's Release compile or cmux-tui
 // tree can finish after a newer one's). Before deciding, read the requests that
@@ -433,13 +525,24 @@ export async function pendingPromotions({ github, owner, repo, runId }) {
 //   cancel-in-progress group, cancels the older waiters. A waiter decided
 //   against an older nightly-next is dead (ackDecision refuses it), so it never
 //   makes this request step aside.
+// - requests GitHub evicted from the promote queue (evictedPromotions) count
+//   like dead waiters: a newer evicted commit is decided before this request's
+//   own, through the same decide() guard, and a refused one falls back to the
+//   next newest. It shares this request's debounce. An error reading them
+//   leaves a warning and decides without them.
 // The scan runs again after deciding, because the previous request's wait job
 // is named only a few seconds after its decide job ends. If the scan fails,
 // `scanFailed` is set and the workflow waits in a per-run group, which cancels
 // nothing (the behavior before this rule). A waiter whose commit cannot be
 // compared is skipped.
-async function scanWaiters({ github, core, owner, repo, sha, runId }) {
+async function scanWaiters({ github, core, owner, repo, sha, runId, now }) {
   const pending = await pendingPromotions({ github, owner, repo, runId });
+  let evicted = [];
+  try {
+    evicted = await evictedPromotions({ github, owner, repo, runId, now, warn: (message) => core?.warning?.(message) });
+  } catch (error) {
+    core?.warning?.(`Could not read the promotion requests cancelled in the promote queue (${error.status || error.message}); deciding without them.`);
+  }
   let current = null;
   try {
     current = (await github.rest.git.getRef({ owner, repo, ref: `heads/${TARGET}` })).data.object.sha;
@@ -449,13 +552,13 @@ async function scanWaiters({ github, core, owner, repo, sha, runId }) {
   const live = pending.filter((waiter) => waiter.current === current);
   // Commits that contain the request's commit, newest first.
   const containing = [];
-  for (const waiter of pending) {
+  for (const waiter of [...pending, ...evicted]) {
     if (waiter.sha === sha || containing.some((other) => other.sha === waiter.sha)) continue;
     let status;
     try {
       status = (await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${sha}...${waiter.sha}` })).data.status;
     } catch (error) {
-      core?.notice?.(`Skipping the waiting request for ${waiter.sha} (run ${waiter.runId}): it cannot be compared with ${sha} (${error.status || error.message}).`);
+      core?.notice?.(`Skipping the ${waiter.status === 'evicted' ? 'evicted' : 'waiting'} request for ${waiter.sha} (run ${waiter.runId}): it cannot be compared with ${sha} (${error.status || error.message}).`);
       continue;
     }
     if (status !== 'ahead') continue;
@@ -481,7 +584,7 @@ export async function decideNewest({ github, core, owner, repo, sha, runId, ...r
   for (let round = 0; round < 2; round += 1) {
     let scan;
     try {
-      scan = await scanWaiters({ github, core, owner, repo, sha, runId });
+      scan = await scanWaiters({ github, core, owner, repo, sha, runId, now: rest.now });
     } catch (error) {
       core?.warning?.(`Could not read the other nightly-next promotion requests (${error.status || error.message}); deciding ${sha} without cancelling them.`);
       return { decision: decision || await decide({ github, core, owner, repo, sha, ...rest }), requested: sha, scanFailed: true };
@@ -493,7 +596,7 @@ export async function decideNewest({ github, core, owner, repo, sha, runId, ...r
     seen = new Set(order);
     decision = null;
     for (const target of order) {
-      if (target !== sha) core?.notice?.(`A waiting request targets ${target}, which contains ${sha}; deciding ${target}.`);
+      if (target !== sha) core?.notice?.(`A waiting or evicted request targets ${target}, which contains ${sha}; deciding ${target}.`);
       const attempt = await decide({ github, core, owner, repo, sha: target, ...rest });
       if (attempt.action !== 'refuse' || target === sha) { decision = attempt; break; }
       core?.notice?.(`${target} is refused (${attempt.reason}); trying the next commit.`);

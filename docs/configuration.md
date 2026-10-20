@@ -172,10 +172,21 @@ Where Cmd-T and the + button put a new tab.
 }
 ```
 
-- `"end"` (default): after the pane's last tab, as in Chrome and Edge.
-- `"afterCurrent"`: right after the selected tab. A selected tab in a tab group puts the new tab after the group; it doesn't join the group.
+- `"afterCurrent"` (default): right after the selected tab. A selected tab in a tab group puts the new tab after the group; it doesn't join the group.
+- `"end"`: after the pane's last tab, as in Chrome and Edge.
+- `"start"`: first, right after the pinned tabs.
 
-**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition afterCurrent`.
+The setting applies to what you open with Cmd-T and the + button. A script's `cmux tab new` still adds the tab at the end.
+
+To put one new tab in a specific place, whatever the setting, use these commands (Cmd-Shift-P, the CLI, or MCP). They have no default key; you can assign one in **Settings > Keyboard Shortcuts**.
+
+| Command | CLI |
+|---|---|
+| **New Tab After Current Tab** | `cmux tab new-after-current` |
+| **New Tab at Start** | `cmux tab new-at-start` |
+| **New Tab at End** | `cmux tab new-at-end` |
+
+**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition end`.
 
 ## `tabs.newTabTemplate`
 
@@ -187,12 +198,13 @@ The layout of the New Tab page. The dots at the bottom of the page switch it in 
 }
 ```
 
+- `cards` (the default): one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
 - `default`: one field with agent rows, recent chats as cards, and Tools.
 - `composer`: one large prompt field, with nothing else.
 - `threads`: the field and the recent chats as a list.
 - `console`: a monospace field with a `>` prompt and the recent chats as lines.
 - `classic`: the Terminal, Browser and Agent switch.
-- `terminal`: the `default` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
+- `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
 Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
 
@@ -287,6 +299,36 @@ Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, t
 - `tileBrowsers` (default `false`): with `split`, new browsers also get their own pane instead of a tab.
 
 The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
+
+## `layout.focusFollowsMouse`
+
+Off by default: hovering or scrolling over a pane leaves keyboard focus where you type, and only a click or the keyboard moves it. Turn it on to have the pointer focus panes, as a click does: a terminal, browser, Markdown viewer, agent chat or Home. The scroll still reaches the pane.
+
+```json
+{
+  "layout": { "focusFollowsMouse": true }
+}
+```
+
+- `false` (default): only a click or the keyboard moves focus.
+- `true`: the pointer entering a pane, the first scroll of a gesture, or a mouse-wheel notch focuses the pane under the pointer.
+
+With it on, focus still stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, while a mouse button is held, within a second of typing, and over a window that is not active. A pointer that stays inside one pane does not undo a keyboard move to another pane. Change it in **Settings > General > Columns**, with **Focus Follows Mouse** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.focusFollowsMouse true`. It replaces `layout.focusPaneOnScroll`, which was on by default.
+
+## `layout.scrollAreas`
+
+Side-by-side panes that do not fit scroll sideways instead of shrinking below **Minimum Pane Width** (`layout.minimumPaneWidth`). This works in docked columns, in columns of the strip and on a screen without columns.
+
+```json
+{
+  "layout": { "scrollAreas": true }
+}
+```
+
+- `false` (default): today's layout. A column widens to fit its splits, and a docked column refuses a split that has no room.
+- `true`: a column keeps its width, and its splits scroll inside it. Each pane keeps the minimum width. Swipe sideways with two fingers, or use Shift with the mouse wheel, over the panes. Focus (Cmd-Opt-arrows, a click, the CLI with focus) scrolls the focused pane into view. Cmd-Opt-Left and Cmd-Opt-Right step through the panes, then go on to the next column.
+
+Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollAreas true`. The design is in `plans/cmux-next/scroll-areas-DESIGN.md`.
 
 ## `workspaces.newPlacement`
 
@@ -499,6 +541,10 @@ The panel can also open while another app is in front. This system-wide key is o
 ```
 
 Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+
+## Message the Chief from any app
+
+Message the Chief (command palette) shows the floating Chief pet with its reply box open, turning the pet on first when it is off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Show Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette, which turns the pet on. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
 ## `palette.scopes.<scope>.prefix`
 
@@ -771,6 +817,43 @@ one, it reports that it is not logged in.
 acpmux reads the key at each spawn. Only the value `true` turns it on; a settings file that
 cannot be read keeps it off.
 
+## `agents.memory.*`
+
+Long-term memory shared by the Codex and Claude Code sessions cmux starts, on one or more
+machines. With `enabled` set to `true`, every agent session gets the `cmux-agent-memory` MCP
+server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and, unless
+`remember` is `false`, `memory_remember`. The index is built from Claude Code project memory
+(`~/.claude/projects/*/memory/*.md`), Codex's memories (`~/.codex/memories`), the folders in
+`sources`, and the notes agents saved. See the
+[cmux-agent-memory skill](../skills/cmux-agent-memory/SKILL.md) for setup on several machines.
+
+```jsonc
+{
+  "agents": {
+    "memory": {
+      "enabled": true,
+      // The machine that holds the index, as a `cmux remote` route; omit on that machine.
+      "owner": "ssh://studio",
+      "ownerArgs": ["--no-install"],
+      "sources": ["~/Projects/team-notes/decisions"],
+      "remember": true
+    }
+  }
+}
+```
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `false` | Register the server for the agent sessions cmux starts. Only `true` turns it on; a settings file that cannot be read keeps it off. |
+| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it. |
+| `ownerArgs` | `[]` | Extra `cmux remote rpc` options for that route, such as `--daemon FINGERPRINT` or `--ssh-arg ARG`. |
+| `ownerCommand` | unset | The owner's `optchat-chief`, as argv, when it is not in a cmux app bundle, on its `PATH` or in `~/.local/bin`. |
+| `remember` | `true` | Whether agents may save notes. `false` hides `memory_remember`. |
+| `sources` | `[]` | More folders whose `*.md` files are indexed (`~` expands). |
+
+acpmux reads `enabled` at each spawn; the server reads the other keys at each call, so a
+change applies to the next session or call.
+
 ## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
 
 The address bar's search engine and suggestions. Settings > Browser > Address Bar
@@ -789,6 +872,7 @@ shows the same keys.
       "inlineAutocomplete": true,
       "maxRows": 8,
       "calculator": true,
+      "showFullURLs": false,
       "glass": "off",
       "glassTint": "background",
       "glassTintStrength": 0.35,
@@ -815,6 +899,9 @@ shows the same keys.
   when the text is the start of the host and you typed that address before or visited it
   at least 4 times. Default: `true`.
 - `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.showFullURLs`: show the whole address, with `https://` and `www.`, when you are not
+  editing it (Chrome's "Always Show Full URLs"; the address bar's right-click menu toggles it).
+  Default: `false`.
 - `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
   parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
 
@@ -839,7 +926,7 @@ shows the same keys.
   `1` makes the bar solid. An opaque window with the theme's toolbar color looks the same at any
   value.
 
-Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator` and the look
+Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator`, `showFullURLs` and the look
 keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 

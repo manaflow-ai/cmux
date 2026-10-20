@@ -5,7 +5,7 @@ public import Foundation
 /// shows, then a neighbor's shows at once while the group is warm; hover
 /// cards wait longer, stay while the pointer heads into them, and linger a
 /// moment after it leaves. The native sidebar row and tab cards wait
-/// Chrome's delay or the user's (`HoverCardTiming`, `sidebar.hoverCards.delay`).
+/// the default delay or the user's (`HoverCardTiming`, `sidebar.hoverCards.delay`).
 /// Pages use the same numbers
 /// (webviews/src/ui/hoverIntent.ts, `HOVER_INTENT`; a web test reads this
 /// file and fails when they drift).

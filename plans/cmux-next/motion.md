@@ -57,10 +57,18 @@ would do it, spring curves", "proper physics". Design:
 - Splits (only with `ui.paneAnimations` on): every pane edge and divider of a split, a close or a released
   divider springs together from rest (or from the release velocity, in
   fractions of the travel), so the change is one spring on the divider
-  fraction. A pane that changes size keeps one host frame for the motion
-  (`SplitMotion.heldFrame`) and is clipped to the presented rect: content
-  lays out once. A released divider flung onto a snap within
+  fraction. Every moving pane is laid out live at the rect its spring presents
+  on every display frame, its tab strip, terminal and page included, as a
+  live window resize is (Lawrence 2026-10-18: "content must move while it
+  animates"); nothing holds a final-size layout under a clip. A zoom or
+  unzoom does the same on the `zoom` spring: the zooming pane is the topmost
+  layer, its tab strip whole in every frame, and covers the other panes,
+  which stay opaque and still. A released divider flung onto a snap within
   `motion.divider.releaseProjection` of its velocity lands there.
+  A split (Cmd-D, Cmd-Shift-D) moves on its own `split` spring (0.28 s, damping 0.95; Lawrence
+  2026-10-19: "resize all of them while adding a new one"), and the even sizing of its chain
+  shows in the key's frame with the split (`LayoutModel.showSplitSizing`), not after the
+  daemon's reply: one target, one motion (split-spring-animation/DESIGN.md).
 - New tab (only with `ui.animations.newTab` on; off, every entry point shows
   the tab in its final slot at once, and a closed tab's room closes at once
   too; the store's tab takes its provisional stand-in's cell in place, so a
@@ -102,7 +110,7 @@ would do it, spring curves", "proper physics". Design:
 
 ## Rules
 
-1. One module. Every animation asks `Motion` for a token. No module
+1. One module. Every animation asks a `Motion` gate (`Motion.<category>`) for a token. No module
    hard-codes a duration, curve or spring constant.
 2. Springs, described by response and damping fraction as SwiftUI
    `.spring(response:dampingFraction:)`. No long ease-in-out curves. Timed
@@ -141,6 +149,11 @@ would do it, spring curves", "proper physics". Design:
    Use Normal Animations, Turn Off Animations
    (`appearance.animationSpeed.{fast,normal,off}`). "off" wins over Reduce
    Motion.
+   On top of the speed: the master switch `ui.animations.enabled` and one switch
+   per area, `ui.animations.<category>` (sidebar, tabs, panes, overlays,
+   hoverCards, home, cursor, indicators, feedback, web). Every animation asks its
+   category's gate (`Motion.sidebar`, `Motion.tabs`, ...), and a switch that is
+   off acts as "off" for its area ([motion-DESIGN.md](motion-DESIGN.md)).
 9. Pane layout motion is OFF by default (Lawrence 2026-10-14: "get rid of
    big animations by default for the panes"). `ui.paneAnimations` (toggle
    "Animate Panes", default false) gates every pane layout spring:
@@ -293,7 +306,7 @@ rest).
 | Browser progress line | CATransaction 0.2 s | `move` (timed equivalent) | 200 ms | 192 ms | - |
 | strip column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
 | Screen switch | display-link spring 0.38/0.92 | `screen` | 367 / 475 ms | 208 / 267 ms | 244-249 ms |
-| Splits (Cmd-D, Cmd-Shift-D) | one frame | `move`: the new pane grows from the far edge of the pane it split, which shrinks with it, and the divider slides in from that edge (cx-f6i7) | 0 | 192 / 250 ms | - |
+| Splits (Cmd-D, Cmd-Shift-D) | one frame | `split` (0.28 / 0.95, 2026-10-19; was `move`): the new pane grows from the far edge of the pane it split while its whole even chain makes room on the same spring, and the divider slides in from that edge (cx-f6i7, split-spring-animation) | 0 | 195 ms (95%) / 375 ms (700 pt) | - |
 | Pane close, move | one frame | one frame (unchanged) | 0 | 0 | - |
 | Pane ratio, equalize, width presets, pane zoom | display-link spring 0.34/0.88 | `move` | 292 / 483 ms | 192 / 250 ms | 258 ms (column width preset) |
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |

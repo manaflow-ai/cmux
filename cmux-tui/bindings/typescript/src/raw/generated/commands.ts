@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb. */
+/* cmux-tui mux protocol 12, IR 618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12. */
 
 
 import type * as T from "./types.js";
@@ -499,11 +499,43 @@ export interface CloudConversationThreadRequest extends CmuxRequestBase {
 export type CloudConversationThreadResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudConversationTypingRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-typing";
+  "conversation": string;
+  "on": boolean;
+}
+export type CloudConversationTypingResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudConversationUnsubscribeRequest extends CmuxRequestBase {
   cmd: "cloud-conversation-unsubscribe";
   "conversation": string;
 }
 export type CloudConversationUnsubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudHostReplicaClearRequest extends CmuxRequestBase {
+  cmd: "cloud-host-replica-clear";
+  "purge"?: boolean;
+}
+export type CloudHostReplicaClearResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudHostReplicaSetRequest extends CmuxRequestBase {
+  cmd: "cloud-host-replica-set";
+  "api_base_url": string;
+  "client_version"?: (string) | null;
+  "expires_at": bigint;
+  "host_name": string;
+  "install_token": string;
+}
+export type CloudHostReplicaSetResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudHostReplicaStatusRequest extends CmuxRequestBase {
+  cmd: "cloud-host-replica-status";
+}
+export type CloudHostReplicaStatusResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudInboxListRequest extends CmuxRequestBase {
@@ -561,6 +593,12 @@ export interface CloudParticipantAvatarGetRequest extends CmuxRequestBase {
   "participant_id": string;
 }
 export type CloudParticipantAvatarGetResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudRequestsListRequest extends CmuxRequestBase {
+  cmd: "cloud-requests-list";
+}
+export type CloudRequestsListResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudSessionClearRequest extends CmuxRequestBase {
@@ -1259,6 +1297,7 @@ export type HomeInboxResult = {
 export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
   "machine_metadata"?: boolean;
+  "revisions"?: boolean;
 }
 
 /** Protocol v6; authority: control. */
@@ -1443,6 +1482,14 @@ export interface MoveBrowserProfileRequest extends CmuxRequestBase {
   "index": bigint;
 }
 export type MoveBrowserProfileResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface MoveColumnRequest extends CmuxRequestBase {
+  cmd: "move-column";
+  "direction": T.ColumnMoveDirection;
+  "pane": T.Id;
+}
+export type MoveColumnResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface MovePersonalGroupRequest extends CmuxRequestBase {
@@ -1830,6 +1877,13 @@ export interface PaneNeighborRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: control. */
+export interface ParkTabsRequest extends CmuxRequestBase {
+  cmd: "park-tabs";
+  "surfaces": Array<T.TabRef>;
+}
+export type ParkTabsResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface PasteImageRequest extends CmuxRequestBase {
   cmd: "paste-image";
   "data"?: (string) | null;
@@ -2179,6 +2233,7 @@ export type SelectWorkspaceResult = T.EmptyResult;
 export interface SendRequest extends CmuxRequestBase {
   cmd: "send";
   "bytes"?: (T.Base64) | null;
+  "expect_foreground"?: (string) | null;
   "paste"?: boolean;
   "surface"?: (T.Id) | null;
   "terminal_id"?: (string) | null;
@@ -2212,14 +2267,17 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 /** Protocol v6; authority: control. */
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
+  "api_revision"?: (number) | null;
   "capabilities"?: (Array<string>) | null;
   "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
   "device_name"?: (string) | null;
   "display_name"?: (string) | null;
+  "install"?: (string) | null;
   "kind"?: (string) | null;
   "name"?: (string) | null;
   "user_id"?: (string) | null;
+  "version"?: (string) | null;
 }
 export type SetClientInfoResult = T.EmptyResult;
 
@@ -2554,6 +2612,14 @@ export interface TerminalResourcesRequest extends CmuxRequestBase {
   "surfaces"?: (Array<T.Id>) | null;
 }
 
+/** Protocol v12; authority: control. */
+export interface TerminalResumeCommandRequest extends CmuxRequestBase {
+  cmd: "terminal-resume-command";
+  "command"?: (string) | null;
+  "surface"?: (T.Id) | null;
+  "terminal_id"?: (string) | null;
+}
+
 /** Protocol v9; authority: control. */
 export interface UndoLayoutRequest extends CmuxRequestBase {
   cmd: "undo-layout";
@@ -2824,7 +2890,11 @@ export type CmuxRequest =
   | CloudConversationSnapshotRequest
   | CloudConversationSubscribeRequest
   | CloudConversationThreadRequest
+  | CloudConversationTypingRequest
   | CloudConversationUnsubscribeRequest
+  | CloudHostReplicaClearRequest
+  | CloudHostReplicaSetRequest
+  | CloudHostReplicaStatusRequest
   | CloudInboxListRequest
   | CloudInboxOpRequest
   | CloudInboxSubscribeRequest
@@ -2833,6 +2903,7 @@ export type CmuxRequest =
   | CloudMuxSubscribeRequest
   | CloudMuxUnsubscribeRequest
   | CloudParticipantAvatarGetRequest
+  | CloudRequestsListRequest
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
@@ -2920,6 +2991,7 @@ export type CmuxRequest =
   | MintTerminalRendererByTerminalRequest
   | MoveBookmarkRequest
   | MoveBrowserProfileRequest
+  | MoveColumnRequest
   | MovePersonalGroupRequest
   | MoveProfileRequest
   | MoveScreenRequest
@@ -2952,6 +3024,7 @@ export type CmuxRequest =
   | PageCredentialRequest
   | PairingResponseRequest
   | PaneNeighborRequest
+  | ParkTabsRequest
   | PasteImageRequest
   | PinWorkspaceRequest
   | PingRequest
@@ -3029,6 +3102,7 @@ export type CmuxRequest =
   | TerminalHistoryRequest
   | TerminalReadRangeRequest
   | TerminalResourcesRequest
+  | TerminalResumeCommandRequest
   | UndoLayoutRequest
   | UngroupScreenGroupRequest
   | UngroupTabGroupRequest
@@ -3408,12 +3482,44 @@ export interface CmuxCommandDefinitionMap {
     capability: "conversation-thread-v1";
     stream: null;
   };
+  "cloud-conversation-typing": {
+    request: CloudConversationTypingRequest;
+    result: CloudConversationTypingResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversation-typing-v1";
+    stream: null;
+  };
   "cloud-conversation-unsubscribe": {
     request: CloudConversationUnsubscribeRequest;
     result: CloudConversationUnsubscribeResult;
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-host-replica-clear": {
+    request: CloudHostReplicaClearRequest;
+    result: CloudHostReplicaClearResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-host-replica-v1";
+    stream: null;
+  };
+  "cloud-host-replica-set": {
+    request: CloudHostReplicaSetRequest;
+    result: CloudHostReplicaSetResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-host-replica-v1";
+    stream: null;
+  };
+  "cloud-host-replica-status": {
+    request: CloudHostReplicaStatusRequest;
+    result: CloudHostReplicaStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-host-replica-v1";
     stream: null;
   };
   "cloud-inbox-list": {
@@ -3478,6 +3584,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "participant-avatars-v1";
+    stream: null;
+  };
+  "cloud-requests-list": {
+    request: CloudRequestsListRequest;
+    result: CloudRequestsListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
     stream: null;
   };
   "cloud-session-clear": {
@@ -4176,6 +4290,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "browser-profiles-v1";
     stream: null;
   };
+  "move-column": {
+    request: MoveColumnRequest;
+    result: MoveColumnResult;
+    authority: "control";
+    since: 12;
+    capability: "column-move-v1";
+    stream: null;
+  };
   "move-personal-group": {
     request: MovePersonalGroupRequest;
     result: MovePersonalGroupResult;
@@ -4430,6 +4552,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "park-tabs": {
+    request: ParkTabsRequest;
+    result: ParkTabsResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-park-v1";
     stream: null;
   };
   "paste-image": {
@@ -5046,6 +5176,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-resources-v1";
+    stream: null;
+  };
+  "terminal-resume-command": {
+    request: TerminalResumeCommandRequest;
+    result: T.TerminalResumeCommandResult;
+    authority: "control";
+    since: 12;
+    capability: "resume-command";
     stream: null;
   };
   "undo-layout": {

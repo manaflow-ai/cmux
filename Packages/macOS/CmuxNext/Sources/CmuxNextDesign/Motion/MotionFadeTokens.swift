@@ -4,6 +4,10 @@ public import Foundation
 public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// Hover and pressed fills easing in, and hover-revealed buttons.
     case hover
+    /// A group header's hover buttons (+ and more) fading in and out with the
+    /// pointer (Lawrence 2026-10-19, u2397): opacity only, ease-out. Instant
+    /// under Reduce Motion, as both hover tokens are.
+    case hoverReveal
     /// Hover and pressed fills clearing (`ChromeHover.fade(to:)`). 0, so
     /// instant, by default, as in Edge: a fast sweep down a list leaves no
     /// trail. Under Reduce Motion both hover tokens are instant.
@@ -29,6 +33,12 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     case clickPulse
     /// An agent cursor fades out once its agent goes idle (agent-cursor.md).
     case cursorHide
+    /// A hibernated tab's favicon shrinking into its dotted ring, and growing
+    /// back when the tab wakes (Chromium `TabIcon` favicon size animation, 250 ms).
+    case hibernateIcon
+    /// A hibernated tab's dotted ring fading in (Chromium `TabIcon` discard
+    /// animation, 1 s). Reduce Motion caps it at one crossfade.
+    case hibernateRing
 
     /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in
     /// Debug Settings).
@@ -44,6 +54,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     case pulse
     /// Pane attention flash (two blinks).
     case flash
+    /// Unmeasured progress: a segment crosses its track once.
+    case sweep
 
     /// Seconds per period, never under `minimumPeriod` (a Debug Settings
     /// override included).
@@ -62,6 +74,7 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
         case .spinner: 0.1
         case .pulse: Self.shortestFlashCycle
         case .flash: Self.shortestFlashCycle * 2
+        case .sweep: Self.shortestFlashCycle
         }
     }
 }

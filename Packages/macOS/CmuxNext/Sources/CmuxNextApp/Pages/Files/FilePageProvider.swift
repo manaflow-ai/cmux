@@ -10,7 +10,7 @@ import Foundation
 /// followed link opens.
 protocol FilePageHosting: AnyObject {
     var roots: FileWorkspaceRoots { get }
-    /// `markdown.remoteImages` (default true).
+    /// `markdown.remoteImages`: load web images without a per-document click (default false).
     var remoteImages: Bool { get }
     /// `{home, items: [{path, name?, openedAt}]}` (diff-host.md "Empty state").
     func recents() -> JSONValue
@@ -35,10 +35,17 @@ protocol FilePageHosting: AnyObject {
     /// The native "Open <path>?" sheet for a link outside every granted document's folder: shown
     /// only after a real user gesture, one at a time; false when refused or not shown.
     func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool
+    /// The native omnibar shows the file's path above the page (the Markdown omnibar), so the
+    /// page's toolbar drops its own file name (config `omnibar: true`).
+    var showsOmnibar: Bool { get }
     /// A page's edit of `url` (the R96 quit hook): the document's unsaved state and its draft.
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance
     /// A normal save of `url` wrote `hash`.
     func saved(_ url: URL, hash: String)
+}
+
+extension FilePageHosting {
+    var showsOmnibar: Bool { false }
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
@@ -58,6 +65,11 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     private var changeListeners: [UUID: (JSONValue) -> Void] = [:]
     /// The folder of the open file the current asset token serves, and the token.
     private(set) var assetToken = UUID().uuidString.lowercased()
+    /// The unguessable resource prefix for this document. It rotates on navigation so an approved
+    /// document cannot keep fetching after the tab starts showing another one.
+    private(set) var remoteImageToken = UUID().uuidString.lowercased()
+    /// A click in the page approved web images for the document currently shown in this tab.
+    private var remoteImagesApproved = false
     /// Canonical paths that are this tab's documents, whoever opened them: its first document,
     /// chooseFile results, approved links. The page may open them, and their folders bound the
     /// links that open without asking.
@@ -80,6 +92,17 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Documents this tab has shown (it may reopen them, its own back and forward).
     private var shown: Set<String> = []
     private(set) var isClosed = false
+    /// Where the markdown page keeps table column widths between opens (nil: the page keeps
+    /// none past the tab). ``FilePageProvider+TableWidths.swift``.
+    let tableWidths: (any MarkdownTableWidthStoring)?
+    /// Where the markdown page's viewer comments live between opens (nil: none are kept).
+    /// ``FilePageProvider+Comments.swift``.
+    let comments: (any MarkdownTableWidthStoring)?
+    /// Sends the page a changed comment list (the service sets it: the `comments` page command).
+    var onCommentsChanged: ((JSONValue) -> Void)?
+    /// The table the page last reported under a right-click (its index), for the native menu's
+    /// Reset Column Widths; nil when the right-click was outside every table.
+    var contextTable: Int?
 
     static let preferenceValueLimit = 2048
     nonisolated static let listLimit = 50
@@ -89,8 +112,11 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// page's to show, and writable only inside a root the user chose. `readOnly`: the host opens
     /// the document read only whoever opened it (a chat transcript).
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
-         clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching) {
+         clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
+         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownTableWidthStoring)? = nil) {
         self.kind = kind
+        self.tableWidths = tableWidths
+        self.comments = comments
         self.file = file.map(Self.canonical)
         if let file = self.file {
             shown.insert(file.path)
@@ -106,6 +132,21 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     /// The tab shows the empty state.
     var isPicking: Bool { file == nil && !isClosed }
+
+    /// When the editor reported that Monaco waits for the second key of a sequence
+    /// (`cmux.editor.keySequence`), in `uptime()` seconds; nil when none is pending.
+    private var keySequenceStarted: TimeInterval?
+    /// The clock for ``keySequencePending`` (seconds since boot); tests replace it.
+    var uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    /// How long a pending sequence holds the next key, if the page never reports its end.
+    nonisolated static let keySequenceLimit: TimeInterval = 5
+
+    /// The editor waits for the second key of a key sequence: the app's key dispatcher lets the
+    /// next key reach it. A report older than ``keySequenceLimit`` no longer counts.
+    var keySequencePending: Bool {
+        guard let started = keySequenceStarted else { return false }
+        return uptime() - started < Self.keySequenceLimit
+    }
 
     private var origin: String { kind.descriptor.origin }
 
@@ -124,6 +165,16 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("setPreference"):
             try await setPreference(params, host: host, userGesture: context.userGesture)
             return .object([:])
+        case kind.op("loadRemoteImages") where kind == .markdown:
+            guard context.userGesture else {
+                throw PageError(code: "cmux.page.gesture", message: "loading web images needs a user gesture")
+            }
+            let requested = try path(params["path"])
+            guard let file, Self.canonical(requested) == file else {
+                throw PageError.invalidParams("path is not this page's file")
+            }
+            remoteImagesApproved = true
+            return ["remoteImageBase": .string(remoteImageBase)]
         case kind.op("recents"):
             return host.recents()
         case kind.op("chooseFile"):
@@ -134,10 +185,20 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("openLink"):
             try await openLink(params, host: host, userGesture: context.userGesture)
             return .object([:])
+        case kind.op("keySequence") where kind == .editor:
+            keySequenceStarted = params["pending"]?.boolValue == true ? uptime() : nil
+            return .object([:])
         case kind.op("resolveLinks") where kind == .markdown:
             return try await resolveLinks(params, host: host)
         case kind.op("listFiles") where kind == .markdown:
             return try await listFiles(params)
+        case kind.op("setTableWidths") where kind == .markdown:
+            return try await setTableWidths(params)
+        case kind.op("deleteComment") where kind == .markdown:
+            return try await deleteComment(params)
+        case kind.op("contextTable") where kind == .markdown:
+            contextTable = params["table"]?.intValue.flatMap { $0 >= 0 ? $0 : nil }
+            return .object([:])
         default:
             throw PageError.unknownOp(op)
         }
@@ -231,6 +292,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         if opened.url != file {
             file = opened.url
             assetToken = UUID().uuidString.lowercased()
+            remoteImageToken = UUID().uuidString.lowercased()
+            remoteImagesApproved = false
             restartWatch(known: opened.hash)
         }
         host?.record(opened.url)
@@ -260,10 +323,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case .markdown:
             config["assetBase"] = .string("\(origin)/\(MarkdownPageResource.asset)/\(assetToken)/")
             config["libBase"] = .string("\(origin)/\(MarkdownPageResource.library)/")
-            if host?.remoteImages ?? false { config["remoteImageBase"] = .string("\(origin)/\(MarkdownPageResource.remoteImage)/") }
+            if host?.showsOmnibar == true { config["omnibar"] = true }
+            if remoteImagesAllowed { config["remoteImageBase"] = .string(remoteImageBase) }
             if let repository = await AgentPaneGitHubRepository.read(at: file.url.deletingLastPathComponent().path) {
                 config["githubRepository"] = .string(repository)
             }
+            // Read before the page's first layout, so a saved table never jumps from its natural width.
+            if let widths = await savedTableWidths(file.url) { config["tableWidths"] = widths }
+            if let comments = await savedComments(file.url) { config["comments"] = comments }
         case .editor:
             config["size"] = JSONValue(file.size)
         }
@@ -274,6 +341,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         var members = look.objectValue ?? [:]
         for (key, value) in base.objectValue ?? [:] { members[key] = value }
         return .object(members)
+    }
+
+    /// Remote images are automatic only by explicit setting; otherwise a click approves this
+    /// document for the lifetime of its tab entry.
+    var remoteImagesAllowed: Bool { remoteImagesApproved || host?.remoteImages == true }
+
+    private var remoteImageBase: String {
+        "\(origin)/\(MarkdownPageResource.remoteImage)/\(remoteImageToken)/"
     }
 
     private func save(_ params: JSONValue) async throws -> JSONValue {

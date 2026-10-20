@@ -468,7 +468,8 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list
+agent list [--needs-me] [--state <state>] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+agent <agent_id|term_id> focus
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
@@ -504,7 +505,7 @@ pane <selector> viewport width set
 pane <selector> tab ...
 
 tab list
-tab create terminal|browser
+tab create terminal|browser [--engine chromium|webkit]
 tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
@@ -519,12 +520,12 @@ terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 terminal <selector> process show|wait
 terminal <selector> viewport scroll
 
-browser open <url> | --url <url> [OPTIONS]
+browser open <url> | --url <url> [--engine chromium|webkit] [OPTIONS]
 browser list
 browser profile list
 browser profile create --name <name> [--color <value>] [--icon <value>] [--index <n>]
 browser profile move --profile <id-or-name> --index <n>
-browser profile open <url> | --url <url> --profile <id-or-name> [--engine webkit|cef] [--pane <selector>] [--title <value>] [--background true|false]
+browser profile open <url> | --url <url> --profile <id-or-name> [--engine chromium|webkit] [--pane <selector>] [--title <value>] [--background true|false]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
@@ -561,7 +562,8 @@ conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg
 conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
 chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] [--compactor-harness <h>] [--compactor-model <m>] | chief stop [<subagent>]
-chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief>
+chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief> | chief history <chief> [--limit <n>] | chief undo <chief> [--to-rev <n>]
+chief usage [--chief <id>] [--since <24h|7d|30d|90d|1y|all>] [--until <d>] [--bucket hour|day|week|month] [--by chief|agent|model|harness|kind] [--top <n>] [--json]
 agent list|message|inbox|report
 agent plugin list|install|use|update|remove
 pairing request list
@@ -710,16 +712,23 @@ the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
 Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and
 `/effort` read or set the engine (`chief.engine.get|set`), `/help` lists the
 commands. `chief engine` and `chief stop` make one such call without the
-chat. `chief list`, `chief new`, `chief edit` and `chief delete` make the
+chat. `chief usage` reads this Mac's Chief usage ledgers (tokens by kind, cost, cache hit,
+turn time over time; plans/cmux-next/chief-usage-analytics-DESIGN.md) through the bundled
+`optchat-chief usage`; no daemon or brain needs to run. `chief list`, `chief new`, `chief edit` and `chief delete` make the
 person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.create`,
 `chief.profile.update`, `chief.profile.delete`, `chief.profile.avatar.set`): `<chief>` is an id or one
 Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,
 `--instructions` or `--instructions-file`, `--avatar <png|jpeg|gif|webp file>`,
 `--tools`, `--harnesses`, `--self-edit` (comma lists) and `--harness`,
-`--model`, `--effort`. `chief adopt <agent> [<profile>]` (`chief.profile.adopt`)
+`--model`, `--effort` (the Chief's backend, written into its brain's engine
+file), `--lock` / `--unlock` (the person's lock: no Chief may change it).
+`chief adopt <agent> [<profile>]` (`chief.profile.adopt`)
 makes an agent already in the person's conversations a Chief under its own
-id; its conversations and history stay. Every write (new, adopt, edit,
-delete) is refused for an agent caller (`origin.forbidden`, reason
+id; its conversations and history stay. `chief history <chief>`
+(`chief.profile.history`) lists the kept revisions (rev, time, actor,
+operation); `chief undo <chief> [--to-rev <n>]` (`chief.profile.undo`)
+restores the one before the current rev, or rev `n`, as a new rev. Every
+write (new, adopt, edit, delete, undo) is refused for an agent caller (`origin.forbidden`, reason
 `agent_caller`). `--json` prints the record. It refuses a socket under
 `~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
 Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
@@ -839,6 +848,39 @@ started; once the folder is gone, a request naming it finds no repository.
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
 
+## Agent list
+
+`agent list` is one `agent.list` read; the CLI ranks, limits and counts its
+rows, so the wire value is unchanged. `--state` and `--terminal` are the
+read's own filters. `--needs-me` lists the blocked agents (`state: blocked`)
+and is refused with any other `--state`.
+
+`--sort needs-me`, the default, puts blocked agents first, then working, then
+idle and done together, then unknown; `recent` ignores state; `none` keeps the
+daemon's order. Within a group the most recently updated agent comes first,
+and equal times fall back to the agent id. `--limit <n>` (at least 1) keeps
+the first `n` ranked rows.
+
+The command also reads `terminal.list` on the same connection, so each row
+can show its terminal's title and folder. A refused or failed terminal read
+leaves those out. AGE is the time since the agent's `updated_at_ms`, its
+last report.
+
+Human output starts with the counts by state over every listed agent, before
+`--limit` (`2 blocked · 1 working · 3 idle · 0 done`, plus `unknown` when
+there is one, and `(showing n of m)` when the limit hid rows), then one row per
+agent: STATE, AGE, AGENT (`extra.agent`), TITLE, FOLDER (with `~` for the
+home folder) and TERMINAL, with SESSION first under `--all-sessions`. With no
+agents it prints `No agents.`
+
+`--json` prints the ranked agents as a bare array, as it always has; only the
+default order changed (it was the daemon's order). Each agent is the
+`AgentSnapshot` plus `age_ms` and, when its terminal was listed, its `title`
+and `cwd`. `--json --counts` prints `{"agents": [...], "counts": {...}}`
+instead: `counts` has `blocked`, `working`, `idle`, `done`, `unknown` and
+`total`, counted before `--limit`. `--jsonl` prints one agent per line with
+or without `--counts`.
+
 ## Agent messages
 
 `agent message` stores a message with `agent.message.send` and then delivers
@@ -863,6 +905,15 @@ daemon has loaded, it hands the agent's queued messages to Codex as one input
 and marks them `delivered`. Any other terminal agent's message, or one Codex
 cannot take now, stays `queued` until the agent's hooks take it. The command exits 1 when this message's own delivery failed; the message is
 stored either way, and problems with older messages are reported on stderr.
+
+`terminal <t> write` (and `send-keys -l`) into a terminal whose hooks report a
+live agent (any state but `done`) still types the text, then prints on stderr
+the `agent message` command that would send it as a message instead, with the
+caller's `--machine`, `--session` and `--socket`, and `--` before the text so
+text that starts with a dash stays the message. Text with a control character, a line
+break or more than 200 characters shows as `'…'`. `--quiet` prints no hint,
+`terminal <t> keys` gets none, and the lookup (`terminal.get`, `agent.list`)
+gives up silently when a read waits 500 ms.
 
 `agent message release` is the person's decision on a held delivery of
 `<message-id>` to `--recipient`: `--approve` queues it, `--decline` declines

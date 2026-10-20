@@ -22,6 +22,8 @@ nonisolated enum SidebarPerfCounters {
         case rebuilds
         case sectionSets = "section_sets"
         case listReloads = "list_reloads"
+        /// A group's fold drawn by splicing its rows (`SidebarListView.foldGroup`), no list reload.
+        case groupFolds = "group_folds"
         case rowPatches = "row_patches"
         case rowConfigures = "row_configures"
         case selectionPatches = "selection_patches"
@@ -41,6 +43,9 @@ nonisolated enum SidebarPerfCounters {
         guard amount != 0 else { return }
         counts.withLock { $0[counter, default: 0] += amount }
     }
+
+    /// The current count of `counter`.
+    static func count(_ counter: Counter) -> Int { counts.withLock { $0[counter] ?? 0 } }
 
     /// `add`, also counted under its caller.
     static func add(_ counter: Counter, from file: StaticString, line: UInt) {

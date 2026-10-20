@@ -14,7 +14,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -25,8 +25,8 @@ use events::stream_events;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
 use open::{is_web_url, parse_open_with};
-use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot};
-pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
+use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
+pub(super) use run::{action_run_params, insert_run_key, request_with_retry, safe_to_resend};
 
 mod agent_open;
 mod call;
@@ -35,9 +35,11 @@ mod events;
 mod keybinding;
 mod open;
 mod page;
+mod right;
 mod run;
 mod settings;
 mod skew;
+mod version;
 pub(super) mod wait;
 
 /// Scopes that belong to the app, whatever follows.
@@ -65,6 +67,17 @@ pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
+/// A run that waits for a person's answer in the app (an agent's cookie
+/// import shows a consent panel, then macOS asks for a password): the app
+/// bounds it at 200 s (`ActionDescriptor.personDeadline`).
+pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
+/// The CLI names of the actions that wait for a person (`waits_for_person`).
+const PERSON_ACTIONS: &[&str] = &["browser import-cookies", "browser.importCookies"];
+
+/// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
+pub(in crate::cli) fn waiting_run_timeout(action: &str) -> Duration {
+    if PERSON_ACTIONS.contains(&action) { PERSON_RUN_TIMEOUT } else { WAITING_RUN_TIMEOUT }
+}
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// A `busy` app that says the run never started is asked again this many
 /// times, after the delay it names (`retry_after_ms`, else this default).
@@ -113,6 +126,15 @@ pub(super) enum AppCommand {
     },
     /// `settings list|schema|validate` (app/settings.rs).
     Settings(settings::Command),
+    /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
+    /// tab right of the Home chat, then `then` runs on it.
+    Right {
+        params: Value,
+        then: Box<AppCommand>,
+    },
+    /// `cmux version`: the CLI, the app behind the socket, its updater and
+    /// bundled helpers in one report (app/version.rs).
+    Version,
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -132,8 +154,18 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     {
         return parse_page(target, &args[2..]).map(Some);
     }
+    if scope == "browser" && args.get(1).is_some_and(|target| target == "right") {
+        return right::parse(&args[2..]).map(Some);
+    }
     if let Some(command) = agent_open::parse(args)? {
         return Ok(Some(command));
+    }
+    if scope == "version" {
+        if let Some(extra) = args.get(1) {
+            let messages = &crate::localization::catalog().app_control;
+            return Err(UsageError::new(messages.unexpected_argument.replace("{value}", extra)));
+        }
+        return Ok(Some(AppCommand::Version));
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -300,13 +332,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
-/// An action's `path` argument as the app must read it: a relative path
-/// names a folder or file of the caller's working directory, and the app
+/// An action's `path` or `out` argument as the app must read it: a relative
+/// path names a folder or file of the caller's working directory, and the app
 /// runs elsewhere, so it is made absolute here (`.` parts dropped). An
-/// absolute path, `~/…`, or a non-string value is sent unchanged.
+/// absolute path, `~/…`, `-` (stdout: `cmux window screenshot --out -`), or a
+/// non-string value is sent unchanged.
 fn caller_path(value: Value) -> Value {
     let Some(text) = value.as_str() else { return value };
-    let path = std::path::Path::new(text);
+    if text == "-" {
+        return value;
+    }
+    let path = Path::new(text);
     if text.is_empty() || path.is_absolute() || text.starts_with('~') {
         return value;
     }
@@ -448,7 +484,7 @@ pub(super) fn run_action(
             }
             _ => {
                 let key = argument_name(&name);
-                let value = if key == "path" { caller_path(value) } else { value };
+                let value = if key == "path" || key == "out" { caller_path(value) } else { value };
                 arguments.insert(key, value);
             }
         }
@@ -460,7 +496,7 @@ pub(super) fn run_action(
     Ok(AppCommand::Call {
         method: "action.run",
         params: Value::Object(params),
-        timeout: Some(if wait { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT }),
+        timeout: Some(if wait { waiting_run_timeout(action) } else { READ_TIMEOUT }),
         pick: None,
     })
 }
@@ -484,6 +520,19 @@ pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
             )
         }
     }
+}
+
+/// `cmux <noun> move-to-window --new [flags]` is the spelling of
+/// `cmux <noun> move-to-new-window [flags]`: the action name and flags to run.
+/// `None` for every other command.
+pub(super) fn new_window_spelling(name: &str, args: &[String]) -> Option<(String, Vec<String>)> {
+    let noun = name.strip_suffix(" move-to-window")?;
+    let is_new = |arg: &String| matches!(arg.as_str(), "--new" | "--new=true");
+    if !args.iter().any(is_new) {
+        return None;
+    }
+    let rest = args.iter().filter(|arg| !is_new(arg)).cloned().collect();
+    Some((format!("{noun} move-to-new-window"), rest))
 }
 
 /// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name.
@@ -520,6 +569,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if let AppCommand::Settings(command) = command {
         return Ran::Done(command.run(global));
     }
+    if matches!(command, AppCommand::Version) {
+        return Ran::Done(version::run(global));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -538,14 +590,15 @@ pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> 
     };
     let messages = &crate::localization::catalog().app_control;
     let path = socket.path.display().to_string();
-    let mut stream = UnixStream::connect(&socket.path).map_err(|error| {
-        let message = messages
-            .explicit_unreachable
-            .replace("{path}", &path)
-            .replace("{flag}", flag)
-            .replace("{error}", &error.to_string());
-        typed("socket.unreachable", message, Some(&socket))
-    })?;
+    let mut stream = connect_for_uid(&socket.path, cmux_tui_core::platform::effective_uid())
+        .map_err(|error| {
+            let message = messages
+                .explicit_unreachable
+                .replace("{path}", &path)
+                .replace("{flag}", flag)
+                .replace("{error}", &error.to_string());
+            typed("socket.unreachable", message, Some(&socket))
+        })?;
     // `--socket` may name a daemon's socket: the app answers `system.ping`
     // with `pong`, anything else is another kind of socket, and no app
     // request runs there. `--app-socket` names the app socket itself.
@@ -609,6 +662,8 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             return Ran::Done(call::run(global, stream, &method, params));
         }
         AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
+        AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
+        AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
@@ -812,12 +867,11 @@ fn explicit_daemon_route(global: &GlobalArgs) -> Option<&'static str> {
 /// Whether `daemon` is the own session socket of the app `identity` names
 /// (`DaemonLauncher`'s session, macOS only).
 #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
-pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &std::path::Path) -> bool {
+pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &Path) -> bool {
     #[cfg(target_os = "macos")]
     if let Some(own) = crate::app_identity::app_daemon_socket(identity) {
-        let canonical = |path: &std::path::Path| {
-            std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
-        };
+        let canonical =
+            |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
         // Two spellings of one socket (`/var` is `/private/var` on macOS).
         return own == daemon || canonical(&own) == canonical(daemon);
     }
@@ -826,9 +880,9 @@ pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &std::path::Path) 
 
 /// No app listens at `socket` (no file, or a stale one): the command needs
 /// the app, which a Chief without the app must hear plainly (E17).
-pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
+pub(super) fn connect(socket: &Path) -> Result<UnixStream, String> {
     let messages = &crate::localization::catalog().app_control;
-    UnixStream::connect(socket).map_err(|error| {
+    connect_for_uid(socket, cmux_tui_core::platform::effective_uid()).map_err(|error| {
         let template = match error.kind() {
             std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
                 messages.needs_app
@@ -841,12 +895,26 @@ pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
     })
 }
 
+/// Connects to one app socket. The peer-uid check is on this connection,
+/// before any request bytes are written, so a shared-directory socket cannot
+/// impersonate the user's app.
+fn connect_for_uid(socket: &Path, expected_uid: u32) -> std::io::Result<UnixStream> {
+    let stream = UnixStream::connect(socket)?;
+    cmux_tui_core::platform::require_unix_peer_uid(&stream, expected_uid)?;
+    Ok(stream)
+}
+
 /// One request and its response. The outer error is transport; the inner
 /// one is the app's `{"ok":false,"error":…}`.
 /// Every app request first lets the app catch up with the daemon
 /// (`after: "sync"`, one daemon round trip), so it sees what an earlier
 /// `cmux` call wrote to the daemon (plans/cmux-next/state-ownership.md 4).
-fn with_read_barrier(mut params: Value) -> Value {
+/// The liveness probes skip it: they read no session state, and a busy
+/// daemon must not make a live app look dead.
+fn with_read_barrier(method: &str, mut params: Value) -> Value {
+    if matches!(method, "system.ping" | "system.capabilities") {
+        return params;
+    }
     if let Some(object) = params.as_object_mut() {
         object.entry("after").or_insert_with(|| json!("sync"));
     }
@@ -865,8 +933,19 @@ const CALLER_METHODS: [&str; 4] =
 /// server), else the caller's own terminal (`CMUX_TUI_TERMINAL_ID`).
 pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value> {
     let set = |key: &str| env(key).filter(|value| !value.is_empty());
+    // A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host): the
+    // app does not know a turn's agent session, so it also names the Home
+    // chat, where the app places the turn's tabs when the session is unknown.
+    let home_chat = set("CMUX_CALLER_HOME_CHAT").as_deref() == Some("1");
     if let Some(session) = set("CMUX_AGENT_SESSION") {
-        return Some(json!({ "agent_session": session }));
+        return Some(if home_chat {
+            json!({ "agent_session": session, "home_chat": true })
+        } else {
+            json!({ "agent_session": session })
+        });
+    }
+    if home_chat {
+        return Some(json!({ "home_chat": true }));
     }
     set("CMUX_TUI_TERMINAL_ID").map(|terminal| json!({ "terminal_id": terminal }))
 }
@@ -883,7 +962,7 @@ fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
         object.remove("caller");
         return (params, false);
     }
-    if !CALLER_METHODS.contains(&method) {
+    if !takes_caller(method) {
         return (params, false);
     }
     let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };
@@ -918,11 +997,30 @@ pub(super) fn request(
 ) -> Result<Result<Value, Value>, String> {
     let timeout = timeout.into();
     let (with, added) = with_caller(method, params.clone());
-    let response = exchange(stream, method, with_read_barrier(with), timeout)?;
+    let mut response = exchange(stream, method, with_read_barrier(method, with.clone()), timeout)?;
+    // On a loaded machine the app's 2 s request deadline (mostly its daemon
+    // read barrier) can pass while both are healthy. A read changes nothing,
+    // so it is asked once more; a mutation is never resent.
+    if is_retryable_read(method) && timed_out(&response) {
+        response = exchange(stream, method, with_read_barrier(method, with), timeout)?;
+    }
     if added && refused_caller(&response) {
-        return exchange(stream, method, with_read_barrier(params), timeout);
+        return exchange(stream, method, with_read_barrier(method, params), timeout);
     }
     Ok(response)
+}
+
+/// An app method that only reads state: safe to send again after a timeout.
+fn is_retryable_read(method: &str) -> bool {
+    method.starts_with("system.")
+        || method == "snapshot.get"
+        || method == "action.list"
+        || method == "action.describe"
+        || [".list", ".get", ".describe", ".status"].iter().any(|suffix| method.ends_with(suffix))
+}
+
+fn timed_out(response: &Result<Value, Value>) -> bool {
+    matches!(response, Err(error) if error_code(error) == Some("timeout"))
 }
 
 /// One request with exactly `params` (no read barrier) and its response.

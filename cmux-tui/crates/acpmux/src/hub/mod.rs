@@ -56,6 +56,7 @@ mod secrets;
 mod seen;
 mod session;
 pub(crate) mod session_pages;
+mod settings_watch;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
@@ -74,6 +75,7 @@ pub use new_request::{
 };
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
+pub mod approvers;
 mod peers;
 pub(crate) use peers::PEER_PERMISSION_PENDING;
 mod permission_groups;
@@ -83,14 +85,18 @@ mod processes;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
+pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
+mod transcript;
 mod transfer;
 mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+mod turn_git;
 mod turn_usage;
 mod turns;
 pub(crate) mod views;
@@ -259,6 +265,12 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// False from a deferred start (`Hub::new_deferred`) until `load_logs` read the
+    /// chat logs: prompts wait for it, so a restored queue keeps its place.
+    pub(super) logs_ready: tokio::sync::watch::Sender<bool>,
+    /// Sessions that were waiting for a permission when the last daemon stopped;
+    /// `load_logs` settles them.
+    pub(super) waiting_at_load: StdMutex<Vec<String>>,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
@@ -304,6 +316,8 @@ pub struct Hub {
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
+    /// The settings file watched for start-mode changes (`settings_watch.rs`).
+    pub(super) settings_watch: settings_watch::SettingsWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
@@ -315,6 +329,8 @@ pub struct Hub {
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
+    /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
+    pub(super) subsessions: subsessions::Index,
     /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
     pub(super) auto_resumes: auto_resume::Pending,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
@@ -328,7 +344,18 @@ impl Hub {
         Self::new_with_mailbox(config, store, Mailbox::memory())
     }
 
+    /// A daemon's hub: only the session list is read before it answers. The chat
+    /// logs (their tails, queues and unsettled turns) load in `load_logs`, after
+    /// the ready line (2026-10-20: reading 3.9 GB of logs first took 26.8 s).
+    pub fn new_deferred(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
+        Self::build(config, store, mailbox, true)
+    }
+
     pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
+        Self::build(config, store, mailbox, false)
+    }
+
+    fn build(config: Config, store: Box<dyn Store>, mailbox: Mailbox, deferred: bool) -> Arc<Self> {
         let (events, _) = broadcast::channel(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
@@ -350,6 +377,8 @@ impl Hub {
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            logs_ready: tokio::sync::watch::channel(true).0,
+            waiting_at_load: StdMutex::new(Vec::new()),
             catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
@@ -373,12 +402,14 @@ impl Hub {
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
+            settings_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             offers: Default::default(),
+            subsessions: Default::default(),
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
@@ -386,7 +417,10 @@ impl Hub {
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }
-        hub.load_from_store();
+        hub.load_from_store(deferred);
+        if !deferred {
+            hub.load_logs();
+        }
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
@@ -477,7 +511,7 @@ impl Hub {
         &self.mailbox
     }
 
-    pub(super) fn load_from_store(self: &Arc<Self>) {
+    pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
         let metas = match self.store.list() {
             Ok(m) => m,
             Err(e) => {
@@ -486,7 +520,7 @@ impl Hub {
             }
         };
         let mut sessions = self.sessions.lock().unwrap();
-        let waiting: Vec<String> = metas
+        *self.waiting_at_load.lock().unwrap() = metas
             .iter()
             .filter(|m| m.status == SessionStatus::Waiting)
             .map(|m| m.id.clone())
@@ -495,24 +529,100 @@ impl Hub {
             if meta.status != SessionStatus::Closed {
                 meta.status = SessionStatus::Idle;
             }
-            // Meta is saved less often than events; after a hard stop the
-            // log can be ahead of it. Never hand out a sequence twice.
-            if let Ok(extra) = self.store.events(&meta.id, meta.last_seq, 1_000_000)
-                && let Some(last) = extra.last()
+            // Every child's short name stays taken (`subsessions.rs`).
+            if let Some(link) = &meta.subsession {
+                self.subsessions.note_name(&link.started_by, &link.short_name);
+            }
+            // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
+            if let Some(link) =
+                meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
             {
-                meta.event_count += extra.len() as u64;
-                meta.last_seq = last.seq;
+                self.subsessions.set_open(&link.started_by, &meta.id, true);
             }
             let session = self.make_session(meta);
+            session.caught_up.store(false, Ordering::SeqCst);
             sessions.insert(session.id.clone(), session);
         }
         tracing::info!("loaded {} sessions from store", sessions.len());
         drop(sessions);
+        if deferred {
+            self.logs_ready.send_replace(false);
+        }
+    }
+
+    /// Reads what the chat logs add to the session list: each log's tail past its
+    /// saved `lastSeq`, the turns a restart cut off, and the queued prompts. A
+    /// daemon runs it after its ready line; prompts wait for it (`wait_logs`).
+    pub fn load_logs(self: &Arc<Self>) {
+        let started = std::time::Instant::now();
+        let sessions = self.sessions();
+        self.on_every_core(&sessions, |session| self.catch_up(session));
+        let waiting = std::mem::take(&mut *self.waiting_at_load.lock().unwrap());
         // A turn whose agent host still runs is not lost: the host is adopted.
         let hosted = Self::live_host_sessions();
         self.mark_lost_waits(&waiting, &hosted);
         self.mark_unknown_outcomes(&hosted);
         self.restore_queues();
+        self.logs_ready.send_replace(true);
+        tracing::info!(
+            "loaded the chat logs of {} sessions in {} ms",
+            sessions.len(),
+            started.elapsed().as_millis()
+        );
+    }
+
+    /// `load_logs` off the executor.
+    pub async fn load_logs_async(self: &Arc<Self>) {
+        let hub = self.clone();
+        let _ = tokio::task::spawn_blocking(move || hub.load_logs()).await;
+    }
+
+    /// Wait until the chat logs are read (immediate outside a deferred daemon start).
+    pub(crate) async fn wait_logs(&self) {
+        let mut rx = self.logs_ready.subscribe();
+        let _ = rx.wait_for(|ready| *ready).await;
+    }
+
+    /// Meta is saved less often than events; after a hard stop the log can be
+    /// ahead of it. Counts the tail past `lastSeq` once, so no sequence is
+    /// handed out twice; only that tail is read.
+    pub(super) fn catch_up(&self, session: &Session) {
+        let _order = session.append_lock.lock().unwrap();
+        self.catch_up_locked(session);
+    }
+
+    fn catch_up_locked(&self, session: &Session) {
+        if session.caught_up.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let last_seq = session.meta.lock().unwrap().last_seq;
+        if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
+            && extra > 0
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.event_count += extra;
+            meta.last_seq = last;
+            session.seq.fetch_max(last, Ordering::SeqCst);
+        }
+    }
+
+    /// Runs `work` for each session on up to 8 threads (sessions are independent).
+    pub(super) fn on_every_core(
+        &self,
+        sessions: &[Arc<Session>],
+        work: impl Fn(&Arc<Session>) + Sync,
+    ) {
+        let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..workers.min(sessions.len()) {
+                scope.spawn(|| {
+                    while let Some(session) = sessions.get(next.fetch_add(1, Ordering::Relaxed)) {
+                        work(session);
+                    }
+                });
+            }
+        });
     }
 
     pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
@@ -525,6 +635,7 @@ impl Hub {
             spawn_lock: Mutex::new(()),
             append_lock: StdMutex::new(()),
             loading: AtomicBool::new(false),
+            caught_up: AtomicBool::new(true),
             turn_lock: Mutex::new(()),
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
@@ -582,14 +693,20 @@ impl Hub {
         if let Some(s) = sessions.get(key) {
             return Ok(s.clone());
         }
+        // Names are read under each session's meta lock, never cloned: a
+        // clone of every meta took ~45 ms with 2,500 sessions, on each Stop
+        // (`acpmux session cancel NAME`) and every other call by name.
+        let named = |s: &Session, pick: &dyn Fn(&str) -> bool| {
+            pick(&s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).name)
+        };
         let mut by_name: Vec<_> =
-            sessions.values().filter(|s| s.meta().name == key).cloned().collect();
+            sessions.values().filter(|s| named(s, &|n| n == key)).cloned().collect();
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
         }
         let by_prefix: Vec<_> = sessions
             .values()
-            .filter(|s| s.id.starts_with(key) || s.meta().name.starts_with(key))
+            .filter(|s| s.id.starts_with(key) || named(s, &|n| n.starts_with(key)))
             .cloned()
             .collect();
         match by_prefix.len() {
@@ -649,6 +766,7 @@ impl Hub {
         at: Option<u64>,
     ) -> (EventRecord, bool) {
         let _order = session.append_lock.lock().unwrap();
+        self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
@@ -842,7 +960,11 @@ impl Hub {
             // Scan the whole log: a long turn can stream far more records
             // than any fixed tail window after its `turn_started`.
             let mut open: Option<(u64, Value)> = None;
-            let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            if session.meta().status == SessionStatus::Closed {
+                continue;
+            }
+            let kinds = ["turn_started", "turn_result"];
+            let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
                 match e.kind.as_str() {
                     "turn_started" => {
                         open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))
@@ -871,14 +993,27 @@ impl Hub {
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
-        let changed = {
+        let (was, link) = {
             let mut m = session.meta.lock().unwrap();
-            let changed = m.status != status;
+            let was = m.status;
             m.status = status;
             m.updated_at = now_ms();
-            changed
+            // The parent's slot follows the status under the same lock, so
+            // concurrent status writes and the index never disagree (the
+            // index is a leaf lock, `subsessions.rs`).
+            if let Some(link) = &m.subsession {
+                self.subsessions.set_open(
+                    &link.started_by,
+                    &session.id,
+                    status != SessionStatus::Closed,
+                );
+            }
+            (was, m.subsession.clone())
         };
-        if changed {
+        if was != status {
+            if let Some(link) = &link {
+                self.subsession_status(&session.id, link, was, status);
+            }
             session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);

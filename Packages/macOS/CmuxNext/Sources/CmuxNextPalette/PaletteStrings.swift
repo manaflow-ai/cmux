@@ -51,6 +51,16 @@ nonisolated enum PaletteStrings {
     static var paneKeyword: String { String(localized: "palette.keyword.pane", defaultValue: "pane", bundle: .module) }
     static var sectionGroups: String { String(localized: "palette.section.groups", defaultValue: "Groups", bundle: .module) }
     static var sectionPanes: String { String(localized: "palette.section.panes", defaultValue: "Panes", bundle: .module) }
+    /// The Search scope's title (the sidebar's Search button) and its field's placeholder.
+    static var searchEverythingTitle: String { String(localized: "palette.scope.search", defaultValue: "Search", bundle: .module) }
+    /// The Chats & agents chip (Cmd-Shift-A, `search.chats`) on top of Search.
+    static var chatsAndAgentsTitle: String { String(localized: "palette.scope.chats", defaultValue: "Chats & agents", bundle: .module) }
+    static var chatsAndAgentsPlaceholder: String {
+        String(localized: "palette.placeholder.chatsAndAgents", defaultValue: "Search chats and agents…", bundle: .module)
+    }
+    static var searchEverythingPlaceholder: String {
+        String(localized: "palette.placeholder.searchEverything", defaultValue: "Search workspaces, tabs, history, chats, settings and commands…", bundle: .module)
+    }
     static var goToAnythingPlaceholder: String {
         String(localized: "palette.placeholder.goToAnything", defaultValue: "Search workspaces, groups, panes and tabs…", bundle: .module)
     }
@@ -118,4 +128,17 @@ extension PaletteStrings {
     static var optionCancel: String { ShortcutRecorderStrings.optionCancel }
     static var optionRemove: String { ShortcutRecorderStrings.optionRemove }
     static var optionRestoreDefault: String { ShortcutRecorderStrings.optionRestoreDefault }
+    // Cmd-P and Cmd-Shift-P rows for a typed path or web address (GoToPaletteRows).
+    static var sectionGoTo: String { String(localized: "palette.section.goTo", defaultValue: "Go To", bundle: .module) }
+    static var kindFolder: String { String(localized: "palette.kind.folder", defaultValue: "Folder", bundle: .module) }
+    static func goToOpen(_ place: String) -> String { String(localized: "palette.goTo.open", defaultValue: "Open \(place)", bundle: .module) }
+    static var goToFolderHint: String { String(localized: "palette.goTo.folderHint", defaultValue: "New terminal tab in this folder", bundle: .module) }
+    static var goToAskCommand: String { String(localized: "palette.goTo.askCommand", defaultValue: "Ask Agent", bundle: .module) }
+    static func goToAsk(_ place: String) -> String { String(localized: "palette.goTo.ask", defaultValue: "Ask Agent about \(place)", bundle: .module) }
+    static func goToAskWithPrompt(_ place: String, _ prompt: String) -> String {
+        String(localized: "palette.goTo.askWithPrompt", defaultValue: "Ask Agent about \(place): \(prompt)", bundle: .module)
+    }
+    static var goToAskHint: String { String(localized: "palette.goTo.askHint", defaultValue: "New agent chat; type your prompt", bundle: .module) }
+    static var goToAskSendsHint: String { String(localized: "palette.goTo.askSendsHint", defaultValue: "New agent chat; sends this prompt", bundle: .module) }
+    static var goToCopyURL: String { String(localized: "palette.goTo.copyURL", defaultValue: "Copy URL", bundle: .module) }
 }

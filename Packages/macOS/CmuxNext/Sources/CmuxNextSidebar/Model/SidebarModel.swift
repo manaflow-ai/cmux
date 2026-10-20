@@ -25,8 +25,10 @@ public final class SidebarModel {
             withMutation(keyPath: \.sections) {
                 storedSections = newValue
                 sectionsRevision &+= 1
+                structureRevision = sectionsRevision
             }
             rowIndex = nil
+            groupPaths = nil
         }
     }
     @ObservationIgnored private var storedSections: [SidebarSection]
@@ -38,12 +40,64 @@ public final class SidebarModel {
         access(keyPath: \.sections)
         return sectionsRevision
     }
+    /// `sectionsRevision` at the last structural set: a group's fold (`setGroupCollapsed`) moves
+    /// `sectionsRevision` (caches keyed on it rebuild) but not this, so the sidebar draws a fold by
+    /// splicing its rows (`onGroupFolded`) instead of laying the whole list out again.
+    @ObservationIgnored public private(set) var structureRevision: UInt64 = 0
+    /// `structureRevision`, read so a tracked reader hears the next structural set.
+    public var observedStructureRevision: UInt64 {
+        access(keyPath: \.sections)
+        return structureRevision
+    }
+    /// Where each group sits in `sections` (section, node); built on the first fold after a set.
+    @ObservationIgnored var groupPaths: [GroupID: (section: Int, node: Int)]?
+    /// Told each group `setGroupCollapsed` folded or opened (the list splices that group's rows).
+    @ObservationIgnored public var onGroupFolded: ((GroupID) -> Void)?
+
+    /// Folds (`collapsed`) or opens group `id` at once: view state the sidebar owns
+    /// (plans/cmux-next/state-ownership-DESIGN.md). It writes the one group in place, with no
+    /// structural set (no compare of every row, no observation of `sections`), and tells
+    /// `onGroupFolded`, so the cost is the group's rows, never the list's. Returns false when no
+    /// listed group has `id`.
+    @discardableResult
+    public func setGroupCollapsed(_ id: GroupID, _ collapsed: Bool) -> Bool {
+        if groupPaths == nil {
+            var paths: [GroupID: (section: Int, node: Int)] = [:]
+            for (s, section) in storedSections.enumerated() {
+                for (n, node) in section.nodes.enumerated() {
+                    if case let .group(group) = node, paths[group.id] == nil { paths[group.id] = (s, n) }
+                }
+            }
+            groupPaths = paths
+        }
+        guard let (s, n) = groupPaths?[id], case var .group(group) = storedSections[s].nodes[n] else { return false }
+        guard group.isCollapsed != collapsed else { return true }
+        group.isCollapsed = collapsed
+        storedSections[s].nodes[n] = .group(group)
+        sectionsRevision &+= 1
+        onGroupFolded?(id)
+        return true
+    }
+
+    /// The section that lists group `id` (O(1) after a fold built `groupPaths`).
+    func groupSection(_ id: GroupID) -> SidebarSection? {
+        if let (s, _) = groupPaths?[id] { return storedSections[s] }
+        return SidebarEdits.locateGroup(id, in: storedSections).map { storedSections[$0.section] }
+    }
     /// `sectionsRevision` when the user last moved rows (a keyboard move; never a drop): the next structural set may scroll to
     /// the moved active row. Nil: no move of the user's waits. Changes from others never move the view (DESIGN.md
     /// scroll reveal, cx-ml98q).
     @ObservationIgnored public private(set) var userMoveRevision: UInt64?
     /// The user moved rows: the structural set that shows the move may reveal the active row.
-    public func noteUserMove() { userMoveRevision = sectionsRevision }
+    public func noteUserMove() {
+        userMoveRevision = sectionsRevision
+        noteUserIntent()
+    }
+    /// When this app's user last asked for a sidebar change (`noteUserIntent`): only a change
+    /// that follows within `userIntentWindow` moves rows on a spring (calm-sidebar-movement).
+    @ObservationIgnored var userIntentAt: ContinuousClock.Instant?
+    /// The clock `noteUserIntent` reads; tests inject a fixed instant.
+    @ObservationIgnored public var userIntentClock: @MainActor () -> ContinuousClock.Instant = { .now }
     /// True once: at the first structural set after the user's move.
     public func takeUserMove() -> Bool {
         guard let mark = userMoveRevision, mark != sectionsRevision else { return false }
@@ -56,6 +110,8 @@ public final class SidebarModel {
     @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
+    /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
+    @ObservationIgnored public var drawnWorkspaceOrder: () -> [WorkspaceID] = { [] }
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
@@ -63,7 +119,18 @@ public final class SidebarModel {
     /// top-section item while the window shows its page, else the shown
     /// workspace. The App derives it from the window state; the one
     /// highlight, stepping and numbering read it.
-    public var selectedItem: SidebarItem?
+    ///
+    /// The focused workspace is always listed (sidebar-focused-visible): a
+    /// new workspace selection opens the collapsed sections that hide it
+    /// (`expandSections(hiding:)`), and the list scrolls it into view
+    /// (`ListViewport.settle`). Every selection path (a click, Cmd-P, a link,
+    /// the CLI, an agent's focus, a new workspace) sets this one property.
+    public var selectedItem: SidebarItem? {
+        didSet {
+            guard selectedItem != oldValue, case let .workspace(id)? = selectedItem else { return }
+            expandSections(hiding: id)
+        }
+    }
     /// The workspace shown in the window: the selection when it is a workspace.
     public var activeWorkspaceID: WorkspaceID? {
         get { if case .workspace(let id)? = selectedItem { id } else { nil } }
@@ -131,6 +198,14 @@ public final class SidebarModel {
     public var minimal = false
     /// Expanded rows (`sidebar.density`), unless minimal.
     public var expanded = false
+    /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
+    public var detailedStatus = false
+    /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
+    public var showsTimestamps = false
+    /// What a collapsed group header shows beside its loading spinner
+    /// (`sidebar.groupHeader.*`, all off by default; `sidebar.detailedStatusIcons`
+    /// adds its members' other states).
+    public var groupHeaderDetails = GroupHeaderDetails()
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
     public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
@@ -213,6 +288,11 @@ public final class SidebarModel {
     public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
 
     public func group(_ id: GroupID) -> SidebarGroup? {
+        // O(1) once a fold built `groupPaths` (a header click reads its group, then folds it).
+        if let (s, n) = groupPaths?[id] {
+            access(keyPath: \.sections)
+            if case let .group(group) = storedSections[s].nodes[n] { return group }
+        }
         guard let (s, n) = SidebarEdits.locateGroup(id, in: sections),
               case let .group(group) = sections[s].nodes[n] else { return nil }
         return group
@@ -223,11 +303,15 @@ public final class SidebarModel {
     /// Selected ids in visual order.
     public var orderedSelection: [WorkspaceID] { SidebarEdits.treeOrder(selection, in: sections) }
 
-    /// What a close of `id` from its menu or a key closes: the whole selection, in row order,
-    /// when `id` is one of two or more selected rows; otherwise `id` alone.
-    public func closeTargets(for id: WorkspaceID) -> [WorkspaceID] {
+    /// What a row verb on `id` (Close, Pin, Duplicate, Move Up/Down, from its menu or a key) acts
+    /// on: the whole selection, in row order, when `id` is one of two or more selected rows;
+    /// otherwise `id` alone.
+    public func actionTargets(for id: WorkspaceID) -> [WorkspaceID] {
         selection.count > 1 && selection.contains(id) ? orderedSelection : [id]
     }
+
+    /// What a close of `id` from its menu or a key closes (``actionTargets(for:)``).
+    public func closeTargets(for id: WorkspaceID) -> [WorkspaceID] { actionTargets(for: id) }
 
     // MARK: Intents
 
@@ -257,12 +341,15 @@ public final class SidebarModel {
         case let .switchProfile(id):
             activeProfileID = id
         case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
-             .openWhatsNew, .dismissUpdated, .nowPlaying:
+             .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .toggleWorkspaceAudio:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
         case let .toggleLayoutSection(id):
             if collapsedLayoutSections.remove(id) == nil { collapsedLayoutSections.insert(id) }
+        case let .toggleCollapse(.group(id)):
+            // View state: one group's rows, no structural set (`setGroupCollapsed`).
+            if let collapsed = group(id)?.isCollapsed { setGroupCollapsed(id, !collapsed) }
         case let .toggleCollapse(.section(id)):
             let collapse = !(section(id)?.isCollapsed ?? collapsedSections.contains(id))
             if collapse { collapsedSections.insert(id) } else { collapsedSections.remove(id) }
@@ -347,6 +434,26 @@ public final class SidebarModel {
         }
     }
 
+    /// Opens the collapsed sections that hide workspace `id` (a machine or
+    /// Pinned section, a document section), so the focused workspace has a
+    /// row. A collapsed group stays closed: it draws its active member as its
+    /// one row (`SidebarLayout.make`). Called on a selection change only, so
+    /// the user can still collapse the section the focused workspace is in.
+    func expandSections(hiding id: WorkspaceID) {
+        var sectionIDs: Set<SectionID> = [], layoutIDs: Set<LayoutSectionID> = []
+        for path in listedPaths(of: id) {
+            let section = storedSections[path.section]
+            if collapsedSections.contains(section.id) || section.isCollapsed { sectionIDs.insert(section.id) }
+            if case let .custom(custom) = section.kind, collapsedLayoutSections.contains(LayoutSectionID(custom.id)) {
+                layoutIDs.insert(LayoutSectionID(custom.id))
+            }
+        }
+        if !layoutIDs.isEmpty { collapsedLayoutSections.subtract(layoutIDs) }
+        guard !sectionIDs.isEmpty else { return }
+        collapsedSections.subtract(sectionIDs)
+        setSections(sections)
+    }
+
     private func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
         if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
         return rowIndex?.paths(of: id) ?? []
@@ -358,7 +465,7 @@ public final class SidebarModel {
         selection.subtract(closed)
         if let oldActive, closed.contains(oldActive) {
             let surviving = allWorkspaces.map(\.id)
-            let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving)
+            let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving, orders: [drawnWorkspaceOrder()])
             activeWorkspaceID = next
             selection = next.map { [$0] } ?? []
         }
@@ -422,8 +529,18 @@ public final class SidebarModel {
     /// boundary or while filtering.
     @discardableResult
     public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
-        guard !locksReorder else { return false }
-        let ids = orderedSelection
+        move(orderedSelection, direction)
+    }
+
+    /// Move Up/Down on row `id`: moves ``actionTargets(for:)`` one slot as one block, as
+    /// Cmd-Opt-Up/Down does. Returns false at a boundary or while reordering is locked.
+    @discardableResult
+    public func moveActionTargets(of id: WorkspaceID, _ direction: KeyboardReorder.Direction) -> Bool {
+        move(actionTargets(for: id), direction)
+    }
+
+    private func move(_ ids: [WorkspaceID], _ direction: KeyboardReorder.Direction) -> Bool {
+        guard !locksReorder, !ids.isEmpty else { return false }
         if isFiltering, let docDrag {
             guard docDrag.keyboardMove(ids, up: direction == .up, model: self) else { return false }
             noteUserMove()
@@ -441,6 +558,10 @@ public final class SidebarModel {
         showWorkspaceTabs = preferences.showWorkspaceTabs && !preferences.minimal
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
+        detailedStatus = preferences.detailedStatusIcons
+        showsTimestamps = preferences.showTimestamps
+        groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
+                                                unreadCount: preferences.groupHeaderUnreadCount)
         hidesWorkspaces = !preferences.showProjects
         groupsByFolder = preferences.groupBy == .folder
         groupsByComputer = preferences.groupsByComputer
@@ -460,6 +581,8 @@ public final class SidebarModel {
         o.activeWorkspaceID = activeWorkspaceID
         o.workspaceRow = workspaceRow
         (o.minimal, o.expanded) = (minimal, expanded)
+        o.detailedStatus = detailedStatus
+        o.showsTimestamps = showsTimestamps
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {

@@ -86,6 +86,9 @@ pub struct NewRequest {
     /// starts (`_meta.acpmux.route`, unix socket only): the chat's model
     /// provider from its first turn. Checked by the caller as a route id.
     pub route: Option<String>,
+    /// The new session is a sub-session (`hub/subsessions.rs`): its parent,
+    /// short name and depth, checked against the parent's limits by the caller.
+    pub subsession: Option<crate::store::SubsessionLink>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

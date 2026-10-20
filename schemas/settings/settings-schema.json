@@ -38,7 +38,8 @@
               "appearance.metrics.tabMinInactiveWidth",
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
-              "tabs.swapCmdTAndCmdN"
+              "tabs.swapCmdTAndCmdN",
+              "tabs.newTabNowPlaying"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -58,10 +59,13 @@
               "layout.dockColumnMode",
               "layout.frameOrientation",
               "layout.rows",
+              "layout.focusFollowsMouse",
+              "layout.scrollAreas",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
-              "layout.tileBrowsers"
+              "layout.tileBrowsers",
+              "layout.linkPlacement"
             ],
             "title" : {
               "key" : "settings.group.columns",
@@ -130,6 +134,26 @@
             }
           },
           {
+            "key" : "settings.group.markdownViewer",
+            "rows" : [
+              "markdown.remoteImages",
+              "markdown.layout.width",
+              "markdown.layout.fullWidth",
+              "markdown.font.size",
+              "markdown.font.preset",
+              "markdown.font.lineHeight",
+              "markdown.spacing.paragraph",
+              "markdown.code.scale",
+              "markdown.code.family",
+              "markdown.tables",
+              "markdown.theme"
+            ],
+            "title" : {
+              "key" : "settings.group.markdownViewer",
+              "text" : "Markdown Viewer"
+            }
+          },
+          {
             "key" : "settings.group.files",
             "rows" : [
               "files.textEditor"
@@ -137,6 +161,17 @@
             "title" : {
               "key" : "settings.group.files",
               "text" : "Files"
+            }
+          },
+          {
+            "key" : "settings.group.screenshots",
+            "rows" : [
+              "screenshots.findTools",
+              "screenshots.folders"
+            ],
+            "title" : {
+              "key" : "settings.group.screenshots",
+              "text" : "Screenshots"
             }
           },
           {
@@ -250,6 +285,8 @@
             "key" : "settings.group.densityMotion",
             "rows" : [
               "appearance.density",
+              "appearance.customDensity",
+              "appearance.customDensities",
               "app.uiScale",
               "appearance.metrics.chromeFontSize",
               "appearance.metrics.sidebarWidth",
@@ -292,8 +329,8 @@
           {
             "key" : "settings.group.windowBackground",
             "rows" : [
-              "appearance.backdropArt",
               "appearance.background",
+              "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur"
             ],
@@ -352,8 +389,13 @@
               "sidebar.groupBy",
               "sidebar.showSpaces",
               "sidebar.showProfileControl",
+              "sidebar.showSearchButton",
               "sidebar.minimal",
               "sidebar.density",
+              "sidebar.detailedStatusIcons",
+              "sidebar.showTimestamps",
+              "sidebar.groupHeader.memberCount",
+              "sidebar.groupHeader.unreadCount",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -361,6 +403,23 @@
               "sidebar.spacesVisibility",
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
+              "sidebar.hoverCards.layout",
+              "sidebar.hoverCards.sections.timings",
+              "sidebar.hoverCards.sections.prompts",
+              "sidebar.hoverCards.sections.waiting",
+              "sidebar.hoverCards.sections.git",
+              "sidebar.hoverCards.sections.ports",
+              "sidebar.hoverCards.maxRows",
+              "sidebar.hoverCards.groups.workspaceGroups",
+              "sidebar.hoverCards.groups.tabGroups",
+              "sidebar.hoverCards.groups.delay",
+              "sidebar.hoverCards.groups.order",
+              "sidebar.hoverCards.groups.maxMembers",
+              "sidebar.hoverCards.groups.sections.status",
+              "sidebar.hoverCards.groups.sections.members",
+              "sidebar.hoverCards.groups.sections.activity",
+              "sidebar.hoverCards.groups.sections.git",
+              "sidebar.hoverCards.groups.sections.ports",
               "sidebar.nowPlaying.enabled",
               "home.channelsEnabled"
             ],
@@ -451,7 +510,8 @@
         ],
         "id" : "appearance",
         "lead" : [
-          "backdrops"
+          "backdrops",
+          "density"
         ],
         "symbol" : "paintbrush",
         "title" : {
@@ -497,6 +557,136 @@
       },
       {
         "actions" : [
+          "editor"
+        ],
+        "aliases" : [
+          "editor"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.editorDefaults",
+            "rows" : [
+              "editor.importFrom"
+            ],
+            "title" : {
+              "key" : "settings.group.editorDefaults",
+              "text" : "Defaults from Other Editors"
+            }
+          },
+          {
+            "key" : "settings.group.editorFont",
+            "rows" : [
+              "editor.fontFamily",
+              "editor.fontSize",
+              "editor.fontWeight",
+              "editor.fontLigatures",
+              "editor.lineHeight",
+              "editor.letterSpacing"
+            ],
+            "title" : {
+              "key" : "settings.group.editorFont",
+              "text" : "Font"
+            }
+          },
+          {
+            "key" : "settings.group.editorText",
+            "rows" : [
+              "editor.tabSize",
+              "editor.insertSpaces",
+              "editor.detectIndentation",
+              "editor.wordWrap",
+              "editor.wordWrapColumn"
+            ],
+            "title" : {
+              "key" : "settings.group.editorText",
+              "text" : "Indentation and Wrapping"
+            }
+          },
+          {
+            "key" : "settings.group.editorDisplay",
+            "rows" : [
+              "editor.lineNumbers",
+              "editor.rulers",
+              "editor.minimap.enabled",
+              "editor.renderWhitespace",
+              "editor.renderControlCharacters",
+              "editor.renderLineHighlight",
+              "editor.bracketPairColorization.enabled",
+              "editor.guides.bracketPairs",
+              "editor.guides.indentation",
+              "editor.matchBrackets",
+              "editor.stickyScroll.enabled",
+              "editor.folding",
+              "editor.scrollBeyondLastLine",
+              "editor.smoothScrolling",
+              "editor.mouseWheelZoom"
+            ],
+            "title" : {
+              "key" : "settings.group.editorDisplay",
+              "text" : "Display"
+            }
+          },
+          {
+            "key" : "settings.group.editorCursor",
+            "rows" : [
+              "editor.cursorStyle",
+              "editor.cursorBlinking",
+              "editor.cursorSmoothCaretAnimation",
+              "editor.cursorSurroundingLines",
+              "editor.multiCursorModifier"
+            ],
+            "title" : {
+              "key" : "settings.group.editorCursor",
+              "text" : "Cursor"
+            }
+          },
+          {
+            "key" : "settings.group.editorEditing",
+            "rows" : [
+              "editor.autoClosingBrackets",
+              "editor.autoClosingQuotes",
+              "editor.linkedEditing",
+              "editor.quickSuggestions",
+              "editor.wordBasedSuggestions",
+              "editor.acceptSuggestionOnEnter",
+              "editor.emptySelectionClipboard",
+              "editor.find.seedSearchStringFromSelection"
+            ],
+            "title" : {
+              "key" : "settings.group.editorEditing",
+              "text" : "Editing"
+            }
+          },
+          {
+            "key" : "settings.group.editorSaving",
+            "rows" : [
+              "editor.autoSave",
+              "editor.autoSaveDelay",
+              "editor.trimTrailingWhitespace",
+              "editor.insertFinalNewline",
+              "editor.formatOnSave"
+            ],
+            "title" : {
+              "key" : "settings.group.editorSaving",
+              "text" : "Saving"
+            }
+          }
+        ],
+        "id" : "editor",
+        "lead" : [
+
+        ],
+        "symbol" : "chevron.left.forwardslash.chevron.right",
+        "title" : {
+          "key" : "settings.section.editor",
+          "text" : "Code Editor"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
 
         ],
         "aliases" : [
@@ -506,6 +696,13 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
+              "agentPane.display.width",
+              "agentPane.display.fullWidth",
+              "agentPane.display.font.preset",
+              "agentPane.display.font.size",
+              "agentPane.display.font.lineHeight",
+              "agentPane.display.code.family",
+              "agentPane.display.code.scale",
               "agentPane.links.outsideRoots",
               "agentPane.images.remote",
               "agentPane.editedFiles.show",
@@ -520,6 +717,16 @@
             "title" : {
               "key" : "settings.group.agentChat",
               "text" : "Agent Chat"
+            }
+          },
+          {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
             }
           },
           {
@@ -552,6 +759,29 @@
               "key" : "settings.group.sessions",
               "text" : "Agent Sessions"
             }
+          },
+          {
+            "key" : "settings.group.subsessions",
+            "rows" : [
+              "agents.subsessions.enabled",
+              "agents.subsessions.maxChildren",
+              "agents.subsessions.maxDepth"
+            ],
+            "title" : {
+              "key" : "settings.group.subsessions",
+              "text" : "Sub-sessions"
+            }
+          },
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
+            }
           }
         ],
         "id" : "agents",
@@ -566,6 +796,7 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
+          "chiefs",
           "computerUse"
         ]
       },
@@ -675,6 +906,7 @@
             "key" : "settings.group.engine",
             "rows" : [
               "browser.defaultEngine",
+              "browser.siteEngines",
               "browser.newTabPage"
             ],
             "title" : {
@@ -691,6 +923,7 @@
               "browser.omnibar.inlineAutocomplete",
               "browser.omnibar.maxRows",
               "browser.omnibar.calculator",
+              "browser.omnibar.showFullURLs",
               "browser.omnibar.glass",
               "browser.omnibar.glassTint",
               "browser.omnibar.glassTintStrength",
@@ -724,6 +957,18 @@
             }
           },
           {
+            "key" : "settings.group.agentInput",
+            "rows" : [
+              "browser.showAgentCursor",
+              "browser.agentMouse.motion",
+              "browser.agentMouse.maxMoveMs"
+            ],
+            "title" : {
+              "key" : "settings.group.agentInput",
+              "text" : "Agent Input"
+            }
+          },
+          {
             "key" : "settings.group.extensions",
             "rows" : [
               "browser.builtInAdBlocker"
@@ -750,6 +995,7 @@
           {
             "key" : "settings.group.openingLinks",
             "rows" : [
+              "browser.enabled",
               "browser.openLinksInCmuxBrowser",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
@@ -764,7 +1010,8 @@
             "rows" : [
               "browser.passwords.offerToSave",
               "browser.passwords.generate",
-              "browser.passwords.allowExport"
+              "browser.passwords.allowExport",
+              "browser.verificationAutofill.enabled"
             ],
             "title" : {
               "key" : "settings.group.passwords",
@@ -776,7 +1023,9 @@
             "rows" : [
               "browser.hibernation",
               "browser.hibernationExclusions",
-              "browser.hibernatePinnedTabs"
+              "browser.hibernatePinnedTabs",
+              "browser.freezeHiddenTabs",
+              "browser.keepNeighborTabsAwake"
             ],
             "title" : {
               "key" : "settings.group.memory",
@@ -925,7 +1174,8 @@
             "rows" : [
               "phone.allowConnections",
               "phone.startSessions",
-              "phone.keepAwake"
+              "phone.keepAwake",
+              "phone.cloudReplica"
             ],
             "title" : {
               "key" : "settings.group.phone",
@@ -945,6 +1195,38 @@
         },
         "trail" : [
 
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.mobile",
+            "rows" : [
+              "mobile.allowIPhoneConnections"
+            ],
+            "title" : {
+              "key" : "settings.group.mobile",
+              "text" : "iPhone"
+            }
+          }
+        ],
+        "id" : "mobile",
+        "lead" : [
+
+        ],
+        "symbol" : "iphone",
+        "title" : {
+          "key" : "settings.category.mobile",
+          "text" : "Mobile"
+        },
+        "trail" : [
+          "mobile"
         ]
       },
       {
@@ -993,7 +1275,6 @@
           {
             "key" : "settings.group.appearanceTuning",
             "rows" : [
-              "appearance.glassTransparency",
               "appearance.hue",
               "appearance.saturation"
             ],
@@ -1625,6 +1906,7 @@
     },
     {
       "accepts" : [
+        "cards",
         "default",
         "composer",
         "threads",
@@ -1635,6 +1917,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabTemplateCards",
+            "text" : "Cards"
+          },
+          "value" : "cards"
+        },
         {
           "title" : {
             "key" : "settings.choice.newTabTemplateDefault",
@@ -1681,7 +1970,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "default",
+      "default" : "cards",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -1702,7 +1991,10 @@
         "classic",
         "composer",
         "threads",
-        "console"
+        "console",
+        "cards",
+        "search",
+        "ask"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -1725,12 +2017,20 @@
     },
     {
       "accepts" : [
+        "afterCurrent",
         "end",
-        "afterCurrent"
+        "start"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionAfterCurrent",
+            "text" : "After the Current Tab"
+          },
+          "value" : "afterCurrent"
+        },
         {
           "title" : {
             "key" : "settings.choice.newTabPositionEnd",
@@ -1740,16 +2040,16 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.newTabPositionAfterCurrent",
-            "text" : "After the Current Tab"
+            "key" : "settings.choice.newTabPositionStart",
+            "text" : "At the Start"
           },
-          "value" : "afterCurrent"
+          "value" : "start"
         }
       ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "end",
+      "default" : "afterCurrent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -1769,6 +2069,9 @@
         "right",
         "end",
         "after",
+        "start",
+        "first",
+        "beginning",
         "insert"
       ],
       "kind" : "choice",
@@ -2340,7 +2643,7 @@
       "range" : {
         "max" : 320,
         "min" : 16,
-        "placeholder" : 32,
+        "placeholder" : 48,
         "step" : 1,
         "unit" : "points"
       },
@@ -3449,7 +3752,7 @@
       },
       "help" : {
         "key" : "settings.updates.showWhatsNew.help",
-        "text" : "After an update, a What's New item shows at the top of the sidebar until you open it."
+        "text" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.showWhatsNew",
@@ -3836,7 +4139,7 @@
       },
       "help" : {
         "key" : "settings.phone.allowConnections.help",
-        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
+        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."
       },
       "kept_on_reset_all" : false,
       "key" : "phone.allowConnections",
@@ -3987,6 +4290,274 @@
       "title" : {
         "key" : "settings.phone.keepAwake",
         "text" : "Keep Mac Awake for Your Phone"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.cloudReplica.help",
+        "text" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.cloudReplica",
+      "keywords" : [
+        "iphone",
+        "mobile",
+        "phone",
+        "cloud",
+        "offline",
+        "workspaces",
+        "sync",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "cloudReplica"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.cloudReplica",
+        "text" : "Show This Mac's Workspaces on Your Phone While It's Off"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.enabled.help",
+        "text" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.enabled",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "child",
+        "spawn",
+        "parallel",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.enabled",
+        "text" : "Let Agents Start Sub-sessions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        1000,
+        500.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 50,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.maxChildren.help",
+        "text" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.maxChildren",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "limit",
+        "width",
+        "children",
+        "parallel"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "maxChildren"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -998,
+        1999,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.maxChildren",
+        "text" : "Open Sub-sessions per Session"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        100,
+        50.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 10,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.maxDepth.help",
+        "text" : "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.maxDepth",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "limit",
+        "depth",
+        "nesting",
+        "levels"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "maxDepth"
+      ],
+      "range" : {
+        "max" : 100,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -98,
+        199,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.maxDepth",
+        "text" : "Deepest Nesting"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.mobile",
+        "text" : "iPhone"
+      },
+      "help" : {
+        "key" : "settings.mobile.allowIPhoneConnections.help",
+        "text" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "mobile.allowIPhoneConnections",
+      "keywords" : [
+        "iphone",
+        "phone",
+        "mobile",
+        "remote",
+        "connect"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "mobile",
+        "allowIPhoneConnections"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "accounts",
+      "summary" : {
+        "key" : "settings.mobile.allowIPhoneConnections.summary",
+        "text" : "Lets your iPhone reach this Mac"
+      },
+      "title" : {
+        "key" : "settings.mobile.allowIPhoneConnections",
+        "text" : "Allow iPhone Connections"
       },
       "validation" : "portable"
     },
@@ -4372,6 +4943,113 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.focusFollowsMouse.help",
+        "text" : "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.focusFollowsMouse",
+      "keywords" : [
+        "focus",
+        "scroll",
+        "wheel",
+        "trackpad",
+        "pane",
+        "follows mouse",
+        "hover",
+        "pointer"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "focusFollowsMouse"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.focusFollowsMouse.summary",
+        "text" : "Hovering or scrolling a pane focuses it"
+      },
+      "title" : {
+        "key" : "settings.layout.focusFollowsMouse",
+        "text" : "Focus Follows Mouse"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.scrollAreas.help",
+        "text" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.scrollAreas",
+      "keywords" : [
+        "scroll",
+        "area",
+        "split",
+        "squash",
+        "dock",
+        "horizontal",
+        "overflow"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "scrollAreas"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.scrollAreas.summary",
+        "text" : "Splits scroll instead of squashing"
+      },
+      "title" : {
+        "key" : "settings.layout.scrollAreas",
+        "text" : "Scroll Areas"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         80,
         800,
         440
@@ -4584,6 +5262,83 @@
       "title" : {
         "key" : "settings.layout.tileBrowsers",
         "text" : "Split for Browsers Too"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "split-right",
+        "new-column",
+        "same-pane"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.linkPlacementSplitRight",
+            "text" : "Split Right"
+          },
+          "value" : "split-right"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.linkPlacementNewColumn",
+            "text" : "New Column on the Right"
+          },
+          "value" : "new-column"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.linkPlacementSamePane",
+            "text" : "Tab in the Same Pane"
+          },
+          "value" : "same-pane"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "split-right",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.linkPlacement.help",
+        "text" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.linkPlacement",
+      "keywords" : [
+        "link",
+        "url",
+        "path",
+        "file",
+        "open",
+        "split",
+        "right",
+        "column",
+        "pane",
+        "tab"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "linkPlacement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.layout.linkPlacement",
+        "text" : "Open Links and Files"
       },
       "validation" : "portable"
     },
@@ -6114,6 +6869,114 @@
       "title" : {
         "key" : "settings.picker.pinned",
         "text" : "Pinned Folders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.screenshots",
+        "text" : "Screenshots"
+      },
+      "help" : {
+        "key" : "settings.screenshots.findTools.help",
+        "text" : "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "screenshots.findTools",
+      "keywords" : [
+        "screenshots",
+        "screen recording",
+        "cleanshot",
+        "shottr",
+        "kap",
+        "capture"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "screenshots",
+        "findTools"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.screenshots.findTools",
+        "text" : "Find Screenshot Apps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "/Users/ada/src",
+          "~/notes"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.screenshots",
+        "text" : "Screenshots"
+      },
+      "help" : {
+        "key" : "settings.screenshots.folders.help",
+        "text" : "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "screenshots.folders",
+      "keywords" : [
+        "screenshots",
+        "folders",
+        "pictures",
+        "videos",
+        "recordings"
+      ],
+      "kind" : "folder_list",
+      "page_hidden" : false,
+      "path" : [
+        "screenshots",
+        "folders"
+      ],
+      "refuses" : [
+        "/Users/ada/src",
+        [
+          "relative/path"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.screenshots.folders",
+        "text" : "More Screenshot Folders"
       },
       "validation" : "portable"
     },
@@ -7924,7 +8787,7 @@
         "legacy"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "backdropArt"
@@ -9424,6 +10287,76 @@
     },
     {
       "accepts" : [
+        "shared",
+        "perPane"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.shared",
+            "text" : "One for the Window"
+          },
+          "value" : "shared"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.perPane",
+            "text" : "One per Pane"
+          },
+          "value" : "perPane"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "shared",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.paneBackgrounds.help",
+        "text" : "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.paneBackgrounds",
+      "keywords" : [
+        "background",
+        "wallpaper",
+        "pane",
+        "split",
+        "per pane",
+        "each pane",
+        "backdrop",
+        "art"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "paneBackgrounds"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.paneBackgrounds.summary",
+        "text" : "One background or one per pane"
+      },
+      "title" : {
+        "key" : "settings.appearance.paneBackgrounds",
+        "text" : "Pane Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -9440,14 +10373,14 @@
       },
       "help" : {
         "key" : "settings.appearance.experimentalControls.help",
-        "text" : "Show the wallpaper grid and live appearance tuner while they are being integrated."
+        "text" : "Applies Hue and Saturation to the window's tint. Off, they have no effect."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.experimentalControls",
       "keywords" : [
         "experimental",
-        "wallpaper",
-        "tuner",
+        "tuning",
+        "tint",
         "transparency",
         "hue",
         "saturation",
@@ -9611,7 +10544,10 @@
         true
       ],
       "section" : "appearance",
-      "summary" : null,
+      "summary" : {
+        "key" : "settings.appearance.backgroundBlur.summary",
+        "text" : "Clear Glass shows the desktop through the wallpaper"
+      },
       "title" : {
         "key" : "settings.appearance.backgroundBlur",
         "text" : "Material"
@@ -9648,7 +10584,7 @@
         "clear"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "glassTransparency"
@@ -9784,12 +10720,22 @@
     },
     {
       "accepts" : [
+        "ultraCompact",
         "compact",
-        "comfortable"
+        "cozy",
+        "comfortable",
+        "spacious"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.ultraCompact",
+            "text" : "Ultra-compact"
+          },
+          "value" : "ultraCompact"
+        },
         {
           "title" : {
             "key" : "settings.choice.compact",
@@ -9799,10 +10745,24 @@
         },
         {
           "title" : {
+            "key" : "settings.choice.cozy",
+            "text" : "Cozy"
+          },
+          "value" : "cozy"
+        },
+        {
+          "title" : {
             "key" : "settings.choice.comfortable",
             "text" : "Comfortable"
           },
           "value" : "comfortable"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.spacious",
+            "text" : "Spacious"
+          },
+          "value" : "spacious"
         }
       ],
       "consumers" : [
@@ -9814,12 +10774,21 @@
         "key" : "settings.group.densityMotion",
         "text" : "Density and Motion"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.density.help",
+        "text" : "Row height, padding, corners, icons and text size together. Compact is the default."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.density",
       "keywords" : [
         "size",
-        "spacing"
+        "spacing",
+        "compact",
+        "comfortable",
+        "cozy",
+        "spacious",
+        "dense",
+        "font"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -9839,6 +10808,119 @@
         "text" : "Density"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.customDensity",
+      "keywords" : [
+        "density",
+        "custom"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "customDensity"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.customDensity",
+        "text" : "Custom Density"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          {
+            "fontSize" : 11.5,
+            "id" : "my-tight",
+            "level" : -0.25,
+            "name" : "My Tight",
+            "tokens" : {
+              "sidebarRowHeight" : 22
+            }
+          }
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.customDensities",
+      "keywords" : [
+        "density",
+        "custom"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "customDensities"
+      ],
+      "refuses" : [
+        "my-tight",
+        [
+          {
+
+          }
+        ],
+        [
+          {
+            "id" : "Bad Id",
+            "name" : "x"
+          }
+        ],
+        [
+          {
+            "id" : "a",
+            "level" : "1",
+            "name" : "A"
+          }
+        ]
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.customDensities",
+        "text" : "Custom Densities"
+      },
+      "validation" : "domain:custom_densities"
     },
     {
       "accepts" : [
@@ -10297,7 +11379,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "both",
+      "default" : "tabs",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -11482,6 +12564,571 @@
       "title" : {
         "key" : "settings.focusRing.showWhenSinglePane",
         "text" : "Show With One Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.enabled.help",
+        "text" : "Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.enabled",
+      "keywords" : [
+        "motion",
+        "animation",
+        "animations",
+        "no animations",
+        "disable animations",
+        "reduce motion",
+        "instant"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.enabled",
+        "text" : "Play Animations"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.sidebar.help",
+        "text" : "Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.sidebar",
+      "keywords" : [
+        "motion",
+        "animation",
+        "sidebar",
+        "row",
+        "group",
+        "reorder",
+        "pin",
+        "move to top"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "sidebar"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.sidebar",
+        "text" : "Animate the Sidebar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.tabs.help",
+        "text" : "Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.tabs",
+      "keywords" : [
+        "motion",
+        "animation",
+        "tab",
+        "tab bar",
+        "reorder",
+        "group"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "tabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.tabs",
+        "text" : "Animate Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.panes.help",
+        "text" : "Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.panes",
+      "keywords" : [
+        "motion",
+        "animation",
+        "pane",
+        "split",
+        "zoom",
+        "window",
+        "divider",
+        "focus ring"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "panes"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.panes",
+        "text" : "Animate Panes and Windows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.overlays.help",
+        "text" : "Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.overlays",
+      "keywords" : [
+        "motion",
+        "animation",
+        "menu",
+        "popover",
+        "palette",
+        "toast",
+        "card",
+        "sheet",
+        "find bar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "overlays"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.overlays",
+        "text" : "Animate Menus and Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.hoverCards.help",
+        "text" : "Hover cards and tooltips fade and slide in. Off: they show and hide at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.hoverCards",
+      "keywords" : [
+        "motion",
+        "animation",
+        "hover card",
+        "tooltip",
+        "preview"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "hoverCards"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.hoverCards",
+        "text" : "Animate Hover Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.home.help",
+        "text" : "The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.home",
+      "keywords" : [
+        "motion",
+        "animation",
+        "home",
+        "chief",
+        "chat",
+        "bubble",
+        "messages"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "home"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.home",
+        "text" : "Animate Home and Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.cursor.help",
+        "text" : "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.cursor",
+      "keywords" : [
+        "motion",
+        "animation",
+        "cursor",
+        "agent",
+        "computer use",
+        "ripple"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "cursor"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.cursor",
+        "text" : "Animate the Agent Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.indicators.help",
+        "text" : "Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.indicators",
+      "keywords" : [
+        "motion",
+        "animation",
+        "spinner",
+        "progress",
+        "pulse",
+        "flash",
+        "loading",
+        "status"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "indicators"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.indicators",
+        "text" : "Animate Spinners and Progress"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.feedback.help",
+        "text" : "Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.feedback",
+      "keywords" : [
+        "motion",
+        "animation",
+        "hover",
+        "highlight",
+        "focus",
+        "color",
+        "theme",
+        "transition"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "feedback"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.feedback",
+        "text" : "Animate Highlights and Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.web.help",
+        "text" : "Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.web",
+      "keywords" : [
+        "motion",
+        "animation",
+        "web",
+        "page",
+        "css",
+        "transition",
+        "new tab",
+        "markdown",
+        "agent chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "web"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.web",
+        "text" : "Animate cmux Web Pages"
       },
       "validation" : "portable"
     },
@@ -14031,6 +15678,1148 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.remoteImages.help",
+        "text" : "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.remoteImages",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "image",
+        "web",
+        "remote",
+        "privacy",
+        "tracking",
+        "automatic"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "remoteImages"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.remoteImages",
+        "text" : "Load Web Images Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        30,
+        1000,
+        515
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 72,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.width.help",
+        "text" : "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.layout.width",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "width",
+        "max width",
+        "column",
+        "measure",
+        "line length",
+        "wide",
+        "ultrawide",
+        "monitor"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "layout",
+        "width"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 30,
+        "placeholder" : 72,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -940,
+        1970,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.width",
+        "text" : "Text Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.fullWidth.help",
+        "text" : "Text fills the whole pane instead of the text width."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.layout.fullWidth",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "full",
+        "width",
+        "wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "layout",
+        "fullWidth"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fullWidth",
+        "text" : "Full Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        8,
+        40,
+        24
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 16,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.fontSize.help",
+        "text" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.size",
+      "keywords" : [
+        "markdown",
+        "font",
+        "size",
+        "text",
+        "zoom",
+        "viewer",
+        "reading"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "size"
+      ],
+      "range" : {
+        "max" : 40,
+        "min" : 8,
+        "placeholder" : 16,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        72,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fontSize",
+        "text" : "Default Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "system",
+        "serif",
+        "mono"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSystem",
+            "text" : "System"
+          },
+          "value" : "system"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSerif",
+            "text" : "Serif"
+          },
+          "value" : "serif"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontMono",
+            "text" : "Monospaced"
+          },
+          "value" : "mono"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "system",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.preset",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "font",
+        "family",
+        "serif",
+        "monospace",
+        "typeface"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "preset"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fontPreset",
+        "text" : "Font"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        2.4,
+        1.7
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1.6,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.lineHeight",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "line height",
+        "leading",
+        "line spacing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "lineHeight"
+      ],
+      "range" : {
+        "max" : 2.4,
+        "min" : 1,
+        "placeholder" : 1.6,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.3999999999999999,
+        3.8,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.lineHeight",
+        "text" : "Line Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3,
+        1.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.paragraphSpacing.help",
+        "text" : "The gap after each paragraph, as a share of the text size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.spacing.paragraph",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "paragraph",
+        "spacing",
+        "gap",
+        "margin"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "spacing",
+        "paragraph"
+      ],
+      "range" : {
+        "max" : 3,
+        "min" : 0,
+        "placeholder" : 1,
+        "step" : 0.1,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -3,
+        6,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.paragraphSpacing",
+        "text" : "Paragraph Spacing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.6,
+        1.25,
+        0.925
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0.875,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.codeScale.help",
+        "text" : "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.code.scale",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "code",
+        "font",
+        "size",
+        "monospace",
+        "scale"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "code",
+        "scale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.6,
+        "placeholder" : 0.875,
+        "step" : 0.025,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.4,
+        2.25,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.codeSize",
+        "text" : "Code Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.codeFont.help",
+        "text" : "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.code.family",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "code",
+        "font",
+        "family",
+        "monospace"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "code",
+        "family"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.codeFont",
+        "text" : "Code Font"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+        8,
+        32,
+        20
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.code.blockSize",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "code",
+        "font",
+        "size",
+        "monospace"
+      ],
+      "kind" : "number",
+      "page_hidden" : true,
+      "path" : [
+        "markdown",
+        "code",
+        "blockSize"
+      ],
+      "range" : {
+        "max" : 32,
+        "min" : 8,
+        "placeholder" : 14,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -16,
+        56,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.codeBlockSize",
+        "text" : "Code Block Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "scroll",
+        "wrap"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.markdownTablesScroll",
+            "text" : "Scroll Sideways"
+          },
+          "value" : "scroll"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownTablesWrap",
+            "text" : "Wrap to Fit"
+          },
+          "value" : "wrap"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "scroll",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.tables",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "table",
+        "wrap",
+        "scroll",
+        "wide"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "tables"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.tables",
+        "text" : "Wide Tables"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "app",
+        "light",
+        "dark"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.markdownThemeApp",
+            "text" : "Match App"
+          },
+          "value" : "app"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownThemeLight",
+            "text" : "Light"
+          },
+          "value" : "light"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownThemeDark",
+            "text" : "Dark"
+          },
+          "value" : "dark"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "app",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.theme",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "theme",
+        "light",
+        "dark",
+        "appearance",
+        "paper"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "theme"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.theme",
+        "text" : "Page Theme"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        480,
+        4000,
+        2240
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 800,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.width.help",
+        "text" : "The widest the chat's column gets. On a wider pane the chat stays centered."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.width",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "width",
+        "max width",
+        "column",
+        "measure",
+        "wide"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "width"
+      ],
+      "range" : {
+        "max" : 4000,
+        "min" : 480,
+        "placeholder" : 800,
+        "step" : 10,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -3040,
+        7520,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.width",
+        "text" : "Chat Text Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.fullWidth.help",
+        "text" : "The chat fills the whole pane instead of the text width."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.fullWidth",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "full",
+        "width",
+        "wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "fullWidth"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.fullWidth",
+        "text" : "Chat Full Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "markdown",
+        "system",
+        "serif",
+        "mono"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatFontMarkdown",
+            "text" : "Same as Markdown Viewer"
+          },
+          "value" : "markdown"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSystem",
+            "text" : "System"
+          },
+          "value" : "system"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSerif",
+            "text" : "Serif"
+          },
+          "value" : "serif"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontMono",
+            "text" : "Monospaced"
+          },
+          "value" : "mono"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "markdown",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.preset",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "family",
+        "serif",
+        "monospace",
+        "typeface"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "preset"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.font",
+        "text" : "Chat Font"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        10,
+        28,
+        19
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 14,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.size",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "size",
+        "text"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "size"
+      ],
+      "range" : {
+        "max" : 28,
+        "min" : 10,
+        "placeholder" : 14,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -8,
+        46,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.fontSize",
+        "text" : "Chat Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1.2,
+        2.4,
+        1.7999999999999998
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1.625,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.lineHeight",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "line height",
+        "leading",
+        "line spacing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "lineHeight"
+      ],
+      "range" : {
+        "max" : 2.4,
+        "min" : 1.2,
+        "placeholder" : 1.625,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        0,
+        3.5999999999999996,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.lineHeight",
+        "text" : "Chat Line Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.codeFont.help",
+        "text" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.code.family",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "code",
+        "font",
+        "monospace",
+        "family"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "code",
+        "family"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.codeFont",
+        "text" : "Chat Code Font"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+        0.6,
+        1.25,
+        0.925
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.codeSize.help",
+        "text" : "Code as a share of the chat's text size. Empty uses the Markdown viewer's."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.code.scale",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "code",
+        "font",
+        "size",
+        "monospace",
+        "scale"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "code",
+        "scale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.6,
+        "placeholder" : 0.875,
+        "step" : 0.025,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.4,
+        2.25,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.codeSize",
+        "text" : "Chat Code Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -14134,6 +16923,2688 @@
       "title" : {
         "key" : "settings.terminal.fontSize",
         "text" : "Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.section.terminal",
+        "text" : "Terminal"
+      },
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : {
+        "key" : "settings.editor.fontFamily.help",
+        "text" : "Empty uses the terminal font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.fontFamily",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "font",
+        "typeface",
+        "monospace",
+        "fontFamily"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "fontFamily"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.terminal.fontFamily",
+        "text" : "Font Family"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+        6,
+        72,
+        39
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.section.terminal",
+        "text" : "Terminal"
+      },
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : {
+        "key" : "settings.editor.fontSize.help",
+        "text" : "Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.fontSize",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "font",
+        "size",
+        "zoom",
+        "fontSize"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "fontSize"
+      ],
+      "range" : {
+        "max" : 72,
+        "min" : 6,
+        "placeholder" : 13,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -60,
+        138,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.terminal.fontSize",
+        "text" : "Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "normal",
+        "bold",
+        "300",
+        "500",
+        "600"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.normal",
+            "text" : "Normal"
+          },
+          "value" : "normal"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.bold",
+            "text" : "Bold"
+          },
+          "value" : "bold"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.light",
+            "text" : "Light"
+          },
+          "value" : "300"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.medium",
+            "text" : "Medium"
+          },
+          "value" : "500"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.semibold",
+            "text" : "Semibold"
+          },
+          "value" : "600"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "normal",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.fontWeight",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "font",
+        "weight",
+        "bold",
+        "fontWeight"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "fontWeight"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.fontWeight",
+        "text" : "Font Weight"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.fontLigatures",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "ligatures",
+        "font",
+        "fontLigatures",
+        "calt"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "fontLigatures"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.fontLigatures",
+        "text" : "Font Ligatures"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        150,
+        75
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : {
+        "key" : "settings.editor.lineHeight.help",
+        "text" : "0 computes it from the font size. A value under 8 multiplies the font size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.lineHeight",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "line",
+        "height",
+        "spacing",
+        "lineHeight"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "lineHeight"
+      ],
+      "range" : {
+        "max" : 150,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -150,
+        300,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.lineHeight",
+        "text" : "Line Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        -5,
+        20,
+        7.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.letterSpacing",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "letter",
+        "spacing",
+        "tracking",
+        "letterSpacing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "letterSpacing"
+      ],
+      "range" : {
+        "max" : 20,
+        "min" : -5,
+        "placeholder" : -5,
+        "step" : 0.1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -30,
+        45,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.letterSpacing",
+        "text" : "Letter Spacing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        16,
+        8.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 4,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorText",
+        "text" : "Indentation and Wrapping"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.tabSize",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "tab",
+        "indent",
+        "width",
+        "tabSize"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "tabSize"
+      ],
+      "range" : {
+        "max" : 16,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -14,
+        31,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.tabSize",
+        "text" : "Tab Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorText",
+        "text" : "Indentation and Wrapping"
+      },
+      "help" : {
+        "key" : "settings.editor.insertSpaces.help",
+        "text" : "Tab inserts spaces. Off inserts a tab character."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.insertSpaces",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "spaces",
+        "tabs",
+        "indent",
+        "insertSpaces"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "insertSpaces"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.insertSpaces",
+        "text" : "Insert Spaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorText",
+        "text" : "Indentation and Wrapping"
+      },
+      "help" : {
+        "key" : "settings.editor.detectIndentation.help",
+        "text" : "Tab size and spaces follow the file's own indentation."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.detectIndentation",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "indent",
+        "detect",
+        "detectIndentation"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "detectIndentation"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.detectIndentation",
+        "text" : "Detect Indentation"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "on",
+        "wordWrapColumn",
+        "bounded"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.wrapEdge",
+            "text" : "At the Window Edge"
+          },
+          "value" : "on"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.wrapColumn",
+            "text" : "At the Wrap Column"
+          },
+          "value" : "wordWrapColumn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.wrapBounded",
+            "text" : "At the Edge or the Wrap Column"
+          },
+          "value" : "bounded"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorText",
+        "text" : "Indentation and Wrapping"
+      },
+      "help" : {
+        "key" : "settings.editor.wordWrap.help",
+        "text" : "Opt-Z turns it on and off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.wordWrap",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "wrap",
+        "word wrap",
+        "soft wrap",
+        "wordWrap"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "wordWrap"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.wordWrap",
+        "text" : "Word Wrap"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        10,
+        1000,
+        505
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 80,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorText",
+        "text" : "Indentation and Wrapping"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.wordWrapColumn",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "wrap",
+        "column",
+        "width",
+        "wordWrapColumn"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "wordWrapColumn"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 10,
+        "placeholder" : 10,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -980,
+        1990,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.wordWrapColumn",
+        "text" : "Wrap Column"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "on",
+        "off",
+        "relative",
+        "interval"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.on",
+            "text" : "On"
+          },
+          "value" : "on"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.relative",
+            "text" : "Relative"
+          },
+          "value" : "relative"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.interval",
+            "text" : "Every 10 Lines"
+          },
+          "value" : "interval"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "on",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.lineNumbers",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "line numbers",
+        "gutter",
+        "relative",
+        "lineNumbers"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "lineNumbers"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.diff.lineNumbers",
+        "text" : "Line Numbers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          1,
+          1000
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : {
+        "key" : "settings.editor.rulers.help",
+        "text" : "Columns where a vertical line shows."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.rulers",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "ruler",
+        "column",
+        "guide",
+        "rulers"
+      ],
+      "kind" : "number_list",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "rulers"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        1,
+        [
+          -998
+        ],
+        [
+          1999
+        ],
+        [
+          "1"
+        ]
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.rulers",
+        "text" : "Rulers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.minimap.enabled",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "minimap",
+        "overview"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "minimap",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.minimap",
+        "text" : "Minimap"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "none",
+        "boundary",
+        "selection",
+        "trailing",
+        "all"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.boundary",
+            "text" : "Between Words"
+          },
+          "value" : "boundary"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.selection",
+            "text" : "In the Selection"
+          },
+          "value" : "selection"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.trailing",
+            "text" : "At Line Ends"
+          },
+          "value" : "trailing"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "all"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "selection",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.renderWhitespace",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "whitespace",
+        "spaces",
+        "tabs",
+        "invisibles",
+        "renderWhitespace"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "renderWhitespace"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.renderWhitespace",
+        "text" : "Show Whitespace"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.renderControlCharacters",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "control",
+        "characters",
+        "invisible",
+        "renderControlCharacters"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "renderControlCharacters"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.renderControlCharacters",
+        "text" : "Show Control Characters"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "none",
+        "gutter",
+        "line",
+        "all"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.gutter",
+            "text" : "Gutter"
+          },
+          "value" : "gutter"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.line",
+            "text" : "Line"
+          },
+          "value" : "line"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.gutterAndLine",
+            "text" : "Gutter and Line"
+          },
+          "value" : "all"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "line",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.renderLineHighlight",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "highlight",
+        "current line",
+        "renderLineHighlight"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "renderLineHighlight"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.renderLineHighlight",
+        "text" : "Current Line Highlight"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.bracketPairColorization.enabled",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "bracket",
+        "pairs",
+        "color",
+        "rainbow",
+        "bracketPairColorization"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "bracketPairColorization",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.bracketPairColorization",
+        "text" : "Color Bracket Pairs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.guides.bracketPairs",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "bracket",
+        "guides",
+        "lines"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "guides",
+        "bracketPairs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.bracketPairGuides",
+        "text" : "Bracket Pair Guides"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.guides.indentation",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "indent",
+        "guides",
+        "lines"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "guides",
+        "indentation"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.indentGuides",
+        "text" : "Indentation Guides"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "always",
+        "near",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.near",
+            "text" : "Near the Cursor"
+          },
+          "value" : "near"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "always",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.matchBrackets",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "bracket",
+        "match",
+        "matchBrackets"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "matchBrackets"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.matchBrackets",
+        "text" : "Highlight Matching Brackets"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : {
+        "key" : "settings.editor.stickyScroll.help",
+        "text" : "The lines that open the scopes around the top line stay at the top while you scroll."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.stickyScroll.enabled",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "sticky",
+        "scroll",
+        "scope",
+        "stickyScroll"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "stickyScroll",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.stickyScroll",
+        "text" : "Sticky Scroll"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.folding",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "fold",
+        "folding",
+        "collapse"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "folding"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.folding",
+        "text" : "Code Folding"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.scrollBeyondLastLine",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "scroll",
+        "last line",
+        "scrollBeyondLastLine"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "scrollBeyondLastLine"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.scrollBeyondLastLine",
+        "text" : "Scroll Past the Last Line"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.smoothScrolling",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "scroll",
+        "smooth",
+        "smoothScrolling"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "smoothScrolling"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.smoothScrolling",
+        "text" : "Smooth Scrolling"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.mouseWheelZoom",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "zoom",
+        "mouse",
+        "wheel",
+        "mouseWheelZoom"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "mouseWheelZoom"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.mouseWheelZoom",
+        "text" : "Zoom with Command and the Scroll Wheel"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "line",
+        "block",
+        "underline",
+        "line-thin",
+        "block-outline",
+        "underline-thin"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editor.line",
+            "text" : "Line"
+          },
+          "value" : "line"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.block",
+            "text" : "Block"
+          },
+          "value" : "block"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.underline",
+            "text" : "Underline"
+          },
+          "value" : "underline"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.lineThin",
+            "text" : "Thin Line"
+          },
+          "value" : "line-thin"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.blockOutline",
+            "text" : "Block Outline"
+          },
+          "value" : "block-outline"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.underlineThin",
+            "text" : "Thin Underline"
+          },
+          "value" : "underline-thin"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "line",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorCursor",
+        "text" : "Cursor"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.cursorStyle",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "cursor",
+        "caret",
+        "block",
+        "cursorStyle"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "cursorStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.cursorStyle",
+        "text" : "Cursor Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "blink",
+        "smooth",
+        "phase",
+        "expand",
+        "solid"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.blink",
+            "text" : "Blink"
+          },
+          "value" : "blink"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.smooth",
+            "text" : "Smooth"
+          },
+          "value" : "smooth"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.phase",
+            "text" : "Phase"
+          },
+          "value" : "phase"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.expand",
+            "text" : "Expand"
+          },
+          "value" : "expand"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.solid",
+            "text" : "Solid"
+          },
+          "value" : "solid"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "blink",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorCursor",
+        "text" : "Cursor"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.cursorBlinking",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "cursor",
+        "blink",
+        "caret",
+        "cursorBlinking"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "cursorBlinking"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.cursorBlinking",
+        "text" : "Cursor Blinking"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "explicit",
+        "on"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.explicit",
+            "text" : "When You Move It"
+          },
+          "value" : "explicit"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "on"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorCursor",
+        "text" : "Cursor"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.cursorSmoothCaretAnimation",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "cursor",
+        "animation",
+        "smooth",
+        "caret",
+        "cursorSmoothCaretAnimation"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "cursorSmoothCaretAnimation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.cursorSmoothCaretAnimation",
+        "text" : "Animate Cursor Movement"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        50,
+        25
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorCursor",
+        "text" : "Cursor"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.cursorSurroundingLines",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "cursor",
+        "scroll",
+        "margin",
+        "cursorSurroundingLines"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "cursorSurroundingLines"
+      ],
+      "range" : {
+        "max" : 50,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -50,
+        100,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.cursorSurroundingLines",
+        "text" : "Lines Kept Around the Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "alt",
+        "ctrlCmd"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editor.optionClick",
+            "text" : "Option-Click"
+          },
+          "value" : "alt"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.commandClick",
+            "text" : "Command-Click"
+          },
+          "value" : "ctrlCmd"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "alt",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorCursor",
+        "text" : "Cursor"
+      },
+      "help" : {
+        "key" : "settings.editor.multiCursorModifier.help",
+        "text" : "The key you hold while you click to add a cursor."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.multiCursorModifier",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "multi cursor",
+        "multiple cursors",
+        "click",
+        "multiCursorModifier"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "multiCursorModifier"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.multiCursorModifier",
+        "text" : "Add a Cursor With"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.autoClosingBrackets",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "bracket",
+        "auto close",
+        "pairs",
+        "autoClosingBrackets"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "autoClosingBrackets"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.autoClosingBrackets",
+        "text" : "Close Brackets"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.autoClosingQuotes",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "quote",
+        "auto close",
+        "autoClosingQuotes"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "autoClosingQuotes"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.autoClosingQuotes",
+        "text" : "Close Quotes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.linkedEditing",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "linked",
+        "tag",
+        "html",
+        "rename",
+        "linkedEditing"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "linkedEditing"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.linkedEditing",
+        "text" : "Rename Matching Tags Together"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.quickSuggestions",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "suggest",
+        "autocomplete",
+        "completion",
+        "intellisense",
+        "quickSuggestions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "quickSuggestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.quickSuggestions",
+        "text" : "Suggest While Typing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.wordBasedSuggestions",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "suggest",
+        "words",
+        "completion",
+        "wordBasedSuggestions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "wordBasedSuggestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.wordBasedSuggestions",
+        "text" : "Suggest Words from the File"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "on",
+        "smart",
+        "off"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.on",
+            "text" : "On"
+          },
+          "value" : "on"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.smart",
+            "text" : "When It Changes the Text"
+          },
+          "value" : "smart"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "on",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.acceptSuggestionOnEnter",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "suggest",
+        "enter",
+        "return",
+        "acceptSuggestionOnEnter"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "acceptSuggestionOnEnter"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.acceptSuggestionOnEnter",
+        "text" : "Return Accepts a Suggestion"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.emptySelectionClipboard",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "copy",
+        "cut",
+        "line",
+        "clipboard",
+        "emptySelectionClipboard"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "emptySelectionClipboard"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.emptySelectionClipboard",
+        "text" : "Copy the Line When Nothing Is Selected"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "always",
+        "selection",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editor.wordAtCursor",
+            "text" : "The Word at the Cursor"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.selectionOnly",
+            "text" : "The Selection Only"
+          },
+          "value" : "selection"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "always",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.find.seedSearchStringFromSelection",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "find",
+        "search",
+        "selection",
+        "seedSearchStringFromSelection"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "find",
+        "seedSearchStringFromSelection"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.findSeed",
+        "text" : "Find Starts With"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "afterDelay",
+        "off"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editor.afterDelay",
+            "text" : "After a Pause"
+          },
+          "value" : "afterDelay"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "afterDelay",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorSaving",
+        "text" : "Saving"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.autoSave",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "save",
+        "auto save",
+        "autoSave"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "autoSave"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.autoSave",
+        "text" : "Save Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        100,
+        60000,
+        30050
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1000,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorSaving",
+        "text" : "Saving"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.autoSaveDelay",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "save",
+        "delay",
+        "autoSaveDelay"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "autoSaveDelay"
+      ],
+      "range" : {
+        "max" : 60000,
+        "min" : 100,
+        "placeholder" : 100,
+        "step" : 100,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -59800,
+        119900,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.autoSaveDelay",
+        "text" : "Pause Before Saving"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorSaving",
+        "text" : "Saving"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.trimTrailingWhitespace",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "trim",
+        "trailing",
+        "whitespace",
+        "save",
+        "trimTrailingWhitespace"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "trimTrailingWhitespace"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.trimTrailingWhitespace",
+        "text" : "Remove Trailing Spaces on Save"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorSaving",
+        "text" : "Saving"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.insertFinalNewline",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "final newline",
+        "newline",
+        "save",
+        "insertFinalNewline"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "insertFinalNewline"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.insertFinalNewline",
+        "text" : "End Files with a Newline on Save"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorSaving",
+        "text" : "Saving"
+      },
+      "help" : {
+        "key" : "settings.editor.formatOnSave.help",
+        "text" : "Runs the language's formatter when one is installed."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.formatOnSave",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "format",
+        "save",
+        "prettier",
+        "formatOnSave"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "formatOnSave"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.formatOnSave",
+        "text" : "Format on Save"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "vscode",
+        "cursor",
+        "windsurf",
+        "vscodium",
+        "zed",
+        "none"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editor.firstFound",
+            "text" : "The First Editor Found"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "VS Code"
+          },
+          "value" : "vscode"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cursor"
+          },
+          "value" : "cursor"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Windsurf"
+          },
+          "value" : "windsurf"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "VSCodium"
+          },
+          "value" : "vscodium"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Zed"
+          },
+          "value" : "zed"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDefaults",
+        "text" : "Defaults from Other Editors"
+      },
+      "help" : {
+        "key" : "settings.editor.importFrom.help",
+        "text" : "cmux reads that editor's settings and keybindings files and never changes them. A setting you make here wins."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.importFrom",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "import",
+        "vscode",
+        "zed",
+        "cursor",
+        "windsurf",
+        "vscodium",
+        "settings",
+        "keybindings"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "importFrom"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.importFrom",
+        "text" : "Take Defaults From"
       },
       "validation" : "portable"
     },
@@ -14865,6 +20336,57 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showSearchButton.help",
+        "text" : "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showSearchButton",
+      "keywords" : [
+        "sidebar",
+        "search",
+        "find",
+        "magnifying glass",
+        "everything",
+        "footer",
+        "hide",
+        "show"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showSearchButton"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showSearchButton",
+        "text" : "Show Search Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -14983,6 +20505,218 @@
       "title" : {
         "key" : "settings.sidebar.density",
         "text" : "Sidebar Density"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.detailedStatusIcons.help",
+        "text" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.detailedStatusIcons",
+      "keywords" : [
+        "sidebar",
+        "status",
+        "icons",
+        "badge",
+        "working",
+        "waiting",
+        "input",
+        "error",
+        "done",
+        "agent",
+        "osc 7501"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "detailedStatusIcons"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.detailedStatusIcons",
+        "text" : "Detailed Status Icons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showTimestamps.help",
+        "text" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showTimestamps",
+      "keywords" : [
+        "sidebar",
+        "timestamps",
+        "time",
+        "times",
+        "age",
+        "ago",
+        "elapsed",
+        "duration",
+        "last activity",
+        "clock",
+        "rows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showTimestamps"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showTimestamps",
+        "text" : "Show Timestamps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupHeader.memberCount.help",
+        "text" : "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupHeader.memberCount",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "count",
+        "members",
+        "workspaces",
+        "number",
+        "header"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupHeader",
+        "memberCount"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.groupHeader.memberCount",
+        "text" : "Show Group Member Count"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupHeader.unreadCount.help",
+        "text" : "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupHeader.unreadCount",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "unread",
+        "badge",
+        "notifications",
+        "count",
+        "header"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupHeader",
+        "unreadCount"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.groupHeader.unreadCount",
+        "text" : "Show Group Unread Count"
       },
       "validation" : "portable"
     },
@@ -15629,7 +21363,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1300,
+      "default" : 250,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -15677,6 +21411,97 @@
     },
     {
       "accepts" : [
+        "timeline",
+        "compact",
+        "log",
+        "classic",
+        "minimal"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.hoverCardTimeline",
+            "text" : "Stats and History"
+          },
+          "value" : "timeline"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverCardCompact",
+            "text" : "Compact"
+          },
+          "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverCardLog",
+            "text" : "Full History"
+          },
+          "value" : "log"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverCardClassic",
+            "text" : "Details Only"
+          },
+          "value" : "classic"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.hoverCardMinimal",
+            "text" : "Minimal"
+          },
+          "value" : "minimal"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "timeline",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.layout.help",
+        "text" : "What a workspace's hover card shows: its history of prompts and waits, its details, or both."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.layout",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "layout",
+        "history",
+        "timeline",
+        "prompts"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "layout"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.layout",
+        "text" : "Workspace Card Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -15692,8 +21517,871 @@
         "text" : "Sidebar"
       },
       "help" : {
+        "key" : "settings.sidebar.hoverCards.sections.timings.help",
+        "text" : "How long the workspace has worked or waited, and how long its command has run."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.sections.timings",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "timings",
+        "elapsed",
+        "duration"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "sections",
+        "timings"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.sections.timings",
+        "text" : "Show Running Times in Workspace Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.sections.prompts.help",
+        "text" : "Each prompt you sent and when, in the card's history."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.sections.prompts",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "prompts",
+        "history"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "sections",
+        "prompts"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.sections.prompts",
+        "text" : "Show Prompts in Workspace Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.sections.waiting.help",
+        "text" : "When an agent waited for your input or finished its turn, in the card's history."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.sections.waiting",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "waiting",
+        "input",
+        "finished",
+        "done"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "sections",
+        "waiting"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.sections.waiting",
+        "text" : "Show Waits in Workspace Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.sections.git.help",
+        "text" : "The workspace's branch and pull request."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.sections.git",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "git",
+        "branch",
+        "pull request"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "sections",
+        "git"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.sections.git",
+        "text" : "Show Branch in Workspace Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.sections.ports.help",
+        "text" : "The ports the workspace listens on."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.sections.ports",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "ports",
+        "server",
+        "listening"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "sections",
+        "ports"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.sections.ports",
+        "text" : "Show Ports in Workspace Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        100,
+        50.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 20,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.maxRows.help",
+        "text" : "The most prompts, waits and finished turns a workspace's card lists. The list scrolls."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.maxRows",
+      "keywords" : [
+        "hover",
+        "card",
+        "history",
+        "rows",
+        "lines",
+        "limit"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "maxRows"
+      ],
+      "range" : {
+        "max" : 100,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -98,
+        199,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.maxRows",
+        "text" : "Workspace Card History Lines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.workspaceGroups.help",
+        "text" : "A summary card opens when the pointer rests on a workspace group's header."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.workspaceGroups",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "workspace",
+        "summary"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "workspaceGroups"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.workspaceGroups",
+        "text" : "Cards on Workspace Groups"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.tabGroups.help",
+        "text" : "A summary card opens when the pointer rests on a tab group's chip."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.tabGroups",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "tab",
+        "summary"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "tabGroups"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.tabGroups",
+        "text" : "Cards on Tab Groups"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        5000,
+        2500
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 600,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.delay.help",
+        "text" : "How long the pointer rests on a group before its summary card opens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.delay",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "delay",
+        "milliseconds"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "delay"
+      ],
+      "range" : {
+        "max" : 5000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 100,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -5000,
+        10000,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.delay",
+        "text" : "Group Card Delay"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "status",
+        "members",
+        "activity"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupCardStatus",
+            "text" : "Status"
+          },
+          "value" : "status"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupCardMembers",
+            "text" : "Members"
+          },
+          "value" : "members"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupCardActivity",
+            "text" : "Latest Activity"
+          },
+          "value" : "activity"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "status",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.order.help",
+        "text" : "Which part of a group's card comes first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.order",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "order",
+        "first"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "order"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.order",
+        "text" : "Group Card Leads With"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        50,
+        25.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 8,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.maxMembers.help",
+        "text" : "The most members a group's card lists by name."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.maxMembers",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "members",
+        "count"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "maxMembers"
+      ],
+      "range" : {
+        "max" : 50,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -48,
+        99,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.maxMembers",
+        "text" : "Group Card Members"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.status.help",
+        "text" : "Show how many members work, wait, failed or have unread items."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.status",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "status",
+        "working",
+        "waiting",
+        "unread"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "status"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.status",
+        "text" : "Group Card: Status"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.members.help",
+        "text" : "Show the member count and the members' names."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.members",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "members",
+        "workspaces",
+        "tabs",
+        "names"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "members"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.members",
+        "text" : "Group Card: Members"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.activity.help",
+        "text" : "Show the member that changed last, and when."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.activity",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "activity",
+        "latest",
+        "recent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "activity"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.activity",
+        "text" : "Group Card: Latest Activity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.git.help",
+        "text" : "Show the members' git branches."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.git",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "git",
+        "branch"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "git"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.git",
+        "text" : "Group Card: Branches"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.ports.help",
+        "text" : "Show the members' listening ports."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.ports",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "ports",
+        "server"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "ports"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.ports",
+        "text" : "Group Card: Ports"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
         "key" : "settings.sidebar.nowPlaying.enabled.help",
-        "text" : "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+        "text" : "A player for what is playing, at the bottom of the sidebar."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.nowPlaying.enabled",
@@ -15723,6 +22411,57 @@
       "title" : {
         "key" : "settings.sidebar.nowPlaying.enabled",
         "text" : "Show Now Playing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabNowPlaying.help",
+        "text" : "A player for what is playing, on the New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabNowPlaying",
+      "keywords" : [
+        "music",
+        "now playing",
+        "player",
+        "media",
+        "spotify",
+        "song",
+        "new tab",
+        "new chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabNowPlaying"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabNowPlaying",
+        "text" : "Show Now Playing on New Tab"
       },
       "validation" : "portable"
     },
@@ -20364,7 +27103,7 @@
       },
       "help" : {
         "key" : "settings.browser.defaultEngine.help",
-        "text" : "New browser tabs open in this engine."
+        "text" : "Browser tabs and cmux pages, such as History and Apps, open in this engine."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.defaultEngine",
@@ -20388,7 +27127,76 @@
       "summary" : null,
       "title" : {
         "key" : "settings.browser.defaultEngine",
-        "text" : "Default Engine"
+        "text" : "Browser Engine"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+        "amazon.com/gp/video" : "webkit",
+        "disneyplus.com" : "webkit",
+        "hulu.com" : "webkit",
+        "max.com" : "webkit",
+        "music.apple.com" : "webkit",
+        "netflix.com" : "webkit",
+        "primevideo.com" : "webkit",
+        "spotify.com" : "webkit",
+        "tv.apple.com" : "webkit"
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.engine",
+        "text" : "Engine"
+      },
+      "help" : {
+        "key" : "settings.browser.siteEngines.help",
+        "text" : "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.siteEngines",
+      "keywords" : [
+        "drm",
+        "widevine",
+        "spotify",
+        "netflix",
+        "site",
+        "webkit",
+        "chromium"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "siteEngines"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.siteEngines",
+        "text" : "Site Engines"
       },
       "validation" : "portable"
     },
@@ -20485,6 +27293,179 @@
       "title" : {
         "key" : "settings.browser.showBookmarksBar",
         "text" : "Show Bookmarks Bar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentInput",
+        "text" : "Agent Input"
+      },
+      "help" : {
+        "key" : "settings.browser.showAgentCursor.help",
+        "text" : "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.showAgentCursor",
+      "keywords" : [
+        "agent",
+        "cursor",
+        "keystrokes",
+        "typing",
+        "automation",
+        "overlay"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "showAgentCursor"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.showAgentCursor",
+        "text" : "Show Agent Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "human",
+        "instant"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentMouseHuman",
+            "text" : "Human"
+          },
+          "value" : "human"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentMouseInstant",
+            "text" : "Instant"
+          },
+          "value" : "instant"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "human",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentInput",
+        "text" : "Agent Input"
+      },
+      "help" : {
+        "key" : "settings.browser.agentMouseMotion.help",
+        "text" : "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.agentMouse.motion",
+      "keywords" : [
+        "agent",
+        "mouse",
+        "pointer",
+        "cursor",
+        "human",
+        "motion",
+        "automation"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "agentMouse",
+        "motion"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.agentMouseMotion",
+        "text" : "Agent Pointer Motion"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        60,
+        1000,
+        530
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 350,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentInput",
+        "text" : "Agent Input"
+      },
+      "help" : {
+        "key" : "settings.browser.agentMouseMaxMove.help",
+        "text" : "The longest time one agent pointer move takes with human motion. Short moves take less."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.agentMouse.maxMoveMs",
+      "keywords" : [
+        "agent",
+        "mouse",
+        "pointer",
+        "speed",
+        "duration"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "agentMouse",
+        "maxMoveMs"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 10,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -880,
+        1940,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.agentMouseMaxMove",
+        "text" : "Longest Agent Pointer Move"
       },
       "validation" : "portable"
     },
@@ -20711,6 +27692,133 @@
       "title" : {
         "key" : "settings.browser.hibernatePinnedTabs",
         "text" : "Hibernate Pinned Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        5,
+        3600,
+        1802.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 30,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.memory",
+        "text" : "Memory"
+      },
+      "help" : {
+        "key" : "settings.browser.freezeHiddenTabs.help",
+        "text" : "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.freezeHiddenTabs",
+      "keywords" : [
+        "power",
+        "battery",
+        "energy",
+        "sleep",
+        "suspend"
+      ],
+      "kind" : "choice_or_number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "freezeHiddenTabs"
+      ],
+      "range" : {
+        "max" : 3600,
+        "min" : 5,
+        "placeholder" : 30,
+        "step" : 5,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        "__not_a_choice__",
+        true,
+        -3590,
+        7195,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.freezeHiddenTabs",
+        "text" : "Freeze Hidden Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3,
+        1.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.memory",
+        "text" : "Memory"
+      },
+      "help" : {
+        "key" : "settings.browser.keepNeighborTabsAwake.help",
+        "text" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.keepNeighborTabsAwake",
+      "keywords" : [
+        "neighbor",
+        "adjacent",
+        "preload",
+        "warm",
+        "instant",
+        "switch",
+        "hibernation",
+        "freeze"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "keepNeighborTabsAwake"
+      ],
+      "range" : {
+        "max" : 3,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -3,
+        6,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.keepNeighborTabsAwake",
+        "text" : "Keep Neighbor Tabs Awake"
       },
       "validation" : "portable"
     },
@@ -21152,6 +28260,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.showFullURLs.help",
+        "text" : "Shows the whole address, with https:// and www., when you are not editing it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.showFullURLs",
+      "keywords" : [
+        "url",
+        "address",
+        "https",
+        "www",
+        "full",
+        "omnibox"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "showFullURLs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.omnibar.showFullURLs",
+        "text" : "Always Show Full URLs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "transparent",
         "regular",
         "clear",
@@ -21543,6 +28701,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -21552,6 +28711,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -21591,7 +28757,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "backgroundTab",
+      "default" : "linkPlacement",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.links",
@@ -21630,6 +28796,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -21639,6 +28806,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -21717,6 +28891,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -21726,6 +28901,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -21803,6 +28985,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -21812,6 +28995,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -21890,6 +29080,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -21899,6 +29090,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -21972,6 +29170,54 @@
       "title" : {
         "key" : "settings.browser.links.middleClick",
         "text" : "Middle-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.browser.enabled.help",
+        "text" : "When off, cmux opens no browser tabs for web pages and every link opens in your default browser."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.enabled",
+      "keywords" : [
+        "browser",
+        "disable",
+        "turn off",
+        "default browser",
+        "web"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.enabled",
+        "text" : "Enable cmux Browser"
       },
       "validation" : "portable"
     },
@@ -22397,6 +29643,126 @@
       "default" : false,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.verificationAutofill.enabled.help",
+        "text" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.verificationAutofill.enabled",
+      "keywords" : [
+        "email",
+        "verification",
+        "code",
+        "one-time",
+        "otp",
+        "2fa",
+        "autofill",
+        "magic link"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "verificationAutofill",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.verificationAutofill.enabled",
+        "text" : "Fill Codes from Verification Emails"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "imessage",
+        "theme"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "iMessage"
+          },
+          "value" : "imessage"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefBubbleStyle.theme",
+            "text" : "Theme"
+          },
+          "value" : "theme"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "imessage",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.chiefBubbleStyle.help",
+        "text" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefBubbleStyle",
+      "keywords" : [
+        "chief",
+        "imessage",
+        "messages",
+        "bubbles",
+        "blue",
+        "chat",
+        "theme",
+        "colors",
+        "home"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefBubbleStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefBubbleStyle",
+        "text" : "Bubble Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.attachments",
         "text" : "Attachments"
       },
@@ -22486,6 +29852,174 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefPet",
+        "text" : "Chief Pet"
+      },
+      "help" : {
+        "key" : "settings.home.chiefPetEnabled.help",
+        "text" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPetEnabled",
+      "keywords" : [
+        "chief",
+        "pet",
+        "mascot",
+        "floating",
+        "notifications",
+        "reply",
+        "dock"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPetEnabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefPetEnabled",
+        "text" : "Show Chief Pet"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "orb",
+        "orb-spark",
+        "orb-hood",
+        "machine",
+        "machine-cyan",
+        "machine-blue",
+        "moon",
+        "moon-blue",
+        "fox"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb",
+            "text" : "Orb"
+          },
+          "value" : "orb"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-spark",
+            "text" : "Orb Spark"
+          },
+          "value" : "orb-spark"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-hood",
+            "text" : "Hooded Orb"
+          },
+          "value" : "orb-hood"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine",
+            "text" : "Machine"
+          },
+          "value" : "machine"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-cyan",
+            "text" : "Cyan Machine"
+          },
+          "value" : "machine-cyan"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-blue",
+            "text" : "Blue Machine"
+          },
+          "value" : "machine-blue"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.moon",
+            "text" : "Moon"
+          },
+          "value" : "moon"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.moon-blue",
+            "text" : "Blue Moon"
+          },
+          "value" : "moon-blue"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.fox",
+            "text" : "Fox"
+          },
+          "value" : "fox"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "orb",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefPet",
+        "text" : "Chief Pet"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPetMascot",
+      "keywords" : [
+        "chief",
+        "pet",
+        "mascot",
+        "character",
+        "avatar",
+        "pixel"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPetMascot"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefPetMascot",
+        "text" : "Character"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -22542,7 +30076,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "keystroke",
+      "default" : "focus",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",
@@ -23596,8 +31130,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.theme",
-        "text" : "Theme"
+        "key" : "settings.default.notificationBlue",
+        "text" : "Notification Blue"
       },
       "group" : {
         "key" : "settings.group.attention",
@@ -25589,7 +33123,6 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "83792af4a2de800d5ae2c0dbfd6e317b511f10e28f552adfc6a49d5358df4e49",
   "sections" : [
     {
       "id" : "general",
@@ -25613,6 +33146,14 @@
       "title" : {
         "key" : "settings.section.terminal",
         "text" : "Terminal"
+      }
+    },
+    {
+      "id" : "editor",
+      "symbol" : "chevron.left.forwardslash.chevron.right",
+      "title" : {
+        "key" : "settings.section.editor",
+        "text" : "Code Editor"
       }
     },
     {

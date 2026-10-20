@@ -51,13 +51,20 @@ public nonisolated struct MarkdownPageCommand {
     public static let save = "save"
     /// Inserts or edits a link at the selection (Cmd-K, `markdownLink`).
     public static let link = "link"
+    /// Forgets every table's column widths in the open file (`markdownResetTableWidths`).
+    public static let resetTableWidths = "resetTableWidths"
+    /// Forgets the column widths of the table the user right-clicked (the page's context menu).
+    public static let resetContextTableWidths = "resetContextTableWidths"
 
-    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset, save, link]
+    /// The file's viewer comments changed: `text` is the new `{v, comments}` JSON (the page redraws its markers).
+    public static let comments = "comments"
+    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset, save, link, resetTableWidths, resetContextTableWidths, comments]
 
     /// The page command each markdown action sends; back and forward are the shared page commands.
     public static let forAction: [String: String] = [
         "markdownZoomIn": zoomIn, "markdownZoomOut": zoomOut, "markdownZoomReset": zoomReset, "markdownSave": save,
         "markdownLink": link, "markdownBack": "back", "markdownForward": "forward",
+        "markdownResetTableWidths": resetTableWidths,
     ]
 }
 
@@ -126,19 +133,22 @@ public extension PageDescriptor {
         acceptsFirstMouse: false)
 
     /// The markdown page (diff-host.md S6): the strict CSP (Vega uses vega-interpreter, code
-    /// highlighting Shiki's JavaScript engine), with images and libraries from its own origin.
+    /// highlighting Shiki's JavaScript engine) plus `'wasm-unsafe-eval'` for Ondine, the Mermaid
+    /// compiler (a WebAssembly module with no imports), with images and libraries from its own origin.
     static let markdown = PageDescriptor(
         id: "cmux.markdown", resource: diffResource, namespaces: ["cmux.markdown."],
         nativeOps: [PageNativeOp.clipboardWrite],
-        commands: PageNativeOp.commands.union(MarkdownPageCommand.all), entry: markdownEntry,
+        commands: PageNativeOp.commands.union(MarkdownPageCommand.all), csp: PageCSP(script: ["'wasm-unsafe-eval'"], inlineScript: false), entry: markdownEntry,
         dynamicPrefixes: [MarkdownPageResource.asset, MarkdownPageResource.library, MarkdownPageResource.remoteImage])
 
     /// The code editor page (diff-host.md "Editor page", Monaco): the strict CSP plus
     /// `'wasm-unsafe-eval'` for Shiki's Oniguruma engine; no `connect-src` and no `'unsafe-eval'`.
     /// Its worker is a same-origin module, which `script-src 'self'` allows.
+    /// Its one app action is the native command palette: Monaco's own palette (F1, the context
+    /// menu's Command Palette) opens it instead, so no web view has a palette of its own.
     static let editor = PageDescriptor(
         id: "cmux.editor", resource: diffResource, namespaces: ["cmux.editor."],
-        nativeOps: [PageNativeOp.clipboardWrite],
+        nativeOps: [PageNativeOp.clipboardWrite, PageNativeOp.actionRun], actions: ["commandPalette"],
         commands: PageNativeOp.commands.union(EditorPageCommand.all),
         csp: PageCSP(script: ["'wasm-unsafe-eval'"]), entry: editorEntry)
 }

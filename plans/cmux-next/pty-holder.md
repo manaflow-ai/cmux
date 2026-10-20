@@ -189,7 +189,7 @@ Audit (2026-10-14, 103 lines in 36 files):
 
 | Site | What it does | Plan |
 | --- | --- | --- |
-| acpmux `adopt_live.rs` | `ps -axww` + `lsof cwd` to find a harness outside acpmux by argv | remove: recent transcript write + hook registry only (cx-t2sqm.2) |
+| acpmux `adopt_live.rs` | `ps -axww` to find an OpenCode outside acpmux by argv (Claude Code and Codex now use their own holder records: the session registry by pid and start time, the thread writer lock) | remove: OpenCode holder record (cx-t2sqm.2) |
 | acpmux `agent_host/tree.rs` | `ps` descendants to end setsid escapees | remove: holder-owned group; Linux cgroup/pidfd; Windows job (cx-t2sqm.3) |
 | acpmux `hub/pool/reaper.rs` | `ps -A` tree RSS for the pool cap | remove: holder-reported rusage of its group, or drop the cap (cx-t2sqm.3) |
 | terminal host `session_cleanup.rs`, `host_scope.rs` | `/proc` walk + `ps -axo` for session members, cgroup reads | remove: signal the session/group the holder owns (cx-t2sqm.4) |
@@ -203,6 +203,7 @@ Audit (2026-10-14, 103 lines in 36 files):
 | `adopted_child.rs` | one held child's zombie state | keep |
 | peer checks (`peer_process.rs`, `UnixSocketPeer`, `ComputerUseHelperV2`, `AgentPanePersonInput`, `PeerProcess`) | identity of the one process on a connected socket | keep (authentication, not discovery) |
 | `ControlPeerAncestry.swift`, CUA helper `PeerInspector.swift` | authorize a peer by walking its ancestors | remove (cx-t2sqm.11, D5) |
+| `SystemProcessLineage.swift` (Task Manager Kill Process, added 2026-10-19) | authorizes ending a named pid by walking its ancestors to the app or a daemon and reading executable paths | remove (cx-t2sqm.11, D5): end only pids the Task Manager's own sample listed |
 | CEF `ChromiumHelperProcess`, `CEFChildProcessMonitor` | this app's own Chromium children | keep |
 | `process_identity.rs` | names the sender of a received signal in a log | keep |
 | browser-host `egress_*` | security guard: who holds a loopback listener (`proc_listpids(UID)`, per loopback connection) | keep until D4 |

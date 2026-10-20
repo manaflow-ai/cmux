@@ -13,7 +13,12 @@ item.
 
 Run it on the GUI host where the app already runs: a capture slot started by `capture-host
 launch` (scripts/cmux-next/restore-journey-slot.sh does the whole slot run), or another tagged DEV
-build with --allow-non-slot. It refuses an installed or untagged app. It drives the app through
+build with --allow-non-slot. It refuses an installed or untagged app.
+
+Session continuity gate (Claude, Codex, agent chats and terminal agents come back live after a
+quit, a crash, a daemon crash and a reboot):
+
+  scripts/cmux-next/restore-journey-slot.sh JOB OUT -- --continuity It drives the app through
 its control socket and the tag's daemon through the bundled `cmux` CLI.
 
 Variants:
@@ -22,6 +27,21 @@ Variants:
   update  what Sparkle does before it relaunches into an update
           (`debug.updater {action: "relaunch"}`: the updater's relaunch hook, then terminate);
   crash   the app's exact pid is killed (SIGKILL), so none of its quit path runs;
+  daemon  the app keeps running and its cmux-tui daemon is killed (SIGKILL) while an agent chat
+          turn is in flight, as a daemon crash: the app must start a new one, reconnect and
+          re-attach every view by itself, no input. Rows give the seconds from the kill to a new
+          daemon, to the app connected to it and to restore settled; the UI, sampled every
+          250 ms meanwhile, must show the designed recovery state (`debug.daemon`,
+          `debug.surfaces`: each window its workspace or the connecting view, no blank pane, every
+          shown terminal connected, restoring or reconnecting), and the turn must finish;
+  daemon-stop  the daemon is frozen (SIGSTOP) instead, as a wedged owner: the app must notice
+          (its heartbeat), offer Restart cmux-tui, and Restart (`debug.daemon {action: restart}`,
+          the button's path after its confirm) must bring a new daemon and every view back. The
+          stopped process is ended at the end if it is still there;
+  reboot  the quit path, then every process the app's bundle started is killed with all its
+          children (daemon, terminal hosts and their programs, acpmux, agent hosts), as a
+          reboot or logout ends them. Running programs cannot come back (their rows are n/a);
+          everything else must, and the agents part's sessions must be resumed and live;
   slow    the quit path, then a relaunch against a slow daemon (cx-wwtam; debug builds only):
           `CMUX_NEXT_DEBUG_SLOW_ATTACH=SLOW_ATTACH` makes every terminal attach wait, and the
           first ones of each terminal fail, as before a late daemon answers. With no input, every
@@ -49,6 +69,13 @@ The seeded state, all named `rj-*` (earlier rj-* workspaces are closed first):
             frame;
   window 2: rj-w2 (a terminal with a marker line and a browser tab zoomed in three Cmd-+ steps
             from 100%), at another frame;
+  agents:   rj-chats (agent chats with the test agent as a Claude Code harness, a non-default
+            model picked, and as a Codex harness: two turns and an unsent draft each) and
+            rj-tagents (terminal tabs running `claude` and `codex` stand-ins,
+            rj_fake_cli_agent.py, with launch flags and their account folder in
+            CLAUDE_CONFIG_DIR / CODEX_HOME, one turn each), --agents-per-kind of each; every
+            one must be back in its tab, with its transcript, model, draft and flags, signed in,
+            and answer a new turn;
   cloud:    a Move to Cloud state of made-up machines `rj-<run>-*` (`debug.cloud.move_seed`,
             debug builds only; no Cloud account, machine or network): two moved chats, three move
             Retries, a Bring Back Local Retry, an "Always" folder grant and a dismissed launch offer.
@@ -73,7 +100,7 @@ web server, pid file and chat folder live in --out (the fake chats themselves st
 tag's acpmux home). The app is left running after the last
 relaunch (the caller quits it and releases the slot).
 """
-import argparse, atexit, glob, hashlib, http.server, json, os, re, shlex, signal, socket, subprocess, sys, threading, time
+import argparse, atexit, glob, hashlib, http.server, json, os, plistlib, re, shlex, signal, socket, subprocess, sys, threading, time
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -82,12 +109,18 @@ import build_names  # noqa: E402  (next to this script; restore-journey-slot.sh 
 HERE = os.path.dirname(os.path.abspath(__file__))
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the app's control socket")
-parser.add_argument("--variants", default="quit,update,crash")
+parser.add_argument("--variants", default=None, help="comma list (default quit,update,crash)")
+parser.add_argument("--continuity", action="store_true",
+                    help="the session continuity gate: --variants quit,crash,daemon,daemon-stop,reboot (or the --variants "
+                         "given) with only the agent parts "
+                         "(--skip web,w2,cloud,split) and one session per kind, so it fits one capture-slot lease")
 parser.add_argument("--out", default="/tmp/restore-journey")
 parser.add_argument("--fake-agent", default=os.path.join(HERE, "../../cmux-tui/crates/acpmux/tests/fake_agent.py"))
 parser.add_argument("--src", help="staged app to re-clone from when the slot's app copy is gone after a quit")
 parser.add_argument("--settle", type=float, default=90, help="seconds restore may take to settle")
-parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2,cloud")
+parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2,cloud,agents")
+parser.add_argument("--agents-per-kind", type=int, default=2,
+                    help="the agents part: chats per harness (Claude, Codex) and terminal agents per CLI (claude, codex)")
 parser.add_argument("--break-cloud", choices=["moved_chat", "move_retry", "bring_back_retry", "grant", "dismissed"],
                     help="proof the cloud rows check something: after the first relaunch, forget one seeded record of this "
                          "kind (`debug.cloud.move_seed {drop}`), so its row must FAIL")
@@ -102,8 +135,13 @@ parser.add_argument("--engine", choices=["webkit", "chromium"],
 parser.add_argument("--allow-non-slot", action="store_true",
                     help="drive a tagged DEV build that is not in a capture slot (it closes rj-* workspaces, quits and relaunches it)")
 opts = parser.parse_args()
+if opts.continuity:
+    opts.variants = opts.variants or "quit,crash,daemon,daemon-stop,reboot"
+    opts.skip, opts.agents_per_kind = "web,w2,cloud,split", 1
+opts.variants = opts.variants or "quit,update,crash"
 os.makedirs(opts.out, exist_ok=True)
 SKIP = {s.strip() for s in opts.skip.split(",") if s.strip()}
+AGENTS_N = max(1, opts.agents_per_kind)
 LOG = open(os.path.join(opts.out, "journey.log"), "a")
 RUN = os.urandom(3).hex()
 SCROLLBACK_LINES = 3000
@@ -111,6 +149,7 @@ SCROLL = 1500
 SIDEBAR_WIDTH = 312  # points: neither layout's default (208, 240), inside the 160...360 drag range
 FONT_STEPS = 2  # Cmd-+ steps on the counter's terminal
 PIDFILE = os.path.join(opts.out, f"counter-{RUN}.pid")
+
 
 
 def say(*parts):
@@ -239,6 +278,32 @@ class App:
 
     def quit(self, variant):
         """Ends the app (its own quit path, or a crash) and waits for the exact pid to exit."""
+        if variant == "daemon":
+            # The app keeps running; only its cmux-tui daemon process ends (SIGKILL), as a daemon
+            # crash does. Its terminal hosts and acpmux live on.
+            pids = self.daemon_pids()
+            self.killed_daemons = set(pids)
+            say(f"  daemon: SIGKILL {pids}")
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            RESULTS.append(("daemon: the app's daemon is found and killed", bool(pids), f"pids {pids}", "app quit"))
+            return bool(pids)
+        if variant == "daemon-stop":
+            # A wedged owner: the daemon stops answering but keeps its socket open (SIGSTOP).
+            pids = self.daemon_pids()
+            self.killed_daemons = set(pids)
+            STOPPED.update(pids)
+            say(f"  daemon-stop: SIGSTOP {pids}")
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGSTOP)
+                except OSError:
+                    pass
+            RESULTS.append(("daemon-stop: the app's daemon is found and stopped", bool(pids), f"pids {pids}", "app quit"))
+            return bool(pids)
         if variant == "crash":
             # A crash: the app's exact pid ends at once (SIGKILL); nothing of the app's own quit runs.
             # Only the pid the slot's socket names right now, and only while it is alive.
@@ -298,7 +363,69 @@ class App:
                 rpc("debug.quit", {"press": "keep" if "keep" in default else default}, timeout=10)
         ended = wait(lambda: not self.alive(), 60, 0.25)
         say(f"  app pid {self.pid} {'exited' if ended else 'is STILL RUNNING after 60 s'}")
+        self.rebooted = False
+        if ended and variant == "reboot":
+            self.rebooted = True
+            return self.power_off()
         return bool(ended)
+
+    def daemon_pids(self):
+        """The pids of this app's own cmux-tui daemon (its session, run from its bundle)."""
+        out = subprocess.run(["ps", "axo", "pid=,args="], capture_output=True, text=True).stdout
+        return [int(line.split(None, 1)[0]) for line in out.splitlines()
+                if len(line.split(None, 1)) == 2 and line.split(None, 1)[1].startswith(self.bundle + "/")
+                and "--headless" in line and any(f"--session {s} " in line + " " for s in self.sessions())]
+
+    def power_off(self):
+        """The rest of a reboot, after the app's own quit: every process the app's bundle started
+        ends at once (SIGKILL), with all of their children: the daemon, its terminal hosts and the
+        shells and programs in them, acpmux and its agent hosts and agents. Only processes run from
+        this app's own bundle (a capture slot's clone) and their descendants."""
+        table = subprocess.run(["ps", "axo", "pid=,ppid=,args="], capture_output=True, text=True).stdout
+        procs = []
+        for line in table.splitlines():
+            parts = line.split(None, 2)
+            if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+                procs.append((int(parts[0]), int(parts[1]), parts[2]))
+        roots = {pid for pid, _, args in procs if args.startswith(self.bundle + "/") and pid != os.getpid()}
+        # Terminal hosts run from a copy of the daemon's executable (host_exe.rs) with launchd as
+        # their parent and a bare `cmux-tui` argv[0]; each names its owner, this app's bundle id.
+        try:
+            with open(os.path.join(self.bundle, "Contents", "Info.plist"), "rb") as f:
+                bundle_id = plistlib.load(f).get("CFBundleIdentifier") or ""
+        except (OSError, plistlib.InvalidFileException):
+            bundle_id = ""
+        if bundle_id:
+            owner = f"--owner {bundle_id}:"
+            roots |= {pid for pid, _, args in procs if "--bootstrap-stdio" in args and owner in args}
+        doomed, grew = set(roots), True
+        while grew:
+            more = {pid for pid, ppid, _ in procs if ppid in doomed and pid not in doomed and pid != os.getpid()}
+            doomed |= more
+            grew = bool(more)
+        say(f"  reboot: SIGKILL {len(doomed)} processes ({len(roots)} run from the bundle)")
+        dump("reboot-killed.json", sorted([pid, args[:200]] for pid, _, args in procs if pid in doomed))
+        for pid in doomed:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        def gone():
+            for pid in doomed:
+                try:
+                    os.kill(pid, 0)
+                    return False
+                except ProcessLookupError:
+                    continue
+                except PermissionError:
+                    return False
+            return True
+        ok = wait(gone, 20, 0.25)
+        RESULTS.append(("reboot: every process of the app's bundle ends", bool(roots) and bool(ok),
+                        f"{len(doomed)} killed, {len(roots)} from the bundle", "app quit"))
+        # acpmux went with it: the run's connection is dead; the next use reconnects.
+        ACPMUX.pop("client", None)
+        return bool(ok)
 
     def ensure_bundle(self):
         if os.path.isdir(self.bundle):
@@ -405,13 +532,48 @@ class Acpmux:
     """One request/answer connection to acpmux (JSON-RPC lines); notifications are dropped."""
 
     def __init__(self, path):
+        self.path, self.reconnects = path, 0
+        self.connect()
+
+    def connect(self):
+        if getattr(self, "conn", None):
+            self.conn.close()
         self.conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.conn.settimeout(60)
-        self.conn.connect(path)
+        self.conn.connect(self.path)
         self.next, self.buf = 0, b""
-        self.request("initialize", {"protocolVersion": 1, "clientInfo": {"name": "restore-journey"}})
+        self.send("initialize", {"protocolVersion": 1, "clientInfo": {"name": "restore-journey"}})
 
     def request(self, method, params, timeout=60):
+        """One request; when acpmux restarted under the connection (an app quit or reboot can end
+        it), connect again once and resend."""
+        try:
+            answer = self.send(method, params, timeout)
+        except socket.timeout:
+            # A slow answer is not a closed connection: never send it again.
+            return {"error": {"message": f"no answer to {method} within {timeout} s"}}
+        except OSError:
+            answer = {"error": {"message": "closed"}}
+        if answer.get("error", {}).get("message") != "closed":
+            return answer
+        self.reconnects += 1
+        say(f"  acpmux connection closed; reconnecting ({self.reconnects})")
+
+        def connected():
+            # A killed acpmux leaves its socket file: retry the connect itself until one answers.
+            try:
+                self.connect()
+                return True
+            except OSError:
+                return False
+        if not wait(connected, 60, 0.5):
+            return {"error": {"message": "reconnect failed: acpmux did not answer within 60 s"}}
+        try:
+            return self.send(method, params, timeout)
+        except OSError as error:
+            return {"error": {"message": f"after reconnecting: {error}"}}
+
+    def send(self, method, params, timeout=60):
         self.next += 1
         rid = self.next
         self.conn.settimeout(timeout)
@@ -447,7 +609,12 @@ def configure_fake(home):
     except FileNotFoundError:
         original = None
     config = json.loads(original) if original else {}
-    config.setdefault("harnesses", {})["fake"] = {"argv": ["python3", os.path.abspath(opts.fake_agent)]}
+    harnesses = config.setdefault("harnesses", {})
+    harnesses["fake"] = {"argv": ["python3", os.path.abspath(opts.fake_agent)]}
+    # The chats of the agents part: the test agent as a Claude Code and a Codex harness (their
+    # family, so the app treats them as Claude and Codex chats: picker, chips, resume path).
+    for name, profile in CHAT_PROFILES.items():
+        harnesses[name] = {"argv": ["python3", os.path.abspath(opts.fake_agent)], **profile}
     ACPMUX_RESTORE.append((path, original))  # first, so an exit at any point after puts it back
     with open(path + ".rj", "w") as f:
         f.write(json.dumps(config, indent=2))
@@ -752,11 +919,11 @@ def seed_agent():
         return
     cli("workspace", ws["workspace_id"], "focus")
     action("palette.newAgentChat", focus=True)
-    home = wait(acpmux_home, 60)
-    if not home:
+    client = acpmux_client()
+    if not client:
         say("  no acpmux home for this tag; the agent chat is not seeded")
         return
-    client = configure_fake(home)
+    home = ACPMUX["home"]
     created = client.request("session/new", {"cwd": opts.out, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}})
     sid = (created.get("result") or {}).get("sessionId")
     say(f"  fake chat {sid}: {json.dumps(created)[:160]}")
@@ -768,8 +935,10 @@ def seed_agent():
     client.request("_acpmux/draft_set", {"sessionId": sid, "text": f"rj unsent draft {RUN}"})
     pane = next((p.get("id") for s_ in (workspace_named("rj-agent") or {}).get("screens", []) for p in s_.get("panes", [])
                  if any(t.get("kind") == "conversation" for t in p.get("tabs", []))), None)
-    for _ in range(3):
-        params = {"action": "select_session", "session": sid, **({"pane": pane} if pane else {})}
+    for attempt in range(4):
+        # The pane, then the focused agent pane (the new chat tab may not be the shown one yet).
+        target = pane if attempt % 2 == 0 else None
+        params = {"action": "select_session", "session": sid, **({"pane": target} if target else {})}
         say(f"  select_session -> {json.dumps(rpc('debug.agent_pane', params, timeout=60))[:160]}")
         if wait(lambda: any(t.get("agent_session") == sid for t in tabs_of(workspace_named("rj-agent"))), 30, 1):
             break
@@ -787,6 +956,315 @@ def seed_agent():
         dump("agent-bind-chat-state.json", state)
         say(f"  bind log: {len(log.splitlines())} lines in agent-bind-log.txt")
     AGENT = {"session": sid, "home": home, "pane": pane}
+
+
+# ---- the agents part: several Claude and Codex sessions of each kind --------------------------
+#
+# Leo's continuity bar (classic cmux's): after a quit, crash or reboot every agent session is back
+# in its workspace and tab, with its transcript, harness, model and draft, and is live (it
+# answers a new turn; it is not "Not logged in"). Two kinds, AGENTS_N of each per harness:
+#   rj-chats    agent chats (acpmux), as a Claude Code harness (`rj-claude`: Claude's model
+#               picker; a non-default model is picked) and a Codex harness (`rj-codex`; a
+#               non-default effort is picked), two turns and an unsent draft each;
+#   rj-tagents  terminal tabs running the `claude` and `codex` CLIs (rj_fake_cli_agent.py: its
+#               account is CLAUDE_CONFIG_DIR / CODEX_HOME, given inline on its command line as
+#               a person's alias does, with launch flags; it reports SessionStart through the
+#               terminal's hook helper as the real hooks do), one turn each.
+
+CHAT_PROFILES = {
+    "rj-claude": {"family": "claude", "env": {"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude"}},
+    "rj-codex": {"family": "codex", "env": {"FAKE_PICKER": "1"}},
+}
+CHAT_PICKS = {"rj-claude": {"model": "claude-sonnet-5-5"}, "rj-codex": {}}  # the test agent keeps picks only as Claude
+CLI_AGENTS = {
+    "claude": {"account": "CLAUDE_CONFIG_DIR", "flags": "--dangerously-skip-permissions --model claude-sonnet-5-5"},
+    # Without an approval bypass: its resume after a reboot runs by itself. Claude's has one: its
+    # resume is typed and waits for the person to confirm it.
+    "codex": {"account": "CODEX_HOME", "flags": "-m gpt-5.5 --search"},
+}
+CHATS = []  # {"label", "harness", "session", "tab"}
+TAGENTS = []  # {"label", "provider", "terminal", "tab", "session", "flags", "account"}
+ACPMUX = {}  # {"home", "client"}: the tag's acpmux, configured once for the run
+
+
+def acpmux_client():
+    """The tag's acpmux with the run's harnesses configured (once per run); None when it has none."""
+    if not ACPMUX:
+        home = wait(acpmux_home, 60)
+        if not home:
+            return None
+        ACPMUX.update(home=home, client=configure_fake(home))
+    elif "client" not in ACPMUX:
+        # After a reboot: the relaunched app starts acpmux again with the run's config still in
+        # place. Its old socket file may still be there: retry the connect itself.
+        def connect():
+            try:
+                return Acpmux(acpmux_socket_of(ACPMUX["home"]))
+            except OSError:
+                return None
+        client = wait(connect, 60, 0.5)
+        if not client:
+            say("  acpmux did not answer within 60 s after the reboot")
+            return None
+        ACPMUX["client"] = client
+    return ACPMUX["client"]
+
+
+def page(pane, act, **params):
+    return rpc("debug.agent_pane", {"action": act, **({"pane": pane} if pane else {}), **params}, timeout=60)
+
+
+def place_of(tab_id, topo=None):
+    """`ws[name].s0.paneP.tabT` of a tab, or None."""
+    for ws in rj_workspaces(topo or topology()):
+        for s_index, screen in enumerate(ws.get("screens", [])):
+            for p_index, pane in enumerate(screen.get("panes", [])):
+                for t_index, tab in enumerate(pane.get("tabs", [])):
+                    if tab.get("id") == tab_id:
+                        return f"ws[{ws.get('name')}].s{s_index}.pane{p_index}.tab{t_index}", pane.get("id")
+    return None, None
+
+
+def seed_chats():
+    ws = new_workspace("rj-chats")
+    if not ws.get("workspace_id"):
+        return
+    cli("workspace", ws["workspace_id"], "focus")
+    client = acpmux_client()
+    if not client:
+        say("  no acpmux home for this tag; the chats are not seeded")
+        return
+    for harness in CHAT_PROFILES:
+        for i in range(AGENTS_N):
+            label = f"{harness}-{i}"
+            known = {t.get("id") for t in tabs_of(workspace_named("rj-chats"))}
+            action("palette.newAgentChat", focus=True)
+            fresh = wait(lambda: next((t for t in tabs_of(workspace_named("rj-chats"))
+                                       if t.get("kind") == "conversation" and t.get("id") not in known), None), 30, 0.5)
+            if not fresh:
+                say(f"  {label}: no new chat tab")
+                continue
+            created = client.request("session/new", {"cwd": opts.out, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}})
+            sid = (created.get("result") or {}).get("sessionId")
+            if not sid:
+                say(f"  {label}: session/new -> {json.dumps(created)[:200]}")
+                continue
+            _, pane = place_of(fresh["id"])
+            # The page learns of a new acpmux session a moment after it is made: select it until the
+            # tab's record names it.
+            for attempt in range(4):
+                # The new tab may not be the pane's shown tab yet; then the focused agent pane.
+                target = pane if attempt % 2 == 0 else None
+                say(f"  {label}: select_session -> {json.dumps(page(target, 'select_session', session=sid))[:160]}")
+                if wait(lambda: any(t.get("agent_session") == sid for t in tabs_of(workspace_named("rj-chats"))), 15, 1):
+                    break
+            else:
+                say(f"  {label}: the tab never recorded session {sid}")
+            pick = CHAT_PICKS[harness]
+            if pick:
+                # The pick a person makes in the composer's menus; through acpmux when the page refuses.
+                for target in (pane, None):
+                    picked = page(target, "set_model", **pick)
+                    say(f"  {label}: set_model {pick} -> {json.dumps(picked)[:200]}")
+                    if isinstance(picked, dict) and "error" not in picked:
+                        break
+                if not isinstance(picked, dict) or "error" in picked:
+                    if pick.get("model"):
+                        client.request("session/set_model", {"sessionId": sid, "modelId": pick["model"]})
+                    if pick.get("effort"):
+                        client.request("session/set_config_option", {"sessionId": sid, "configId": "effort", "value": pick["effort"]})
+            for turn in range(2):
+                client.request("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": f"rj chat turn {turn} {label} {RUN}"}],
+                                                  "_meta": {"acpmux": {"promptId": f"rj-{RUN}-{label}-{turn}"}}}, timeout=60)
+            client.request("_acpmux/draft_set", {"sessionId": sid, "text": f"rj draft {label} {RUN}"})
+            CHATS.append({"label": label, "harness": harness, "session": sid, "tab": fresh["id"]})
+
+
+def screen_text(term):
+    """The terminal's scrollback and screen as one string with the line breaks taken out."""
+    rows = history(term) or []
+    screen = cli("terminal", term, "screen", "read", quiet=True)
+    return ("".join(rows) + (screen.get("text", "") if isinstance(screen, dict) else "")).replace("\n", "")
+
+
+def agent_events(session=None):
+    """The terminal agents' own log (rj_fake_cli_agent.py, RJ_AGENT_LOG): every start and answer."""
+    events = []
+    try:
+        with open(os.path.join(opts.out, "rj-agents.jsonl")) as f:
+            for line in f:
+                try:
+                    events.append(json.loads(line))
+                except ValueError:
+                    continue  # a line an agent is still writing
+    except OSError:
+        return []
+    return [e for e in events if session is None or e.get("session") == session]
+
+
+def daemon_binary():
+    """The app's cmux-tui (its daemon's executable), for the agents' hook fallback."""
+    out = subprocess.run(["ps", "axo", "args="], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        if line.startswith(APP.bundle + "/") and "--headless" in line:
+            return line.split(" --", 1)[0]
+    return None
+
+
+def seed_tagents():
+    ws = new_workspace("rj-tagents")
+    if not ws.get("terminal_id"):
+        return
+    here = os.path.dirname(os.path.abspath(__file__))
+    bindir = os.path.join(opts.out, "rj-bin")
+    os.makedirs(bindir, exist_ok=True)
+    tui = daemon_binary() or ""
+    for provider in CLI_AGENTS:
+        # On PATH as `claude` / `codex`. The wrapper names the log and the app's cmux-tui itself, so
+        # a resume typed by the app after a reboot (with no variables of ours) still reports.
+        exe = os.path.join(bindir, provider)
+        with open(exe, "w") as f:
+            f.write("#!/bin/sh\n"
+                    f"export RJ_AGENT_LOG={shlex.quote(os.path.join(opts.out, 'rj-agents.jsonl'))} RJ_CMUX_TUI={shlex.quote(tui)}\n"
+                    f"exec python3 {shlex.quote(os.path.join(here, 'rj_fake_cli_agent.py'))} {provider} \"$@\"\n")
+        os.chmod(exe, 0o755)
+    # The CLIs on PATH as a person's shell profile puts them, so a new shell (after a reboot) finds
+    # them too. Only a capture slot's own HOME (its lease folder, removed at release).
+    home = APP.env.get("HOME", "")
+    if "/cmux-capture/slots/" in home:
+        # .zshrc: interactive shells only (a terminal's), not the app's own login-shell probes.
+        with open(os.path.join(home, ".zshrc"), "a") as f:
+            f.write(f"\nexport PATH={shlex.quote(bindir)}:$PATH  # restore-journey\n")
+    else:
+        say("  not a capture slot HOME: a new shell will not find the test CLIs (reboot rows will fail)")
+    first = True
+    for provider, spec in CLI_AGENTS.items():
+        account = os.path.join(opts.out, f"rj-account-{provider}")
+        os.makedirs(account, exist_ok=True)
+        open(os.path.join(account, "rj-login"), "w").close()
+        for i in range(AGENTS_N):
+            label = f"{provider}-{i}"
+            if first:
+                made, first = ws, False
+            else:
+                made = value(cli("tab", "create", "terminal", "--workspace", ws["workspace_id"], "--pane", ws["pane_id"]))
+            term = made.get("terminal_id")
+            if not term:
+                say(f"  {label}: no terminal")
+                continue
+            known = {e.get("pid") for e in agent_events()}
+            write(term, f"export PATH={shlex.quote(bindir)}:$PATH; cd {shlex.quote(opts.out)}; "
+                        f"{spec['account']}={shlex.quote(account)} {provider} {spec['flags']}\n")
+            start = wait(lambda: next((e for e in agent_events() if e.get("event") == "start" and e.get("pid") not in known
+                                       and e.get("provider") == provider), None), 20, 0.5)
+            if not start:
+                say(f"  {label}: the agent never started: {screen_text(term)[-300:]!r}")
+                continue
+            say(f"  {label}: started {json.dumps(start)[:240]}")
+            write(term, f"rj tturn {label} {RUN}\n")
+            wait(lambda: any(e.get("event") == "answer" and e.get("text") == f"rj tturn {label} {RUN}" for e in agent_events(start["session"])), 15, 0.5)
+            TAGENTS.append({"label": label, "provider": provider, "terminal": term, "tab": made.get("tab_id"),
+                            "session": start["session"], "flags": start.get("flags"), "hook": start.get("hook"), "pid": start.get("pid")})
+    if ws.get("tab_id"):
+        cli("tab", ws["tab_id"], "focus")
+
+
+def chat_items(label, items, raw):
+    """Rows for each seeded chat: where its tab is, what its acpmux record keeps, what its page
+    shows, and a new turn it answers (live)."""
+    topo = topology()
+    client = acpmux_client()
+    with visiting("rj-chats"):
+        for chat in CHATS:
+            c = f"chat[{chat['label']}]"
+            tab = next((t for ws in rj_workspaces(topo) for t in tabs_of(ws) if t.get("agent_session") == chat["session"]), None)
+            items[f"{c}.place"], pane = place_of(tab.get("id"), topo) if tab else (None, None)
+            if client:
+                events = ((client.request("_acpmux/events", {"sessionId": chat["session"], "afterSeq": 0, "limit": 5000}).get("result") or {}).get("events")) or []
+                items[f"{c}.prompts"] = [e.get("msg", {}).get("text") for e in events if e.get("kind") == "user_message"
+                                         and "rj chat turn" in str(e.get("msg", {}).get("text"))]
+                items[f"{c}.draft"] = (client.request("_acpmux/draft_get", {"sessionId": chat["session"]}).get("result") or {}).get("draft")
+            if not tab:
+                continue
+            cli("tab", tab["id"], "focus", quiet=True)
+            state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r and r.get("connection") != "connecting"
+                                  and r.get("sessionId") == chat["session"] else None)(page(pane, "chat_state")), 45, 1) or page(pane, "chat_state")
+            raw[f"{c}.chat_state"] = state
+            if not isinstance(state, dict) or "error" in state:
+                items[f"{c}.page"] = f"chat_state: {json.dumps(state)[:120]}"
+                continue
+            items[f"{c}.page.session"] = state.get("sessionId")
+            items[f"{c}.page.harness"] = state.get("harness")
+            items[f"{c}.page.missing_session"] = state.get("missingSession")
+            chips = state.get("composer") or {}
+            # The composer's chips as drawn show the model and effort picked.
+            # (The model chip may draw only its icon, so the model is read from the page's own state.)
+            pick = CHAT_PICKS.get(chat["harness"], {})
+            shown = page(pane, "models")
+            current = shown.get("current") if isinstance(shown, dict) else None
+            ok = not pick.get("model") or current == pick["model"]
+            items[f"{c}.page.picked"] = True if ok else f"chips {json.dumps(chips)[:100]}, model {current!r}; picked {json.dumps(pick)}"
+            items[f"{c}.page.transcript"] = [r.get("text") for r in state.get("transcript") or [] if "rj chat turn" in str(r.get("text"))
+                                              or str(r.get("text")).startswith("echo: rj chat turn")]
+            # Live: a new turn is answered by the agent and shows on the page. Sent through acpmux, so
+            # the composer's draft stays as seeded.
+            text = f"rj live {chat['label']} {label} {RUN}"
+            if client:
+                client.request("session/prompt", {"sessionId": chat["session"], "prompt": [{"type": "text", "text": text}],
+                                                  "_meta": {"acpmux": {"promptId": f"rj-{RUN}-{chat['label']}-{label}"}}}, timeout=60)
+            answered = wait(lambda: (lambda r: isinstance(r, dict) and (r.get("lastAssistant") or {}).get("text") == f"echo: {text}"
+                                     and not (r.get("lastAssistant") or {}).get("streaming"))(page(pane, "chat_state")), 30, 1)
+            items[f"{c}.live"] = bool(answered) or f"no answer: {json.dumps((page(pane, 'chat_state') or {}).get('lastAssistant'))[:120]}"
+
+
+def tagent_items(label, items, raw):
+    """Rows for each seeded terminal agent: its tab's place, the agent process that runs its
+    session now (its last start: same session, signed in, same flags), its transcript, and a new
+    line it answers (live)."""
+    topo = topology()
+    for agent in TAGENTS:
+        a = f"tagent[{agent['label']}]"
+        items[f"{a}.place"] = place_of(agent["tab"], topo)[0]
+        # A terminal brought back after its host died (reboot) may take a few seconds to resume.
+        def current():
+            starts = [e for e in agent_events(agent["session"]) if e.get("event") == "start"]
+            return starts[-1] if starts and _pid_alive(starts[-1].get("pid")) else None
+        if getattr(APP, "rebooted", False) and "--dangerously" in (agent.get("flags") or ""):
+            # Started with an approval bypass: the resume is typed, not run, until the person
+            # confirms it (Return), which the journey then does.
+            early = wait(current, 15, 1)
+            RESULTS.append((f"{label}: {a} resume with an approval bypass waits for Return", not early,
+                            f"ran by itself: {early}" if early else "typed, not run", "terminal agent"))
+            if not early:
+                write(agent["terminal"], "\r")
+        start = wait(current, 60, 1)
+        raw[f"{a}.start"] = start
+        raw[f"{a}.text"] = screen_text(agent["terminal"])[-4000:]
+        items[f"{a}.running"] = bool(start) or f"no live agent; screen ends {raw[f'{a}.text'][-200:]!r}"
+        if start and getattr(APP, "rebooted", False):
+            # After a reboot the agent that runs is a new one, resumed into its session (the
+            # respawned terminal ran the resume command), not one that outlived the reboot.
+            items[f"{a}.running"] = (start.get("resumed") is True and start.get("pid") != agent.get("pid")) \
+                or f"the running agent was not resumed after the reboot: {start}"
+        items[f"{a}.flags"] = start.get("flags") if start else None
+        items[f"{a}.signed_in"] = bool(start) and start.get("signed_in") is True and not start.get("missing")
+        # The seeded turn on screen (spaces out: a wrapped line loses the one at its break).
+        items[f"{a}.transcript"] = f"echo: rj tturn {agent['label']} {RUN}".replace(" ", "") in raw[f"{a}.text"].replace(" ", "")
+        ping = f"rj ping {agent['label']} {label} {RUN}"
+        write(agent["terminal"], ping + "\n")
+        items[f"{a}.live"] = bool(wait(lambda: any(e.get("event") == "answer" and e.get("text") == ping
+                                                   for e in agent_events(agent["session"])), 20, 0.5)) \
+            or f"no answer; screen ends {screen_text(agent['terminal'])[-200:]!r}"
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (TypeError, ValueError, ProcessLookupError):
+        return False
+    except PermissionError:
+        return True
 
 
 def seed_w2(base):
@@ -859,7 +1337,8 @@ def seed(base):
     say("seeding")
     cleanup_earlier()
     for part, run in (("term", seed_term), ("split", seed_split), ("web", lambda: seed_web(base)),
-                      ("agent", seed_agent), ("w2", lambda: seed_w2(base)), ("cloud", seed_cloud)):
+                      ("agent", seed_agent), ("w2", lambda: seed_w2(base)), ("cloud", seed_cloud),
+                      ("agents", seed_chats), ("agents", seed_tagents)):
         if part not in SKIP:
             try:
                 run()
@@ -1234,6 +1713,14 @@ def snapshot(label):
                 RESULTS.append(grid_fits_view(label, pp, v))
     if "cloud" not in SKIP:
         items.update(cloud_items())
+    if "agents" not in SKIP:
+        # Evidence only (the rows are each chat's own: bound, answering): acpmux's processes.
+        out = subprocess.run(["ps", "axo", "pid=,args="], capture_output=True, text=True).stdout
+        raw["acpmux.processes"] = sorted(int(line.split(None, 1)[0]) for line in out.splitlines()
+                                             if len(line.split(None, 1)) == 2 and line.split(None, 1)[1].startswith(APP.bundle + "/")
+                                             and "acpmux" in line)
+        chat_items(label, items, raw)
+        tagent_items(label, items, raw)
     dump(f"{label}-raw.json", raw)
     dump(f"{label}-items.json", items)
     return items
@@ -1267,7 +1754,9 @@ NA = "n/a"
 def area_of(item):
     if item.startswith(("window", "focus")):
         return "windows"
-    if item.startswith("agent") or ".agent_session" in item:
+    if item.startswith("tagent["):
+        return "terminal agent"
+    if item.startswith(("agent", "chat[", "acpmux.")) or ".agent_session" in item:
         return "agent chat"
     if item.startswith(("counter", "view.", "top.")) or any(k in item for k in (".scrollback", ".terminal", ".dead", ".cwd", ".view.attach")):
         return "terminal"
@@ -1297,7 +1786,8 @@ def must_have(item):
             or item.endswith((".view.size", ".view.grid"))
             or item in ("windows.recency", "focus.window", "focus.workspace", "focus.pane", "agent.page", "agent.acpmux", "agent.prompts",
                         "agent.page.session", "agent.tabs_bound")
-            or item.startswith(("page[", "cloud.")))
+            or item.startswith(("page[", "cloud."))
+            or (item.startswith(("chat[", "tagent[")) and not item.endswith(".missing_session")))
 
 
 def uneven(items, one, other):
@@ -1334,6 +1824,14 @@ def seeded(before):
         "agent": [("three turns", len(before.get("agent.prompts") or []) == 3),
                   ("chat tab bound to the session", (before.get("agent.tabs_bound") or 0) >= 1
                    and bool(AGENT) and before.get("agent.page.session") == AGENT["session"])],
+        "agents": [*[(f"chat {c['label']} bound, picked and answering", before.get(f"chat[{c['label']}].page.session") == c["session"]
+                       and before.get(f"chat[{c['label']}].live") is True and len(before.get(f"chat[{c['label']}].prompts") or []) == 2)
+                      for c in CHATS],
+                   *[(f"terminal agent {t['label']} reports to its hook and answers", t["hook"] == "yes"
+                      and before.get(f"tagent[{t['label']}].live") is True and before.get(f"tagent[{t['label']}].signed_in") is True)
+                     for t in TAGENTS],
+                   (f"{AGENTS_N} chats per harness", len(CHATS) == AGENTS_N * len(CHAT_PROFILES)),
+                   (f"{AGENTS_N} terminal agents per CLI", len(TAGENTS) == AGENTS_N * len(CLI_AGENTS))],
         "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page"),
                ("w2 page zoomed in by three Cmd-+ steps from 100%", W2.get("steps") == 3 and (before.get("page[w2page].zoom") or 0) > 1.15)],
         "cloud": [("two moved chats", len(before.get("cloud.moved_chats") or []) == 2),
@@ -1360,7 +1858,14 @@ def seeded(before):
 def compare(variant, before, after):
     for item in sorted(set(before) | set(after)):
         b, a = before.get(item, "<missing>"), after.get(item, "<missing>")
-        if item.startswith("counter.tick_in_"):
+        if variant == "reboot" and (item.startswith(("counter.", "top.")) or item == "agent.status"):
+            # A reboot ends every process: running programs and their screens cannot come back.
+            RESULTS.append((f"{variant}: {item}", NA, "n/a: a reboot ends every running program", area_of(item)))
+            continue
+        if item.startswith(("chat[", "tagent[")) and item.endswith((".live", ".signed_in", ".running", ".page.picked")) or item.startswith("tagent[") and item.endswith(".transcript"):
+            ok = a is True and b is True
+            detail = f"{json.dumps(b)[:100]} -> {json.dumps(a)[:100]}"
+        elif item.startswith("counter.tick_in_"):
             ok = isinstance(a, int) and isinstance(b, int) and a > b
             detail = f"{b} -> {a} (must keep counting)"
         elif item.endswith(".frame") and isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
@@ -1512,6 +2017,250 @@ def load_rows(variant, launched):
                         f"read {read} after the reopen, {LIVE_READ.get('hist')} on the page loaded fresh (1 read, 0 refused, -1 no probe)", "browser"))
 
 
+# ---- the daemon variants: a killed or stopped cmux-tui under a running app -----------------
+
+DAEMON_VARIANTS = ("daemon", "daemon-stop")
+STOPPED = set()  # daemon pids daemon-stop froze; ended at exit if still there
+
+
+def end_stopped_daemons():
+    """A frozen daemon that Restart did not end: let it run, then end it (SIGKILL). Only a pid that
+    is still one of the app's daemons: a pid the system reused for something else is left alone."""
+    try:
+        current = set(APP.daemon_pids()) if APP else set()
+    except Exception:
+        current = set()
+    for pid in sorted(STOPPED & current):
+        try:
+            os.kill(pid, signal.SIGCONT)
+            os.kill(pid, signal.SIGKILL)
+            say(f"  ended the stopped daemon {pid}")
+        except OSError:
+            pass
+    STOPPED.clear()
+
+
+atexit.register(end_stopped_daemons)
+
+
+def daemon_state(timeout=3):
+    """`debug.daemon`: the app's daemon connection and recovery; None when it does not answer."""
+    answer = rpc("debug.daemon", timeout=timeout)
+    return answer if isinstance(answer, dict) and "error" not in answer else None
+
+
+def reconnected(old):
+    """The app is connected to a daemon that is not one of `old`; its pid, or None."""
+    state = daemon_state() or {}
+    pid = state.get("pid")
+    return int(pid) if state.get("connection") == "connected" and pid and int(pid) not in old else None
+
+
+def daemon_recovery(variant, started, sampler, turn):
+    """After the kill or stop: the seconds to a new daemon and to the app connected to it; for
+    daemon-stop, the seconds until the app offers Restart, then Restart through `debug.daemon`."""
+    old = set(APP.killed_daemons)
+    if variant == "daemon-stop":
+        offered = wait(lambda: ((daemon_state() or {}).get("recovery") or {}).get("offers_restart") is True, 150, 0.25)
+        at = time.time() - started
+        RESULTS.append((f"{variant}: the app offers Restart cmux-tui", bool(offered),
+                        f"{at:.1f} s after the stop" if offered else f"not within {at:.0f} s: {json.dumps(daemon_state())[:300]}",
+                        "app quit"))
+        pressed = rpc("debug.daemon", {"action": "restart"}, timeout=10)
+        say(f"  daemon-stop: Restart -> {json.dumps(pressed)[:200]}")
+        restarted_at = time.time()
+    fresh = wait(lambda: [p for p in APP.daemon_pids() if p not in old], 90, 0.25)
+    new_at = time.time() - started
+    RESULTS.append((f"{variant}: a new daemon starts", bool(fresh),
+                    f"{new_at:.1f} s after the {'stop' if variant == 'daemon-stop' else 'kill'}, pids {fresh}" if fresh
+                    else f"none within {new_at:.0f} s", "app quit"))
+    pid = wait(lambda: reconnected(old), 90, 0.25)
+    at = time.time() - started
+    detail = f"{at:.1f} s after the {'stop' if variant == 'daemon-stop' else 'kill'}, daemon {pid}"
+    if variant == "daemon-stop":
+        detail += f", {time.time() - restarted_at:.1f} s after Restart"
+    RESULTS.append((f"{variant}: the app reconnects to the new daemon", bool(pid),
+                    detail if pid else f"not within {at:.0f} s: {json.dumps(daemon_state())[:300]}", "app quit"))
+    if variant == "daemon-stop":
+        alive = [p for p in old if _pid_alive(p)]
+        RESULTS.append((f"{variant}: Restart ends the stopped daemon", not alive,
+                        f"still there: {alive}" if alive else "gone", "app quit"))
+        end_stopped_daemons()
+
+
+class RecoverySampler:
+    """What the app shows while its daemon is gone, every 250 ms (`debug.daemon`, `debug.surfaces`).
+    The designed recovery state: each window shows its workspace or the connecting view
+    (DaemonConnectingView), no pane is blank, and every shown terminal is connected, restoring, or
+    disconnected and reconnecting. A terminal disconnected for good (no reconnect) for over a
+    second, a window with nothing, or one blank pane is not. Both calls must keep answering after
+    the kill: a stretch of over GAP seconds without an answer from either is a violation too (a
+    hung app shows nothing designed)."""
+
+    CALL_TIMEOUT = 1.0
+    GAP = 1.0
+
+    def __init__(self):
+        self.samples, self.stop, self.thread, self.killed = [], threading.Event(), None, None
+
+    def start(self, started):
+        self.started = started
+
+        def run():
+            while not self.stop.is_set():
+                at = time.time() - self.started
+                self.samples.append((at, daemon_state(self.CALL_TIMEOUT), rpc("debug.surfaces", timeout=self.CALL_TIMEOUT)))
+                self.stop.wait(0.25)
+        self.thread = threading.Thread(target=run, daemon=True)
+        self.thread.start()
+
+    def halt(self):
+        """Stops sampling; a sample in flight ends within both calls' timeouts."""
+        self.stop.set()
+        if self.thread:
+            self.thread.join(2 * self.CALL_TIMEOUT + 2)
+        return list(self.samples)
+
+    @staticmethod
+    def surfaces_answered(surfaces):
+        return isinstance(surfaces, dict) and "error" not in surfaces
+
+    def gaps(self, samples, end):
+        """(largest gap between samples, per call the largest stretch after the kill without an answer)."""
+        ats = [at for at, _, _ in samples]
+        between = max((b - a for a, b in zip(ats, ats[1:])), default=end)
+        killed = self.killed if self.killed is not None else 0.0
+        silent = {}
+        for name, answered in (("debug.daemon", lambda st, su: bool(st)), ("debug.surfaces", lambda st, su: self.surfaces_answered(su))):
+            last, worst = killed, 0.0
+            for at, state, surfaces in samples:
+                if at < killed:
+                    continue
+                if answered(state, surfaces):
+                    worst, last = max(worst, at - last), at
+            silent[name] = max(worst, end - last)
+        return between, silent
+
+    @staticmethod
+    def problems(state, surfaces):
+        """(hard problems, terminals disconnected for good) of one sample."""
+        hard, dead = [], []
+        for window in (state or {}).get("windows") or []:
+            if window.get("shows") not in ("content", "connecting"):
+                hard.append(f"window {window.get('id')} shows {window.get('shows')}")
+        if isinstance(surfaces, dict) and "error" not in surfaces:
+            if surfaces.get("blank_panes"):
+                hard.append(f"{surfaces.get('blank_panes')} blank pane(s)")
+            for window in surfaces.get("windows") or []:
+                for pane in window.get("panes") or []:
+                    if pane.get("kind") != "terminal" or pane.get("presence") != "visible":
+                        continue
+                    link = str(pane.get("link"))
+                    if link in ("connected", "restoring") or (link.startswith("disconnected:") and link.endswith(":reconnecting")):
+                        continue
+                    dead.append(f"pane {pane.get('pane')} {link}")
+        return hard, dead
+
+    def finish(self, variant):
+        samples = self.halt()
+        end = time.time() - self.started
+        seen, violations, dead_since = {}, [], None
+        for at, state, surfaces in samples:
+            hard, dead = self.problems(state, surfaces)
+            violations += [f"{at:.2f} s: {h}" for h in hard]
+            if dead:
+                dead_since = at if dead_since is None else dead_since
+                if at - dead_since > 1.0:
+                    violations.append(f"{at:.2f} s: {', '.join(dead)} since {dead_since:.2f} s")
+            else:
+                dead_since = None
+            shows = ",".join(sorted({w.get("shows", "?") for w in (state or {}).get("windows") or []})) or "no answer"
+            links = set()
+            for window in (surfaces or {}).get("windows") or [] if isinstance(surfaces, dict) else []:
+                links |= {str(p.get("link")).split(":")[0] for p in window.get("panes") or []
+                          if p.get("kind") == "terminal" and p.get("presence") == "visible"}
+            key = f"{(state or {}).get('connection', 'no answer')}/{shows}/{'+'.join(sorted(links)) or '-'}"
+            seen[key] = seen.get(key, 0) + 1
+        dump(f"{variant}-recovery-samples.json", [{"at": round(at, 2), "daemon": state, "blank_panes": (surfaces or {}).get("blank_panes")
+                                                     if isinstance(surfaces, dict) else None} for at, state, surfaces in samples])
+        killed = self.killed if self.killed is not None else 0.0
+        answered = sum(1 for at, state, _ in samples if state and at >= killed)
+        surfaced = sum(1 for at, _, surfaces in samples if self.surfaces_answered(surfaces) and at >= killed)
+        between, silent = self.gaps(samples, end)
+        for name, worst in silent.items():
+            if worst > self.GAP:
+                violations.append(f"{name} did not answer for {worst:.2f} s")
+        ok = answered > 0 and surfaced > 0 and not violations
+        detail = (f"{len(samples)} samples (after the kill: debug.daemon answered {answered}, debug.surfaces {surfaced}); "
+                  f"largest gap between samples {between:.2f} s, without an answer "
+                  f"{', '.join(f'{n} {w:.2f} s' for n, w in silent.items())}; states {json.dumps(seen)[:400]}"
+                  + (f"; NOT designed: {'; '.join(violations[:5])}" if violations else ""))
+        RESULTS.append((f"{variant}: the UI shows the designed recovery state meanwhile (no blank pane)", ok, detail, "layout"))
+
+
+def start_turn_in_flight(variant):
+    """An agent chat turn in flight at the kill: the first seeded chat's `gate:` turn (the test
+    agent streams before-gate, then waits on a FIFO the journey writes after the reconnect)."""
+    client = acpmux_client() if CHATS else None
+    if not client:
+        RESULTS.append((f"{variant}: an agent chat turn is in flight at the {'stop' if variant == 'daemon-stop' else 'kill'}",
+                        False, "no seeded agent chat or acpmux client to start one", "agents"))
+        return None
+    chat = CHATS[0]
+    fifo = os.path.join(opts.out, f"rj-gate-{variant}-{RUN}")
+    try:
+        os.mkfifo(fifo)
+    except FileExistsError:
+        pass
+    box = {}
+
+    def run():
+        try:
+            box["answer"] = Acpmux(acpmux_socket_of(ACPMUX["home"])).request(
+                "session/prompt", {"sessionId": chat["session"], "prompt": [{"type": "text", "text": f"gate: {fifo}"}],
+                                   "_meta": {"acpmux": {"promptId": f"rj-{RUN}-gate-{variant}"}}}, timeout=400)
+        except Exception as error:
+            box["answer"] = {"error": {"message": str(error)}}
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+
+    def streaming():
+        events = ((client.request("_acpmux/events", {"sessionId": chat["session"], "afterSeq": 0, "limit": 5000}).get("result") or {})
+                  .get("events")) or []
+        return any("before-gate" in json.dumps(event) for event in events[-50:])
+    began = wait(streaming, 20, 0.25)
+    RESULTS.append((f"{variant}: an agent chat turn is in flight at the {'stop' if variant == 'daemon-stop' else 'kill'}",
+                    bool(began), "streamed before-gate, waiting on its gate" if began else "the turn never started", "agents"))
+    return {"chat": chat, "fifo": fifo, "thread": thread, "box": box}
+
+
+def finish_turn_in_flight(variant, turn):
+    """Opens the turn's gate; it must end (end_turn) and its answer show on the chat's page."""
+    try:
+        fd = os.open(turn["fifo"], os.O_WRONLY | os.O_NONBLOCK)
+        os.write(fd, b"go")
+        os.close(fd)
+    except OSError as error:
+        say(f"  the gate turn is not waiting: {error}")
+    turn["thread"].join(60)
+    answer = turn["box"].get("answer") or {}
+    stop = (answer.get("result") or {}).get("stopReason")
+    topo = topology()
+    tab = next((t for ws in rj_workspaces(topo) for t in tabs_of(ws) if t.get("agent_session") == turn["chat"]["session"]), None)
+    shown = None
+    if tab:
+        with visiting("rj-chats"):
+            pane = place_of(tab.get("id"), topo)[1]
+            shown = wait(lambda: "after-gate" in str(((page(pane, "chat_state") or {}).get("lastAssistant") or {}).get("text")), 20, 0.5)
+    RESULTS.append((f"{variant}: the turn in flight finishes and its page shows it", stop == "end_turn" and bool(shown),
+                    f"stopReason {stop}, page {'shows' if shown else 'does not show'} after-gate"
+                    + (f"; {json.dumps(answer)[:200]}" if stop != "end_turn" else ""), "agents"))
+    try:
+        os.remove(turn["fifo"])
+    except OSError:
+        pass
+
+
 def journey(base):
     global SINCE
     seed(base)
@@ -1535,14 +2284,30 @@ def journey(base):
                             f"read {LIVE_READ['hist']} (1 read, 0 refused, -1 no probe)", "seed"))
             RESULTS.append(("seed web: the file page loaded fresh shows nothing outside its folder", LIVE_READ["hist_ext"] == 0,
                             f"probe {LIVE_READ['hist_ext']} (1 shown, 0 refused, -1 no probe)", "seed"))
+        turn = start_turn_in_flight(variant) if variant in DAEMON_VARIANTS else None
+        sampler = RecoverySampler() if variant in DAEMON_VARIANTS else None
         started = SINCE = time.time()
+        if sampler:
+            sampler.start(started)
         if not APP.quit(variant):
             RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))
+            if sampler:
+                sampler.halt()
+            if turn:
+                try:
+                    os.remove(turn["fifo"])
+                except OSError:
+                    pass
             return
+        if sampler:
+            sampler.killed = time.time() - started
         # Reports count from here: the old app's pages keep reporting until its process ends, and
         # one of those would pass for a reopened page that has not reported yet (cx-p1xs5).
         launched = SINCE = time.time()
-        if not APP.relaunch({"CMUX_NEXT_DEBUG_SLOW_ATTACH": SLOW_ATTACH} if variant == "slow" else None):
+        if variant in DAEMON_VARIANTS:
+            # No relaunch: the running app must bring a new daemon and every view back.
+            daemon_recovery(variant, started, sampler, turn)
+        elif not APP.relaunch({"CMUX_NEXT_DEBUG_SLOW_ATTACH": SLOW_ATTACH} if variant == "slow" else None):
             RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
             return
         if variant == "slow":
@@ -1562,6 +2327,10 @@ def journey(base):
         took = time.time() - started
         say(f"  restore {'settled' if ok else 'did NOT settle'} {took:.1f} s after the quit")
         RESULTS.append((f"{variant}: restore settles", bool(ok), f"{took:.1f} s after the quit", "layout"))
+        if sampler:
+            sampler.finish(variant)
+        if turn:
+            finish_turn_in_flight(variant, turn)
         # The counter's next tick, in the view (it must keep counting after the reopen).
         if isinstance(before.get("counter.tick_in_view"), int):
             wait(lambda: view_tick() > before["counter.tick_in_view"], 10, 0.5)

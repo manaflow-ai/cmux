@@ -61,7 +61,10 @@ extension HomeNativeTranscriptView {
         panel.allowedContentTypes = HomeComposerCheck.pickerTypes
         // task-owner: the sheet belongs to the window; the task ends when it closes
         Task { [weak self] in
-            guard await panel.beginSheetModal(for: window) == .OK else { return }
+            let response = await panel.beginSheetModal(for: window)
+            // Chosen or cancelled, the person goes back to typing in the box.
+            defer { self?.transcript.focusPrimaryInputForTyping() }
+            guard response == .OK else { return }
             self?.handlePicked(panel.urls)
         }
     }
@@ -139,8 +142,9 @@ extension HomeNativeTranscriptView {
         showNotice(HomeStrings.unanswered)
     }
 
-    /// Returns when every attachment given so far is in the draft (tests).
-    func attachmentsReady() async {
+    /// Returns when every attachment given so far is in the draft (each one copied into the
+    /// blob cache, so its source file may go): tests, and design mode's temp files.
+    public func attachmentsReady() async {
         while let current = intake {
             await current.value
             if intake == current { return }
@@ -150,12 +154,15 @@ extension HomeNativeTranscriptView {
     // MARK: Drag and drop
 
     public override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        // Types only: the bytes are read once, on drop.
+        // Types and the plain string only: the picture bytes are read once, on drop.
         guard attachmentPreparer != nil, HomeAttachmentIntake.offers(sender.draggingPasteboard) else { return [] }
         return .copy
     }
 
     public override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        handleDrop(sender.draggingPasteboard)
+        guard handleDrop(sender.draggingPasteboard) else { return false }
+        // A drop aimed at Home (the first-run panel, the margins): type at once.
+        transcript.focusPrimaryInputForTyping()
+        return true
     }
 }

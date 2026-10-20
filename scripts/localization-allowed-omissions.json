@@ -2186,6 +2186,19 @@
       "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
+  "settingsWindow.backdropPicker.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling: German writes Video as English does; an explicit translated entry remains required."
+    }
+  },
+  "home.engine.effort.minimal": {
+    "source": "Minimal",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling: German and French write this effort level the same way; an explicit translated entry remains required.",
+      "fr": "Reviewed native UI spelling: German and French write this effort level the same way; an explicit translated entry remains required."
+    }
+  },
   "settings.automation.kiro.notificationLevel.minimal": {
     "source": "Minimal",
     "identityLocales": {
@@ -6792,6 +6805,17 @@
           "%1$@ · Go"
         ]
       }
+    }
+  },
+  "home.engine.section.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "bs": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "da": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "de": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "fr": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "nb": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "pl": "Agent is the standard noun for an AI agent in this language; the translated entry is still required."
     }
   }
 }

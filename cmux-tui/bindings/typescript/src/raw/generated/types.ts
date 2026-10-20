@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb. */
+/* cmux-tui mux protocol 12, IR 618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -205,6 +205,8 @@ export type CloseTerminalResult = {
 };
 
 export type ColorHex = string;
+
+export type ColumnMoveDirection = "left" | "right";
 
 export type ColumnPin = {
   "edge": string;
@@ -547,26 +549,31 @@ export type IdMapping = {
 };
 
 export type IdentifyResult = {
+  "api_revision"?: (number) | null;
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
   "capabilities"?: Array<string>;
   "cli_path"?: (string) | null;
+  "crate_version"?: (string) | null;
   "daemon_handoff": 1;
   "generation": string;
   "ghostty_commit"?: (string) | null;
+  "install"?: (string) | null;
   "launch_snapshot_path"?: (string) | null;
   "lifecycle_ready"?: boolean;
   "machine_capabilities"?: Array<string>;
   "machine_id"?: string;
   "machine_name"?: string;
   "machine_platform"?: MachinePlatform;
+  "min_api_revision"?: (number) | null;
   "pid": number;
   "protocol": number;
   "registry_id": string;
   "session": string;
   "session_id"?: string;
   "terminal_revision": bigint;
+  "update_command"?: (string) | null;
   "version": string;
   "workspace_revision": bigint;
 };
@@ -1473,6 +1480,11 @@ export type TerminalResourcesResult = {
   "missing": Array<Id>;
   "sampled_at_ns": bigint;
   "terminals": Array<TerminalResources>;
+};
+
+export type TerminalResumeCommandResult = {
+  "command": (string) | null;
+  "terminal_id": string;
 };
 
 export type Tree = {

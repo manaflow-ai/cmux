@@ -62,6 +62,17 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       ...(context.env.fontFamily && { family: context.env.fontFamily }),
       ...(context.env.fontSize && { size: context.env.fontSize }),
     };
+  // The app keeps a file's table column widths with the file (`cmux.markdown.setTableWidths`, its
+  // xattr) and sends them back in the config. Here the tab's session storage stands in, so the
+  // widths outlive a reload of the frame as they outlive a reopen in the app.
+  const widthsKey = (path: string) => `cmux.gallery.markdown.tableWidths:${path}`;
+  const tableWidths = (path: string): unknown => {
+    try {
+      return JSON.parse(sessionStorage.getItem(widthsKey(path)) ?? "null");
+    } catch {
+      return null;
+    }
+  };
   const config = (path: string) => {
     const file = files.get(path);
     if (!file) throw new HostError("cmux.markdown.not_found", path);
@@ -69,6 +80,7 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       path,
       text: file.text,
       hash: file.hash,
+      tableWidths: tableWidths(path),
       readOnly: state.readOnly === true,
       githubRepository: state.githubRepository,
       assetBase: "/__gallery/none/",
@@ -102,7 +114,17 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
         ),
       }),
       "cmux.markdown.listFiles": () => ({ entries: [...files.keys()].map((path) => path.slice(dir.length)) }),
+      "cmux.markdown.loadRemoteImages": () => ({ remoteImageBase: "/__gallery/none/" }),
       "cmux.markdown.openLink": () => null,
+      "cmux.markdown.setTableWidths": (params: { path: string; value: unknown }) => {
+        try {
+          if (params.value) sessionStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
+          else sessionStorage.removeItem(widthsKey(params.path));
+        } catch {
+          // Refused storage only loses the widths on the next reload.
+        }
+        return null;
+      },
       "cmux.markdown.recents": () => ({
         items: Object.keys(state.files ?? {}).map((path, index) => ({
           path,
@@ -249,12 +271,14 @@ function pageOps(
     error?: { code: string; message: string };
   },
 ): Record<string, HostOp> {
+  let firstFailure = true;
   return Object.fromEntries(
     operations.map((operation) => [
       operation,
       async (params: unknown) => {
         if (state.mode === "loading" && operation === state.firstOperation) return await new Promise<never>(() => {});
-        if (state.mode === "error" && operation === state.firstOperation) {
+        if (state.mode === "error" && operation === state.firstOperation && firstFailure) {
+          firstFailure = false;
           throw new HostError(
             state.error?.code ?? "cmux.page.failed",
             state.error?.message ?? "The sample host failed.",
@@ -272,6 +296,9 @@ function clickLater(selector: string): void {
 
 export async function mountAppsPage(state: AppsPageVariant, _context: StageContext): Promise<void> {
   const provider = new MockAppsProvider(JSON.parse(JSON.stringify(state.data)) as ReturnType<typeof sampleApps>);
+  if (state.detailError) {
+    provider.failNext(AppsOps.catalogGet, new HostError(state.detailError.code, state.detailError.message));
+  }
   const host = installMockHost(
     pageOps(provider, [...Object.values(AppsOps), OPEN_ACTION.op, "cmux.page.connection", "cmux.page.command"], {
       mode: state.mode === "normal" ? undefined : state.mode,
