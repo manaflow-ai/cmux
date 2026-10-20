@@ -660,6 +660,17 @@
       "title" : "Opacity",
       "type" : "number"
     },
+    "appearance.backgroundRotation" : {
+      "default" : "daily",
+      "description" : "How often a shuffled background turns to its next picture.",
+      "enum" : [
+        "15m",
+        "hourly",
+        "daily"
+      ],
+      "title" : "Change Picture",
+      "type" : "string"
+    },
     "appearance.borders" : {
       "default" : "default",
       "description" : "None removes every border, hairline and separator in the app.",

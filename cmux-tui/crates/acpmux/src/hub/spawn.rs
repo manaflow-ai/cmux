@@ -109,6 +109,10 @@ impl Hub {
                 }
             }
         }
+        if meta.remote_origin {
+            let cfg = self.config.read().await;
+            super::resolve::admit_remote_profile(&cfg, &meta.harness, &mut p, defaults_env)?;
+        }
         let home = dirs::home_dir().unwrap_or_default();
         let model = meta.model_request.clone().unwrap_or_default();
         for v in p.env.values_mut() {
@@ -130,6 +134,25 @@ impl Hub {
         // The bound route last: it owns the provider variables (routes.rs).
         let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
+        p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
+        if meta.remote_origin {
+            // Validate every executable after expansion and launcher
+            // substitution. The Codex bridge replaces argv0 with CODEX_PATH
+            // inside `harness_command`, so freeze that final program too.
+            if crate::codex_app_server::is_profile_launch(&p.argv) {
+                if let Some(program) = p.env.get_mut("CODEX_PATH").filter(|p| !p.is_empty()) {
+                    *program = super::resolve::remote_executable(program)?;
+                    super::resolve::refuse_remote_cwd_executable(program, &meta.cwd)?;
+                } else {
+                    super::resolve::fix_remote_executable(&mut p)?;
+                    super::resolve::refuse_remote_cwd_executable(&p.argv[0], &meta.cwd)?;
+                }
+            } else {
+                super::resolve::fix_remote_executable(&mut p)?;
+                super::resolve::refuse_remote_cwd_executable(&p.argv[0], &meta.cwd)?;
+            }
+            p.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
+        }
         // After expansion: the path is acpmux's own, never expanded.
         if let Some(file) = prompt_file {
             p.argv.push("--system-prompt-file".into());
