@@ -953,8 +953,8 @@ CHAT_PROFILES = {
 CHAT_PICKS = {"rj-claude": {"model": "claude-sonnet-5-5"}, "rj-codex": {}}  # the test agent keeps picks only as Claude
 CLI_AGENTS = {
     "claude": {"account": "CLAUDE_CONFIG_DIR", "flags": "--dangerously-skip-permissions --model claude-sonnet-5-5"},
-    # Without an approval bypass: its resume after a reboot runs by itself. Claude's has one: its
-    # resume is typed and waits for the person to confirm it.
+    # Each resumes by itself after a reboot ("Resume Agents After Restart" is on by default), also
+    # Claude's with its approval bypass: a resumed session waits for the person's next prompt.
     "codex": {"account": "CODEX_HOME", "flags": "-m gpt-5.5 --search"},
 }
 CHATS = []  # {"label", "harness", "session", "tab"}
@@ -1204,14 +1204,6 @@ def tagent_items(label, items, raw):
         def current():
             starts = [e for e in agent_events(agent["session"]) if e.get("event") == "start"]
             return starts[-1] if starts and _pid_alive(starts[-1].get("pid")) else None
-        if getattr(APP, "rebooted", False) and "--dangerously" in (agent.get("flags") or ""):
-            # Started with an approval bypass: the resume is typed, not run, until the person
-            # confirms it (Return), which the journey then does.
-            early = wait(current, 15, 1)
-            RESULTS.append((f"{label}: {a} resume with an approval bypass waits for Return", not early,
-                            f"ran by itself: {early}" if early else "typed, not run", "terminal agent"))
-            if not early:
-                write(agent["terminal"], "\r")
         start = wait(current, 60, 1)
         raw[f"{a}.start"] = start
         raw[f"{a}.text"] = screen_text(agent["terminal"])[-4000:]
