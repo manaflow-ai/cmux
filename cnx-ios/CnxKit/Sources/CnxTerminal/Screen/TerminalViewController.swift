@@ -216,6 +216,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func measured<T>(_ name: StaticString, _ body: () -> T) -> T { body() }
     #endif
 
+    #if DEBUG
+    /// Rig echo probe and text export (`-CnxTermProbe`, G-08/G-09).
+    private lazy var devProbe: TerminalDevProbe? = TerminalDevProbe.isEnabled
+        ? TerminalDevProbe(title: { [weak self] in self?.model.title ?? "" }, text: { [weak self] in self?.surface.screenRows()?.logicalText })
+        : nil
+    #endif
+
     /// The cursor's distance from the last row when it was last seen.
     private var cursorRowsFromEnd: Int?
     /// Keeps the end from moving up while a TUI redraws below the cursor (termqa D2).
@@ -492,7 +499,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         installSelection()
 
         surface.configurePasteControlTarget()
-        surface.onInput = { [weak self] data in self?.model.session.send(data) }
+        surface.onInput = { [weak self] data in
+            #if DEBUG
+            self?.devProbe?.sent(data)
+            #endif
+            self?.model.session.send(data)
+        }
         // Every input path (keyboard, key bar, composer, paste) goes through
         // the surface's `perform`: typing brings the prompt into view, like Terminal.
         surface.onUserInput = { [weak self] in self?.revealCursorForInput() }
@@ -974,6 +986,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
                               queueEmpty: output.isEmpty)
                 model.scanOutput(data)
+                #if DEBUG
+                devProbe?.fed(data)
+                #endif
                 let transform: (@Sendable (Data) -> Data)?
                 if let remote = model.session.remoteRows {
                     let offset = max(0, surface.grid.rows - remote)
@@ -1133,6 +1148,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
         pacer.finished()
+        #if DEBUG
+        devProbe?.processed()
+        #endif
         let replayDone = replayGate.parsed(raw)
         if replayGate.isReplaying {
             // A reset's replay is still being fed: no layout, no frame swap
@@ -1549,6 +1567,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func surfacePresented() {
         #if DEBUG
         TerminalBenchProbe.shared?.presented()
+        devProbe?.presented()
         #endif
         // A TUI's screen has no scroll: the held frame goes once the replay drew.
         if model.isTUI, freezeView != nil, heldFrameMayGo() { unfreeze() }
