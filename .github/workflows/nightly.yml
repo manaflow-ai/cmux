@@ -4144,6 +4144,37 @@ jobs:
               done
             fi
           fi
+          # What still runs from this job's bundles (the signed app, and the
+          # DMG smoke's copy of the same app name) holds the runner in
+          # "Cleaning up orphan processes" and slows the post-job steps
+          # (run 39440747033: owners, the Chief host and the browser host
+          # outlived the requests above; the job's tail took 2 min). The runner
+          # is ephemeral and the smokes are done: SIGTERM those exact PIDs,
+          # then SIGKILL the ones still alive after 5 s.
+          app_name="$(basename "$app")"
+          left() {
+            ps -axww -o pid= -o args= -U "$(id -u)" | while read -r pid args; do
+              case "$args" in
+                *"/$app_name/Contents/"*) echo "$pid" ;;
+              esac
+            done
+          }
+          pids="$(left)"
+          if [ -n "$pids" ]; then
+            echo "SIGTERM to the processes still running from $app_name: $(echo $pids)"
+            # shellcheck disable=SC2086 # one PID per word
+            kill -TERM $pids 2>/dev/null || true
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+              [ -n "$(left)" ] || break
+              sleep 0.5
+            done
+            pids="$(left)"
+            if [ -n "$pids" ]; then
+              echo "SIGKILL to the processes that outlived SIGTERM: $(echo $pids)"
+              # shellcheck disable=SC2086
+              kill -KILL $pids 2>/dev/null || true
+            fi
+          fi
           echo "cmux processes after the stop:"
           ps -axww -o pid=,ppid=,args= | grep -i cmux | grep -v grep || true
 
