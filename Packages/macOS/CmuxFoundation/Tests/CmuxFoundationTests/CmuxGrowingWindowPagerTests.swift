@@ -99,6 +99,7 @@ struct CmuxGrowingWindowPagerTests {
             offset: 0,
             limit: 30,
             cap: 1500,
+            startsSmall: true,
             read: { limit in
                 reads.append(limit)
                 return Array(0..<min(limit, 10_000))
@@ -110,14 +111,17 @@ struct CmuxGrowingWindowPagerTests {
         #expect(reads.values == [60])
     }
 
-    @Test("A filtered prefix page doubles its read while the filter hides too much")
-    func prefixPageDoublesWhileShort() async {
+    @Test("A filtered prefix page reads up to the cap once twice the page is not enough")
+    func prefixPageReadsTheCapWhenShort() async {
+        // Each read reruns the loader (database copy, directory listing), so
+        // a short page takes one more read at the cap rather than doubling.
         let reads = Recorder<Int>()
 
         let page = await CmuxGrowingWindowPager.prefixPage(
             offset: 10,
             limit: 10,
             cap: 1500,
+            startsSmall: true,
             read: { limit in
                 reads.append(limit)
                 return Array(0..<min(limit, 10_000))
@@ -126,21 +130,21 @@ struct CmuxGrowingWindowPagerTests {
         )
 
         #expect(page == Array(110..<120))
-        #expect(reads.values == [40, 80, 160])
+        #expect(reads.values == [40, 1500])
     }
 
-    @Test("A prefix page stops at the cap, or once a larger read finds nothing new")
-    func prefixPageStopsAtCapOrExhaustion() async {
+    @Test("A prefix page stops at the cap, or when the first read fills it")
+    func prefixPageStopsAtCapOrWhenFull() async {
         let capped = Recorder<Int>()
         let exhausted = Recorder<Int>()
 
         let none = await CmuxGrowingWindowPager.prefixPage(
-            offset: 0, limit: 30, cap: 100,
+            offset: 0, limit: 30, cap: 100, startsSmall: true,
             read: { capped.append($0); return Array(0..<$0) },
             isIncluded: { _ in false }
         )
         let rest = await CmuxGrowingWindowPager.prefixPage(
-            offset: 0, limit: 30, cap: 1500,
+            offset: 0, limit: 30, cap: 1500, startsSmall: true,
             read: { exhausted.append($0); return Array(0..<min($0, 50)) },
             isIncluded: { $0 != 0 }
         )
@@ -151,7 +155,7 @@ struct CmuxGrowingWindowPagerTests {
         #expect(exhausted.values == [60])
     }
 
-    @Test("A short first read is confirmed by a larger read before the page ends")
+    @Test("A short first read is confirmed by a read at the cap before the page ends")
     func prefixPageConfirmsShortRead() async {
         // Like Antigravity's history: a request of exactly the preview size
         // reads one page, so its short result is not the end of the source.
@@ -161,6 +165,7 @@ struct CmuxGrowingWindowPagerTests {
             offset: 0,
             limit: 15,
             cap: 1500,
+            startsSmall: true,
             read: { limit in
                 reads.append(limit)
                 return Array(0..<(limit == 30 ? 5 : min(limit, 200)))
@@ -169,17 +174,18 @@ struct CmuxGrowingWindowPagerTests {
         )
 
         #expect(page == Array(0..<15))
-        #expect(reads.values == [30, 60])
+        #expect(reads.values == [30, 1500])
     }
 
-    @Test("A short read the next read cannot extend ends the page")
-    func prefixPageEndsWhenALargerReadAddsNothing() async {
+    @Test("A source shorter than the page ends after the read at the cap")
+    func prefixPageEndsAfterTheCapRead() async {
         let reads = Recorder<Int>()
 
         let page = await CmuxGrowingWindowPager.prefixPage(
             offset: 0,
             limit: 30,
             cap: 1500,
+            startsSmall: true,
             read: { limit in
                 reads.append(limit)
                 return Array(0..<min(limit, 50))
@@ -188,7 +194,29 @@ struct CmuxGrowingWindowPagerTests {
         )
 
         #expect(page == Array(stride(from: 0, to: 50, by: 5)))
-        #expect(reads.values == [60, 120])
+        #expect(reads.values == [60, 1500])
+    }
+
+    @Test("A page that does not start small reads once, at the cap")
+    func prefixPageWithoutSmallStartReadsTheCapOnce() async {
+        // A search already scans up to the cap in every loader, so a smaller
+        // first read would only repeat that work.
+        let reads = Recorder<Int>()
+
+        let page = await CmuxGrowingWindowPager.prefixPage(
+            offset: 0,
+            limit: 30,
+            cap: 1500,
+            startsSmall: false,
+            read: { limit in
+                reads.append(limit)
+                return Array(0..<min(limit, 10_000))
+            },
+            isIncluded: { _ in true }
+        )
+
+        #expect(page == Array(0..<30))
+        #expect(reads.values == [1500])
     }
 
     private final class Recorder<Value: Sendable>: @unchecked Sendable {
