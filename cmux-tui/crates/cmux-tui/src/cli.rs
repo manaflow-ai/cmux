@@ -942,6 +942,7 @@ USAGE
   cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
   cmux agent list [--needs-me] [--state <state>] [--terminal <id>]
                   [--sort needs-me|recent|none] [--limit <n>] [--counts]
+  cmux agent <agent> focus
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]

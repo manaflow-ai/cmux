@@ -88,6 +88,15 @@ fn a_worker_thread_panic_is_logged_and_the_owner_keeps_running() {
     assert_eq!(record["test"], true, "{record}");
     assert!(record["location"].as_str().unwrap_or_default().contains(".rs:"), "{record}");
     assert_eq!(record["owner_pid"].as_u64(), Some(u64::from(owner.child.id())), "{record}");
+    // Tester rollout: a crash report names the release and the build it came
+    // from, so Sentry groups thousands of testers' crashes by release and a
+    // Linux arm64 crash is told apart from a Mac one.
+    let report = command(&owner.dir).args(["--version", "--json"]).output().unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&report.stdout).unwrap();
+    assert_eq!(record["version"], report["version"], "{record}");
+    assert_eq!(record["build_identity"], report["build_identity"], "{record}");
+    assert_eq!(record["os"], std::env::consts::OS, "{record}");
+    assert_eq!(record["arch"], std::env::consts::ARCH, "{record}");
 
     // The panic ended only its own thread: the owner still serves.
     std::thread::sleep(Duration::from_millis(500));

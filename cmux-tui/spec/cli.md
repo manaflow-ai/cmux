@@ -469,6 +469,7 @@ session <selector> window title set|clear
 session <selector> terminal defaults set
 
 agent list [--needs-me] [--state <state>] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+agent <agent_id|term_id> focus
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline

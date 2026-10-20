@@ -117,6 +117,9 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .page(let pane, let tab):
             guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
+            // A page with a primary input (the docked Home, a Home tab) lands the keyboard there by
+            // the same rule as a conversation tab; its page view itself takes no keys.
+            if TabContent.page(view).landKeyboardInPrimaryInput(in: window) { return }
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
         case .conversation(let pane, let tab):
             // Home's primary input, its message box (spec/app-screens.md 3).
@@ -126,9 +129,9 @@ final class FocusEffectApplier: FocusEffectApplying {
                 resignPaneResponder(in: window)
                 return
             }
-            // Inside Home the keyboard stays only on a text view or field, or a transcript
+            // Inside Home the keyboard stays only on a visible text input, or a transcript
             // text selection; the pane itself or a header button moves it to the box.
-            if view.focusTargetShouldTakeKeyboard(from: window.firstResponder) { window.makeFirstResponder(view.focusTarget) }
+            _ = TabContent.conversation(view).landKeyboardInPrimaryInput(in: window)
         case .emptyPane:
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.

@@ -1415,6 +1415,12 @@
       "title" : "URLs to Always Open Externally",
       "type" : "array"
     },
+    "browser.verificationAutofill.enabled" : {
+      "default" : false,
+      "description" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored.",
+      "title" : "Fill Codes from Verification Emails",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -2044,6 +2050,29 @@
       "title" : "Channels",
       "type" : "boolean"
     },
+    "home.chiefPetEnabled" : {
+      "default" : false,
+      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
+      "title" : "Show Chief Pet",
+      "type" : "boolean"
+    },
+    "home.chiefPetMascot" : {
+      "default" : "orb",
+      "description" : "home.chiefPetMascot",
+      "enum" : [
+        "orb",
+        "orb-spark",
+        "orb-hood",
+        "machine",
+        "machine-cyan",
+        "machine-blue",
+        "moon",
+        "moon-blue",
+        "fox"
+      ],
+      "title" : "Character",
+      "type" : "string"
+    },
     "labs.classicHome" : {
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
@@ -2242,10 +2271,17 @@
       "type" : "string"
     },
     "markdown.code.blockSize" : {
-      "default" : 14,
       "description" : "markdown.code.blockSize",
       "maximum" : 32,
       "minimum" : 8,
+      "title" : "Code Block Size",
+      "type" : "number"
+    },
+    "markdown.code.scale" : {
+      "default" : 0.875,
+      "description" : "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default.",
+      "maximum" : 1.25,
+      "minimum" : 0.6,
       "title" : "Code Font Size",
       "type" : "number"
     },
@@ -2284,9 +2320,9 @@
     },
     "markdown.layout.width" : {
       "default" : 72,
-      "description" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box.",
-      "maximum" : 160,
-      "minimum" : 40,
+      "description" : "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box.",
+      "maximum" : 1000,
+      "minimum" : 30,
       "title" : "Text Width",
       "type" : "number"
     },
@@ -2868,7 +2904,7 @@
       "type" : "string"
     },
     "sidebar.nowPlaying.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
       "title" : "Show Now Playing",
       "type" : "boolean"
