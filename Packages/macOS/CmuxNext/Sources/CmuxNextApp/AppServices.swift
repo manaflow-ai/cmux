@@ -22,6 +22,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
+import CmuxNextVSCodeServer
 import CmuxNextWorkspaceRepair
 import os
 /// Process-wide services the window controllers share. Model state is not
@@ -239,6 +240,12 @@ final class AppServices {
     let hoverCards = HoverCardCoordinator()
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
+    /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
+    let vscodeServeWeb = VSCodeServeWebService(
+        planner: VSCodeServeWebLaunchPlanner(homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+                                             environment: ProcessInfo.processInfo.environment),
+        launcher: VSCodeServeWebProcessLauncher(), tokenDirectory: FileManager.default.temporaryDirectory
+    )
     /// The browser host's engine provider (idle until the daemon offers the endpoint).
     private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
