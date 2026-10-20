@@ -71,6 +71,25 @@ pub(super) async fn handle(
     hub.ask_aside(&s, text, &conn.label(), opts()).await
 }
 
+/// What `session/prompt` does once the hub took the prompt: tell the connection
+/// (`promptAccepted`), and when the prompt names its surface (`_meta.acpmux.surface`), label it
+/// with that surface (`hub/composers.rs`). A malformed surface refuses the prompt unrecorded.
+pub(super) fn on_accepted(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    s: &Arc<crate::hub::Session>,
+    params: &Value,
+) -> Result<Box<dyn FnOnce(Value) + Send>, RpcError> {
+    let surface = crate::hub::composers::surface(mux_meta(params).and_then(|m| m.get("surface")))?;
+    let (notify, hub, s, client) = (conn.clone(), hub.clone(), s.clone(), conn.label());
+    Ok(Box::new(move |v| {
+        if let Some(surface) = surface {
+            hub.composer_accepted(&s, surface, &client, &v);
+        }
+        notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
+    }))
+}
+
 /// `_acpmux/bookmark_get` and `_acpmux/bookmark_set`: the chat's prompt bookmarks
 /// (`hub/bookmarks.rs`). A peer's chat never gets here: `peer_forward.rs` sends it to its owner.
 async fn bookmarks(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
