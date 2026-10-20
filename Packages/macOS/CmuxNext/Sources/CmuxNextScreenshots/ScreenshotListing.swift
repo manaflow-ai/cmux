@@ -1,3 +1,4 @@
+public import CmuxNextFileGrid
 import Foundation
 
 /// The files a grid shows, newest first, keyed by path. Pure: scans and
@@ -11,7 +12,7 @@ import Foundation
 /// ``remove(path:)`` find their place by binary search (O(log n) plus the
 /// array move), so a live folder with thousands of files takes one new
 /// screenshot without a re-sort.
-public nonisolated struct FileGridListing: Sendable, Equatable {
+public nonisolated struct ScreenshotListing: Sendable, Equatable {
     /// Every item, newest first.
     public private(set) var items: [FileGridItem] = []
     private var byPath: [String: FileGridItem] = [:]

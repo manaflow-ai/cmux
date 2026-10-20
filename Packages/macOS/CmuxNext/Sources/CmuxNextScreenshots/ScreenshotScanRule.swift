@@ -1,3 +1,4 @@
+public import CmuxNextFileGrid
 import Foundation
 
 /// Which files of a folder a scan lists, and how deep it looks.
@@ -7,9 +8,9 @@ import Foundation
 ///
 /// ```swift
 /// // The macOS screenshot preview folder: one level of NSIRD_screencaptureui_* folders.
-/// FileGridScanRule(kinds: [.image, .video], depth: 1, folderPrefix: "NSIRD_screencaptureui_")
+/// ScreenshotScanRule(kinds: [.image, .video], depth: 1, folderPrefix: "NSIRD_screencaptureui_")
 /// ```
-public nonisolated struct FileGridScanRule: Sendable, Hashable {
+public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
     /// The kinds listed; an empty set lists every kind.
     public var kinds: Set<FileGridMediaKind>
     /// Extensions listed as ``FileGridMediaKind/image`` although the system does not call them images

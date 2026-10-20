@@ -132887,6 +132887,270 @@
           }
         }
       }
+    },
+    "settings.markdown.remoteImages": {
+      "comment": "Settings row: whether Markdown viewers load web images without asking per document",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load Web Images Automatically"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحميل صور الويب تلقائيًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski učitaj web slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæs webbilleder automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webbilder automatisch laden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargar imágenes web automáticamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charger automatiquement les images web"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carica automaticamente le immagini web"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web画像を自動的に読み込む"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទុករូបភាពវេបដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "웹 이미지 자동으로 불러오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last inn nettbilder automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie wczytuj obrazy z internetu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregar imagens da web automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически загружать изображения из интернета"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดรูปภาพจากเว็บโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web Görsellerini Otomatik Yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично завантажувати зображення з інтернету"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động tải hình ảnh trên web"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动加载网页图片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動載入網頁圖片"
+          }
+        }
+      }
+    },
+    "settings.markdown.remoteImages.help": {
+      "comment": "Settings help for automatic Markdown web images",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لمواقع صور الويب رؤية عنوانك ووقت فتح المستند. عند إيقاف هذا الخيار، يطلب كل مستند الإذن قبل تحميل صور الويب الخاصة به."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web lokacije sa slikama mogu vidjeti vašu adresu i kada otvorite dokument. Kada je isključeno, svaki dokument traži dopuštenje prije učitavanja svojih web slika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Websteder med billeder kan se din adresse, og hvornår du åbner et dokument. Når indstillingen er slået fra, spørger hvert dokument, før det indlæser sine webbilleder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Websites mit Bildern können deine Adresse und den Zeitpunkt sehen, zu dem du ein Dokument öffnest. Wenn dies deaktiviert ist, fragt jedes Dokument vor dem Laden seiner Webbilder nach."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los sitios de imágenes web pueden ver tu dirección y cuándo abres un documento. Si se desactiva, cada documento pide permiso antes de cargar sus imágenes web."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les sites hébergeant des images peuvent voir votre adresse et quand vous ouvrez un document. Lorsque cette option est désactivée, chaque document demande avant de charger ses images web."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I siti che ospitano immagini possono vedere il tuo indirizzo e quando apri un documento. Se l'opzione è disattivata, ogni documento chiede prima di caricare le proprie immagini web."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web画像のサイトには、あなたのアドレスとドキュメントを開いた時刻が伝わります。オフの場合、各ドキュメントはWeb画像を読み込む前に確認します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គេហទំព័ររូបភាពអាចមើលឃើញអាសយដ្ឋានរបស់អ្នក និងពេលអ្នកបើកឯកសារ។ នៅពេលបិទ ឯកសារនីមួយៗនឹងសួរមុនពេលផ្ទុករូបភាពវេបរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "웹 이미지 사이트는 사용자의 주소와 문서를 연 시간을 알 수 있습니다. 이 기능을 끄면 각 문서가 웹 이미지를 불러오기 전에 묻습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettsteder som leverer bilder, kan se adressen din og når du åpner et dokument. Når dette er av, spør hvert dokument før nettbilder lastes inn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Witryny udostępniające obrazy mogą zobaczyć Twój adres i czas otwarcia dokumentu. Gdy opcja jest wyłączona, każdy dokument pyta przed wczytaniem obrazów z internetu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sites de imagens da web podem ver seu endereço e quando você abre um documento. Quando desativado, cada documento pergunta antes de carregar suas imagens da web."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайты с изображениями могут узнать ваш адрес и время открытия документа. Когда этот параметр выключен, каждый документ запрашивает разрешение перед загрузкой изображений из интернета."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เว็บไซต์รูปภาพบนเว็บสามารถเห็นที่อยู่ของคุณและเวลาที่คุณเปิดเอกสาร เมื่อปิด แต่ละเอกสารจะถามก่อนโหลดรูปภาพจากเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web görseli siteleri adresinizi ve bir belgeyi ne zaman açtığınızı görebilir. Kapalıyken her belge, web görsellerini yüklemeden önce sorar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайти із зображеннями можуть дізнатися вашу адресу й час відкриття документа. Коли цей параметр вимкнено, кожен документ запитує дозвіл перед завантаженням зображень з інтернету."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các trang hình ảnh trên web có thể thấy địa chỉ của bạn và thời điểm bạn mở tài liệu. Khi tắt, mỗi tài liệu sẽ hỏi trước khi tải hình ảnh trên web."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网页图片网站可以看到你的地址和打开文档的时间。关闭时，每份文档都会在加载网页图片前询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網頁圖片網站可以看到你的位址和開啟文件的時間。關閉時，每份文件都會在載入網頁圖片前詢問。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
