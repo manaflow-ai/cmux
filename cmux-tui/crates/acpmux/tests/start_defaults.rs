@@ -357,6 +357,7 @@ async fn a_broken_or_unknown_harness_config_falls_back_to_the_catalog() {
     app.new_chat("claude").await;
     assert_eq!(take_calls(&calls), set("claude-opus-5-5", "medium"));
     let harnesses = app.call("_acpmux/harnesses", json!({})).await;
+    // A config.toml that does not parse names no model: the catalog default.
     assert_eq!(harnesses["harnesses"]["codex"]["start"]["modelSource"], "catalog");
     assert_eq!(harnesses["harnesses"]["claude"]["start"]["modelSource"], "catalog");
     let _ = std::fs::remove_dir_all(&dir);
@@ -387,23 +388,24 @@ async fn a_claude_model_with_a_context_suffix_starts_on_its_catalog_model() {
 }
 
 #[tokio::test]
-async fn a_harness_config_effort_applies_only_with_its_own_model_or_with_none() {
-    // Codex's config.toml pairs an effort with a model the catalog does not list (a retired
-    // one): the chat starts on the catalog default with that model's own effort, not the
-    // effort chosen for the retired model.
+async fn codex_runs_the_model_its_config_names_even_one_the_catalog_does_not_list() {
+    // Codex's config.toml names a model the catalog snapshot does not list (a provider's own
+    // model, or one newer than the snapshot): the chat runs that model with the config's
+    // effort, as raw `codex` does, never the catalog default (user 2026-10-20: acpmux ran
+    // gpt-6.1-sol where the config named another model).
     let (dir, calls) = home_with_harness_config(
         "harness-config-effort",
-        Some("model = \"gpt-retired-1\"\nmodel_reasoning_effort = \"high\"\n"),
+        Some("model = \"gpt-unlisted-1\"\nmodel_reasoning_effort = \"high\"\n"),
         None,
     );
     let daemon = hub(&dir);
     let mut app = client(&daemon);
     app.new_chat("codex").await;
-    assert_eq!(take_calls(&calls), set("gpt-6.1-sol", "medium"));
+    assert_eq!(take_calls(&calls), set("gpt-unlisted-1", "high"));
     let harnesses = app.call("_acpmux/harnesses", json!({})).await;
     assert_eq!(
         harnesses["harnesses"]["codex"]["start"],
-        json!({"model": "gpt-6.1-sol", "modelSource": "catalog", "effort": "medium", "effortSource": "catalog"})
+        json!({"model": "gpt-unlisted-1", "modelSource": "harness", "effort": "high", "effortSource": "harness"})
     );
 
     // An effort with no model is Codex's effort for whatever model runs.

@@ -206,6 +206,7 @@ jobs:
   # Read-only: confirms the repository Cloudflare token works and can see
   # Workers scripts and Hyperdrive configs. Prints HTTP codes and counts only.
   cloudflare-preflight:
+    environment: cloudflare-ops
     name: cloudflare preflight
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'cloudflare-preflight'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

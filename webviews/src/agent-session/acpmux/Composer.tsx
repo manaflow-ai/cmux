@@ -55,7 +55,7 @@ import { useComposerChrome } from "./composerChrome";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
-import { ESCAPE_STOP_WINDOW_MS, escapeStopPress } from "./escapeStop";
+import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
 import type { SendBlock } from "./useFolderTrustAsk";
@@ -88,6 +88,7 @@ export const COMPOSER_LABELS = {
   send: "composer.send",
   stop: "composer.stop",
   escapeAgainToStop: "composer.escapeAgainToStop",
+  escapeKey: "composer.escapeKey",
   commands: "composer.commands",
   noCommands: "composer.noCommands",
   noMatchingCommands: "composer.noMatchingCommands",
@@ -355,13 +356,6 @@ export function Composer({
   const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
   useRowFit(bar, plainFooter);
   const usage = snapshot.summary?.usage;
-  /// The first Esc of a double press that stops the turn, while its window is open (escapeStop.ts).
-  const escapeArmedAt = useRef<number | undefined>(undefined);
-  const [escapeArmed, setEscapeArmed] = useState<number | undefined>(undefined);
-  const disarmEscape = () => {
-    escapeArmedAt.current = undefined;
-    setEscapeArmed(undefined);
-  };
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -802,8 +796,6 @@ export function Composer({
   const keyDown = (event: KeyboardEvent) => {
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
-    // Any other key between the two presses of Esc starts the double press over.
-    if (event.key !== "Escape" && escapeArmedAt.current !== undefined) disarmEscape();
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
@@ -893,16 +885,12 @@ export function Composer({
       }
     }
     // Esc on an empty prompt stops the turn, as Stop does: by default the second of two presses
-    // does (escapeStop.ts), and the first only says so in the placeholder. Menus, pickers and the
+    // does (escapeStop.ts), and the first turns Stop into an Esc hint. Menus, pickers and the
     // @ list take their Esc above, so one press still closes them.
     if (event.key === "Escape" && plain && !open && stop && !quick) {
       event.preventDefault();
       // Holding Esc down is one press: its auto-repeat is not the second.
-      if (event.repeat) return;
-      const press = escapeStopPress(escapeArmedAt.current, Date.now(), escapeDoublePress);
-      escapeArmedAt.current = press.armedAt;
-      setEscapeArmed(press.armedAt);
-      if (press.stop) stopTurn();
+      escapeStop.press(event.repeat);
       return;
     }
     // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
@@ -958,6 +946,15 @@ export function Composer({
   };
 
   const stop = !shell && snapshot.isWorking && !text.trim();
+  // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
+  // its panel, so only the pane counts an Esc that reaches the page.
+  const escapeStop = useEscapeStop({
+    stoppable: stop,
+    session: sessionId,
+    double: escapeDoublePress,
+    pageEscape: !onOpenInWindow,
+    onStop: stopTurn,
+  });
   // A prompt typed while a turn runs can go in now; an agent that cannot steer stops the turn.
   const steerable = !shell && snapshot.isWorking && remote.canSend && !blocked && Boolean(text.trim());
   const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
@@ -966,28 +963,8 @@ export function Composer({
   // Mid-turn it teaches both keys, as Claude's composer does (Leo 2026-10-18): Return queues and
   // ⌘Return steers or interrupts. The Quick Composer's ⌘Return opens the window, and ⌘Return needs
   // typed text, so with only attachments staged it says just that Return queues.
-  // The hint lasts the double press's window, and only while there is a turn to stop. Any other
-  // key disarms it at once, in keyDown.
-  const escapeHint = escapeArmed !== undefined && stop;
-  // A turn that ends (or a prompt typed) takes the arm with it, and so does a switch to another
-  // chat (the composer stays mounted across sessions): the next turn, or chat, starts unarmed.
-  const escapeArmedSession = useRef(sessionId);
-  useEffect(() => {
-    const switched = escapeArmedSession.current !== sessionId;
-    escapeArmedSession.current = sessionId;
-    if ((stop && !switched) || escapeArmedAt.current === undefined) return;
-    escapeArmedAt.current = undefined;
-    setEscapeArmed(undefined);
-  }, [stop, sessionId]);
-  useEffect(() => {
-    if (escapeArmed === undefined) return;
-    const timer = window.setTimeout(() => {
-      if (escapeArmedAt.current === escapeArmed) escapeArmedAt.current = undefined;
-      setEscapeArmed((current) => (current === escapeArmed ? undefined : current));
-    }, ESCAPE_STOP_WINDOW_MS);
-    return () => window.clearTimeout(timer);
-  }, [escapeArmed]);
-  const placeholder = escapeHint
+  // While the double press is armed, the placeholder says to press Esc again, as Stop's hint does.
+  const placeholder = escapeStop.armed
     ? COMPOSER_LABELS.escapeAgainToStop
     : !queues
       ? COMPOSER_LABELS.placeholder
@@ -1441,11 +1418,17 @@ export function Composer({
                   ref={sendButton}
                   type="button"
                   className="acpmux-send acpmux-cancel"
-                  aria-label={t(COMPOSER_LABELS.stop)}
-                  title={t(COMPOSER_LABELS.stop)}
+                  data-escape-armed={escapeStop.armed ? "" : undefined}
+                  aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
+                  title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
                   onClick={stopTurn}
                 >
-                  <StopIcon />
+                  {/* The first Esc of the double press: Stop says which key stops the turn. */}
+                  {escapeStop.armed ? (
+                    <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span>
+                  ) : (
+                    <StopIcon />
+                  )}
                 </button>
               ) : remote.canSend ? (
                 <button

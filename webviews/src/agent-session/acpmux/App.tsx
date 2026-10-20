@@ -55,7 +55,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
-import { isAgentHome, projectLabel } from "./sessionList";
+import { isAgentHome, projectLabel, sessionTitle } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
@@ -99,7 +99,9 @@ import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
 import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
+import { cardTakesShortcuts } from "./permissionKeys";
 import { QuestionCard } from "./question/QuestionCard";
+import { QUESTION_RECORD } from "./question/record";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
@@ -230,6 +232,7 @@ import {
   SUBAGENT_ROW,
   type SubagentRows,
   childView,
+  runningGroups,
   subagentRowsFrom,
   subagentsIn,
 } from "./subagents/subagentRows";
@@ -766,6 +769,15 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// A decided question's record (question/record.ts): the card's own answered or cancelled form,
+/// which answers nothing.
+const QuestionRecordRow = memo(
+  function QuestionRecordRow({ row }: RowProps) {
+    return row.question ? <QuestionCard question={row.question} onReply={ignoreReply} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const ignoreReply = () => {};
 /// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
 const SubagentGroupRow = memo(
   function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
@@ -846,6 +858,7 @@ const defaultRegistry: NativeRegistry = {
   [OFFER_RESULT]: OfferResultRow,
   typing: NoticeRow,
   permission: PermissionRow,
+  [QUESTION_RECORD]: QuestionRecordRow,
   [SHELL_ROW]: ShellRow,
   [SUBAGENTS]: SubagentGroupRow,
   [SUBAGENT_ROW]: SubagentRow,
@@ -2521,9 +2534,10 @@ export function VirtualTranscript({
 const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
   void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
 
-/// Sends a question card's reply: the harness's option (absent cancels) and its answers.
+/// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
+/// shows a refusal (the promise rejects) and takes input again for a retry.
 const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) =>
-  void callNative("chat.permission", {
+  callNative("chat.permission", {
     permissionId: permission.permissionId,
     ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
     ...(sent.answers === undefined ? {} : { answers: sent.answers }),
@@ -2538,11 +2552,18 @@ function PermissionAsk({
   permission,
   harness,
   focusComposer,
+  shownChat,
+  shortcuts,
   waiting = 0,
 }: {
   permission: AcpmuxPermission;
   harness?: string;
   focusComposer?: () => void;
+  /// The chat shown now, read when a deny's instructions are about to go: with it, the card can deny
+  /// with what the agent should do instead (`denyWithFeedback`).
+  shownChat?: { readonly current: string | undefined };
+  /// False while a permission group's panel takes the shortcuts (permissionKeys.ts `cardTakesShortcuts`).
+  shortcuts?: boolean;
   /// More asks waiting behind this one (snapshot `permissionsWaiting`).
   waiting?: number;
 }) {
@@ -2553,7 +2574,9 @@ function PermissionAsk({
         permission={permission}
         harness={harness}
         focusComposer={focusComposer}
+        shortcuts={shortcuts}
         onAnswer={answerPermission(permission)}
+        onDenyWithFeedback={shownChat && denyWithFeedback(permission, shownChat)}
         waiting={waiting}
       />
     );
@@ -2564,6 +2587,24 @@ function PermissionAsk({
     </>
   );
 }
+
+/// Denies `permission`, then gives the agent what to do instead: into the running turn now (a
+/// steer; an agent that cannot steer stops the turn and takes it as the next prompt). Sent only once
+/// acpmux took the deny, so the agent never reads it before its tool is refused, and only to the chat
+/// that asked: another chat shown meanwhile would take it as its own. False when the deny failed.
+const denyWithFeedback =
+  (permission: AcpmuxPermission, shownChat: { readonly current: string | undefined }) =>
+  async (optionId: string, text: string): Promise<boolean> => {
+    const chat = shownChat.current;
+    try {
+      await callNative("chat.permission", { permissionId: permission.permissionId, optionId });
+    } catch {
+      return false;
+    }
+    if (text && shownChat.current === chat)
+      await callNative("chat.send", { text, attachments: [], steer: true }).catch(() => undefined);
+    return true;
+  };
 
 /// The composer chips on the New Tab page (cx-e2aa): no chat exists yet, so a pick starts a deferred
 /// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
@@ -3100,7 +3141,9 @@ function AcpmuxPane() {
   /// A fresh chat shows its empty state until something is in it: a prompt, or a command it ran.
   const freshView = freshChat && chatShellRuns.length === 0;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
-  const chatName = snapshot.summary?.title || snapshot.summary?.name || "";
+  // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
+  // name (`claude-2`), and "New chat" before it has a title, never nothing.
+  const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
   const childRows = useMemo(
     () =>
       subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
@@ -3175,6 +3218,12 @@ function AcpmuxPane() {
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  /// The chat shown now, for a permission card's deny with instructions (PermissionAsk), which reads
+  /// it after the deny goes, never a render's stale copy.
+  const shownChat = useRef(shownSessionId);
+  useLayoutEffect(() => {
+    shownChat.current = shownSessionId;
+  }, [shownSessionId]);
   const summaryHasContent = useMemo(() => chatHasSummaryContent(snapshot.rows), [snapshot.rows]);
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
@@ -3183,9 +3232,32 @@ function AcpmuxPane() {
   // Another chat closes the subagent view in the render that shows it, not an effect later (which
   // drew one frame of the old subagent id against the new chat's rows: an empty child view).
   const [subagentChat, setSubagentChat] = useState(shownSessionId);
+  // The groups opened on their own, each once: a group the person closes stays closed.
+  const [openedGroups, setOpenedGroups] = useState<ReadonlySet<string>>(() => new Set());
+  // The open folds are each chat's own (row ids such as `subagents-<seq>` repeat across chats):
+  // the chats shown before keep theirs here for a switch back.
+  const [chatFolds, setChatFolds] = useState<
+    ReadonlyMap<string, { expanded: Set<string>; opened: ReadonlySet<string> }>
+  >(() => new Map());
   if (subagentChat !== shownSessionId) {
     setSubagentChat(shownSessionId);
     setSubagentView(undefined);
+    const kept = shownSessionId === undefined ? undefined : chatFolds.get(shownSessionId);
+    if (subagentChat !== undefined)
+      setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups }));
+    setExpanded(kept?.expanded ?? new Set());
+    setOpenedGroups(kept?.opened ?? new Set());
+  }
+  // A group of subagents starts open while its agents run in the working turn, in the render that
+  // first draws it (an agent a cancel or a reconnect left "running" in an earlier turn opens none).
+  const liveGroups = useMemo(
+    () => (snapshot.isWorking ? runningGroups(snapshot.rows, snapshot.subagentViews) : []),
+    [snapshot.isWorking, snapshot.rows, snapshot.subagentViews],
+  );
+  const newGroups = subagentChat === shownSessionId ? liveGroups.filter((id) => !openedGroups.has(id)) : [];
+  if (newGroups.length > 0) {
+    setOpenedGroups(new Set([...openedGroups, ...newGroups]));
+    setExpanded((current) => new Set([...current, ...newGroups]));
   }
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
   useEffect(() => {
@@ -5550,9 +5622,11 @@ function AcpmuxPane() {
             <PermissionAsk
               key={individualPermission.permissionId}
               permission={individualPermission}
+              shortcuts={cardTakesShortcuts(snapshot.permissionGroups)}
               waiting={snapshot.permissionsWaiting}
               harness={snapshot.summary?.harness}
               focusComposer={() => composerHandle.current?.focus()}
+              shownChat={shownChat}
             />
           )}
           {secret && (

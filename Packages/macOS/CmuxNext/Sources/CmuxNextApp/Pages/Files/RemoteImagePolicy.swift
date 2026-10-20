@@ -1,4 +1,4 @@
-import CmuxNextPages
+import CmuxNextRemoteFetch
 import Foundation
 
 /// What the host fetches after the reader approves a markdown document's remote images. The host

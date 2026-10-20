@@ -270,19 +270,27 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 keywords: ["browser", "print", "page", "pdf"], category: .browser, symbol: "printer",
                 surfaces: [.palette, .menu, .contextMenu], requires: [.browserFocused], targets: [.pane], mainMenu: .file
             ),
-            ActionDescriptor(
-                id: "browserScreenshotPage",
-                title: String(localized: "action.browserScreenshotPage", defaultValue: "Screenshot Page", bundle: .module),
-                keywords: ["browser", "capture"], category: .browser, symbol: "camera", surfaces: [.contextMenu],
-                requires: [.browserFocused], targets: [.pane], cliName: "browser screenshot-page"
-            ),
-            ActionDescriptor(
-                id: "browserScreenshotSection",
-                title: String(localized: "action.browserScreenshotSection", defaultValue: "Screenshot Section", bundle: .module),
-                keywords: ["browser", "capture"], category: .browser, symbol: "camera.viewfinder",
-                surfaces: [.contextMenu], requires: [.browserFocused], targets: [.pane],
-                cliName: "browser screenshot-section"
-            ),
+            {
+                var screenshot = ActionDescriptor(
+                    id: "browserScreenshotPage",
+                    title: String(localized: "action.browserScreenshotPage", defaultValue: "Screenshot Page", bundle: .module),
+                    keywords: ["browser", "capture"], category: .browser, symbol: "camera", surfaces: [.contextMenu],
+                    requires: [.browserFocused], targets: [.pane], cliName: "browser screenshot-page"
+                )
+                screenshot.isPersonOnly = true
+                return screenshot
+            }(),
+            {
+                var screenshot = ActionDescriptor(
+                    id: "browserScreenshotSection",
+                    title: String(localized: "action.browserScreenshotSection", defaultValue: "Screenshot Section", bundle: .module),
+                    keywords: ["browser", "capture"], category: .browser, symbol: "camera.viewfinder",
+                    surfaces: [.contextMenu], requires: [.browserFocused], targets: [.pane],
+                    cliName: "browser screenshot-section"
+                )
+                screenshot.isPersonOnly = true
+                return screenshot
+            }(),
             ActionDescriptor(
                 id: "browserTheme",
                 title: String(localized: "action.browserTheme", defaultValue: "Browser Theme…", bundle: .module),

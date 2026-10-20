@@ -321,6 +321,7 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)
+        DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         _ = cloud  // built here, as before
@@ -330,6 +331,7 @@ final class AppServices {
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
         _ = cache  // built here, as before
+        DebugTimings.markLaunch("services.cache")
         _ = themes  // built here, as before
         _ = terminalColors
         let runtime = GhosttyRuntime.shared
@@ -425,6 +427,7 @@ final class AppServices {
         }
         _ = resources  // built here, as before
         _ = windows  // built here, as before
+        DebugTimings.markLaunch("services.windows")
         windows.incognitoHistoryReset = { [weak cache, weak self] in
             cache?.resetIncognitoHistory()
             self?.locationTrail.forgetIncognito()
@@ -449,6 +452,7 @@ final class AppServices {
         }
         observePaletteForFocus()
         input.start(services: self)
+        DebugTimings.markLaunch("services.palette_updater")
         _ = chromiumWarmup  // built here, as before
         browserHost = AppBrowserHost(services: self)
         browserHost?.start()
