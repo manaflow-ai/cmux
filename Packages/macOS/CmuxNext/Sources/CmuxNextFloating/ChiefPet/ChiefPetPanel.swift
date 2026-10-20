@@ -24,6 +24,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     public var onSettings: (() -> Void)?
     /// The right-click menu's Hide Chief Pet item.
     public var onHide: (() -> Void)?
+    /// Whether Hide Chief Pet can run now (false while `home.chiefPetEnabled` is managed).
+    public var canHide: (() -> Bool)?
     let placement: ChiefPetPlacement
     let pet: ChiefPetView
     private var expandTool: ChiefPetTool?
@@ -83,12 +85,14 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     /// Hide Chief Pet, which turns `home.chiefPetEnabled` off as the settings' switch does.
     func contextMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.autoenablesItems = false
         let settings = NSMenuItem(title: ChiefPetStrings.settings, action: #selector(openSettings), keyEquivalent: "")
         let hide = NSMenuItem(title: ChiefPetStrings.hide, action: #selector(hidePet), keyEquivalent: "")
         for item in [settings, hide] {
             item.target = self
             menu.addItem(item)
         }
+        hide.isEnabled = canHide?() ?? true
         return menu
     }
 

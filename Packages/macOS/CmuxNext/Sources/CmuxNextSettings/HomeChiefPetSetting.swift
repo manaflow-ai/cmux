@@ -44,11 +44,14 @@ extension HomeChiefPetSetting {
 
     @MainActor func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
                          unavailable: String, toggles: ChiefPetToggles) {
-        registry.bind(Self.toggleAction, invoke: { invocation in
+        // A managed `home.chiefPetEnabled` cannot change: the View menu, the palette and the pet's Hide grey out.
+        registry.bind(Self.toggleAction, isEnabled: { settings()?.managedKeys[Self.configPath.joined(separator: ".")] == nil },
+                      invoke: { invocation in
             guard let settings = settings() else { return registry.refuse(unavailable) }
             // A run while an earlier write is in flight flips that write's value, not the stale
-            // snapshot, and writes after it: two quick runs put the pet back as it was.
-            let on = !(toggles.pending ?? settings.snapshot.homeChiefPetEnabled)
+            // snapshot, and writes after it: two quick runs put the pet back as it was. `on` (the
+            // pet's own Hide passes false) sets the value instead of flipping it, in the same order.
+            let on = invocation.arguments["on"]?.boolValue ?? !(toggles.pending ?? settings.snapshot.homeChiefPetEnabled)
             toggles.pending = on
             let previous = toggles.last
             let writer = SettingWriter(invocation.origin)

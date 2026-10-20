@@ -18,10 +18,10 @@ public final class ChiefPetSettingsRows: NSObject {
     let mascot = ThemedPopUpButton(frame: .zero, pullsDown: false)
     private let settings: @MainActor @Sendable () -> SettingsController?
     private var watch: Task<Void, Never>?
-    private weak var host: NSView?
+    private(set) weak var host: NSView?
     private var opener: (@MainActor () -> Bool)?
-    /// The rows installed now, so the pet's Chief Pet Settings… finds a Chief's Home on screen.
-    static let live = NSHashTable<ChiefPetSettingsRows>.weakObjects()
+    /// The app's popovers the pet's Chief Pet Settings… opens; `install` adds these rows.
+    private let homes: ChiefPetHomes
 
     /// What the rows show: the two settings and whether each is managed.
     nonisolated struct Shown: Equatable, Sendable {
@@ -31,8 +31,9 @@ public final class ChiefPetSettingsRows: NSObject {
         var mascotManaged: Bool
     }
 
-    public init(settings: @escaping @MainActor @Sendable () -> SettingsController?) {
+    public init(settings: @escaping @MainActor @Sendable () -> SettingsController?, homes: ChiefPetHomes) {
         self.settings = settings
+        self.homes = homes
         super.init()
         toggle.controlSize = .small
         toggle.target = self
@@ -55,7 +56,7 @@ public final class ChiefPetSettingsRows: NSObject {
     public func install(in host: NSView, addRow: (String, NSView) -> Void, open: @escaping @MainActor () -> Bool) {
         self.host = host
         self.opener = open
-        Self.live.add(self)
+        homes.live.add(self)
         let enabledTitle = SettingsSchema.descriptor(for: HomeChiefPetSetting.configPath)?.title ?? ""
         toggle.setAccessibilityLabel(enabledTitle)
         mascot.setAccessibilityLabel(ChiefPetMascot.pickerTitle)
@@ -134,17 +135,8 @@ public final class ChiefPetSettingsRows: NSObject {
         }
     }
 
-    /// Chief Pet Settings…: opens the Chief Settings popover over a Home on screen, frontmost window
-    /// first (`NSApp.orderedWindows`: the pet is right-clicked while cmux is usually in the
-    /// background, where no window is key or main), bringing that window forward. `noActivate`
-    /// (tests, captures) raises the window without focus. False when no Home on screen shows it.
-    public static func openOnScreen(noActivate: Bool) -> Bool {
-        let order = NSApp.orderedWindows
-        func rank(_ rows: ChiefPetSettingsRows) -> Int { rows.host?.window.flatMap { w in order.firstIndex { $0 === w } } ?? order.count }
-        return live.allObjects.sorted { rank($0) < rank($1) }.contains { $0.openOnScreen(noActivate: noActivate) }
-    }
-
-    private func openOnScreen(noActivate: Bool) -> Bool {
+    /// Opens this Home's popover and brings its window forward (`ChiefPetHomes.open`); false off screen.
+    func openOnScreen(noActivate: Bool) -> Bool {
         guard let host, let window = host.window, window.isVisible, !window.isMiniaturized, !host.isHiddenOrHasHiddenAncestor,
               let opener, opener() else { return false }
         WindowActivation.show(window, noActivate ? .raise : .focus)

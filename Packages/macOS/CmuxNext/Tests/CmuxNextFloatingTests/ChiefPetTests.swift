@@ -181,6 +181,20 @@ import Testing
         controller.sync(false)
     }
 
+    /// With `home.chiefPetEnabled` managed the App cannot hide the pet, so the menu greys out Hide.
+    @Test func rightClickMenuGreysOutHideWhenItCannotHide() throws {
+        let defaults = Self.defaults()
+        var canHide = false
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }, canHide: { canHide }))
+        controller.sync(true)
+        let panel = try #require(controller.panel)
+        #expect(panel.contextMenu().items.map(\.isEnabled) == [true, false])
+        canHide = true
+        #expect(panel.contextMenu().items.map(\.isEnabled) == [true, true])
+        controller.sync(false)
+    }
+
     /// The notices lay out toward the side of the screen with room (Leo 2026-10-20): from the pet's
     /// trailing edge leftward on the right half, from its leading edge rightward on the left half;
     /// above it on the lower half, below it on the upper half.

@@ -16,18 +16,16 @@ struct ChiefPetRoutes {
     func makePet() -> ChiefPetController {
         ChiefPetController(makePanel: { ChiefPetPanel() }, actions: ChiefPetActions(
             open: { open($0) }, send: { await send(to: $0, $1) }, openSettings: { openSettings() },
-            hide: { _ = services?.registry.perform(HomeChiefPetSetting.toggleAction, invocation: ActionInvocation(origin: .user)) }))
+            hide: { _ = services?.registry.perform(HomeChiefPetSetting.toggleAction, invocation: ActionInvocation(arguments: ["on": .bool(false)], origin: .user)) },
+            canHide: { services?.registry.action(for: HomeChiefPetSetting.toggleAction)?.isEnabled() == true }))
     }
 
     /// Chief Pet Settings…: the Chief Settings popover over a Chief's Home on screen (its
     /// Appearance rows), else Settings on Show Chief Pet. The pet never activates cmux; this does.
     func openSettings() {
-        guard let services else { return }
-        let noActivate = services.environment.noActivate
-        if !noActivate { NSApp.activate() }
-        if ChiefPetSettingsRows.openOnScreen(noActivate: noActivate) { return }
+        guard let services, !services.chiefPetHomes.open(noActivate: services.environment.noActivate) else { return }
         try? services.settingsWindow.show(section: nil, setting: HomeChiefPetSetting.configPath.joined(separator: "."), focus: true)
-        if let window = services.windows.active?.window { WindowActivation.show(window, noActivate ? .raise : .focus) }
+        if let window = services.windows.active?.window { WindowActivation.show(window, services.environment.noActivate ? .raise : .focus) }
     }
 
     /// The Chief opens Home (`home.show`, as the palette does); a notice opens its tab as its banner click does.

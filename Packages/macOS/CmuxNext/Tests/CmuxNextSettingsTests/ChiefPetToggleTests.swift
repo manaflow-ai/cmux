@@ -8,13 +8,13 @@ import Testing
 /// flip `home.chiefPetEnabled` and read as the change they make. It is person-only with no CLI
 /// verb (the control socket refuses an agent's run); an agent sets the key itself instead.
 @MainActor @Suite(.serialized) struct ChiefPetToggleTests {
-    static func make() throws -> (ActionRegistry, SettingsController, URL) {
+    static func make(managed: ManagedPreferences = ManagedPreferences()) throws -> (ActionRegistry, SettingsController, URL) {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-chief-pet-toggle-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let url = home.appending(path: "cmux-next.json")
         try Data("{}".utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
-                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+                                          managedReader: FixedManagedPreferenceReader(managed), managedWatchFiles: [])
         let registry = ActionRegistry.standard()
         HomeChiefPetSetting().bind(into: registry, settings: { settings }, unavailable: "not ready")
         return (registry, settings, home)
@@ -86,5 +86,38 @@ import Testing
         #expect(failures == 0)
         #expect(settings.snapshot.homeChiefPetEnabled == false)
         #expect(action.paletteTitle?() == nil)
+    }
+
+    /// The pet's Hide passes `on: false`: it only turns the pet off, even when a second Hide arrives
+    /// before the first write lands (the pet still on screen), where a flip would turn it back on.
+    @Test func hideWithOnFalseNeverTurnsThePetOn() async throws {
+        let (registry, settings, home) = try Self.make()
+        defer { try? FileManager.default.removeItem(at: home) }
+        await settings.reload()
+        #expect(await Self.run(registry).isEmpty)
+        #expect(settings.snapshot.homeChiefPetEnabled)
+        let hide = ActionInvocation(arguments: ["on": .bool(false)], origin: .user)
+        let work = registry.capturingWork {
+            _ = registry.perform(HomeChiefPetSetting.toggleAction, invocation: hide)
+            _ = registry.perform(HomeChiefPetSetting.toggleAction, invocation: hide)
+        }
+        for task in work { #expect(await task.value == nil) }
+        #expect(settings.snapshot.homeChiefPetEnabled == false)
+        for task in registry.capturingWork({ _ = registry.perform(HomeChiefPetSetting.toggleAction, invocation: hide) }) {
+            #expect(await task.value == nil)
+        }
+        #expect(settings.snapshot.homeChiefPetEnabled == false, "a Hide while off leaves it off")
+    }
+
+    /// A managed `home.chiefPetEnabled` cannot change, so the toggle (the View menu, the palette and
+    /// the pet's Hide) is disabled and a run does nothing.
+    @Test func aManagedSettingDisablesTheToggle() async throws {
+        let (registry, settings, home) = try Self.make(managed: ManagedPreferences(forced: ["home.chiefPetEnabled": .bool(true)]))
+        defer { try? FileManager.default.removeItem(at: home) }
+        await settings.reload()
+        let action = try #require(registry.action(for: HomeChiefPetSetting.toggleAction))
+        #expect(action.isEnabled() == false)
+        #expect(await Self.run(registry).isEmpty)
+        #expect(settings.snapshot.homeChiefPetEnabled, "the managed value stays")
     }
 }
