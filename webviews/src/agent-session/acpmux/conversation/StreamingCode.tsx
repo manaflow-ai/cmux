@@ -7,14 +7,18 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
-import { CodeBrackets } from "./icons";
+import { CodeBrackets, WrapLines } from "./icons";
 import { useT } from "../i18n";
 import { menuPartRef } from "./menuParts";
+import { useLab } from "../labs";
+import { useCodeWrap } from "./codeWrap";
 import { isAgentMotionOff } from "../../shared/motion";
 
 /// An open fence: the card's chrome over plain lines.
 export function PlainCode({ code, lang, open = false }: { code: string; lang: string; open?: boolean }) {
   const t = useT();
+  const codeWrap = useLab("codeWrap");
+  const [wrap, toggleWrap] = useCodeWrap(codeWrap);
   const lines = code.split("\n");
   // An open fence's trailing empty line is the newline before a line still arriving; drawing it
   // would make the card a line taller than the closed card it becomes.
@@ -25,11 +29,23 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
         <CodeBrackets size={17} strokeWidth={1.2} />
         <span>{languageLabel(lang, t)}</span>
         <span className="cv-codeblock__actions">
+          {codeWrap && (
+            <button
+              type="button"
+              className="cv-codeblock__action"
+              aria-pressed={wrap}
+              aria-label={t("changes.wrapLines")}
+              title={t("changes.wrapLines")}
+              onClick={toggleWrap}
+            >
+              <WrapLines />
+            </button>
+          )}
           <CopyButton text={code} label={t("code.copy")} />
         </span>
       </div>
       <div className="cv-codeblock__body">
-        <pre className="cv-code-plain selectable">
+        <pre className={`cv-code-plain selectable${codeWrap && wrap ? " is-wrapped" : ""}`}>
           {lines.map((line, index) => (
             <div key={index} className="cv-code-plain__line">
               {line || "​"}

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
@@ -41,8 +42,8 @@ enum AgentBesidePlacement {
         // A lone chat docks left with the agent chat role and the new tab stays in its
         // pane (ChatColumnPlacement.dockChat, the rule a person's new tab follows), so
         // the column right of the chat is always in view; else the tab moves out.
-        let lone = controller.flatMap { ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
-        let chat = lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }
+        let lone = AgentChatPanelPlacement().dock(controller) { ChatColumnPlacement.resolve(from: $0, services: services, sharing: $1) == .dockChat }
+        let chat = AgentChatPanelPlacement().chat(in: lone?.pane.tabs, caller: invocation.target?.id, id: { $0.id }) { ChatColumnPlacement.isChat($0, services: services) }
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
         let (surfaces, sink) = AsyncStream<SurfaceID>.makeStream(bufferingPolicy: .bufferingNewest(1))
         services.registry.track(Task { @MainActor in

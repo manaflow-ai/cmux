@@ -41,6 +41,7 @@ final class AppServices {
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
     let daemon = DaemonService()
+    let agentReplies = AgentPaneReplyServices(sourceIcons: AgentPaneSourceIcons())
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry

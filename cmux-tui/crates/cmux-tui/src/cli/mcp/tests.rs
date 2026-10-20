@@ -1287,6 +1287,7 @@ mod agent_wait;
 
 mod catalog;
 mod machine_catalog;
+mod render_preview;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
     let mut server = Server::new(fake, None);
