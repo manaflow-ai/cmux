@@ -97,4 +97,26 @@ describe("slider rows", () => {
     });
     expect(slider(OPACITY).max).toBe("0.95");
   });
+
+  // Leo, 10-19: "the knob, the slider still doesn't work". Over a picture the window never paints
+  // below the legibility floor (0.82 to 1.0 for the bundled themes), so the slider's travel below
+  // it moved nothing. The slider now starts at the floor the app reports, on the step grid, and
+  // says why it starts there.
+  test("over a background picture the slider starts at the legibility floor the app reports", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: { values: { "appearance.background": "goya-saturn" } },
+    });
+    await run(() => page!.provider.setHost({ ...page!.provider.host, derived_min: { [OPACITY]: 0.62 } }));
+    expect(slider(OPACITY).min).toBe("0.65");
+    expect(slider(OPACITY).max).toBe("0.95");
+    expect(rowElement(page.container, OPACITY).textContent).toContain("65%");
+  });
+
+  test("without a picture the window opacity slider keeps its whole range", async () => {
+    page = await renderPage({ path: "/settings/appearance", mock: { values: { "appearance.background": "none" } } });
+    await run(() => page!.provider.setHost({ ...page!.provider.host, derived_min: {} }));
+    expect(slider(OPACITY).min).toBe("0");
+    expect(slider(OPACITY).max).toBe("1");
+  });
 });
