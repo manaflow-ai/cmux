@@ -42,9 +42,13 @@ public final class DesignSettings {
     /// Whether `interfaceScale` applies: the Debug Settings toggle `chrome.interfaceSize`, off by
     /// default (and always off in Release, where the tunable store is inert).
     public var interfaceScaleEnabled: Bool { ChromeTunables.interfaceSize.override ?? false }
-    /// Sets the `--cmux-interface-scale` token web chrome reads: the multiplier, or 1 when it is off.
+    /// Sets the `--cmux-interface-scale` token web chrome reads (the multiplier, or 1 when it is off)
+    /// and `--cmux-ui-scale`, the `uiScale` behind the page zoom: column caps divide by it so a larger
+    /// scale grows the type, not the column's on-screen width (#22257). Run it before setting `pageZoom`
+    /// so the page lays out at the new zoom with the new token.
     public var interfaceScaleScript: String {
-        "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)')"
+        "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)');"
+            + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(uiScale)')"
     }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1

@@ -50,10 +50,23 @@ export function configureChatWidth(value: unknown): void {
   for (const listener of listeners) listener();
 }
 
-/// A choice's column.
-export const chatColumnOf = (chatWidth: ChatWidth): ChatColumn => COLUMNS[chatWidth];
+/// The app's interface scale (`app.uiScale`, `--cmux-ui-scale` on the root, set with the page zoom by
+/// DesignSettings.interfaceScaleScript), or 1 outside the app.
+export function uiScale(): number {
+  if (typeof document === "undefined") return 1;
+  const value = Number.parseFloat(document.documentElement.style.getPropertyValue("--cmux-ui-scale"));
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+/// A choice's column at an interface scale. The page zoom grows every CSS px with the scale, so the
+/// caps divide by it: the column keeps its on-screen width and only the type inside grows (#22257).
+export function chatColumnOf(chatWidth: ChatWidth, scale = uiScale()): ChatColumn {
+  const column = COLUMNS[chatWidth];
+  if (scale === 1) return column;
+  return { min: column.min / scale, max: column.max / scale, share: column.share, prose: column.prose / scale };
+}
 /// The column now.
-export const chatColumn = (): ChatColumn => COLUMNS[current];
+export const chatColumn = (): ChatColumn => chatColumnOf(current);
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
