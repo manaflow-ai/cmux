@@ -193,6 +193,7 @@
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
+        "CmuxNextHostedChief",
         "CmuxNextIcons",
         "CmuxNextKeepAwake",
         "CmuxNextLayout",
@@ -268,6 +269,7 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDiff",
+        "CmuxNextFeed",
         "CmuxNextFileGrid",
         "CmuxNextFloating",
         "CmuxNextFocus",
@@ -769,6 +771,16 @@
         "CmuxAgentQuestion",
         "CmuxHomeCore"
       ]
+    },
+    "CmuxNextHostedChief": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextHomeEngine"
+      ],
+      "packages": []
     },
     "CmuxNextIcons": {
       "kind": "regular",
