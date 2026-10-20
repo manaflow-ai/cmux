@@ -21,6 +21,11 @@ Usage: tab-switch-stages.py --tag <tag> --app PATH [--rounds 12] [--interval 0.2
 """
 import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
 
+# `--matrix`: every tab kind at 2/10/30/60 tabs with CPU and memory (tab-switch-matrix.py), through the
+# same fleet entry (scripts/measure/tab-switch.sh passes its arguments here).
+if "--matrix" in sys.argv:
+    os.execv(sys.executable, [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tab-switch-matrix.py"), *sys.argv[1:]])
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True, help="the tagged .app bundle")

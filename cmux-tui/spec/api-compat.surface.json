@@ -7750,6 +7750,7 @@
         "required": true
       }
     },
+    "request:cloud-requests-list": {},
     "request:cloud-session-clear": {},
     "request:cloud-session-set": {
       "/access_token": {
@@ -10875,6 +10876,10 @@
       }
     },
     "request:set-client-info": {
+      "/api_revision": {
+        "ty": "uint32",
+        "nullable": true
+      },
       "/capabilities": {
         "ty": "array",
         "nullable": true
@@ -12498,6 +12503,12 @@
       }
     },
     "response:cloud-participant-avatar-get": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:cloud-requests-list": {
       "/data": {
         "ty": "json",
         "required": true
@@ -16248,6 +16259,10 @@
       }
     },
     "response:identify": {
+      "/data/api_revision": {
+        "ty": "uint32",
+        "nullable": true
+      },
       "/data/app": {
         "ty": "literal",
         "required": true,
@@ -16317,6 +16332,10 @@
       "/data/machine_platform/os": {
         "ty": "string",
         "required": true
+      },
+      "/data/min_api_revision": {
+        "ty": "uint32",
+        "nullable": true
       },
       "/data/pid": {
         "ty": "uint32",

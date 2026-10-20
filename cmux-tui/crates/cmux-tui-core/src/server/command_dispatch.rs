@@ -80,6 +80,7 @@ pub(super) fn handle_command_with_cancellation(
             device_kind,
             device_name,
             device_id,
+            api_revision,
         } => cmd_server::set_client_info(
             mux,
             client,
@@ -91,6 +92,7 @@ pub(super) fn handle_command_with_cancellation(
             device_kind,
             device_name,
             device_id,
+            api_revision,
         ),
         Command::ListClients => cmd_server::list_clients(mux, client),
         Command::MachineUsage => cmd_server::machine_usage(mux),
@@ -594,6 +596,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::PageCredential(params) => page_credential::page_credential(mux, client, params),
         Command::WsListen(params) => page_listener::ws_listen(mux, client, params),
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
+        Command::CloudRequestsList(_) => cloud_conversations::requests_list(mux, client),
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)
         }
