@@ -150,8 +150,8 @@ impl Brain {
     }
 
     /// Applies the strictest policy of a batch delivered to a running ask
-    /// turn. A paired device follows remote.autoApprove; a non-owner always
-    /// keeps the gate on.
+    /// turn. A paired device follows remote.ask (and remote.autoApprove); a
+    /// non-owner always keeps the gate on.
     pub(super) fn taint_approval(&mut self, items: &[Queued]) {
         let remote = items.iter().any(|i| {
             matches!(
@@ -165,7 +165,18 @@ impl Brain {
         let non_owner = items.iter().any(Queued::requires_approval);
         if remote || non_owner {
             self.turn_remote |= remote;
-            self.turn_ask |= non_owner || (remote && !self.chief.remote_auto_approve);
+            let why = if non_owner {
+                Some(crate::approval::Why::Participant)
+            } else if remote && self.chief.remote_gate() {
+                Some(crate::approval::Why::Device(self.device_name(items)))
+            } else {
+                None
+            };
+            // The strictest reason wins: another participant over a device.
+            if why == Some(crate::approval::Why::Participant) || self.turn_why.is_none() {
+                self.turn_why = why.or(self.turn_why);
+            }
+            self.turn_ask = self.turn_why.is_some();
             self.interrupt.set_gate(self.turn_ask);
         }
     }

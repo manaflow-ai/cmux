@@ -1131,22 +1131,51 @@ passes a device message only when all of these hold:
    person and the Chief, a DM, a mention of the Chief or a reply to one of
    its messages. A device message in a group without a mention is not logged.
 
-A turn that a device message started, or that supersedes such a turn (a
-local message that stops a remote-origin turn mid-way), runs with acpmux
-policy `ask` instead of `MUX_POLICY` (approve-all): the strictest origin of
-the turn wins until it ends.
+Which turns ask before their local effects (Leo, 2026-10-20: the owner's own
+devices run like the Mac; the gate is for a shared Chief or a phone that might
+be lost):
 
-- Every permission request of that turn session waits. The memory tools
-  (`mcp__optchat__zoom`, `mcp__optchat__date`) are allowed at once: they only
-  read the OptChat memory. Plain replies need nothing.
-- Any other request (a shell command, a file write or edit, a workspace or
-  subagent spawn through `cmux` or `chief`, computer use) is posted in the
-  Chief chat with the tool and its input: "Approval needed ... Reply allow or
-  deny." The next message `allow` or `deny` from a person the gate admits (the
-  Mac user or their own paired device) answers the oldest request, with the
-  allow-once or reject-once option (never "always"), and is logged; it is not
-  a new message and does not interrupt the turn. Any other new message denies
-  the pending requests so the turn reaches its next tool boundary and reads it.
+| The turn | Asks | Setting |
+| --- | --- | --- |
+| The owner on this Mac: Home, the pet, `cmux chief -p` (same uid, `user_local` over the owner socket) | never | |
+| One that reads the Home workspace block (the host reads it on every turn) | only when on | `home.ask`, "Ask before acting on what Home shows", default false |
+| One a paired device started, or one that supersedes such a turn | only when on | `remote.ask`, "Ask before acting on requests from other devices", default false; `remote.autoApprove` true still wins |
+| Another participant wrote in it (a shared Chief, a channel) | always | |
+
+The strictest reason of the turn wins until it ends. History: Lawrence added
+the device gate on 2026-10-05 (0654733226a, default ask), made auto-approve the
+default on 2026-10-06 (8f1b5b9c65b, "i dont want stuff to require my
+approval"), and on 2026-10-20 made asking the default again and gated every
+turn that reads Home (a4bbe5da6a1, e68aa1b4b53, security hardening). Because
+the host reads Home on every turn, that gated the owner's own turns too, and
+`remote.autoApprove` could not lift it.
+
+In a turn that asks, the turn session runs with acpmux policy `ask` instead of
+`MUX_POLICY` (approve-all):
+
+- The memory tools (`mcp__optchat__zoom`, `date`, `version`) and the Chief's own
+  tools (`send`, `reply`, `react`, `stop`, `sleep`, `profile`, `spawn`, and
+  `tell`/`control` without a prompt) are allowed at once: they are Chief talking
+  to the person and to its subagents. A `tell`, or a `control` with a message or
+  an answer, still asks unless its subagent runs with `ask` itself, so a turn
+  that asks cannot pass a command through an approve-all subagent. Plain
+  replies need nothing.
+- Any other request (a shell command, a file write or edit, computer use) is
+  posted in the Chief chat as an approval card: a `question` part (harness
+  `chief`, the permission it settles) whose line names the action and target
+  ("Allow Chief to run `rm -rf target`?"), with the reason ("Started from Leo's
+  iPhone: ...") and the pretty-printed arguments on Allow once, and Deny. Never
+  "always": each effect is approved on its own. The owner answers with the
+  card's buttons (`question.answer`, only the owner's answer counts) or with a
+  message `allow` or `deny`; a client that draws no card shows its line and
+  options, and an owner that refuses the part gets the same two lines as text.
+  A newer message never answers or denies a pending card: it is steered in
+  after the call is answered.
+- A request denied once is denied again at once when the model repeats it in
+  the same turn, with no new card; after three repeats the turn is stopped.
+- `chief.stop` (`cmux chief stop`) ends the turn: it denies what waits, every
+  later request of the turn is denied at once, and the session is cancelled
+  even while a tool call waits for its approval.
 - Every answer goes to the trace (`optchat/traces/YYYY-MM-DD.jsonl`, event
   `approval`: turn, permission, tool, decision, option, approver, install,
   delivered); the approver is the answering participant (`user_local` or
@@ -1158,37 +1187,26 @@ the turn wins until it ends.
   well). The floor wins over `--policy` and `MUX_POLICY`; a host that does
   not answer gives `ask` (fail closed). Such a child is tagged
   `optchat.policy=ask`, its permission requests are asked in the Chief chat
-  with its name and answered by `allow`/`deny` like the turn's (the trace
-  names the child), and `chief agents allow|deny` refuses to answer them. A
-  child name that exists without `ask` is not reused by such a spawn.
-  `remote.autoApprove`, set from the Mac, removes the floor; it cannot be
-  turned on while an `ask` child is live. The host-served section 9
-  `spawn` takes the same floor (`Brain::spawn_policy` at registration): its
-  subagents start with `ask` and the tag, and their requests are asked in
-  the Chief chat with their id (`a<N>`).
+  with its name and answered like the turn's (the trace names the child),
+  and `chief agents allow|deny` refuses to answer them. A child name that
+  exists without `ask` is not reused by such a spawn. The host-served
+  section 9 `spawn` takes the same floor (`Brain::spawn_policy` at
+  registration): its subagents start with `ask` and the tag, and their
+  requests are asked in the Chief chat with their id (`a<N>`).
 - The native engine cannot ask the chat yet: in such a turn it refuses its
   bash and editor tools and says so to the model.
 - Codex harnesses run `chief zoom` and `chief date` as shell commands, so on
   codex those need an approval too.
 
-**Default (Lawrence, 2026-10-06: "i dont want stuff to require my
-approval since it is annoying"): `remote.autoApprove` is true.** A turn from
-the owner's own paired device then runs with the normal policy
-(`MUX_POLICY`, approve-all), and nothing it spawns gets the ask floor. The
-gate itself is unchanged: only the owner's own paired installs wake the
-Chief; another account, a forged or missing origin, and a group message
-without a mention never do. The approvals, the spawn floor and the approval
-trace above are what `remote.autoApprove` false turns back on (from the Mac).
-
-`remote.autoApprove` (per Chief, `optchat/settings.json`, default true; the
-Chief settings sidebar shows it later; `optchat-chief settings set
-remote.autoApprove true|false` today) runs remote-origin turns with
-`MUX_POLICY` instead. The host owns the value: it reads the file at start and
-changes it only through `Brain::set_setting`, which refuses to turn it on
-while remote-origin work runs, settles or waits in the queue, whoever asks (a
-command an approved remote turn runs reaches the host the same way). No chat
-message changes it. With the host stopped, the CLI edits the file directly
-(no turn can run then). Turning it off is always allowed.
+The settings are per Chief (`optchat/settings.json`; `optchat-chief settings set
+remote.ask|home.ask|remote.autoApprove true|false`). The host owns them: it
+reads the file at start and changes them only through `Brain::set_setting`,
+which refuses to loosen a gate (`remote.ask` or `home.ask` off,
+`remote.autoApprove` on) while remote-origin work runs, settles or waits in
+the queue, or while an `ask` child is live, whoever asks (a command an
+approved remote turn runs reaches the host the same way). No chat message
+changes them. With the host stopped, the CLI edits the file directly (no turn
+can run then). Tightening a gate is always allowed.
 
 Policy analysis (the relay rules of this repository's CLAUDE.md):
 
@@ -1197,15 +1215,15 @@ Policy analysis (the relay rules of this repository's CLAUDE.md):
   existing conversation commands (`message.send` with text parts), whose gate
   refuses command-bearing params and non-text parts. A device message reaches
   a turn as the user's words. By default that turn runs with the normal
-  policy, like a message typed on the Mac; with `remote.autoApprove` false
-  it runs with policy `ask`: no local effect happens without an approval the
+  policy, like a message typed on the Mac; with `remote.ask` on (and
+  `remote.autoApprove` not on) it runs with policy `ask`: no local effect happens without an approval the
   user sees in the Chief chat, with the command or input shown. Only the
   owner's own person reaches a turn at all; a second account never does.
 - Accepted risk (the default): a stolen or compromised paired phone can run
   local commands on the Mac through the Chief, with no approval, until its
   pairing is revoked. Revoke it in cmux Settings > Server > Devices (the
   relay refuses its new streams at once on `host.revoke`). Turning
-  `remote.autoApprove` off on the Mac puts approvals back, which stops a
+  `remote.ask` on on the Mac puts approvals back, which stops a
   prompt injection but not the phone's holder (next item).
 - Residual risk: the paired device approves its own requests. Any person
   the gate admits answers the approvals, and that includes the device that
@@ -1215,12 +1233,16 @@ Policy analysis (the relay rules of this repository's CLAUDE.md):
   approve its own turn's requests until the device is revoked. Revocation
   removes it from the relay (new streams refused after 24 hours offline, all
   closed after 72 hours or at once on `host.revoke`).
-- Residual risk: `remote.autoApprove` is only as protected as the user's
-  files. The host refuses to turn it on during remote-origin work, but any
+- Accepted risk (the default): ambient Home text (terminal screens, titles,
+  URLs any local process can write) reaches every turn, and with `home.ask`
+  off a prompt injected there runs with the owner's policy. `home.ask` on
+  gates every turn instead (the 2026-10-20 behavior).
+- Residual risk: the gate settings are only as protected as the user's
+  files. The host refuses to loosen them during remote-origin work, but any
   local process of the user, and any approve-all local turn, can write
   `optchat/settings.json` directly (the host reads it at its next start).
-  With it on (the default), remote-origin turns are as powerful as local
-  ones.
+  With the device gate off (the default), remote-origin turns are as
+  powerful as local ones.
 - Residual risk: an approval is full authority for the shown call. An
   approved command can start a background process that outlives the turn,
   or start an acpmux session directly with another policy (outside `chief
@@ -1229,8 +1251,8 @@ Policy analysis (the relay rules of this repository's CLAUDE.md):
   scopes every id to conversations that list the install, and the Chief
   answers and asks only in the conversation the message came from.
 - Local-state exposure. Replies and approval questions go to that
-  conversation, which the device already reads. An approval question shows
-  the requested call's input (up to 1,000 characters), and a turn's reply
+  conversation, which the device already reads. An approval card shows
+  the requested call's arguments (up to 6,000 bytes, pretty-printed), and a turn's reply
   can include local state (file contents, command output) as it does for a
   local message: the same exposure the device already has as a participant.
 
@@ -1239,7 +1261,12 @@ device message logged and answered end to end) and `tests/remote_policy.rs`
 (a remote turn cannot run a shell without an approval, zoom needs none, the
 approver is traced; a remote turn cannot turn on `remote.autoApprove`; a
 mixed-origin turn stays `ask`; a local turn keeps approve-all; a child
-spawned from an `ask` turn asks too, and its shell call waits for a person).
+spawned from an `ask` turn asks too, and its shell call waits for a person)
+and `tests/approval_gates.rs` (the owner's turns and, by default, a paired
+device's never ask; `remote.ask` and `home.ask` turn the gates on and
+`remote.autoApprove` wins; the Chief's own tools never wait; stop ends a turn
+whose call waits; a denied request is not asked twice; a newer message leaves
+a card alone; the card's line, reason, arguments and buttons).
 
 ## Deviations from the spec
 

@@ -666,8 +666,17 @@ pub struct Brain {
     /// The running turn has a remote origin (a paired device's message, or
     /// a remote turn it supersedes): the strictest origin wins until it ends.
     turn_remote: bool,
-    /// The running turn runs with policy `ask` (remote, no auto-approve).
+    /// The running turn runs with policy `ask` (`turn_why` says why).
     turn_ask: bool,
+    /// Why the running turn asks before its local effects (None: it doesn't).
+    turn_why: Option<crate::approval::Why>,
+    /// Requests a person or a stop denied in the running turn
+    /// (`approval::signature`): the same request again is denied at once,
+    /// never asked twice.
+    turn_denied: Vec<String>,
+    /// Requests of the running turn denied again because they repeat one
+    /// already denied (`approvals::REPEATS_BEFORE_STOP` stops the turn).
+    repeat_denials: u32,
     /// A remote-origin turn was stopped for a newer message: the turn that
     /// answers both keeps its origin.
     remote_taint: bool,
@@ -788,6 +797,9 @@ impl Brain {
             chief,
             turn_remote: false,
             turn_ask: false,
+            turn_why: None,
+            turn_denied: Vec::new(),
+            repeat_denials: 0,
             remote_taint: false,
             approvals: VecDeque::new(),
             after_turn: None,
@@ -1342,11 +1354,12 @@ impl Brain {
         self.chief.remote_auto_approve
     }
 
-    /// Changes a per-Chief setting and saves it. `remote.autoApprove` can be
-    /// turned on only when no remote-origin work is running, settling or
-    /// queued: never by a paired device, nor by a command a remote turn runs
-    /// (an approved shell command reaches the host the same way). Turning
-    /// it off is always allowed.
+    /// Changes a per-Chief setting and saves it. An approval gate can be
+    /// loosened (`remote.autoApprove` on, `remote.ask` or `home.ask` off)
+    /// only when no remote-origin work is running, settling or queued: never
+    /// by a paired device, nor by a command a remote turn runs (an approved
+    /// shell command reaches the host the same way). Tightening one is
+    /// always allowed.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
             CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
@@ -1397,12 +1410,15 @@ impl Brain {
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
-        if key != REMOTE_AUTO_APPROVE {
+        use crate::chief_settings::{HOME_ASK, REMOTE_ASK};
+        if key != REMOTE_AUTO_APPROVE && key != REMOTE_ASK && key != HOME_ASK {
             return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT})"
+                "unknown setting {key:?} (known: {REMOTE_ASK}, {HOME_ASK}, {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT})"
             ));
         }
         let on = parse_bool(value)?;
+        // Loosening a gate: autoApprove on, or an ask gate off.
+        let loosens = if key == REMOTE_AUTO_APPROVE { on } else { !on };
         let remote_queued = self.queue.iter().any(|q| {
             matches!(
                 q.source,
@@ -1412,15 +1428,20 @@ impl Brain {
                 }
             )
         });
-        if on && (self.turn_remote || self.remote_taint || remote_queued || self.ask_child_live()) {
-            (self.log)("refused: remote.autoApprove on during remote-origin work");
-            return Err(
-                "refused: remote.autoApprove can be turned on only from the Mac, outside a turn a paired device started"
-                    .to_owned(),
-            );
+        if loosens
+            && (self.turn_remote || self.remote_taint || remote_queued || self.ask_child_live())
+        {
+            (self.log)(&format!("refused: {key} = {on} during remote-origin work"));
+            return Err(format!(
+                "refused: {key} can be set to {on} only from the Mac, outside a turn a paired device started"
+            ));
         }
         let mut next = self.chief;
-        next.remote_auto_approve = on;
+        match key {
+            REMOTE_ASK => next.remote_ask = on,
+            HOME_ASK => next.home_ask = on,
+            _ => next.remote_auto_approve = on,
+        }
         next.save(&self.settings.settings_file)
             .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
         self.chief = next;
