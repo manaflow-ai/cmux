@@ -901,6 +901,45 @@ class ContractRegistryTests(unittest.TestCase):
                 ],
             )
 
+    def selector_table_messages(self, replace: dict[str, str]) -> list[str]:
+        """The selector diagnostics for a full prefix table with `replace` applied to resource.rs."""
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = self.selector_table_contract(tui, CHECKER.EXPECTED_PREFIXES)
+            text = path.read_text(encoding="utf-8").replace('    ("unscoped", None),\n', "")
+            for old, new in replace.items():
+                self.assertIn(old, text)
+                text = text.replace(old, new)
+            write(path, text)
+            return sorted(
+                item.message for item in CHECKER.check_contracts(tui) if item.path == path
+            )
+
+    def test_selector_prefix_table_ignores_commented_out_rows(self) -> None:
+        row = '    ("agent", Some("scope_agent")),\n'
+        for commented in (f"    // {row.lstrip()}", f"    /* {row.strip()} */\n"):
+            with self.subTest(commented=commented):
+                self.assertEqual(
+                    self.selector_table_messages({row: commented}),
+                    ["selector ID registry is missing 'agent'"],
+                )
+
+    def test_selector_prefix_table_ignores_comments_inside_it(self) -> None:
+        row = '    ("agent", Some("scope_agent")),\n'
+        noted = (
+            '    // ("bogus", x) is not a row, and neither is the end of a table: ];\n'
+            '    /* ("bogus2", None), ]; */\n'
+            f"{row}"
+        )
+        self.assertEqual(self.selector_table_messages({row: noted}), [])
+
+    def test_selector_inline_literal_beside_the_table_is_still_read(self) -> None:
+        lookup = "PUBLIC_ID_PREFIXES.iter().any(|(known, _)| *known == value)"
+        self.assertEqual(
+            self.selector_table_messages({lookup: f'{lookup} || value == "evil"'}),
+            ["selector ID registry has unregistered prefix 'evil'"],
+        )
+
     def test_schema_prefix_drift_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
