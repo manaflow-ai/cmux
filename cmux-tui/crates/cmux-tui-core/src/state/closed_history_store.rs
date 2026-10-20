@@ -346,44 +346,85 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
     Ok(Some(record))
 }
 
-/// The tab records of a screen, without `skip` (tabs a stash keeps).
+/// The tab records of a screen, without `skip` (tabs a stash keeps), and
+/// the panes they sat in: each pane's tabs as indexes into the records, in
+/// strip order, and the index of its selected tab among them.
 fn screen_tabs(
     connection: &Connection,
     screen_id: &str,
     skip: &HashSet<String>,
-) -> anyhow::Result<Vec<Value>> {
+) -> anyhow::Result<(Vec<Value>, serde_json::Map<String, Value>)> {
     let tabs = {
         let mut statement = connection.prepare(
-            "SELECT t.public_id FROM resource_tabs AS t
+            "SELECT t.public_id, p.public_id, p.active_tab_id FROM resource_tabs AS t
              JOIN resource_panes AS p ON p.public_id = t.pane_id
              WHERE p.screen_id = ?1 AND p.deleted_revision IS NULL AND t.deleted_revision IS NULL
              ORDER BY p.creation_ordinal ASC, t.position ASC",
         )?;
         statement
-            .query_map([screen_id], |row| row.get::<_, String>(0))?
+            .query_map([screen_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?
             .collect::<Result<Vec<_>, _>>()?
     };
     let mut records = Vec::with_capacity(tabs.len());
-    for tab in tabs.iter().filter(|tab| !skip.contains(*tab)) {
-        if let Some(record) = tab_record(connection, tab)? {
-            records.push(record);
+    let mut panes = serde_json::Map::new();
+    for (tab, pane, active) in tabs.iter().filter(|(tab, _, _)| !skip.contains(tab)) {
+        let Some(record) = tab_record(connection, tab)? else { continue };
+        let entry = panes.entry(pane.clone()).or_insert_with(|| json!({"tabs": [], "active": 0}));
+        let strip = entry["tabs"].as_array().map_or(0, Vec::len);
+        if active.as_deref() == Some(tab.as_str()) {
+            entry["active"] = json!(strip);
         }
+        if let Some(strip) = entry["tabs"].as_array_mut() {
+            strip.push(json!(records.len()));
+        }
+        records.push(record);
     }
-    Ok(records)
+    Ok((records, panes))
 }
 
+/// A closing screen: its name and tab records (`tabs`, the flat list older
+/// readers take), and its layout (`layout`, the split tree of pane ids;
+/// `panes`, each pane's tabs and selected tab; `active_pane`;
+/// `zoomed_pane`), so a reopen rebuilds the splits it had.
 fn screen_record(
     connection: &Connection,
     screen_id: &str,
     skip: &HashSet<String>,
 ) -> anyhow::Result<Value> {
-    let name = connection
-        .query_row("SELECT name FROM resource_screens WHERE public_id = ?1", [screen_id], |row| {
-            row.get::<_, Option<String>>(0)
-        })
-        .optional()?
-        .flatten();
-    Ok(json!({"name": name, "tabs": screen_tabs(connection, screen_id, skip)?}))
+    let row = connection
+        .query_row(
+            "SELECT name, layout_json, active_pane_id, zoomed_pane_id
+             FROM resource_screens WHERE public_id = ?1",
+            [screen_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    let (tabs, panes) = screen_tabs(connection, screen_id, skip)?;
+    let Some((name, layout, active_pane, zoomed_pane)) = row else {
+        return Ok(json!({"name": null, "tabs": tabs}));
+    };
+    let layout = serde_json::from_str::<Value>(&layout).unwrap_or(Value::Null);
+    Ok(json!({
+        "name": name,
+        "tabs": tabs,
+        "layout": layout,
+        "panes": panes,
+        "active_pane": active_pane,
+        "zoomed_pane": zoomed_pane,
+    }))
 }
 
 /// Store one group of `members` (top-most closed objects, in restore order)
@@ -895,13 +936,23 @@ fn capture_workspace(
             .query_map([workspace_id], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?
     };
+    let active_screen = transaction
+        .query_row(
+            "SELECT active_screen_id FROM resource_workspaces WHERE public_id = ?1",
+            [workspace_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten()
+        .and_then(|active| screens.iter().position(|screen| *screen == active));
     let screens = screens
         .iter()
         .map(|screen| screen_record(transaction, screen, stashed))
         .collect::<anyhow::Result<Vec<_>>>()?;
     capture.note_window(transaction, workspace_id)?;
     // `workspace_key`: reopen moves the closed workspace's personal row
-    // (group, place, theme) to the new workspace.
+    // (group, place, theme) to the new workspace. `presentation`: its
+    // shared color, icon, title and pin, which reopen sets again.
     capture.members.push(json!({
         "kind": "workspace",
         "name": name,
@@ -910,6 +961,28 @@ fn capture_workspace(
         "pane_id": null,
         "index": position.unwrap_or(0),
         "screens": screens,
+        "active_screen": active_screen,
+        "presentation": workspace_presentation(transaction, &workspace_key)?,
     }));
     Ok(())
+}
+
+/// The shared presentation (color, icon, custom title, pin) of the closing
+/// workspace `workspace_key`; null when it has none.
+fn workspace_presentation(connection: &Connection, workspace_key: &str) -> anyhow::Result<Value> {
+    Ok(connection
+        .query_row(
+            "SELECT color, icon, title, pinned FROM workspace_presentation WHERE workspace_key = ?1",
+            [workspace_key],
+            |row| {
+                Ok(json!({
+                    "color": row.get::<_, Option<String>>(0)?,
+                    "icon": row.get::<_, Option<String>>(1)?,
+                    "title": row.get::<_, Option<String>>(2)?,
+                    "pinned": row.get::<_, i64>(3)? != 0,
+                }))
+            },
+        )
+        .optional()?
+        .unwrap_or(Value::Null))
 }
