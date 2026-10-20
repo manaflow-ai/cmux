@@ -273,7 +273,7 @@ final class SidebarRegionView: NSView {
                 default: section.look == .builtIn ? .builtIn : .list
                 }
                 var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
-                info.leadingPin = style == .list && sectionID == SidebarLayoutDocument.pinnedSectionID
+                info.leadingPin = !style.isIconOnly && style != .chip && sectionID == SidebarLayoutDocument.pinnedSectionID
                     && item.ref.kind == LayoutItemRef.workspaceKind
                 view.configure(info, style: style)
                 view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
