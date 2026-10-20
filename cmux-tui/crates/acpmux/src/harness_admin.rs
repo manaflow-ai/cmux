@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::byo_endpoint;
 use crate::cli::harness::{self, AddRequest, DoctorReport, StepStatus};
 use crate::config::profiles::{self, ProfileSources};
 use crate::config::{Config, ProfileSource};
@@ -107,6 +108,19 @@ pub struct AddParams {
 impl AddParams {
     /// The daemon's `_acpmux/harness/add` params.
     pub fn from_json(params: &Value) -> Result<Self, AdminError> {
+        // The key itself never comes through add (H4): it goes to the
+        // Keychain (`_acpmux/harness/secret/set`), and the profile names it.
+        for name in
+            ["key", "apiKey", "api_key", "token", "authToken", "secret", "value", "password"]
+        {
+            if params.get(name).is_some_and(|v| !v.is_null()) {
+                return Err(AdminError::SecretInline(format!(
+                    "{name}: a key never goes into a harness profile; store it with \
+                     `_acpmux/harness/secret/set {{id, key, value}}` (or `cmux harness secret set ID KEY`) \
+                     and pass keychainItem"
+                )));
+            }
+        }
         let text = |key: &str| -> Result<Option<String>, AdminError> {
             match params.get(key) {
                 None | Some(Value::Null) => Ok(None),
@@ -162,6 +176,19 @@ pub struct Added {
     pub path: PathBuf,
     /// Every problem the written file has (never env values).
     pub diagnostics: Vec<String>,
+    /// Endpoint examples: where the key goes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<SecretSlot>,
+}
+
+/// Where an endpoint harness reads its key: the env `key` (what
+/// `_acpmux/harness/secret/set` and `cmux harness secret set` take) and the
+/// Keychain item the profile names.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretSlot {
+    pub key: String,
+    pub keychain_item: String,
 }
 
 fn toml_string(s: &str) -> String {
@@ -331,7 +358,21 @@ pub fn add(
                 .map_err(failed)?;
         }
         let text = std::fs::read_to_string(&path).map_err(failed)?;
-        return Ok(Added { diagnostics: diagnostics_text(&text, &path, &id), id, path });
+        return Ok(Added {
+            diagnostics: diagnostics_text(&text, &path, &id),
+            id,
+            path,
+            secret: None,
+        });
+    }
+    if let Some(kind) = p.example.as_deref().and_then(byo_endpoint::Kind::from_example) {
+        return add_endpoint(kind, p, &dir);
+    }
+    if p.base_url.is_some() || p.model.is_some() || p.keychain_item.is_some() {
+        return Err(AdminError::Invalid(
+            "baseUrl, model and keychainItem go with example anthropic-endpoint or openai-endpoint"
+                .into(),
+        ));
     }
     if let Some(example) = &p.example {
         let id = p.id.clone();
@@ -364,6 +405,7 @@ pub fn add(
             diagnostics: diagnostics_text(&text, &added.path, &added.id),
             id: added.id,
             path: added.path,
+            secret: None,
         });
     }
     let command = p.command.clone().unwrap_or_default();
@@ -387,7 +429,66 @@ pub fn add(
     }
     ensure_dir(&dir)?;
     crate::config::write_atomic(&path, text.as_bytes()).map_err(failed)?;
-    Ok(Added { diagnostics: diagnostics_text(&text, &path, &id), id, path })
+    Ok(Added { diagnostics: diagnostics_text(&text, &path, &id), id, path, secret: None })
+}
+
+/// `add` for an endpoint example: a checked profile that names the key's
+/// Keychain item, never the key.
+fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<Added, AdminError> {
+    if p.command.is_some() || p.registry.is_some() || !p.args.is_empty() || !p.env.is_empty() {
+        return Err(AdminError::Invalid(format!(
+            "{} takes id, displayName, baseUrl, model and keychainItem only",
+            kind.example()
+        )));
+    }
+    let id = p.id.clone().unwrap_or_else(|| kind.example().to_owned());
+    if !profiles::valid_id(&id) {
+        return Err(AdminError::Invalid(format!(
+            "id {id:?} must be 1-40 lowercase letters, digits or '-'"
+        )));
+    }
+    let base_url =
+        byo_endpoint::check_base_url(p.base_url.as_deref().unwrap_or("")).map_err(|e| match e {
+            byo_endpoint::UrlError::Invalid(m) => AdminError::Invalid(m),
+            byo_endpoint::UrlError::Secret(m) => AdminError::SecretInline(m),
+        })?;
+    let model =
+        byo_endpoint::check_model(p.model.as_deref().unwrap_or("")).map_err(AdminError::Invalid)?;
+    let item = match &p.keychain_item {
+        Some(item) => byo_endpoint::check_keychain_item(item).map_err(|(secret, m)| {
+            if secret { AdminError::SecretInline(m) } else { AdminError::Invalid(m) }
+        })?,
+        None => byo_endpoint::default_item(kind, &id),
+    };
+    let name = p.display_name.clone().unwrap_or_else(|| default_name(&id));
+    if name.chars().any(char::is_control) || name.len() > 100 {
+        return Err(AdminError::Invalid(
+            "displayName must be one line of at most 100 bytes".into(),
+        ));
+    }
+    let text = byo_endpoint::profile_text(&byo_endpoint::Endpoint {
+        kind,
+        id: &id,
+        name: &name,
+        base_url: &base_url,
+        model: &model,
+        keychain_item: &item,
+    });
+    let path = dir.join(format!("{id}.toml"));
+    if path.exists() && !p.replace {
+        return Err(AdminError::Exists(format!(
+            "{} exists; pass replace to write it again",
+            path.display()
+        )));
+    }
+    ensure_dir(dir)?;
+    crate::config::write_atomic(&path, text.as_bytes()).map_err(failed)?;
+    Ok(Added {
+        diagnostics: diagnostics_text(&text, &path, &id),
+        secret: Some(SecretSlot { key: kind.secret_key().to_owned(), keychain_item: item }),
+        id,
+        path,
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -500,17 +601,57 @@ pub fn restore(
 pub struct SecretStored {
     pub id: String,
     pub key: String,
+    /// The Keychain item (`cmux-harness/<id>/<key>`).
+    pub keychain_item: String,
+    /// `written` (the profile now names the item), `unchanged` (it did
+    /// already) or `manual` (add `line` under `[env]` by hand).
+    pub profile: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<String>,
 }
 
-/// Not built yet.
+/// `_acpmux/harness/secret/set`: store `value` for harness `id`'s env `key`
+/// in the system secret store (service `cmux-harness`, account
+/// `<id>/<key>`, the item `keychain_lookup` reads) and point a user profile
+/// at it, as `cmux harness secret set` does. `store` runs the store command
+/// (the value only on its stdin). No error or reply holds the value.
 pub fn secret_set(
     id: &str,
     key: &str,
-    _value: &str,
-    _cfg: &Config,
-    _store: &dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>,
+    value: &str,
+    cfg: &Config,
+    store: &dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>,
 ) -> Result<SecretStored, AdminError> {
-    Err(AdminError::Failed(format!("not built: {id} {key}")))
+    use crate::cli::harness_secret::{self as secret, FileChange};
+    if !profiles::valid_id(id) {
+        return Err(AdminError::Invalid(format!("{id:?} is not a harness id")));
+    }
+    if !profiles::valid_env_key(key) {
+        return Err(AdminError::Invalid(format!("{key:?} is not an env variable name")));
+    }
+    if cfg.profile(id).is_none() {
+        return Err(AdminError::NotFound(format!(
+            "unknown harness {id:?}; add it first (`_acpmux/harness/add`)"
+        )));
+    }
+    // Errors of the store path name the step, never the value.
+    let change = secret::secret_set(id, key, value, cfg, store)
+        .map_err(|e| AdminError::Failed(format!("{e:#}")))?;
+    let (profile, path, line) = match change {
+        FileChange::Written(p) => ("written", Some(p.display().to_string()), None),
+        FileChange::Unchanged(p) => ("unchanged", Some(p.display().to_string()), None),
+        FileChange::Manual { path, .. } => ("manual", path, Some(secret::reference_line(id, key))),
+    };
+    Ok(SecretStored {
+        id: id.to_owned(),
+        key: key.to_owned(),
+        keychain_item: secret::reference(id, key),
+        profile,
+        path,
+        line,
+    })
 }
 
 /// The daemon's `_acpmux/harness/doctor` answer: each step as `{name, ok,

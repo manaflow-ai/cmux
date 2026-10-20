@@ -99,11 +99,9 @@ fn byo_endpoint_anthropic_profile_runs_claude_with_a_keychain_token() {
     assert_eq!(Kind::of_env(env), Some(Kind::Anthropic));
 
     // Without keychainItem: the item `cmux harness secret set ID KEY` writes.
-    let added = add(
-        &params("anthropic-endpoint", "dflt", "https://llm.example.com", "m1", None),
-        &src,
-    )
-    .unwrap();
+    let added =
+        add(&params("anthropic-endpoint", "dflt", "https://llm.example.com", "m1", None), &src)
+            .unwrap();
     let (profile, _) = load(&added.path, "dflt");
     let item = crate::cli::harness_secret::reference("dflt", "ANTHROPIC_AUTH_TOKEN");
     assert_eq!(profile.env["ANTHROPIC_AUTH_TOKEN"], format!("${{keychain:{item}}}"));
@@ -170,7 +168,8 @@ fn byo_endpoint_add_checks_the_url_and_refuses_a_literal_key() {
         }
     }
     // A key in the URL is a literal key.
-    for secret in ["https://me:hunter2pass@llm.example.com", "https://llm.example.com/v1?api_key=abc123"]
+    for secret in
+        ["https://me:hunter2pass@llm.example.com", "https://llm.example.com/v1?api_key=abc123"]
     {
         match try_url(secret) {
             Err(e @ AdminError::SecretInline(_)) => {
@@ -226,7 +225,10 @@ fn byo_endpoint_classify_names_the_fix() {
             Problem::Model,
         ),
         ("The model `gpt-9` does not exist or you do not have access to it.", Problem::Model),
-        ("API Error: Connection error. (<urlopen error [Errno 61] Connection refused>)", Problem::BaseUrl),
+        (
+            "API Error: Connection error. (<urlopen error [Errno 61] Connection refused>)",
+            Problem::BaseUrl,
+        ),
         ("getaddrinfo ENOTFOUND llm.example.invalid", Problem::BaseUrl),
         ("API Error: 404 Not Found", Problem::BaseUrl),
         ("listening on port 4011", Problem::Other),
@@ -481,7 +483,11 @@ async fn byo_endpoint_doctor_runs_a_real_turn_and_names_the_fix() {
     let report = doctor(&cfg, "byo", &options(GOOD_KEY, true)).await;
     let prompt = step(&report, "prompt");
     assert_eq!(prompt.status, StepStatus::Fail, "{}", report.text());
-    assert!(prompt.fix.as_deref().unwrap_or("").contains("check the base URL"), "{}", report.text());
+    assert!(
+        prompt.fix.as_deref().unwrap_or("").contains("check the base URL"),
+        "{}",
+        report.text()
+    );
 
     // Without the prompt nothing reaches the endpoint.
     let cfg = endpoint_config(&root, &url, "good-model");
