@@ -148,6 +148,8 @@ function AttachmentChip({
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
   useEffect(() => {
     if (!image || !attachment.data) return;
+    // A chip replaced under the same id must not keep the previous attachment's picture.
+    setPicture(undefined);
     let live = true;
     const full = `data:${attachment.mimeType};base64,${attachment.data}`;
     void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((url) => {
