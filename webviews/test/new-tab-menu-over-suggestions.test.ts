@@ -121,8 +121,49 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       rows: "[role=menuitemradio]",
     },
   ];
+  const MENUS_ON = [...MENUS];
 
-  for (const { name, query, height, button, menu, rows } of MENUS) {
+  // Cards, the app's default page, draws Claude Code's split: the chips sit in the quiet row under
+  // the box, and the suggestions hang under that row, never over it (greptile on #22285). There
+  // the model menu reaches over the suggestions; the effort and access menus open clear of them
+  // (CI on #22285 measured no overlap), so only the model menu has an overlap to check.
+  for (const { name, query, height, button, menu, rows } of MENUS.filter((entry) => entry.name === "model")) {
+    MENUS_ON.push({
+      name: `${name} (Cards, split)`,
+      query: `${query ? `${query}&` : "?"}template=cards`,
+      height,
+      button,
+      menu,
+      rows,
+    });
+  }
+
+  test("on Cards the suggestions open under the quiet row and leave its chips reachable", async () => {
+    const page = await openPage("?reported&template=cards", 720);
+    await suggest(page);
+    const result = await page.evaluate(() => {
+      const foot = document.querySelector(".nt-foot")!.getBoundingClientRect();
+      const suggestions = document.querySelector(".nt-popover")!.getBoundingClientRect();
+      const chips = [...document.querySelectorAll<HTMLElement>(".nt-foot button")].filter(
+        (chip) => chip.getBoundingClientRect().width > 0,
+      );
+      const hidden = chips
+        .map((chip) => {
+          const box = chip.getBoundingClientRect();
+          const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          return chip.contains(hit) ? null : `${chip.className} -> ${hit?.className}`;
+        })
+        .filter(Boolean);
+      return { gap: suggestions.top - foot.bottom, chips: chips.length, hidden };
+    });
+    console.log("Cards suggestions under the quiet row", JSON.stringify(result));
+    expect(result.chips).toBeGreaterThan(0);
+    expect(result.gap).toBeGreaterThanOrEqual(0);
+    expect(result.hidden).toEqual([]);
+    await page.close();
+  });
+
+  for (const { name, query, height, button, menu, rows } of MENUS_ON) {
     test(`the ${name} menu opened over the suggestions takes the presses on its rows`, async () => {
       const page = await openPage(query, height);
       await suggest(page);
@@ -135,7 +176,7 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
     });
   }
 
-  for (const { name, query, height, button, menu, rows } of MENUS) {
+  for (const { name, query, height, button, menu, rows } of MENUS_ON) {
     test(`suggestions that open while the ${name} menu shows stay under it`, async () => {
       const page = await openPage(query, height);
       await page.locator(button).first().click();
