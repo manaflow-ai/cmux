@@ -21,6 +21,9 @@ use cmux_link::caller::RootOwnedDaemon;
 use cmux_link::root_bootstrap::{Capability, Host, StopReceipt};
 use serde_json::json;
 
+#[path = "receiver_policy_retirement_root_tests.rs"]
+mod policy_retirement;
+
 const WORK_UID: u32 = 65534;
 
 fn hosted_root() {

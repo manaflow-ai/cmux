@@ -84,7 +84,8 @@ def main() -> int:
         output = run_root(["env", "GITHUB_ACTIONS=true", f"CMUX_NATIVE_ROOT_BINARY={binary}",
                            str(producer_target), "--ignored", "receiver_root_privileged_",
                            "--test-threads=1", "--nocapture"])
-        for case in ("native_original_producer_chain", "native_canceled_producer_read", "native_original_generation_restart"):
+        for case in ("native_original_producer_chain", "native_canceled_producer_read",
+                     "native_original_generation_restart", "native_original_policy_retirement"):
             if f"ROOT_BOUNDARY_EXECUTED {case}" not in output:
                 raise SystemExit(f"Native original producer case did not execute: {case}")
     return 0
