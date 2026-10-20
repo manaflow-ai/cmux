@@ -55,6 +55,8 @@ public struct SessionStateMirror: Sendable, Hashable {
     public var ephemeralWorkspaces: Set<ResourceID> = []
     /// Each workspace's agent folder (`extra.agent_folder`), where its new agent chats start.
     public var agentFolders: [ResourceID: String] = [:]
+    /// Each workspace's description and manual task status; absent while neither is set.
+    public var workspaceNotes: [ResourceID: WorkspaceNotes] = [:]
     public var screens: [ResourceID: ScreenState] = [:]
     public var screenGroups: [String: StateScreenGroup] = [:]
     public var tabs: [ResourceID: TabRecord] = [:]
@@ -97,15 +99,17 @@ public struct SessionStateMirror: Sendable, Hashable {
     /// O(1) per change (the closed list is bounded by `closedLimit`).
     public mutating func apply(_ change: SessionStateChange, touched: inout Set<Touched>) {
         switch change {
-        case .workspace(let id, let ephemeral, let agentFolder):
+        case .workspace(let id, let ephemeral, let agentFolder, let notes):
             let changed = ephemeral ? ephemeralWorkspaces.insert(id).inserted : ephemeralWorkspaces.remove(id) != nil
-            if changed || agentFolders[id] != agentFolder {
+            let notes = notes.isEmpty ? nil : notes
+            if changed || agentFolders[id] != agentFolder || workspaceNotes[id] != notes {
                 agentFolders[id] = agentFolder
+                workspaceNotes[id] = notes
                 touched.insert(.workspace(id))
             }
         case .workspaceRemoved(let id):
             let removed = [ephemeralWorkspaces.remove(id) != nil, agentFolders.removeValue(forKey: id) != nil,
-                           workspaceStatus.removeValue(forKey: id) != nil]
+                           workspaceStatus.removeValue(forKey: id) != nil, workspaceNotes.removeValue(forKey: id) != nil]
             if removed.contains(true) { touched.insert(.workspace(id)) }
         case .screen(let id, let state):
             guard screens[id] != state else { return }

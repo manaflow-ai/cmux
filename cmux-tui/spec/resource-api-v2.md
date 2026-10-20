@@ -81,7 +81,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 
 | Resource | Owner | Operations |
 | --- | --- | --- |
-| Workspace identity (title, color, icon) | shared | `workspace.update`, `workspace.create` |
+| Workspace identity (title, color, icon), description, manual task status | shared | `workspace.update`, `workspace.create` |
 | Workspace `ephemeral` flag (set only at creation) | shared | `workspace.create`, moves into a new workspace |
 | Home workspace (`workspace-kind-v1`, one per store, created by the store) | shared | `workspace.ensure_home` |
 | App workspaces (`app-screens-v1`, one per installed app), app tabs | shared | `workspace.ensure_app` |
@@ -117,7 +117,9 @@ workspaces.
 Fields that belong to an existing snapshot travel in its `extra` map, so a
 restated workspace, screen, tab, or terminal from any operation carries them:
 workspace `title`, `color`, `icon`, `ephemeral`, `kind` (`home` for the home
-workspace, absent for a normal one), `agent_folder` (absent until set); tab `pinned`,
+workspace, absent for a normal one), `agent_folder` (absent until set), `description`
+(`workspace-description-v1`, absent until set), `task_status` (`todo`, `working`,
+`needs-attention`, `review` or `done`, `workspace-status-v1`; absent while automatic); tab `pinned`,
 `tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `marked_unread`
 (`true` while the person marked the tab unread by hand, `tab-mark-unread-v1`; absent otherwise), `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
