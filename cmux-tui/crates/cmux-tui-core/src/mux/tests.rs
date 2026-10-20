@@ -20,6 +20,7 @@ mod kitty_reservation;
 mod layout_apply_focus;
 mod layout_undo;
 mod layout_undo_commit;
+mod lone_dock;
 mod matrix;
 mod notifications;
 mod pane_close;

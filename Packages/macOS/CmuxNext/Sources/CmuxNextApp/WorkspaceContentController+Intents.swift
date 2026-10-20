@@ -94,6 +94,16 @@ extension WorkspaceContentController {
 
     /// Runs a pane-creating command and focuses the new pane when it lands;
     /// `then` runs after it succeeded (a new column's width change).
+    /// A new terminal column right of `after`, its shell spawned with `options` (a person's new
+    /// terminal from Home's pinned dock alone, `ChatColumnPlacement.openBesideDock`).
+    func newColumn(after: LayoutPaneID, options: SpawnOptions) {
+        guard let handle = handles.panes[after] else { return }
+        let request = layoutModel.prepareNewColumn(nextTo: after)
+        spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
+            try await $0.newColumn(rightOf: handle, width: request.width, options: options)
+        }
+    }
+
     private func spawnPane(_ label: String, then: (@MainActor () -> Void)? = nil,
                            _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> SurfaceCreated) {
         guard let connection = daemon.connection else { return }
