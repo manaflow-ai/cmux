@@ -18,4 +18,11 @@ struct TerminalLinkBrowserPlacementTests {
 
         #expect(TerminalLinkBrowserPlacement().destination(for: source, in: layout, frames: frames) == .reuse(right))
     }
+
+    @Test func createsARightSplitWhenTheSourceHasNoRightSibling() {
+        let source: PaneID = "source"
+        let layout = ScreenLayout.splits(.leaf(source))
+
+        #expect(TerminalLinkBrowserPlacement().destination(for: source, in: layout, frames: [:]) == .split(source))
+    }
 }

@@ -116,12 +116,51 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 target: request.tab, arguments: ["url": .string(url.absoluteString)]))
             return
         }
-        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option)
+        guard LinkRouter.shared.appLink(url) == false else { return }
+        let target = LinkRouter.shared.target(for: url, otherTarget: request.other, explicit: request.option)
+        if target == .cmuxBrowser, let services,
+           openTerminalBrowser(url, from: request.tab, services: services) {
+            LinkRouter.shared.record("browser:" + url.absoluteString)
+            return
+        }
+        LinkRouter.shared.open(url, in: target)
+    }
+
+    /// Opens a terminal link in the nearest right-side pane, creating a new
+    /// horizontal split when no pane is available there.
+    private func openTerminalBrowser(_ url: URL, from target: ActionTargetRef?, services: AppServices) -> Bool {
+        guard let target,
+              let (_, sourcePane) = services.locateTab(target.id),
+              let source = services.paneController(for: sourcePane),
+              let content = source.workspace,
+              let screen = content.layoutModel.screen(containing: source.layoutPaneID) else { return false }
+        switch TerminalLinkBrowserPlacement().destination(
+            for: source.layoutPaneID,
+            in: screen.layout,
+            frames: content.layoutView.navigationFrames
+        ) {
+        case .reuse(let paneID):
+            guard let pane = content.panes[paneID] else { return false }
+            return pane.newBrowserTab(url: url)
+        case .split:
+            do {
+                try BrowserHandlers.splitBrowser(
+                    from: source,
+                    direction: .right,
+                    url: url,
+                    byPerson: true,
+                    context: AppActionContext(services: services)
+                )
+                return true
+            } catch {
+                return false
+            }
+        }
     }
 
     /// Every surface's links go through ``LinkRouter`` (cx-ir3z4), wired here once: a Chief
-    /// subagent's link runs `link.open`; a cmux link opens a browser tab in the focused pane on
-    /// the default engine. With no window it waits for one, never the system, which may be cmux
+    /// subagent's link runs `link.open`; a terminal web link opens in the nearest right-side browser pane on
+    /// the default engine, reusing one when available. With no window it waits for one, never the system, which may be cmux
     /// itself as the default browser (a loop).
     private static func routeLinks(to services: AppServices) {
         let router = LinkRouter.shared
