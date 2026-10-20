@@ -147,9 +147,12 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   }, [store, ownCount]);
   if (backdrops.length === 0) return null;
   const background = rows.get(BACKGROUND_KEY);
-  const current = own
-    ? (own.value ?? FOLLOW_ID)
-    : (((background?.value ?? background?.default) as string | undefined) ?? "none");
+  const appCurrent = ((background?.value ?? background?.default) as string | undefined) ?? "none";
+  const current = own ? (own.value ?? FOLLOW_ID) : appCurrent;
+  // A workspace's tint is over its picture: with its own No wallpaper there is nothing for Opacity
+  // over Art to change. A workspace that follows may still show a picture the page does not see
+  // (a window's own, `appearance.set scope=window`), so it keeps the slider.
+  const ownPicture = own !== null && own.value !== "none";
   const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
   const material = rowsByKey.get(MATERIAL_KEY);
   const choose = async (id: string) => {
@@ -247,7 +250,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           }}
         />
       )}
-      {own && (
+      {own && ownPicture && (
         <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
       )}
       <div className="rows">
