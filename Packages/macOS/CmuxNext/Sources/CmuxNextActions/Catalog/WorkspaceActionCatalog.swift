@@ -91,8 +91,8 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.moveWorkspaceToTop",
                 title: String(localized: "action.palette.moveWorkspaceToTop", defaultValue: "Move Workspace to Top", bundle: .module),
-                keywords: ["reorder"], category: .workspace, symbol: "arrow.up.to.line",
-                surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace move-to-top",
+                keywords: ["reorder", "first", "top", "group"], category: .workspace, symbol: "arrow.up.to.line",
+                surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.workspace], cliName: "workspace move-to-top",
                 mainMenu: .file
             ),
             ActionDescriptor(

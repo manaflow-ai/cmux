@@ -175,6 +175,12 @@ enum Fixture {
                        green: ca.greenComponent + (cb.greenComponent - ca.greenComponent) * f,
                        blue: ca.blueComponent + (cb.blueComponent - ca.blueComponent) * f, alpha: 1)
     }
+    /// cmux: links in the Chief's text, the "Edited" label and "N Replies" are Messages' blues; the theme style
+    /// (a theme that is not the measured accent) draws them in the theme's caret colour (its accent, or its text).
+    private static var themedLink: UIColor? { themedAccent ? themed(\.caret) : nil }
+    static var incomingLink: UIColor { themedLink ?? UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1) }
+    static var labelLink: UIColor { themedLink ?? UIColor(red: 0.2, green: 0.55, blue: 1, alpha: 1) }
+    static var repliesTint: UIColor { themedLink ?? PreviewStyle.repliesBlue }
     static var outgoingGradient: CGGradient? {
         if let t = theme, themedAccent { return (inactive ? t.inactive : t.active).outgoingGradient }
         return measuredGradient
