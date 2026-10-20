@@ -982,8 +982,8 @@ export function NewTabScreen(props: Props) {
           browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
           Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
       {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
-          New Chat stay in the palette and the pane's + menu. */}
-      {!allChats && !pill && (
+          New Chat stay in the palette and the pane's + menu. With the split too, not only the pill. */}
+      {!allChats && template !== "cards" && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
           {props.onCreate && (
