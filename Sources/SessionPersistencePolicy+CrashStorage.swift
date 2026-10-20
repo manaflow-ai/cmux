@@ -320,18 +320,39 @@ extension SessionPersistencePolicy {
            !title.isEmpty {
             let titled = existing.indices.filter { index in
                 existing[index].customTitle == title &&
-                    existing[index].customDescription == workspace.customDescription
+                    existing[index].customDescription == workspace.customDescription &&
+                    identitylessWorkspaceDirectoriesMatch(workspace, existing[index])
             }
             if titled.count == 1 {
                 return titled[0]
             }
         }
+
         // Legacy snapshots often omit workspace identities and titles. Array
         // position is not an identity: crash generations can reorder tabs, so
         // guessing here can merge two unrelated worktrees and silently discard
         // one of them. Keep the supplemental workspace instead; only a stable
         // identity, checkpoint, or unique title is safe to merge.
         return nil
+    }
+
+    /// A title is only a safe identity fallback when both identity-less
+    /// workspaces still point at the same working directory. A user can have
+    /// two intentionally separate workspaces with the same title, and merging
+    /// those would move panels (and their restored agents) between worktrees.
+    private static func identitylessWorkspaceDirectoriesMatch(
+        _ lhs: SessionWorkspaceSnapshot,
+        _ rhs: SessionWorkspaceSnapshot
+    ) -> Bool {
+        guard !lhs.currentDirectory.isEmpty, !rhs.currentDirectory.isEmpty else {
+            return false
+        }
+        return standardizedWorkspacePath(lhs.currentDirectory) ==
+            standardizedWorkspacePath(rhs.currentDirectory)
+    }
+
+    private static func standardizedWorkspacePath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
     private static func crashWindowCheckpointIDs(

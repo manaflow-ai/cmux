@@ -1053,6 +1053,75 @@ struct CrashDiagnosticSessionPolicyTests {
         )
     }
 
+    @Test
+    func sessionSnapshotKeepsSameTitleWorkspacesWithDifferentDirectoriesSeparate() {
+        func workspace(
+            title: String?,
+            directory: String,
+            checkpoint: String? = nil
+        ) -> SessionWorkspaceSnapshot {
+            let panelID = UUID()
+            let terminal = SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                agent: checkpoint.map {
+                    SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: $0,
+                        workingDirectory: directory
+                    )
+                },
+                wasAgentRunning: checkpoint != nil
+            )
+            return SessionWorkspaceSnapshot(
+                workspaceId: nil,
+                processTitle: "Terminal",
+                customTitle: title,
+                customColor: nil,
+                isPinned: false,
+                currentDirectory: directory,
+                focusedPanelId: panelID,
+                layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID)),
+                panels: [terminalPanelSnapshot(id: panelID, directory: directory, terminal: terminal)],
+                statusEntries: [],
+                logEntries: [],
+                progress: nil,
+                gitBranch: nil
+            )
+        }
+        func window(_ workspaces: [SessionWorkspaceSnapshot]) -> SessionWindowSnapshot {
+            SessionWindowSnapshot(
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: workspaces),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+            )
+        }
+
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                window([
+                    workspace(title: "anchor", directory: "/work/anchor", checkpoint: "shared"),
+                    workspace(title: "same-title", directory: "/work/one"),
+                ]),
+                window([
+                    workspace(title: "anchor", directory: "/work/anchor", checkpoint: "shared"),
+                    workspace(title: "same-title", directory: "/work/two"),
+                ]),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+        let workspaces = pruned.snapshot?.windows.first?.tabManager.workspaces ?? []
+
+        #expect(pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 1)
+        #expect(Set(workspaces.map(\.currentDirectory)) == [
+            "/work/anchor", "/work/one", "/work/two",
+        ])
+    }
+
     private func terminalPanelSnapshot(
         id: UUID,
         directory: String,
