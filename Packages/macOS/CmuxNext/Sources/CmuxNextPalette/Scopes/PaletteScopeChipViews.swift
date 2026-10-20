@@ -60,15 +60,18 @@ final class PaletteScopeChipView: NSView {
     private let style: PaletteScopeChipStyle
     private let isTop: Bool
     private var ink: PaletteScopeChipInk
+    /// Fixed colors (the before/after snapshot); nil follows Increase Contrast.
+    private let fixedInk: PaletteScopeChipInk?
     private let icon = NSImageView()
     private let label: PaletteLabel
     private let rule = NSView()
 
-    init(chip: PaletteScopeChip, style: PaletteScopeChipStyle, isTop: Bool) {
+    init(chip: PaletteScopeChip, style: PaletteScopeChipStyle, isTop: Bool, ink fixedInk: PaletteScopeChipInk? = nil) {
+        self.fixedInk = fixedInk
         self.chip = chip
         self.style = style
         self.isTop = isTop
-        ink = PaletteScopeChipInk.ink(isTop: isTop, increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
+        ink = fixedInk ?? PaletteScopeChipInk.ink(isTop: isTop, increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
         label = PaletteText.label(style == .header ? Typography.bodyEmphasized : Typography.caption, tone: ink.text)
         super.init(frame: .zero)
         wantsLayer = true
@@ -111,7 +114,7 @@ final class PaletteScopeChipView: NSView {
 
     override func layout() {
         super.layout()
-        let ink = PaletteScopeChipInk.ink(isTop: isTop, increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
+        let ink = fixedInk ?? PaletteScopeChipInk.ink(isTop: isTop, increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
         if ink != self.ink {
             self.ink = ink
             label.tone = ink.text
