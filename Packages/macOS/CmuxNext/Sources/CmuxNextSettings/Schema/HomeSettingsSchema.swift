@@ -42,7 +42,7 @@ nonisolated enum HomeSettingsSchema {
                 HomeChiefPetSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefPet", "Chief Pet"),
                 title: SettingsText.keyed("settings.home.chiefPetEnabled", "Show Chief Pet"),
                 help: SettingsText.keyed("settings.home.chiefPetEnabled.help",
-                                         "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."),
+                                         "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app."),
                 kind: .toggle, default: .bool(false), keywords: ["chief", "pet", "mascot", "floating", "notifications", "reply", "dock"]
             ),
             SettingDescriptor(

@@ -88,8 +88,15 @@ export function installRevealSettle(doc: Document | undefined = defaultDocument(
 /// its first frame back has passed, and the host has not turned motion off.
 export function entranceAllowed(doc: Document | undefined = defaultDocument()): boolean {
   if (!doc) return true;
+  if (pageAway(doc)) return false;
+  return doc.documentElement?.dataset.agentMotion !== "off";
+}
+
+/// Whether the user is away from the page: it is hidden, or it shows again and its first frame back
+/// has not passed. Unlike `entranceAllowed`, motion turned off does not count: a view that paces
+/// content in (the streaming reveal) keeps its pace with motion off and catches up only on return.
+export function pageAway(doc: Document | undefined = defaultDocument()): boolean {
+  if (!doc) return false;
   const state = watch(doc);
-  if (doc.visibilityState === "hidden") return false;
-  if (doc.documentElement?.dataset.agentMotion === "off") return false;
-  return !state.settling;
+  return doc.visibilityState === "hidden" || state.settling;
 }

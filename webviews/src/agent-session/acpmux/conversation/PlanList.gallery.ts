@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts, replies and todo items), not shipped UI.
 // The agent's todo list (PlanList.tsx, cx-ncc.80): Claude's TodoWrite or Codex's plan draws as a
-// checklist under its progress, outside a finished turn's "Worked for" fold, and live while the
+// quiet card, outside a finished turn's "Worked for" fold, and live while the
 // turn runs.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -16,7 +16,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/PlanList.tsx"],
   variants: {
     running: {
-      note: "A turn under way: one item done, one in progress (bold), one waiting.",
+      note: "A turn under way: one item done (filled check), one in progress (spinner), one waiting (dashed circle).",
       snapshot: chat([
         user("Add retry to the uploader, cover it and update the docs", 3),
         row("plan", 2, {
