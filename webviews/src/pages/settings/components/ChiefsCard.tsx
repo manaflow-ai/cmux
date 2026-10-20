@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChiefPage } from "../../home-channels/ChiefPage";
 import { ChiefHost, HostChiefEditor } from "../../home-channels/chiefEditing";
-import { chiefBackendLabel, type HomeChief } from "../../home-channels/types";
+import { chiefBackend, chiefBackendLabel, DEFAULT_CHIEF_BACKEND, type HomeChief } from "../../home-channels/types";
 import { formatString, type Strings } from "../../shared/i18n";
 import { useStore } from "../context";
 import { locale, t } from "../strings";
@@ -18,12 +18,14 @@ function settingsStrings(): Strings {
   return { language: locale(), t: (key) => t(key), format: (key, ...args) => formatString(t(key), args) };
 }
 
-/** A row's backend: the engine's name as Home and the editor show it (an absent or "default"
- * harness is the default engine), then its model and effort; nothing set reads "Default". */
+/** A row's backend: the engine's name as Home's chip shows it (an absent or "default" harness
+ * is the default engine), then its model and effort. The default engine with neither reads
+ * `chief.backend.default` ("Default (Chief's usual)"), as the editor's backend picker does. */
 function backendLine(chief: HomeChief): string {
   const engine = chief.engine;
-  if (!engine?.harness && !engine?.model && !engine?.effort) return t("chief.backend.default");
-  return [chiefBackendLabel(t, engine.harness), engine.model, engine.effort].filter(Boolean).join(" · ");
+  if (chiefBackend(engine?.harness) === DEFAULT_CHIEF_BACKEND && !engine?.model && !engine?.effort)
+    return t("chief.backend.default");
+  return [chiefBackendLabel(t, engine?.harness), engine?.model, engine?.effort].filter(Boolean).join(" · ");
 }
 
 export function ChiefsCard() {

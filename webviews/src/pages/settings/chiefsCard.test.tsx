@@ -37,9 +37,25 @@ test("a row names the backend the way Home and the Chief editor do, never by its
   });
   const rows = [...card(page.container).querySelectorAll<HTMLElement>("[data-chief]")];
   const backend = (row: HTMLElement) => row.querySelector(".chiefs-backend")!.textContent;
-  // "default" is the default engine (Claude), as Home's chip and the editor read it.
+  // "default" is the default engine (Claude), as Home's chip reads it.
   expect(backend(rows[0]!)).toBe("Claude · opus");
   expect(backend(rows[1]!)).toBe("UniiChat");
+  page.unmount();
+});
+
+test("a row shows a chosen model even when no harness is named", async () => {
+  const page = await renderPage({
+    path: "/settings/agents",
+    setup: (provider) => {
+      provider.chiefs[0]!.engine = { model: "opus" };
+      provider.chiefs[1]!.engine = { harness: "default" };
+    },
+  });
+  const rows = [...card(page.container).querySelectorAll<HTMLElement>("[data-chief]")];
+  const backend = (row: HTMLElement) => row.querySelector(".chiefs-backend")!.textContent;
+  expect(backend(rows[0]!)).toBe("Claude · opus");
+  // The default engine with nothing else chosen reads the same as no engine at all.
+  expect(backend(rows[1]!)).toBe("Default (Chief's usual)");
   page.unmount();
 });
 
