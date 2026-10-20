@@ -1,4 +1,6 @@
-//! The composer's requests: a chat's unsent draft (`_acpmux/draft_get`, `_acpmux/draft_set`) and
+//! The composer's requests: a chat's unsent draft (`_acpmux/draft_get`, `_acpmux/draft_set`), each
+//! typing surface's own draft and the labelled queue (`_acpmux/composer_set`, `_acpmux/composers`,
+//! `hub/composers.rs`) and
 //! a side question about it (`_acpmux/ask`, `hub/aside.rs`), a side session about it
 //! (`_acpmux/btw`, `hub/btw.rs`), and its prompt bookmarks (`_acpmux/bookmark_get`,
 //! `_acpmux/bookmark_set`, `hub/bookmarks.rs`).
@@ -11,6 +13,8 @@ pub(super) fn handles(m: &str) -> bool {
         m,
         method::MUX_DRAFT_GET
             | method::MUX_DRAFT_SET
+            | method::MUX_COMPOSER_SET
+            | method::MUX_COMPOSERS
             | method::MUX_BOOKMARK_GET
             | method::MUX_BOOKMARK_SET
             | method::MUX_ASK
@@ -44,6 +48,16 @@ pub(super) async fn handle(
             Some(_) => return Err(RpcError::invalid_params("model must be a string")),
         };
         return hub.btw(&s, question, model, &conn.label(), opts()).await;
+    }
+    if m == method::MUX_COMPOSERS {
+        return Ok(hub.composers_view(&s));
+    }
+    if m == method::MUX_COMPOSER_SET {
+        let surface = crate::hub::composers::surface(params.get("surface"))?
+            .ok_or_else(|| RpcError::invalid_params("surface is required"))?;
+        let text = str_param(params, "text")
+            .ok_or_else(|| RpcError::invalid_params("text is required"))?;
+        return hub.composer_set(&s, surface, text);
     }
     if m == method::MUX_DRAFT_GET {
         return Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}));
