@@ -33,8 +33,7 @@ impl Mux {
         if self.shutting_down.load(Ordering::Acquire) {
             return;
         }
-        // Red: terminal output is not captured yet.
-        let _ = surface;
+        self.search_everything_service().note_output(surface);
     }
 
     pub(crate) fn note_search_commands(
@@ -96,10 +95,6 @@ impl Mux {
     /// state lock, then titles, folders and git branches after it is
     /// released (the search worker calls this, never a reader loop).
     pub(crate) fn search_model_snapshot(&self, now_ms: i64) -> ModelSnapshot {
-        // Red: the tree is not synced yet.
-        if now_ms != i64::MIN {
-            return ModelSnapshot::default();
-        }
         let decorations = self.tree_decorations();
         let groups: HashMap<&str, &str> = decorations
             .presentation

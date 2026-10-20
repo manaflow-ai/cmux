@@ -183,6 +183,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "conversation" => {
             conversation::parse_conversation(&strs(&tokens.words[1..]), &mut tokens.flags)?
         }
+        "search" => search::parse_search(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
         "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags, tokens.argv)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
