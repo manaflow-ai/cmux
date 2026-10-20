@@ -172,6 +172,11 @@ public final class ChiefPetController {
         made.pet.onDragEnded = { [weak self, weak made] in
             made?.saveOrigin()
             self?.render(animated: false)
+            self?.placeReply()
+        }
+        made.onKeptOnScreen = { [weak self] in
+            self?.render(animated: false)
+            self?.placeReply()
         }
         panel = made
         return made

@@ -24,6 +24,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     private var expandTool: ChiefPetTool?
     /// The visible frame of the screen the pet is on (its menu bar and Dock left out); tests give their own.
     var visibleFrame: () -> CGRect? = { nil }
+    /// The pet was pulled back on its screen after a screen change (the bubble and reply box take their side again).
+    var onKeptOnScreen: (() -> Void)?
 
     public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard) {
         placement = ChiefPetPlacement(defaults: defaults)
@@ -58,6 +60,10 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         contentView = pet
         delegate = self
         visibleFrame = { [weak self] in self?.screen?.visibleFrame }
+        // A resolution change, or the Dock or menu bar resizing, keeps the screen, so AppKit sends no
+        // didChangeScreen; the visible frame still changes under the pet.
+        NotificationCenter.default.addObserver(self, selector: #selector(screenParametersChanged),
+                                               name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
 
     /// The chevron points down while the notices are unfolded.
@@ -82,10 +88,24 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         orderOut(nil)
     }
 
-    /// A screen change (resolution, a display unplugged) keeps it on its screen.
+    /// A screen change (a display unplugged, the pet dragged onto another) keeps it on its screen.
     public func windowDidChangeScreen(_ notification: Notification) {
-        guard let visible = visibleFrame() else { return }
-        setFrameOrigin(ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible))
+        keepOnScreen()
+    }
+
+    @objc private func screenParametersChanged(_ notification: Notification) {
+        keepOnScreen()
+    }
+
+    /// Pulls the pet fully back on its screen. Not during a drag: AppKit reports the screen change as
+    /// the pet crosses onto the next display, and pulling it back then would jump it away from the
+    /// pointer until the next move (the drag's end pulls it back, `saveOrigin`).
+    func keepOnScreen() {
+        guard !pet.isDragging, let visible = visibleFrame() else { return }
+        let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible)
+        guard origin != frame.origin else { return }
+        setFrameOrigin(origin)
+        onKeptOnScreen?()
     }
 
     /// Keeps the spot the pet was dragged to, pulled fully back on its screen.
@@ -117,6 +137,8 @@ final class ChiefPetView: NSView {
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
     private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
+    /// A press is moving the pet now.
+    var isDragging: Bool { dragging }
 
     init(image: NSImage?) {
         super.init(frame: .zero)
