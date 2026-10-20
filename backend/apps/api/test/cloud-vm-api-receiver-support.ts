@@ -22,6 +22,7 @@ export const withReceiver = async (run: (f: {
   nativeResponse: (make: () => Response) => void;
   badAllocation: () => void;
   mint: () => Promise<any>; readHttp: () => Promise<any>; keyset: PublicKeyset["keys"];
+  lifecycleHttp: (params: Record<string, unknown>, options?: { caller?: "vm" | "client" | "session"; idempotency_key?: string }) => Promise<any>;
 }) => Promise<void>) => withMeshMachine({}, async (w) => {
   await w.create()
   const bind = w.bindFile()
@@ -96,6 +97,22 @@ export const withReceiver = async (run: (f: {
       { name: "ECDSA", hash: "SHA-256" }, pair.pair.privateKey, new TextEncoder().encode(message))))) }
   }
   expect((await op("host.network.bind", { host: client.host, mesh: MESH, device: client.device, wg_public_key: client.wg, proof: await proof() })).json.ok).toBe(true)
+  let vmAccessToken: string | undefined
+  const vmToken = async () => {
+    if (vmAccessToken) return vmAccessToken
+    const ns = (env as Env).CLOUD_DO
+    await inDO(ns.get(ns.idFromName(w.team)), async (owner) => {
+      owner.env = { ...owner.env, CLOUD_VM_API_ORIGIN: "https://vm.test", CLOUD_VM_API_SERVICE_KEY: "test-machine-mesh-key",
+        CLOUD_VM_API_IMAGE: "cloud-agent", CLOUD_VM_API_IMAGE_REVISION: "v1" }
+    })
+    const ch = await call("/v1/auth/challenge", undefined, { user: w.user, install: value.install.id })
+    expect(ch.status).toBe(200)
+    const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.pair.privateKey, new TextEncoder().encode(`${ch.json.message_prefix}${ch.json.nonce}`))
+    const issued = await call("/v1/auth/token", undefined, { user: w.user, install: value.install.id, nonce: ch.json.nonce, signature: b64u(sig) })
+    expect(issued.status).toBe(200)
+    vmAccessToken = issued.json.access_token as string
+    return vmAccessToken
+  }
   await run({ team: w.team, user: w.user, tenant: w.tenant, machine, host: value.host, principal, client, native, requests,
     read: (p = principal, params = { machine }) => w.owner().readOp(w.team, p, "cloud.vm.network_policy", params),
     self: () => w.owner().readOp(w.team, principal, "cloud.vm.self.get", { machine }), sessionOp,
@@ -105,19 +122,10 @@ export const withReceiver = async (run: (f: {
     mint: async () => w.owner().mintLinkToken(w.team, { identity: client.install, kind: "install", user: w.user, team: w.team,
       install: client.install, grant: client.grant, install_kind: "mac", grant_classes: ["read", "mutate-own", "cloud-link"] },
       { host: value.host, services: ["ssh"], native_proof: await proof() }),
-    readHttp: async () => {
-      const ns = (env as Env).CLOUD_DO
-      await inDO(ns.get(ns.idFromName(w.team)), async (owner) => {
-        owner.env = { ...owner.env, CLOUD_VM_API_ORIGIN: "https://vm.test", CLOUD_VM_API_SERVICE_KEY: "test-machine-mesh-key",
-          CLOUD_VM_API_IMAGE: "cloud-agent", CLOUD_VM_API_IMAGE_REVISION: "v1" }
-      })
-      const ch = await call("/v1/auth/challenge", undefined, { user: w.user, install: value.install.id })
-      expect(ch.status).toBe(200)
-      const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.pair.privateKey, new TextEncoder().encode(`${ch.json.message_prefix}${ch.json.nonce}`))
-      const issued = await call("/v1/auth/token", undefined, { user: w.user, install: value.install.id, nonce: ch.json.nonce, signature: b64u(sig) })
-      expect(issued.status).toBe(200)
-      return call("/v1/read", issued.json.access_token, { op: "cloud.vm.network_policy", params: { machine } })
-    },
+    readHttp: async () => call("/v1/read", await vmToken(), { op: "cloud.vm.network_policy", params: { machine } }),
+    lifecycleHttp: async (params, options = {}) => call("/v1/ops", options.caller === "client" ? token : options.caller === "session" ? w.session : await vmToken(),
+      { op: "cloud.vm.receiver.lifecycle", params: { machine, ...params }, ...(options.idempotency_key ? { idempotency_key: options.idempotency_key } : {}) },
+      { "x-cmux-team": w.team }),
     audit: async () => (await w.owner().fakeControl({})).audit,
     grant: async (which, patch) => inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(w.user)), async (owner) => {
       const state = owner.bind(w.user).currentState, id = which === "vm" ? value.install.grant : client.grant
