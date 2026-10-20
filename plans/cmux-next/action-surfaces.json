@@ -9405,17 +9405,7 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "n",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
-        }
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
