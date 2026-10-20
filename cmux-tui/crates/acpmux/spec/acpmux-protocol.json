@@ -2349,6 +2349,13 @@
             "null"
           ]
         },
+        "titleSource": {
+          "description": "Who set `title`: `prompt` (its first prompt's line, until a better\none comes), `asked` (a generated one is on its way), `generated`,\n`harness` or `adopted`; null for a chat titled before acpmux tracked it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "tools": {
           "description": "The chat's tools (`hub/tools.rs`).",
           "items": {

@@ -97,6 +97,18 @@ impl Client {
         self.call("_acpmux/info", json!({"sessionId": session})).await["title"].clone()
     }
 
+    /// Who set the title, as every session list reports it.
+    async fn title_source(&mut self, session: &str) -> Value {
+        let sessions = self.call("_acpmux/sessions", json!({})).await;
+        let listed = sessions["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["sessionId"] == json!(session))
+            .cloned();
+        listed.expect("session not listed")["titleSource"].clone()
+    }
+
     /// Wait for the session-changed notification of a `titled` record.
     async fn titled(&mut self, within: Duration) -> Option<Value> {
         let end = tokio::time::Instant::now() + within;
@@ -121,7 +133,10 @@ async fn a_chat_its_harness_never_titles_gets_a_short_generated_title_after_its_
     client.prompt(&session, "Plan a three-dish picnic menu").await;
     let changed = client.titled(Duration::from_secs(15)).await.expect("no titled change");
     assert_eq!(changed.pointer("/params/session/title"), Some(&json!("Three-Dish Picnic Menu")));
+    // Clients tell a real title from the first prompt's line by its source (hq#2569 #8).
+    assert_eq!(changed.pointer("/params/session/titleSource"), Some(&json!("generated")));
     assert_eq!(client.title(&session).await, json!("Three-Dish Picnic Menu"));
+    assert_eq!(client.title_source(&session).await, json!("generated"));
     let request = std::fs::read_to_string(&asked).unwrap();
     assert!(request.contains("Plan a three-dish picnic menu"), "{request}");
 
@@ -147,5 +162,29 @@ async fn a_harness_title_wins_and_nothing_is_generated() {
         "generated over a harness title"
     );
     assert_eq!(client.title(&session).await, json!("Picnic planning"));
+    assert_eq!(client.title_source(&session).await, json!("harness"));
     assert!(!asked.exists(), "the title command ran for a titled session");
+}
+
+#[tokio::test]
+async fn a_new_chat_reports_its_first_prompt_title_as_the_prompt_s() {
+    // No title command for this harness: the first prompt's line stays, marked as such.
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "claude"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all",
+        "titles": {"generate": false}
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut client = Client::open(&hub);
+    let session = client.new_session().await;
+    assert_eq!(client.title_source(&session).await, Value::Null);
+
+    client.prompt(&session, "can you look at why the build fails\nit broke on main").await;
+    assert_eq!(client.title(&session).await, json!("can you look at why the build fails"));
+    let source = client.title_source(&session).await;
+    assert!(source == json!("prompt") || source == json!("asked"), "{source}");
 }

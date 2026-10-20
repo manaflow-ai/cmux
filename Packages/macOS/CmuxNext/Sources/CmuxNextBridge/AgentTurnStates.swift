@@ -132,10 +132,26 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
         if includingPrompt, !name.isEmpty, !generated(from: summary["harness"] as? String), !generated(from: summary["family"] as? String) {
             return name
         }
-        for key in includingPrompt ? ["title", "lastPrompt"] : ["title"] {
+        if !includingPrompt {
+            guard let text = (summary["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty,
+                  !isPromptTitle(summary, text) else { return nil }
+            return text
+        }
+        for key in ["title", "lastPrompt"] {
             if let text = (summary[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty { return text }
         }
         return nil
+    }
+
+    /// Whether a summary's `title` is only its first prompt's line (hq#2569 #8): acpmux's
+    /// `titleSource` `prompt`, or `asked` while a generated title is on its way. A summary
+    /// without `titleSource` (an older acpmux) counts a title its latest prompt starts with.
+    static func isPromptTitle(_ summary: [String: Any], _ title: String) -> Bool {
+        if let source = summary["titleSource"] as? String { return source == "prompt" || source == "asked" }
+        guard let prompt = summary["lastPrompt"] as? String else { return false }
+        let line = prompt.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let head = title.hasSuffix("…") ? String(title.dropLast()) : title
+        return !head.isEmpty && line.hasPrefix(head)
     }
 
     /// The title of every session of a watch result that has one.
@@ -219,7 +235,8 @@ public final class AgentTurnStateStore {
         var muted = false
         /// The chat's title (`AgentTurnStates.title`), for a chat tab the user has not named.
         var title: String?
-        /// The chat's real title, excluding its session name and first prompt.
+        /// The chat's real title (generated or the harness's), never its session name or
+        /// first prompt; nil until one arrives.
         var generatedTitle: String?
         /// The model and running turn (`AgentChatDetail`), for the hover card.
         var detail: AgentChatDetail?

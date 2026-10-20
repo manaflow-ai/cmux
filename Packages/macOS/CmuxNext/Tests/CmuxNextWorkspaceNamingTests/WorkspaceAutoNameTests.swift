@@ -2,7 +2,7 @@
 import Testing
 
 /// A workspace the user never named takes its front tab's name (hq#1957):
-/// a browser its page title, an agent chat its chat title, a terminal its
+/// a browser its page title, an agent chat its real (never first-prompt) title, a terminal its
 /// live title or folder. A user's name always wins, `workspaces.autoName`
 /// off names nothing, and the `persist` variant renames a workspace once.
 struct WorkspaceAutoNameTests {
@@ -39,12 +39,28 @@ struct WorkspaceAutoNameTests {
     }
 
     @Test func titledChatShowsItsChatTitle() {
-        let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag")
+        let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag", generatedTitle: "Fix the sidebar drag")
         #expect(Self.live.label(name: "workspace-3", title: nil, front: front) == "Fix the sidebar drag")
     }
 
+    /// hq#2569 #8: the row never renames itself to a chat's first prompt; it keeps its own
+    /// name until the chat's generated (or harness) title arrives.
+    @Test func chatWithOnlyItsFirstPromptKeepsTheWorkspacesName() {
+        let promptOnly = WorkspaceAutoName.Front.chat(userName: nil, title: "can you look at why the build fails", generatedTitle: nil)
+        #expect(Self.live.label(name: "workspace-3", title: nil, front: promptOnly) == nil)
+        #expect(Self.persist.label(name: "workspace-3", title: nil, front: promptOnly) == nil)
+        let titled = WorkspaceAutoName.Front.chat(userName: nil, title: "Build Failure on Main", generatedTitle: "Build Failure on Main")
+        #expect(Self.live.label(name: "workspace-3", title: nil, front: titled) == "Build Failure on Main")
+    }
+
+    @Test func aFolderOrUserNamedWorkspaceNeverTakesTheChatsTitle() {
+        let titled = WorkspaceAutoName.Front.chat(userName: nil, title: "Build Failure on Main", generatedTitle: "Build Failure on Main")
+        #expect(Self.live.label(name: "cmux", title: nil, front: titled) == nil)
+        #expect(Self.live.label(name: "workspace-3", title: "Release week", front: titled) == nil)
+    }
+
     @Test func chatTabTheUserNamedShowsThatName() {
-        let front = WorkspaceAutoName.Front.chat(userName: "Release notes", title: "Draft the changelog")
+        let front = WorkspaceAutoName.Front.chat(userName: "Release notes", title: "Draft the changelog", generatedTitle: "Changelog Draft")
         #expect(Self.live.label(name: "workspace-3", title: nil, front: front) == "Release notes")
     }
 
@@ -65,18 +81,19 @@ struct WorkspaceAutoNameTests {
 
     @Test func multiLineAndLongNamesAreTrimmedToOneLine() {
         let long = String(repeating: "a", count: 200)
-        #expect(Self.live.label(name: "workspace-3", title: nil, front: .chat(userName: nil, title: "one\ntwo")) == "one two")
-        #expect(Self.live.label(name: "workspace-3", title: nil, front: .chat(userName: nil, title: long))?.count == NewWorkspaceName.maxLength)
+        #expect(Self.live.label(name: "workspace-3", title: nil, front: .chat(userName: nil, title: nil, generatedTitle: "one\ntwo")) == "one two")
+        let longFront = WorkspaceAutoName.Front.chat(userName: nil, title: nil, generatedTitle: long)
+        #expect(Self.live.label(name: "workspace-3", title: nil, front: longFront)?.count == NewWorkspaceName.maxLength)
     }
 
     @Test func userNamedWorkspaceKeepsItsName() {
-        let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag")
+        let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag", generatedTitle: "Fix the sidebar drag")
         #expect(Self.live.label(name: "api", title: nil, front: front) == nil)
         #expect(Self.live.label(name: "workspace-3", title: "My work", front: front) == nil)
     }
 
     @Test func emptyTitleDoesNotCountAsAUserName() {
-        let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag")
+        let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag", generatedTitle: "Fix the sidebar drag")
         #expect(Self.live.label(name: "workspace-3", title: "", front: front) == "Fix the sidebar drag")
     }
 
@@ -89,11 +106,11 @@ struct WorkspaceAutoNameTests {
         #expect(off.label(name: "workspace-3", title: nil, front: .browser(title: "GitHub", offTheRecord: false)) == nil)
         #expect(off.label(name: "workspace-3", title: nil, front: Self.terminal(title: "npm run dev")) == nil)
         let offPersist = WorkspaceAutoName(enabled: false, variant: .persist)
-        #expect(offPersist.label(name: "workspace-3", title: nil, front: .chat(userName: nil, title: "Plan")) == nil)
+        #expect(offPersist.label(name: "workspace-3", title: nil, front: .chat(userName: nil, title: "Plan", generatedTitle: "Plan")) == nil)
     }
 
     @Test func persistVariantStillShowsTheLabelUntilTheRenameLands() {
-        #expect(Self.persist.label(name: "workspace-3", title: nil, front: .chat(userName: nil, title: "Plan")) == "Plan")
+        #expect(Self.persist.label(name: "workspace-3", title: nil, front: .chat(userName: nil, title: "Plan", generatedTitle: "Plan")) == "Plan")
     }
 
     @Test func incognitoPageShowsItsTitleInTheRow() {
@@ -117,10 +134,10 @@ struct WorkspaceAutoNameTests {
     }
 
     @Test func persistNeverWritesAChatsFirstPrompt() {
-        // The chat's title is only its first prompt (`AgentTurnStates.title`'s fallback): the row shows it, nothing is written.
+        // The chat's title is only its first prompt (`AgentTurnStates.title`'s fallback): nothing is shown or written.
         let promptOnly = WorkspaceAutoName.Front.chat(userName: nil, title: "can you look at why the build fails", generatedTitle: nil)
         #expect(Self.persisted(promptOnly) == nil)
-        #expect(Self.persist.label(name: "workspace-3", title: nil, front: promptOnly) == "can you look at why the build fails")
+        #expect(Self.persist.label(name: "workspace-3", title: nil, front: promptOnly) == nil)
     }
 
     @Test func persistNeverWritesTheTabsOwnName() {

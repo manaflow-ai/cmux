@@ -283,6 +283,7 @@ impl Hub {
             depth: m.subsession.as_ref().map_or(0, |l| l.depth),
             children: self.subsessions.open_count(&m.id),
             title: m.title.clone(),
+            title_source: m.title_source.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),

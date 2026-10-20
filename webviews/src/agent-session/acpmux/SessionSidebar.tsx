@@ -19,6 +19,7 @@ import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { listRowKeyboardProps } from "../../ui/listRowKeyboard";
 import { pressToOpen } from "../../ui/pressToOpen";
 import { AnchoredCard } from "../../ui/Tooltip";
+import { SyncTitle } from "../../motion/SyncTitle";
 import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../ui/hoverIntent";
 import { useSidebarPreviewVariant, type SidebarPreviewVariant } from "./sidebarPreview";
 
@@ -629,7 +630,9 @@ const SessionRow = memo(function SessionRow({
         if (event.key === "Escape") dismissPreviewNow();
       }}
     >
-      <span className="acpmux-session-row-title">{title}</span>
+      {/* The first prompt titles a chat until its generated title comes; that one crossfades in
+          the same slot (hq#2569 #8). A user's own rename is instant. */}
+      <SyncTitle className="acpmux-session-row-title" text={title} animate={session.titleKind === "title"} />
       {trailing && (
         <span className="acpmux-session-trailing" aria-hidden="true">
           {trailing}

@@ -14,11 +14,11 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
         /// `offTheRecord` for an incognito page, whose title never reaches
         /// the daemon (R102).
         case browser(title: String?, offTheRecord: Bool)
-        /// An agent chat: the tab's user name, else its chat's title (which
-        /// may be only its first prompt); nil for a chat with no title yet
-        /// (or a New Tab page). `generatedTitle` is the chat's real title
-        /// (the agent's or the one given to the chat), never its first
-        /// prompt: the only name `persist` writes.
+        /// An agent chat: the tab's user name, its chat's title (which may be
+        /// only its first prompt) and `generatedTitle`, the chat's real title
+        /// (generated or the agent's), never its first prompt. The row shows
+        /// the user name, else the real title; `persist` writes only the
+        /// real title. A chat with neither names nothing.
         case chat(userName: String?, title: String?, generatedTitle: String? = nil)
         /// A terminal, or any other tab: `NewWorkspaceName.forTab`'s input.
         case terminal(NewWorkspaceName.Tab)
@@ -79,7 +79,8 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     public static func derived(_ front: Front) -> String? {
         switch front {
         case let .browser(title, _): NewWorkspaceName.clean(title)
-        case let .chat(userName, title, _): NewWorkspaceName.clean(userName) ?? NewWorkspaceName.clean(title)
+        // Never the chat's first prompt (hq#2569 #8): the row keeps its own name until a real title comes.
+        case let .chat(userName, _, generatedTitle): NewWorkspaceName.clean(userName) ?? NewWorkspaceName.clean(generatedTitle)
         case let .terminal(tab): NewWorkspaceName.forTab(tab)
         }
     }

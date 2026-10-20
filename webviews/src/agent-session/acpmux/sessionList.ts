@@ -7,6 +7,8 @@ import { type Translate, translate } from "./i18n";
 export type AcpmuxSessionEntry = {
   sessionId: string;
   displayTitle?: string;
+  /** Where `displayTitle` comes from (`sessionTitleKind`): a late real title crossfades in. */
+  titleKind?: SessionTitleKind;
   title?: string;
   name?: string;
   harness?: string;
@@ -131,6 +133,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
+    titleKind: sessionTitleKind(session),
     title: session.title,
     name: session.name,
     harness: session.harness,
@@ -206,17 +209,46 @@ function pullRequest(value: any): SessionPullRequest | undefined {
  * `codex-3`, `codex-fork`, after the harness profile or its family), else the name the user gave. A generated
  * name is the launch profile's (`claude-sr`), so a chat with no prompt yet is a "New chat".
  */
-export function sessionTitle(
-  session: { title?: string; lastPrompt?: string; name?: string; harness?: string; family?: string; sessionId: string },
-  t: Translate = translate,
-): string {
+export function sessionTitle(session: TitledSession, t: Translate = translate): string {
+  switch (sessionTitleKind(session)) {
+    case "name":
+      return session.name ?? "";
+    case "title":
+    case "prompt":
+      return session.title?.trim() || session.lastPrompt?.trim() || "";
+    default:
+      return t("sidebar.newChat");
+  }
+}
+
+type TitledSession = {
+  title?: string;
+  titleSource?: string | null;
+  lastPrompt?: string;
+  name?: string;
+  harness?: string;
+  family?: string;
+  sessionId: string;
+};
+
+/**
+ * Where a chat's title comes from (hq#2569 #8): the name the user gave (`name`), a real title
+ * (`title`: generated after the first turn, or the harness's own), only its first prompt
+ * (`prompt`: acpmux's `titleSource` `prompt`, or `asked` while a generated title is on its way),
+ * or nothing yet (`none`, a "New chat").
+ */
+export type SessionTitleKind = "name" | "title" | "prompt" | "none";
+
+export function sessionTitleKind(session: TitledSession): SessionTitleKind {
   const name = session.name ?? "";
   const bare = name.split("/").pop() ?? name;
   // acpmux names a session `agent` or `agent-N`, and a fork `<name>-fork`, also made unique with `-N`.
   const generatedFrom = (agent: string | undefined) =>
     !!agent && bare.startsWith(agent) && /^(?:-(?:fork|\d+))*$/.test(bare.slice(agent.length));
-  if (name && !generatedFrom(session.harness) && !generatedFrom(session.family)) return name;
-  return session.title?.trim() || session.lastPrompt?.trim() || t("sidebar.newChat");
+  if (name && !generatedFrom(session.harness) && !generatedFrom(session.family)) return "name";
+  if (session.title?.trim())
+    return session.titleSource === "prompt" || session.titleSource === "asked" ? "prompt" : "title";
+  return session.lastPrompt?.trim() ? "prompt" : "none";
 }
 
 /**

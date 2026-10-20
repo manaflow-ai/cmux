@@ -48,6 +48,10 @@ pub struct SessionSummary {
     /// Its sub-sessions that are not closed.
     pub children: u32,
     pub title: Option<String>,
+    /// Who set `title`: `prompt` (its first prompt's line, until a better
+    /// one comes), `asked` (a generated one is on its way), `generated`,
+    /// `harness` or `adopted`; null for a chat titled before acpmux tracked it.
+    pub title_source: Option<String>,
     pub last_prompt: Option<String>,
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.

@@ -435,6 +435,12 @@ export type SessionSummary = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
+  /**
+   * Who set `title`: `prompt` (its first prompt's line, until a better
+   * one comes), `asked` (a generated one is on its way), `generated`,
+   * `harness` or `adopted`; null for a chat titled before acpmux tracked it.
+   */
+  titleSource?: (string | null);
   /** The chat's tools (`hub/tools.rs`). */
   tools: ToolSummary[];
   /** `_acpmux/set_tools` can change them. */
