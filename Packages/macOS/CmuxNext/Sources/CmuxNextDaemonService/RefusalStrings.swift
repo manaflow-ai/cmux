@@ -163,6 +163,10 @@ public nonisolated enum RefusalStrings {
     public static func noDividerToMove(_ direction: String) -> String { format("handlers.refusal.noDividerToMove", "no divider to move %@ (or it is at its limit)", direction) }
     public static var screenHasNoSplits: String { text("handlers.refusal.screenHasNoSplits", "the screen has no splits") }
     public static var canvasUnported: String { text("handlers.refusal.canvasUnported", "needs canvas layout, which cmux-next does not have yet") }
+    /// A canvas action on a screen that shows its split or column layout.
+    public static var canvasNotShown: String { text("handlers.refusal.canvasNotShown", "this screen is not a canvas; use Toggle Canvas Layout first") }
+    /// A canvas zoom that is already at its limit (or at actual size).
+    public static var canvasZoomLimit: String { text("handlers.refusal.canvasZoomLimit", "the canvas is already at that zoom") }
     public static var simulatorUnported: String { text("handlers.refusal.simulatorUnported", "needs simulator panes, which cmux-next does not have yet") }
     public static var filesPaneUnported: String { text("handlers.refusal.filesPaneUnported", "needs the Files panel as a pane (not in cmux-next yet)") }
     public static var findPaneUnported: String { text("handlers.refusal.findPaneUnported", "needs the Find panel as a pane (not in cmux-next yet)") }

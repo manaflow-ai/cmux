@@ -109,7 +109,9 @@ extension ScreenContentView {
 
     /// Where splitting `pane` along `axis` goes on this screen right now.
     func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID?) -> SplitPlacement {
-        SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
+        // A canvas places a split's new pane beside the old one at its size: there is always room.
+        if isCanvas { return .split }
+        return SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
     }
 
     /// An edge drop that cannot split for lack of room becomes a new column

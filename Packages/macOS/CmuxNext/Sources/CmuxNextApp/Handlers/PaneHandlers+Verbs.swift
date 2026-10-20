@@ -128,8 +128,7 @@ extension PaneHandlers {
 
     private static func bindUnported(_ registry: ActionRegistry) {
         let canvas = RefusalStrings.canvasUnported
-        for id: ActionID in ["toggleCanvasLayout", "canvasOverview", "canvasTidy", "canvasRevealFocusedPane", "canvasZoomIn",
-                             "canvasZoomOut", "canvasZoomReset", "canvasAlignLeft", "canvasAlignRight", "canvasAlignTop",
+        for id: ActionID in ["canvasOverview", "canvasTidy", "canvasRevealFocusedPane", "canvasAlignLeft", "canvasAlignRight", "canvasAlignTop",
                              "canvasAlignBottom", "canvasEqualizeWidths", "canvasEqualizeHeights",
                              "canvasDistributeHorizontally", "canvasDistributeVertically"] {
             registry.bindUnavailable(id, reason: canvas)

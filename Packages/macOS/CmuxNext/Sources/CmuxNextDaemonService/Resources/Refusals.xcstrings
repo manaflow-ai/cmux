@@ -27120,6 +27120,268 @@
           }
         }
       }
+    },
+    "handlers.refusal.canvasNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this screen is not a canvas; use Toggle Canvas Layout first"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画面はキャンバスではありません。先に「キャンバスレイアウトを切り替え」を使ってください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه الشاشة ليست لوحة؛ استخدم «تبديل تخطيط اللوحة» أولاً"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ovaj ekran nije platno; prvo koristite Uključi/isključi raspored platna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne skærm er ikke et lærred; brug Slå lærredslayout til/fra først"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dieser Bildschirm ist kein Canvas; zuerst „Canvas-Layout umschalten“ verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esta pantalla no es un lienzo; usa primero Alternar disposición de lienzo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cet écran n’est pas un canevas ; utilisez d’abord Basculer la disposition en canevas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "questa schermata non è un canvas; usa prima Attiva/disattiva layout canvas"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អេក្រង់នេះមិនមែនជា Canvas ទេ។ សូមប្រើ បិទ/បើក ប្លង់ Canvas ជាមុនសិន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 화면은 캔버스가 아님. 먼저 캔버스 레이아웃 전환을 사용하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne skjermen er ikke et lerret; bruk Slå lerretoppsett av/på først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ten ekran nie jest kanwą; najpierw użyj Przełącz układ kanwy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esta tela não é um canvas; use Alternar layout de canvas primeiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "этот экран не холст; сначала используйте «Переключить макет холста»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าจอนี้ไม่ใช่แคนวาส ใช้ สลับเลย์เอาต์แคนวาส ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu ekran bir kanvas değil; önce Kanvas Yerleşimini Aç/Kapat’ı kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "цей екран не полотно; спершу скористайтеся «Перемкнути макет полотна»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "màn hình này không phải canvas; hãy dùng Bật/tắt bố cục canvas trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此屏幕不是画布；请先使用“切换画布布局”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此畫面不是畫布；請先使用「切換畫布佈局」"
+          }
+        }
+      }
+    },
+    "handlers.refusal.canvasZoomLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the canvas is already at that zoom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンバスはすでにそのズームです"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اللوحة على هذا التكبير بالفعل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "platno je već na tom uvećanju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "lærredet har allerede den zoom"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "der Canvas hat diesen Zoom bereits"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "el lienzo ya tiene ese zoom"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "le canevas est déjà à ce zoom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "il canvas ha già questo zoom"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canvas មានការពង្រីកនោះរួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "캔버스가 이미 해당 확대/축소 상태임"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "lerretet har allerede den zoomen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kanwa ma już to powiększenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "o canvas já está nesse zoom"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "холст уже в этом масштабе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แคนวาสอยู่ที่การซูมนั้นแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kanvas zaten bu yakınlaştırmada"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "полотно вже в цьому масштабі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "canvas đã ở mức thu phóng đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "画布已是该缩放比例"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "畫布已是該縮放比例"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
