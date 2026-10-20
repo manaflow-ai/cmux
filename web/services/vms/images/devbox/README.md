@@ -12,7 +12,7 @@ through the one `DEVBOX_DESKTOP_INSTALLS` map, so the two recipes cannot
 drift. Parity targets are the chatmux devbox
 (`chatmux:infra/sandbox-images/Dockerfile`) for the shell layer: same
 devtools, node/python/bun, uv, gh, Chrome + cua-driver, pinned coding agents,
-ble.sh ghost text, half-life prompt, seeded history, and the coderouter
+history ghost text, half-life prompt, seeded history, and the coderouter
 agent-config generator.
 
 On Freestyle the toolchain is the base's, not mise: `freestyle/ubuntu`
@@ -336,8 +336,7 @@ and emits SGR 90 for `setaf 8`, which the cmux renderer shows as invisible
 ghost text. `cmux-terminfo.src` is the app's `Resources/terminfo-overlay`
 (Ghostty's entry under both names, bright colors 8-15 as `38;5;n`) as
 `infocmp -x` source; the bake compiles it into `/etc/terminfo`, ahead of
-`/lib` and `/usr/share` in ncurses' search order, before seeding ble.sh's
-per-TERM tput caches. Regenerate it from a cmux checkout with the command in
+`/lib` and `/usr/share` in ncurses' search order. Regenerate it from a cmux checkout with the command in
 its header when the overlay changes; `vm-devbox-image.test.ts` compiles and
 queries it, and `verify-devbox-image.ts` proves the same on a fresh machine.
 
@@ -361,8 +360,8 @@ machine changes its cmux-tui: upgrade running machines with
 docs/cloud-guest-upgrades.md. The container Dockerfile still ships only the
 supervisor and waits for a driver install.
 
-Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
-half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
+Shells spawned by the daemon get the bash devshell (history ghost text from
+`cmux-ghost.bash`, half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
 
 The bake also fully allocates a 1 GiB ext4 image at
 `/var/lib/cmux/cmux-tui-state.ext4` and mounts it at the daemon's

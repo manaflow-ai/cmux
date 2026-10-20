@@ -15,7 +15,7 @@
  * 1337 (the image's own health predicate, so a clone's stale daemon never
  * counts as ready), the strict private-network
  * announcement exec, exec/data/fs round trips, guest shell startup as the
- * work user (login non-interactive, and interactive under a pty with ble.sh),
+ * work user (login non-interactive, and interactive under a pty with ghost text),
  * pause, start, daemon-after-resume and delete. `--burst K` adds K concurrent
  * creates to expose allocation contention. Readiness milestones come from a
  * 250 ms poll, so each is late by up to one interval plus the probe round

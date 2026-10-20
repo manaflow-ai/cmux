@@ -3,7 +3,7 @@
  * Post-bake verification for the cmux Cloud devbox images, run directly
  * against the provider SDKs. Boots ONE sandbox for the named provider,
  * asserts everything the devbox promises (pinned agents, the toolchain,
- * devtools, Chrome + cua-driver, ble.sh ghost text under a real PTY, the
+ * devtools, Chrome + cua-driver, history ghost text under a real PTY, the
  * agent-config generator byte-identical to this checkout, the desktop
  * contract on a desktop image), then asserts the
  * daemon contract with NO bootstrap of its own: the baked cmux-tui daemon must
@@ -77,6 +77,7 @@ const hexPort = (port: number): string => port.toString(16).toUpperCase().padSta
 // Every file the image bakes from this checkout must ship byte-identical.
 const FILE_PIN_CHECKS = [
   ["cmux-bashrc", "/etc/cmux/bashrc"],
+  ["cmux-ghost.bash", "/etc/cmux/ghost.bash"],
   ["agent-config.sh", "/etc/cmux/agent-config.sh"],
   ["seed-history", "/etc/cmux/seed-history"],
   ["cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot"],
@@ -113,21 +114,21 @@ const CHECKS: readonly string[] = [
   "bwrap --version && echo bubblewrap-ok",
   // Baked files are byte-identical to this checkout.
   ...FILE_PIN_CHECKS,
-  // Devshell: ble.sh installed, bashrc chained, tmux pinned to bash, seed
+  // Devshell: ghost text installed, bashrc chained, tmux pinned to bash, seed
   // history lands on first interactive shell.
-  "test -f /usr/local/share/blesh/ble.sh && grep -q '/etc/cmux/bashrc' /etc/skel/.bashrc && echo bashrc-chain-ok",
+  "bash -n /etc/cmux/ghost.bash && grep -q '/etc/cmux/bashrc' /etc/skel/.bashrc && echo bashrc-chain-ok",
   "grep default-shell /etc/tmux.conf",
   "bash -ic 'head -2 ~/.bash_history'",
-  // Ghost-text smoke under a real PTY: type "cl" and expect ble.sh to render
-  // the seeded claude command as the history suggestion.
+  // Ghost-text smoke under a real PTY: type "cl" and expect ghost.bash to
+  // render the seeded claude command as the history suggestion.
   "tmux new-session -d -s ghost -x 100 -y 24 && sleep 2 && tmux send-keys -t ghost cl && sleep 2 && tmux capture-pane -pt ghost | grep -o 'claude --dangerously-skip-permissions' | head -1; rc=$?; tmux kill-session -t ghost 2>/dev/null; exit $rc",
-  // ble.sh ghost text runs programmable completion per keystroke; the stock
-  // python helper imported every package for a dotted word (~5 s per key on
-  // `python -m http.`). The baked override must answer fast and correctly.
+  // The stock python completion helper imported every package for a dotted
+  // word (~5 s per Tab on `python -m http.`). The baked override must answer
+  // fast and correctly.
   "cd /tmp && bash -c 'source /usr/share/bash-completion/bash_completion; __load_completion python3; COMP_LINE=\"python3 -m http.\"; COMP_POINT=${#COMP_LINE}; COMP_WORDS=(python3 -m http.); COMP_CWORD=2; COMPREPLY=(); s=$(date +%s%N); _python python3 http. -m; e=$(date +%s%N); ms=$(( (e-s)/1000000 )); echo \"ms=$ms ${COMPREPLY[*]}\"; [ $ms -lt 1000 ] && [[ \" ${COMPREPLY[*]} \" == *\" http.server \"* ]]' && echo python-module-completion-fast",
-  // Quiet-marks smoke: the bashrc blanks ble.sh's status marks and pins USER
-  // so no [ble: ...] or "insane environment" text ever renders.
-  "tmux new-session -d -s marks -x 100 -y 24 && sleep 3 && tmux send-keys -t marks not-a-command Enter && sleep 2 && tmux send-keys -t marks 'printf no-newline' Enter && sleep 2 && out=$(tmux capture-pane -pt marks); tmux kill-session -t marks 2>/dev/null; printf '%s\\n' \"$out\" | grep -E '\\[ble:|ble\\.sh:' && exit 1; echo no-ble-marks",
+  // The suggestion is display only: Enter after "cl" runs `cl`, never the
+  // suggested claude command.
+  "tmux new-session -d -s commit -x 100 -y 24 && sleep 3 && tmux send-keys -t commit cl && sleep 1 && tmux send-keys -t commit Enter && sleep 2 && out=$(tmux capture-pane -pt commit); tmux kill-session -t commit 2>/dev/null; printf '%s\\n' \"$out\" | grep -q 'cl: command not found' && echo ghost-display-only",
   // Coding-agent hooks: the work user's Claude Code and Codex hooks are
   // installed and current (helper byte-equal to the pinned one, cmux marker
   // in both provider configs, codex trust table), and the daemon user's own
@@ -301,33 +302,24 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   "grep -qx 'unset TERMINFO' /etc/profile.d/cmux-terminfo.sh && grep -qx 'export TERMINFO_DIRS=/etc/terminfo:' /etc/profile.d/cmux-terminfo.sh && echo terminfo-search-path-ok",
   `shadow=$(mktemp -d) && mkdir -p "$shadow/.terminfo" && tic -x -o "$shadow/.terminfo" /etc/cmux/terminfo.src && sudo -n -u ${DEVBOX_WORK_USER} env -i HOME="$shadow" USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'test -z "$TERMINFO" && test "$TERMINFO_DIRS" = /etc/terminfo: && test "$(tput setaf 8 | od -An -tx1 | tr -d " \\n")" = 1b5b33383b353b386d && infocmp -x xterm-256color | head -1 | grep -q /etc/terminfo/ && tput -T screen-256color colors | grep -qx 256' && rm -rf "$shadow" && echo terminfo-shadow-resistant`,
   `docker --version && sudo -n -u ${DEVBOX_WORK_USER} docker ps >/dev/null && echo docker-ok`,
-  // Home hygiene: nothing root-owned in the work user's home, ble.sh's
-  // fallback state dir writable, the legal-notice marker present, and two
-  // real interactive logins as the work user print nothing from ble.sh or
-  // the shell (a `bash -c` probe would not load ble.sh at all).
+  // Home hygiene: nothing root-owned in the work user's home, the
+  // legal-notice marker present, and two real interactive logins as the work
+  // user print nothing from the shell (a `bash -c` probe would not load the
+  // ghost text at all).
   `[ "$(find ${DEVBOX_WORK_HOME} -not -user ${DEVBOX_WORK_USER} | wc -l)" = 0 ] && echo home-owned-by-work-user`,
-  // ble.sh uses a boot-scoped /tmp runtime root instead of the transient
-  // XDG runtime directory. Keep that root present while the durable shell
-  // runs, then prove the caller's XDG value remains independent.
-  `runtime_probe=$(mktemp -d /tmp/cmux-blesh-runtime-probe.XXXXXX) && chown ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} "$runtime_probe" && sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color XDG_RUNTIME_DIR="$runtime_probe" CMUX_BLESH_RUNTIME_SENTINEL="$runtime_probe/sentinel" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'set -eu; tmux -L blesh-runtime-probe new-session -d -s login -x 120 -y 30; sleep 3; test -d "/tmp/cmux-blesh-runtime-$(id -u)/blesh"; tmux -L blesh-runtime-probe send-keys -t login "printf CMUX_BLESH_RUNTIME_OK > \\\"$CMUX_BLESH_RUNTIME_SENTINEL\\\"" Enter; sleep 1; tmux -L blesh-runtime-probe capture-pane -pt login >/dev/null; test -s "$CMUX_BLESH_RUNTIME_SENTINEL"; tmux -L blesh-runtime-probe kill-server' && test -s "$runtime_probe/sentinel" && rm -rf "$runtime_probe" && echo blesh-runtime-dir-isolated`,
   // Not cosmetic: cmux-tui refuses to store its Noise identity under a group-
   // or other-writable ancestor, and the daemon's state dir lives in this home.
   // Ubuntu's user-private-group umask (002) is what puts it there.
   `[ "$(find ${DEVBOX_WORK_HOME} -type d \\( -perm -g+w -o -perm -o+w \\) | wc -l)" = 0 ] && [ "$(sudo -n -u ${DEVBOX_WORK_USER} sh -c umask)" = 0022 ] && echo home-perms-ok`,
-  "[ \"$(stat -c %a /usr/local/share/blesh/state.d)\" = 1777 ] && [ \"$(stat -c %a /usr/local/share/blesh/cache.d)\" = 1777 ] && echo blesh-dirs-ok",
   `test -f ${DEVBOX_WORK_HOME}/.cache/motd.legal-displayed && test -f /root/.cache/motd.legal-displayed && test -f /etc/skel/.cache/motd.legal-displayed && echo legal-notice-silenced`,
   ...[1, 2].map((run) =>
-    `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L vprobe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L vprobe${run} capture-pane -pt login)"; tmux -L vprobe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "@cmux" && printf "%s\\n" "$pane" | grep -q "λ" && echo work-user-login-silent-${run}'`,
+    `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L vprobe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L vprobe${run} capture-pane -pt login)"; tmux -L vprobe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ghost\\.bash|bind:|syntax error|denied|not found|WARRANTY" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "@cmux" && printf "%s\\n" "$pane" | grep -q "λ" && echo work-user-login-silent-${run}'`,
   ),
   // The devshell chain lives in the per-user rc files (after Ubuntu's own
   // PS1), never in /etc/bash.bashrc, so it loads once and the cmux prompt wins.
   `grep -q '/etc/cmux/bashrc' ${DEVBOX_WORK_HOME}/.bashrc && grep -q '/etc/cmux/bashrc' /etc/skel/.bashrc && ! grep -q '/etc/cmux/bashrc' /etc/bash.bashrc && echo devshell-sourced-once`,
   // The login banner is cmux's and offline.
   "run-parts /etc/update-motd.d | grep -q 'persistent cloud VM' && ! run-parts /etc/update-motd.d | grep -qi 'ubuntu.com' && test ! -s /etc/motd && echo motd-ok",
-  // ble.sh tput-cache seeds are readable by the work user and land in its
-  // XDG cache verbatim on first shell, so no login prints the tput notice.
-  "[ \"$(find /etc/cmux/blesh-cache-seed -not -perm -o+r | wc -l)\" = 0 ] && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty && echo blesh-seeds-readable",
-  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'rm -rf ~/.cache/blesh; tmux -L seed new-session -d -s s -x 100 -y 24 "env TERM=xterm-256color bash -i" && sleep 3; tmux -L seed kill-server 2>/dev/null; cmp ~/.cache/blesh/*/term.xterm-256color /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color' && echo blesh-cache-seeded`,
   `echo '${shaOf("cmux-motd")}  /etc/update-motd.d/00-cmux' | sha256sum -c -`,
   "cat /etc/cmux/tool-versions",
   "cat /etc/cmux/image-stamp",

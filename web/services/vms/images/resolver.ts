@@ -93,6 +93,12 @@ export type VmImageResolveOptions = {
   readonly memoryMb?: number;
   /** The Stack user asking for an explicit image; restricted entries need it allowlisted. */
   readonly callerUserId?: string;
+  /**
+   * Serve a requested manifest image exactly, even when a newer default has
+   * replaced it. Only for scripts that measure one specific image; clients
+   * always get the current image (see `currentManifestEntry`).
+   */
+  readonly exactImage?: boolean;
 };
 
 /** The env var listing the Stack user ids allowed to request restricted (test) images. */
@@ -275,7 +281,7 @@ export function resolveVmImage(
 
   const requested = requestedImage?.trim();
   if (requested) {
-    return resolveRequested(provider, requested, env, kind, options.callerUserId);
+    return resolveRequested(provider, requested, env, kind, options);
   }
 
   const effectiveKind = kind ?? VM_IMAGE_DEFAULT_KIND;
@@ -300,8 +306,9 @@ function resolveRequested(
   image: string,
   env: VmRuntimeEnv,
   kind: VmImageKind | undefined,
-  callerUserId: string | undefined,
+  options: VmImageResolveOptions,
 ): VmImageSelection {
+  const callerUserId = options.callerUserId;
   const entry = findVmImageManifestEntry(provider, image, kind);
   // Any entry naming this image counts: one image is often listed once per
   // kind, and an unrestricted twin must not open a restricted one.
@@ -334,7 +341,13 @@ function resolveRequested(
         reason: `${image} is a ${selection.kind} image, not a ${kind} image`,
       });
     }
-    return selection;
+    // A test image is requested to boot exactly that image.
+    if (options.exactImage || restricted) return selection;
+    const current = currentManifestEntry(entry, options.memoryMb);
+    if (current !== entry) {
+      console.info("[vm-image] superseded image", JSON.stringify({ requested: image, served: current.imageId, version: current.version }));
+    }
+    return selectionFromEntry(current);
   }
 
   if (allowUnmanifestedImages(env)) {
@@ -429,6 +442,22 @@ export function reportVmImageConfigError(
     details: { imageRequested, kind: err.kind, source: err.source, allowedKinds },
     operator,
   };
+}
+
+/**
+ * The image a request for `entry` gets. A promotion replaces the defaults but
+ * keeps older entries listed, and clients, scripts and saved settings keep
+ * sending those older ids; each such request gets the current default of the
+ * same kind, at the old entry's size when the ladder still has it, else at the
+ * plan's size. A current default is served as is.
+ */
+function currentManifestEntry(entry: VmImageManifestEntry, memoryMb: number | undefined): VmImageManifestEntry {
+  if (entry.defaultForKind === true) return entry;
+  const kind = deriveVmImageKind(entry, entry.imageId);
+  const sameSize = entry.size
+    ? listVmImageKindDefaults(entry.provider, kind).find((candidate) => candidate.size?.name === entry.size!.name)
+    : undefined;
+  return sameSize ?? findVmImageKindDefault(entry.provider, kind, memoryMb) ?? entry;
 }
 
 function selectionFromEntry(entry: VmImageManifestEntry): VmImageSelection {

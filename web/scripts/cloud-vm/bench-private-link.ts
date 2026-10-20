@@ -78,7 +78,7 @@ const POLL_DEADLINE_MS = 15 * 60 * 1000;
 const abandonedPolls = new Set<string>();
 const providerClient = (timeoutMs = 60_000): Freestyle => new Freestyle({ ...providerCredentials, fetch: pollBoundedFetch({ fetchTimeoutMs: timeoutMs, pollDeadlineMs: POLL_DEADLINE_MS, abandoned: abandonedPolls }).fetch });
 const sdk = providerClient();
-const selection = resolveVmImage("freestyle", option("--image"), process.env, { kind: "desktop", memoryMb: size.memoryMb });
+const selection = resolveVmImage("freestyle", option("--image"), process.env, { kind: "desktop", memoryMb: size.memoryMb, exactImage: true });
 const image = selection.image;
 const PROMPT_PATTERN = "λ";
 const runId = randomUUID().slice(0, 8);

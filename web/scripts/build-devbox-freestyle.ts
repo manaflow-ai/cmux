@@ -22,7 +22,7 @@
  * `cmux` and keeps as the machine's ONE work user. The bake adds the
  * chatmux-devbox devtools, gh, Chrome + cua-driver, the pinned coding agents
  * (`npm install -g` on the base's Node, so the exact Dockerfile pins replace
- * the base's copies), the ble.sh devshell, the agent-config generator, the
+ * the base's copies), the ghost-text devshell, the agent-config generator, the
  * login banner, and the desktop. No mise, no extra users: `cmux` (uid 1000)
  * is the work user for terminals, agents, SSH, and the desktop session, and
  * the machine is renamed `cmux` so prompts read `cmux@cmux`.
@@ -248,20 +248,19 @@ async function put(source: string, target: string, mode = 0o644): Promise<void> 
 // The devshell chain goes into the per-user rc files, not /etc/bash.bashrc:
 // bash sources the system file BEFORE ~/.bashrc, and Ubuntu's stock ~/.bashrc
 // sets its own PS1, which would clobber the cmux prompt. Per-user only also
-// loads ble.sh exactly once per shell (the container Dockerfile appends to
-// both because its homes are shadowed by volumes at runtime).
+// loads the devshell exactly once per shell (the container Dockerfile appends
+// to both because its homes are shadowed by volumes at runtime).
 const rcFiles = ["/etc/skel/.bashrc", "/root/.bashrc", `${WORK_HOME}/.bashrc`];
 const pins = devboxAgentPins();
 /**
- * A real interactive shell as the work user under a tmux pty (ble.sh refuses
- * `bash -c` and ttyless shells; `script` with a closed stdin is not a faithful
- * login either). Fails if the pane shows anything ble.sh or bash complained
- * about, the Ubuntu legal text, or (on the second run, once caches are seeded)
- * the tput-cache notice, and requires the cmux prompt. Runs as the work user
- * so nothing it creates is root-owned.
+ * A real interactive shell as the work user under a tmux pty (ghost text
+ * loads only on a terminal; `script` with a closed stdin is not a faithful
+ * login either). Fails if the pane shows anything bash, `bind` or ghost.bash
+ * complained about, or the Ubuntu legal text, and requires the cmux prompt.
+ * Runs as the work user so nothing it creates is root-owned.
  */
 const interactiveShellProbe = (run: number): string =>
-  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L probe${run} capture-pane -pt login)"; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
+  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L probe${run} capture-pane -pt login)"; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ghost\\.bash|bind:|syntax error|denied|not found|WARRANTY" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
 
 try {
   // TSC offsets can change across resized memory snapshots. Use the
@@ -327,8 +326,8 @@ try {
   await step(
     "agents",
     // The pin probes run AS the work user: an agent run as root with
-    // its HOME leaves root-owned state dirs behind that break
-    // ble.sh for every later login.
+    // its HOME leaves root-owned state dirs behind in the work user's
+    // home for every later login.
     `npm install -g --foreground-scripts ${pins.map((pin) => `'${pin.spec}'`).join(" ")} && nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")" && ${pins.map((pin) => `ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}`).join(" && ")} && ${pins.map((pin) => `${pin.binary} --version`).join(" && ")} && ${pins.map((pin) => `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'`).join(" && ")} && echo agents-pinned`,
   );
 
@@ -350,11 +349,10 @@ try {
     `python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config.toml", "rb")); assert d["projects"]["/root"]["trust_level"] == "trusted"; assert d["projects"]["${WORK_HOME}"]["trust_level"] == "trusted"'`,
   );
 
-  // devshell replays the Dockerfile devshell + ble.sh tput cache bake (same
-  // echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
-  // Cache seeds cover root and the work user (uid 1000).
+  // devshell replays the Dockerfile devshell (see ../services/vms/images/devbox/Dockerfile).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
+  await put("cmux-ghost.bash", "/etc/cmux/ghost.bash");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
   await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");
   await put("cmux-python-completion.bash", "/usr/local/share/bash-completion/completions/python");
@@ -369,7 +367,7 @@ try {
   await step("terminfo", devboxTerminfoInstallCommand);
   await step(
     "devshell",
-    `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && bash -n /etc/cmux/bashrc && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${rc}`).join(" && ")} && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history' && mkdir -p /etc/cmux/blesh-cache-seed /tmp/blesh-seed-home && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' > /tmp/blesh-seed-home/.bashrc && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; done && rm -rf /tmp/blesh-seed-home && chmod -R a+rX /etc/cmux/blesh-cache-seed && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chmod a+rwxt /usr/local/share/blesh/cache.d && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000`,
+    `bash -n /etc/cmux/bashrc && bash -n /etc/cmux/ghost.bash && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${rc}`).join(" && ")} && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history'`,
   );
 
   await put("agent-config.sh", "/etc/cmux/agent-config.sh");
@@ -654,15 +652,13 @@ try {
   );
 
   // Home hygiene, after every layer that could have touched the work user's
-  // home: ble.sh needs a writable state dir (XDG state when it already
-  // exists, else <blesh>/state.d/<uid>, which must be world-writable-sticky
-  // like cache.d), nothing in the home may be root-owned, and Ubuntu's
+  // home: nothing in the home may be root-owned, and Ubuntu's
   // pam_motd prints /etc/legal on every login (twice: sshd lists pam_motd
   // twice) until ~/.cache/motd.legal-displayed exists. Then prove two real
   // interactive logins as the work user are silent and ghost text works.
   await step(
     "home-hygiene",
-    `mkdir -p /usr/local/share/blesh/state.d && chmod a+rwxt /usr/local/share/blesh/state.d && for h in ${WORK_HOME} /root /etc/skel; do mkdir -p "$h/.cache" "$h/.local/state" && touch "$h/.cache/motd.legal-displayed"; done && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME} && find ${WORK_HOME} -type d -exec chmod g-w,o-w {} + && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && ${interactiveShellProbe(1)} && ${interactiveShellProbe(2)} && sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color bash -c 'tmux -L bake new-session -d -s ghost -x 100 -y 24 && sleep 2 && tmux -L bake send-keys -t ghost cl && sleep 2 && tmux -L bake capture-pane -pt ghost | grep -o "claude --dangerously-skip-permissions" | head -1; rc=$?; tmux -L bake kill-server 2>/dev/null; exit $rc' && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && echo home-hygiene-ok`,
+    `for h in ${WORK_HOME} /root /etc/skel; do mkdir -p "$h/.cache" "$h/.local/state" && touch "$h/.cache/motd.legal-displayed"; done && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME} && find ${WORK_HOME} -type d -exec chmod g-w,o-w {} + && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && ${interactiveShellProbe(1)} && ${interactiveShellProbe(2)} && sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color bash -c 'tmux -L bake new-session -d -s ghost -x 100 -y 24 && sleep 2 && tmux -L bake send-keys -t ghost cl && sleep 2 && tmux -L bake capture-pane -pt ghost | grep -o "claude --dangerously-skip-permissions" | head -1; rc=$?; tmux -L bake kill-server 2>/dev/null; exit $rc' && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && echo home-hygiene-ok`,
   );
 
   // The model-plane env is the same bytes for every machine (an alias host the
@@ -744,8 +740,8 @@ emitBakeResult({
       "FREESTYLE_SANDBOX_SNAPSHOT",
       metadata,
       withDesktop
-        ? `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as ${WORK_USER}; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`
-        : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`,
+        ? `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ghost-text devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as ${WORK_USER}; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`
+        : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ghost-text devshell, cmux login banner; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`,
       withDesktop ? "desktop" : "base",
     ),
     cmuxTuiCommit: cmuxTuiSource.commit,

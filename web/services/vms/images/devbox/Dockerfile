@@ -5,7 +5,7 @@
 # the Freestyle bake installs.
 # Parity target for the shell layer is the chatmux devbox (chatmux repo,
 # infra/sandbox-images/Dockerfile): same devtools, mise toolchains, pinned
-# coding agents, ble.sh ghost text, half-life prompt, seeded history, and the
+# coding agents, history ghost text, half-life prompt, seeded history, and the
 # coderouter agent-config generator. The desktop layer is the retired Blaxel
 # cmux-devbox desktop (openbox/TigerVNC, tint2 dock, Ghostty, Chrome, Thunar,
 # noVNC on 6901), the same stack on every provider.
@@ -265,21 +265,17 @@ RUN python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config
 # host keys on a clone for both recipes.
 
 # Interactive shell polish: bash IS the shell (chatmux parity); it
-# borrows the oh-my-zsh half-life theme colors and ble.sh supplies
+# borrows the oh-my-zsh half-life theme colors, and cmux-ghost.bash supplies
 # zsh-autosuggestions-style ghost text from history, seeded with the
 # claude/codex launch commands. The build-time `bash -ic` check runs without
-# a tty, so it exercises the history seeding but skips ble.sh; the verify
-# script proves ghost text end-to-end under a tmux PTY.
-RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz \
-  && tar xJf /tmp/ble.tar.xz -C /tmp \
-  && mv /tmp/ble-nightly /usr/local/share/blesh \
-  && rm -f /tmp/ble.tar.xz \
-  && test -f /usr/local/share/blesh/ble.sh
+# a tty, so it exercises the history seeding but skips the ghost text; the
+# verify script proves ghost text end-to-end under a tmux PTY.
+COPY cmux-ghost.bash /etc/cmux/ghost.bash
 COPY cmux-bashrc /etc/cmux/bashrc
 COPY cmux-prompt.bash /etc/cmux/prompt.bash
 # Shadows Ubuntu's python completion (bash-completion searches /usr/local/share
-# first) so ble.sh ghost text on `python -m pkg.` lists one package's
-# submodules instead of importing every installed package per keystroke.
+# first) so Tab on `python -m pkg.` lists one package's submodules instead of
+# importing every installed package.
 COPY cmux-python-completion.bash /usr/local/share/bash-completion/completions/python
 RUN for f in /usr/share/bash-completion/completions/python?* /usr/share/bash-completion/completions/pypy* /usr/share/bash-completion/completions/micropython; do \
        if [ -e "$f" ]; then ln -sf python "/usr/local/share/bash-completion/completions/${f##*/}"; fi; \
@@ -293,8 +289,7 @@ COPY cmux-terminfo.sh /etc/profile.d/cmux-terminfo.sh
 # TERM cmux exports, with bright colors 8-15 as indexed 38;5;n. Guest
 # programs resolve TERM here, and stock ncurses xterm-256color lacks Tc/Su
 # and turns `setaf 8` into SGR 90. /etc/terminfo outranks /lib and /usr/share
-# in ncurses' search path. Must precede the ble.sh cache seed below, which
-# caches per-TERM tput output.
+# in ncurses' search path.
 COPY cmux-terminfo.src /etc/cmux/terminfo.src
 RUN tic -x -o /etc/terminfo /etc/cmux/terminfo.src \
   && chmod -R a+rX /etc/terminfo \
@@ -302,38 +297,12 @@ RUN tic -x -o /etc/terminfo /etc/cmux/terminfo.src \
        [ "$(tput -T$t colors)" = 256 ] && infocmp -x $t | grep -qw Tc \
        && [ "$(tput -T$t setaf 8 | od -An -tx1 | tr -d ' \n')" = 1b5b33383b353b386d ] || exit 1; \
      done
-RUN bash -n /etc/cmux/bashrc \
+RUN bash -n /etc/cmux/bashrc && bash -n /etc/cmux/ghost.bash \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/skel/.bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf \
   && bash -ic 'head -2 /root/.bash_history'
-
-# Seed ble.sh tput caches for the TERMs cmux uses, exactly as the chatmux
-# template does (its Dockerfile carries the full rationale): without them the
-# FIRST shell on a machine prints "ble/term.sh: updating tput cache ... done"
-# into the pane before its first prompt. Both cache homes are seeded: the
-# XDG seed copied by cmux-bashrc from /etc/cmux/blesh-cache-seed, and
-# <blesh>/cache.d for uid 0 plus the uid-1000 work user (numeric chown: the
-# provider's name for that user is not guaranteed).
-RUN mkdir -p /etc/cmux/blesh-cache-seed \
-  && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do \
-       echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
-         script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
-     done \
-  && rm -rf /tmp/blesh-seed-home \
-  && chmod -R a+rX /etc/cmux/blesh-cache-seed \
-  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
-  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
-  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
-  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
-  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty \
-  && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
-  && chmod a+rwxt /usr/local/share/blesh/cache.d \
-  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
-  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
-  && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
-  && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000
 
 # Agent harness config: every shell materializes per-harness model-proxy
 # configs from the machine boot env (the coderouter model-plane vars set at
