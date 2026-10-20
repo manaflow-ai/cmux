@@ -4323,6 +4323,7 @@ mod tests {
     }
 
     mod name_source_tests;
+    mod split_focus_tests;
     mod transport_path_coverage_tests;
 
     fn record_covered_fields<'a>(
