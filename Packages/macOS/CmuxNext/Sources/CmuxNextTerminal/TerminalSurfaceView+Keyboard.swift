@@ -125,10 +125,10 @@ extension TerminalSurfaceView {
         if let text, !text.isEmpty, !GhosttyInput.startsWithControlCharacter(text) {
             text.withCString { pointer in
                 keyEvent.text = pointer
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
             }
         } else {
-            _ = ghostty_surface_key(surface, keyEvent)
+            _ = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
         }
     }
 
@@ -143,7 +143,7 @@ extension TerminalSurfaceView {
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         text.withCString { pointer in
             keyEvent.text = pointer
-            _ = ghostty_surface_key(surface, keyEvent)
+            _ = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
         }
     }
 
