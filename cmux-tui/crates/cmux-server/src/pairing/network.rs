@@ -4,7 +4,7 @@ use std::io::Read;
 use std::time::Duration;
 
 use cmux_server_core::pairing::enrollment::{
-    Begun, MAX_FRAME_BYTES, MAX_WAIT_MS, Waited, read_frame,
+    Begun, MAX_CLOCK_SKEW_MS, MAX_FRAME_BYTES, MAX_WAIT_MS, Waited, read_frame,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -31,10 +31,15 @@ impl Network {
     }
 
     fn json(&self, request: reqwest::blocking::RequestBuilder) -> Result<Value> {
-        let response = request.send().map_err(|_| unavailable())?;
+        let response = request
+            .send()
+            .map_err(|error| if error.is_connect() { unsent() } else { unavailable() })?;
         if !response.status().is_success() {
             return Err(if response.status().is_client_error() {
                 Error::rejected("server.pair.api_refused")
+            } else if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+                // The begin route's 503 means no free code: nothing was issued.
+                unsent()
             } else {
                 unavailable()
             });
@@ -54,6 +59,11 @@ impl Network {
 fn unavailable() -> Error {
     Error::unreachable("server.pair.unreachable")
 }
+/// The request never reached the API, or the API issued nothing: a begin can be retried at once.
+pub(super) fn unsent() -> Error {
+    Error::unreachable(UNSENT)
+}
+pub(super) const UNSENT: &str = "server.pair.unsent";
 fn invalid() -> Error {
     Error::verification("server.pair.invalid_frame")
 }
@@ -68,7 +78,7 @@ impl super::Transport for Network {
     }
 
     fn wait(&self, api: &str, begun: &Begun) -> Result<Waited> {
-        let left = begun.expires_at.saturating_sub(crate::host::now_ms()).min(MAX_WAIT_MS);
+        let left = wait_budget(begun.expires_at, crate::host::now_ms());
         if left == 0 {
             return Ok(Waited::Expired);
         }
@@ -82,6 +92,16 @@ impl super::Transport for Network {
     }
 }
 
+/// How long to wait for a code expiring at `expires_at` (the backend's clock): until the backend
+/// must have expired it too, so a code is never given up while someone can still approve it.
+/// The backend normally ends the wait itself (close 4408) when the code expires.
+fn wait_budget(expires_at: u64, now_ms: u64) -> u64 {
+    expires_at
+        .saturating_add(MAX_CLOCK_SKEW_MS)
+        .saturating_sub(now_ms)
+        .min(MAX_WAIT_MS + MAX_CLOCK_SKEW_MS)
+}
+
 async fn wait(api: &str, begun: &Begun, remaining: Duration) -> Result<Waited> {
     let request = request(api, begun)?;
     let config = socket_config();
@@ -93,7 +113,7 @@ async fn wait(api: &str, begun: &Begun, remaining: Duration) -> Result<Waited> {
     .await
     {
         Ok(Ok(value)) => value,
-        Ok(Err(_)) => return Err(unavailable()),
+        Ok(Err(error)) => return handshake_refused(error),
         Err(_) => return Ok(Waited::Expired),
     };
     if response.headers().get("Sec-WebSocket-Protocol").and_then(|v| v.to_str().ok())
@@ -102,6 +122,21 @@ async fn wait(api: &str, begun: &Begun, remaining: Duration) -> Result<Waited> {
         return Err(invalid());
     }
     read_wait(socket, deadline).await
+}
+
+/// A failed wait upgrade. The backend deletes a code when it expires and answers its upgrade 404;
+/// the code and collect secret are ours and well formed, so a 404 only means the code is gone.
+/// That ends the attempt like close 4408, including inside the clock-skew window, where a rerun
+/// would otherwise report the API unreachable until the window closed.
+fn handshake_refused(error: tokio_tungstenite::tungstenite::Error) -> Result<Waited> {
+    match error {
+        tokio_tungstenite::tungstenite::Error::Http(response)
+            if response.status() == tokio_tungstenite::tungstenite::http::StatusCode::NOT_FOUND =>
+        {
+            Ok(Waited::Expired)
+        }
+        _ => Err(unavailable()),
+    }
 }
 
 fn request(
