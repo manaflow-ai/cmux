@@ -2075,6 +2075,16 @@
       "title" : "Channels",
       "type" : "boolean"
     },
+    "home.chiefBubbleStyle" : {
+      "default" : "imessage",
+      "description" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors.",
+      "enum" : [
+        "imessage",
+        "theme"
+      ],
+      "title" : "Bubble Style",
+      "type" : "string"
+    },
     "home.chiefPetEnabled" : {
       "default" : false,
       "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
@@ -2161,6 +2171,12 @@
       ],
       "title" : "Dock Column Mode",
       "type" : "string"
+    },
+    "layout.focusPaneOnScroll" : {
+      "default" : true,
+      "description" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is.",
+      "title" : "Focus Pane on Scroll",
+      "type" : "boolean"
     },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
@@ -2490,7 +2506,7 @@
       "type" : "string"
     },
     "notifications.dismissal" : {
-      "default" : "keystroke",
+      "default" : "focus",
       "description" : "notifications.dismissal",
       "enum" : [
         "keystroke",

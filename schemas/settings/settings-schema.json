@@ -58,6 +58,7 @@
               "layout.dockColumnMode",
               "layout.frameOrientation",
               "layout.rows",
+              "layout.focusPaneOnScroll",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
@@ -262,6 +263,18 @@
             "title" : {
               "key" : "settings.group.terminalFont",
               "text" : "Font"
+            }
+          },
+          {
+            "key" : "settings.group.fonts",
+            "rows" : [
+              "appearance.fonts.ui",
+              "appearance.fonts.code",
+              "appearance.fonts.chatSize"
+            ],
+            "title" : {
+              "key" : "settings.group.fonts",
+              "text" : "Fonts"
             }
           },
           {
@@ -669,6 +682,16 @@
             "title" : {
               "key" : "settings.group.agentChat",
               "text" : "Agent Chat"
+            }
+          },
+          {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
             }
           },
           {
@@ -4768,6 +4791,58 @@
       "title" : {
         "key" : "settings.layout.rows",
         "text" : "Rows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.focusPaneOnScroll.help",
+        "text" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.focusPaneOnScroll",
+      "keywords" : [
+        "focus",
+        "scroll",
+        "wheel",
+        "trackpad",
+        "pane",
+        "follows mouse"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "focusPaneOnScroll"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.focusPaneOnScroll.summary",
+        "text" : "Scrolling a pane focuses it"
+      },
+      "title" : {
+        "key" : "settings.layout.focusPaneOnScroll",
+        "text" : "Focus Pane on Scroll"
       },
       "validation" : "portable"
     },
@@ -15145,6 +15220,202 @@
       "title" : {
         "key" : "settings.terminal.fontSize",
         "text" : "Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "system",
+        "rounded",
+        "serif",
+        "mono"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.fontSystem",
+            "text" : "System"
+          },
+          "value" : "system"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.fontRounded",
+            "text" : "Rounded"
+          },
+          "value" : "rounded"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.fontSerif",
+            "text" : "Serif"
+          },
+          "value" : "serif"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.fontMono",
+            "text" : "Monospaced"
+          },
+          "value" : "mono"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "system",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.fonts",
+        "text" : "Fonts"
+      },
+      "help" : {
+        "key" : "settings.fonts.ui.help",
+        "text" : "The face of chats, the composer, pages and the window's own text."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.fonts.ui",
+      "keywords" : [
+        "font",
+        "typeface",
+        "text",
+        "chat",
+        "serif",
+        "rounded",
+        "monospace",
+        "ui"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "fonts",
+        "ui"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.fonts.ui",
+        "text" : "Text Font"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.fonts.code.default",
+        "text" : "Terminal Font"
+      },
+      "group" : {
+        "key" : "settings.group.fonts",
+        "text" : "Fonts"
+      },
+      "help" : {
+        "key" : "settings.fonts.code.help",
+        "text" : "The face of code in chats, diffs and files. Unset, code uses the terminal's font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.fonts.code",
+      "keywords" : [
+        "font",
+        "code",
+        "monospace",
+        "monospaced",
+        "typeface",
+        "diff",
+        "editor"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "fonts",
+        "code"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.fonts.code",
+        "text" : "Code Font"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+        11,
+        20,
+        15.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 14,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.fonts",
+        "text" : "Fonts"
+      },
+      "help" : {
+        "key" : "settings.fonts.chatSize.help",
+        "text" : "The size of chat messages."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.fonts.chatSize",
+      "keywords" : [
+        "font",
+        "text",
+        "size",
+        "chat",
+        "composer",
+        "bigger",
+        "smaller"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "fonts",
+        "chatSize"
+      ],
+      "range" : {
+        "max" : 20,
+        "min" : 11,
+        "placeholder" : 14,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        2,
+        29,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.fonts.chatSize",
+        "text" : "Chat Text Size"
       },
       "validation" : "portable"
     },
@@ -26234,6 +26505,74 @@
     },
     {
       "accepts" : [
+        "imessage",
+        "theme"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "iMessage"
+          },
+          "value" : "imessage"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefBubbleStyle.theme",
+            "text" : "Theme"
+          },
+          "value" : "theme"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "imessage",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.chiefBubbleStyle.help",
+        "text" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefBubbleStyle",
+      "keywords" : [
+        "chief",
+        "imessage",
+        "messages",
+        "bubbles",
+        "blue",
+        "chat",
+        "theme",
+        "colors",
+        "home"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefBubbleStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefBubbleStyle",
+        "text" : "Bubble Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -26558,7 +26897,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "keystroke",
+      "default" : "focus",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",
@@ -27612,8 +27951,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.theme",
-        "text" : "Theme"
+        "key" : "settings.default.notificationBlue",
+        "text" : "Notification Blue"
       },
       "group" : {
         "key" : "settings.group.attention",
