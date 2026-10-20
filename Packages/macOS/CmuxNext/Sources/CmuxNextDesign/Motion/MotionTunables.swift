@@ -65,6 +65,7 @@ public nonisolated enum MotionTunables {
         .fadeIn: (0.12, "Palette, find bar, notices, hover card appear."),
         .fadeOut: (0.08, "Palette close, find bar, notices, hover card hide."),
         .crossfade: (0.1, "Hover card thumbnail swap; also the Reduce Motion ceiling."),
+        .scrim: (0.18, "Whole-window wash easing in and out (the dim under the palette, an inactive window)."),
         .lift: (0.12, "Sidebar drag lift shadow."),
         .theme: (0.16, "Room, workspace or terminal theme switch."),
         .highlight: (1.2, "Settings row highlight after a search jump or deep link fades out."),
