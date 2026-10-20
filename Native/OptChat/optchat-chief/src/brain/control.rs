@@ -639,6 +639,29 @@ impl Brain {
         )
     }
 
+    /// `escalate_auth` from subagent `agent`: the Chief reads it before
+    /// anything else queued (`queue_urgent`). Only a known subagent of this
+    /// Chief escalates.
+    pub(super) fn escalate_auth(
+        &mut self,
+        agent: &str,
+        request: &crate::tools::AuthEscalation,
+    ) -> Result<String, String> {
+        if self.state.sub(agent).is_none() {
+            return Err(format!("escalate_auth: no subagent {agent} on this Chief"));
+        }
+        self.trace.emit(
+            "subagent.escalate_auth",
+            json!({"id": agent, "site": request.site, "kind": request.kind}),
+        );
+        self.queue_urgent(request.note(agent));
+        Ok(format!(
+            "outcome: done. Your Chief has it now, ahead of its other work: it opens {url} in Home's right pane, fills what it may, presses the passkey or security-key button so macOS shows Touch ID, and asks the user to touch the sensor. It tells you when {site} is signed in. Until then do the parts that need no sign-in; never read or type a password, and do not escalate {site} again.",
+            url = request.url,
+            site = request.site,
+        ))
+    }
+
     /// Once a minute: a running subagent whose session did not change for
     /// [`STUCK_AFTER`] gets one note per run.
     pub(super) fn sub_tick(&mut self) {

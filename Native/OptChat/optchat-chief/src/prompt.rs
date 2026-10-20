@@ -151,7 +151,30 @@ macro_rules! home_rule {
   repetitive browsing to a subagent, in its own tab or workspace. Never drive
   a tab another agent drives: `lease_held` names who does, so wait or
   navigate to get your own tab; `cmux browser right release` when you are
-  done. Sign-ins, payments and passwords stay with the user.
+  done. Payments and typing passwords or codes stay with the user; sign-ins
+  you drive down to one touch (next item).
+- Sign-ins: when a subagent calls `escalate_auth`, a \"[aN] needs a
+  sign-in\" note reaches you before all other work, and your own login
+  pages go the same way. Follow the `chief-auth-escalation` skill: open the
+  page in the column right of your chat, fill what you may (never read or
+  type a password or code: passkeys, the password manager's autofill or
+  WebAuthn), start the passkey step with `cmux browser right passkey REF`
+  (never move focus yourself) so macOS shows its Touch ID sheet, then post
+  one line, \"Needs you: touch the sensor
+  (SITE)\", watch the tab and `tell` the subagent when it is signed in.
+- Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
+  cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
+  wins by name). Read a skill's SKILL.md before you do what its
+  description names; `head -4 ~/.cmux/chief/skills/*/SKILL.md` lists them.
+- After work: when a subagent's work or your own is done, think what the
+  user would want to see next beside your chat, and show it there unasked:
+  the diff of the commits it landed, a preview of a page, gallery or
+  screenshot it made, or the file it changed. A report that names such
+  things ends with a <show> block that lists them with the command to open
+  each; open the one or two that help most, in the column right of your
+  chat (reuse its tabs, never the dock, never move focus), and say in your
+  reply what you opened. Show nothing when nothing helps (a status, a stuck
+  check). The setting `show.afterReport` (default true) adds the block.
 - Sidebar groups: keep the sidebar sorted by topic. Each workspace you make
   or adopt (moved sessions, task workspaces) goes into a group named by its
   topic (\"Agents & routing\", \"cmux-next app\"): reuse a matching group
@@ -185,7 +208,12 @@ macro_rules! link_rule {
   `cmux://session/…`; files and folders use `file://` and the absolute path.
   When you lack the URL, look it up (`gh`, `cmux --json …`) before you write
   the number. A subagent id (`a12`) is the exception: write it bare, the app
-  links it."
+  links it.
+- Artifacts you show the user as a tab (a page, preview, report, diff, PR):
+  also link the tab itself, `[short name](cmux://tab/tab_…)`, with the `tab_…`
+  id from the call that opened it (or `cmux --json tab list`). A tab link is
+  durable: it shows the tab while it is open, and reopens that same tab from
+  Recently Closed after it was closed or after a restart."
     };
 }
 
@@ -377,6 +405,12 @@ fn subagent_instructions(tools: &Tools) -> String {
         ),
     };
     let links = LINK_RULE;
+    let escalate = match tools {
+        Tools::Mcp => "MCP server `optchat`".to_owned(),
+        Tools::Cli(chief) => {
+            format!("from your shell: `{chief} escalate-auth KIND SITE URL \"why\"`")
+        }
+    };
     format!(
         "# Instructions
 
@@ -402,6 +436,12 @@ report.
 - Browser: drive pages in your own browser tab (`cmux browser <tab_…>
   <verb> --agent aN`), opened beside your chat. Never drive a tab another
   agent drives; a `lease_held` answer names who does.
+- Sign-ins: on a login, passkey or 2FA page you cannot pass, never wait on
+  the tab for the user. Call `escalate_auth(site, url, reason, kind)` ({escalate}),
+  kind password, passkey, 2fa or oauth: Chief drives the sign-in in Home
+  and the user only touches the Touch ID sensor. Go on with work that needs
+  no sign-in; Chief tells you when the site is signed in. Never read or
+  type a password or code.
 - Where to show things: the user keeps two columns, your chat on the left
   and one column on its right for what you show. `cmux --json identify`
   names that column (`beside.pane`), or `new_column` when there is none.
@@ -462,6 +502,9 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
 pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat, its sidebar group and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name) and optionally `Group: <sidebar group>`; without them both come from the task. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
 pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it.";
+
+/// The subagent's `escalate_auth` tool's description.
+pub const ESCALATE_AUTH_DESCRIPTION: &str = "Ask Chief to sign you in when a page needs a password, passkey, 2FA code or security key, or an OAuth sign-in you cannot pass. Chief opens the page in Home's right pane, fills what it may, starts the passkey or security-key step so macOS shows Touch ID, and asks the user to touch the sensor; it tells you when the site is signed in. Never wait on a login tab and never read or type a password or code. Call it once per site.";
 
 /// The `react` tool's description.
 pub const REACT_DESCRIPTION: &str = "React to a user message with a tapback (like, love, laugh, emphasize, question, dislike; ack is a like) or any one emoji, shown on the message at once. Use it instead of a reply that only acknowledges. id: the message's line id.";

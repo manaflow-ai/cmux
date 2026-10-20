@@ -86,7 +86,14 @@ function ChartBox({
   const center = hover === null ? 0 : slotCenter(hover, count, box);
   return (
     <div ref={ref} className={`cu-chart ${className ?? ""}`} onMouseLeave={() => setHover(null)}>
-      <svg role="img" aria-label={label} width={box.width} height={height} viewBox={`0 0 ${box.width} ${height}`}>
+      <svg
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline SVG chart is one image with a label; an <img> cannot hold its hover targets.
+        role="img"
+        aria-label={label}
+        width={box.width}
+        height={height}
+        viewBox={`0 0 ${box.width} ${height}`}
+      >
         {hover !== null && (
           <rect
             className="cu-hover-slot"
@@ -113,6 +120,7 @@ function ChartBox({
       {tip && (
         <div
           className={center > box.width / 2 ? "cu-tooltip is-left" : "cu-tooltip"}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the tooltip holds a <dl>, which an <output> (phrasing content only) may not contain.
           role="status"
           style={{ left: `${center}px` }}
         >

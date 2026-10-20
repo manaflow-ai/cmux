@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
@@ -49,18 +50,25 @@ final class BrowserDesignModeController {
         let made = tracker.receive(message, pageURL: page.state.url)
         cards[key] = tracker
         guard !made.isEmpty else { return }
-        // The Chief's Home composer in the browser's window first (Home on the left, the page on
-        // the right), else the workspace's last-used agent chat.
+        // The Chief's Home chat in the browser's window first (Home on the left, the page on the
+        // right), else the workspace's last-used agent chat. A variation pick is sent to Home at once
+        // through a304's `home.sendMessage`; other highlights wait in the composer.
         let home = HomeNativeTranscriptView.shown(in: page.contentView.window).flatMap { $0.canAttach ? $0 : nil }
         let chat = home == nil ? chatView(near: key) : nil
-        guard home != nil || chat != nil else {
+        let deliveries = made.map { BrowserDesignModeDelivery($0, homeShown: home != nil, agentChat: chat != nil) }
+        if deliveries.contains(.nowhere) {
             services.cache.existingBrowser(key)?.chrome.showNotice(strings.noAgentChat)
             return
         }
+        for case .sendToHome(let text) in deliveries {
+            services.registry.perform("home.sendMessage", invocation: ActionInvocation(arguments: ["text": .string(text)]))
+        }
+        let rest = zip(made, deliveries).filter { if case .sendToHome = $0.1 { return false } else { return true } }.map(\.0)
+        guard !rest.isEmpty else { return }
         Task { [weak page, weak chat, weak home] in
             guard let page else { return }
             let shot = await Self.capture(page)
-            for card in made {
+            for card in rest {
                 let png = shot.flatMap { Self.crop($0, to: card) }
                 if let home {
                     Self.attach(card, png: png, to: home)
