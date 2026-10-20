@@ -28,10 +28,14 @@ public struct SidebarMapping {
     public struct PageFace {
         public var title: String?
         public var favicon: SidebarFavicon?
+        /// The page's sound (a browser tab playing sound or muted); the row
+        /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
+        public var audio: SidebarWorkspaceAudio?
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil) {
             self.title = title
             self.favicon = favicon
+            self.audio = audio
         }
     }
 
@@ -78,7 +82,7 @@ public struct SidebarMapping {
                     return rowSource.map { $0(workspace, machine.id, make) } ?? make()
                 }
             if let group = section.group {
-                nodes.append(.group(SidebarGroup(
+                var made = SidebarGroup(
                     id: GroupID(group.id.rawValue),
                     name: group.name,
                     color: color(group.color) ?? .grey,
@@ -88,7 +92,10 @@ public struct SidebarMapping {
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { groupImage($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
                     workspaces: rows
-                )))
+                )
+                made.parent = group.parent.map { GroupID($0.rawValue) }
+                made.depth = group.depth
+                nodes.append(.group(made))
             } else {
                 nodes += rows.map(SidebarNode.workspace)
             }
@@ -114,6 +121,11 @@ public struct SidebarMapping {
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
         let page = front.flatMap { pageFace(workspace, $0, $0.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil) }
+        // Each browser tab's face once: its favicon in the tab list, its sound on the row.
+        var browserFaces: [String: PageFace] = [:]
+        for tab in tabs where tab.kind == .browser {
+            browserFaces[tab.id] = tab.id == front?.id ? page : pageFace(workspace, tab, nil)
+        }
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
@@ -149,7 +161,7 @@ public struct SidebarMapping {
                 let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
                 return SidebarTab(id: TabID(tab.id), title: title,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                  brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab, nil)?.favicon : nil)
+                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).
@@ -158,12 +170,26 @@ public struct SidebarMapping {
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
         row.presence = presence(tabs)
+        row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
         row.reported = Self.reported(workspace.status, asset: iconAsset)
+        row.workspaceDescription = workspace.workspaceDescription
+        row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
+        row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs), front: front,
                             notification: row.notificationText)
         return row
+    }
+
+    /// A daemon checklist item as the sidebar draws it.
+    static func checklistItem(_ item: WorkspaceChecklistItem) -> SidebarChecklistItem {
+        let state: SidebarChecklistItem.State = switch item.state {
+        case .todo: .todo
+        case .inProgress: .inProgress
+        case .done: .done
+        }
+        return SidebarChecklistItem(id: item.id, text: item.text, state: state, attachmentCount: item.attachments.count)
     }
 
     /// The tab the row stands for: the selected tab of the workspace's most
@@ -275,6 +301,17 @@ public struct SidebarMapping {
         }
     }
 
+    /// The sidebar's lane for a workspace's manual task status (`workspace-status-v1`).
+    static func taskStatus(_ status: WorkspaceTaskStatus) -> SidebarTaskStatus {
+        switch status {
+        case .todo: .todo
+        case .working: .working
+        case .needsAttention: .needsAttention
+        case .review: .review
+        case .done: .done
+        }
+    }
+
     /// Status entry keys that feed their own row elements, not the status
     /// line (`cmux workspace status set ports|pr <text>`).
     public static let portsKey = "ports"
@@ -293,7 +330,7 @@ public struct SidebarMapping {
         guard let status else { return nil }
         let block = SidebarWorkspaceStatus(
             entries: status.entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map {
-                SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color),
+                SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color), state: $0.state,
                                              image: $0.icon.flatMap(asset))
             },
             log: status.lastLog.map {
@@ -317,7 +354,7 @@ public struct SidebarMapping {
     /// repeats the folder.
     func process(_ tab: TabModel?) -> String? {
         guard let tab, tab.kind == .pty, tab.agent == nil else { return nil }
-        let title = tab.title.trimmingCharacters(in: .whitespaces)
+        let title = tab.titleText.trimmingCharacters(in: .whitespaces)
         guard !title.isEmpty else { return nil }
         if let cwd = tab.cwd, title == cwd || title == abbreviate(cwd) { return nil }
         return title

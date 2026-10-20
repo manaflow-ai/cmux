@@ -49,6 +49,8 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     private var body: TabHoverCardView?
+    /// Group chips' summary card body, reused chip to chip.
+    private var groupBody: GroupHoverCardView?
     private var thumbnailTask: Task<Void, Never>?
     /// Recently hovered tabs' thumbnails.
     var thumbnails = TabThumbnailCache()
@@ -70,6 +72,9 @@ final class TabHoverCardController: HoverCardSource {
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
         self.coordinator = coordinator
+        #if DEBUG
+        HoverCardGallery.register("tabs") { TabHoverCardGallery.cards() }
+        #endif
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         source.setEventHandler { [weak self] in
             Task { @MainActor in
@@ -119,7 +124,7 @@ final class TabHoverCardController: HoverCardSource {
         else { return nil }
         return HoverCardHit(
             target: HoverTarget(id: Self.targetID(target.id), window: window.windowNumber,
-                                delay: delay, leave: leave),
+                                delay: target.id.isGroupChip ? DesignSettings.shared.groupHoverCard.delay : delay, leave: leave),
             anchor: target.anchor
         )
     }
@@ -138,6 +143,15 @@ final class TabHoverCardController: HoverCardSource {
 
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
         guard let strip, let tab = tabID(id), let content = self.content(for: tab) else { return nil }
+        if let group = tab.chipGroupID, let item = strip.groups.byID[group] {
+            let body = groupBody ?? GroupHoverCardView()
+            groupBody = body
+            body.configure(strip.groupHoverSummary(item, options: DesignSettings.shared.groupHoverCard, now: now()))
+            bodyID = id
+            return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip) { [weak body] in
+                body?.applyColors()
+            }
+        }
         let body = body ?? TabHoverCardView()
         self.body = body
         body.configure(content)
@@ -195,6 +209,7 @@ final class TabHoverCardController: HoverCardSource {
         // Its frame stays as it is while it fades out.
         if !cardIsShowing() {
             body?.setThumbnail(nil)
+            body?.resetResourceHistory()
             opensFresh = true
         }
     }
@@ -233,6 +248,7 @@ final class TabHoverCardController: HoverCardSource {
     func tokensChanged() {
         coordinator.dismiss(.action)
         body = nil
+        groupBody = nil
         bodyID = nil
     }
 

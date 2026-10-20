@@ -11,23 +11,41 @@ extension ScreenContentView {
     /// Advances springs by `dt` with the frame's motion `policy`. Returns
     /// true while anything still moves. A screen at rest (a drag frame that
     /// moved nothing, a still pointer) does no work.
-    func step(_ dt: Double, policy: MotionPolicy = Motion.policy) -> Bool {
-        guard hasMotion || reportScrollOnSettle else { return false }
+    func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool {
+        guard hasMotion || reportScrollOnSettle else {
+            scrollRidesFrames = false
+            return false
+        }
         var moving = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
+        // The panes and dividers are one motion: none settles on its own (an edge with a shorter
+        // travel would snap frames before the others and change the gap beside it); they all land
+        // in the frame the last one comes within a quarter point of rest.
         for key in Array(paneFrames.keys) {
             let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
-            if paneFrames[key]?.advance(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
-                                        alphaParameters: appear) == true { moving = true }
+            if paneFrames[key]?.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
+                                                 alphaParameters: appear) == true { moving = true }
         }
         for key in Array(dividerFrames.keys) {
-            if dividerFrames[key]?.advance(dt, parameters: frameSpring) == true { moving = true }
+            if dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) == true { moving = true }
         }
-        if stepRows(dt, policy: policy) { moving = true }
+        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) {
+            for key in Array(paneFrames.keys) { paneFrames[key]?.snapGeometry() }
+            for key in Array(dividerFrames.keys) { dividerFrames[key]?.snapGeometry() }
+        } else {
+            moving = true
+        }
+        // A close's camera shift (strip and rows) stays on the close spring until it rests, not only while
+        // the panes move: closing the last column moves no pane, and a switch to the scroll spring
+        // when the panes land changes the curve mid-motion (Lawrence 2026-10-20).
+        let cameraSpring = scrollRidesFrames ? frameSpring : policy.spring(.scroll)
+        if stepRows(dt, spring: cameraSpring) { moving = true }
         if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
-        if scrollRidesFrames, !paneFrames.values.contains(where: { $0.rect != $0.targetRect }) { scrollRidesFrames = false }
+        let panesMoving = paneFrames.values.contains { $0.rect != $0.targetRect }
+        // The panes landed: their terminals' grids go to the PTY once, now.
+        if closing, !panesMoving { closing = false }
         if !isUserScrolling {
-            if scroll.advance(dt, parameters: scrollRidesFrames ? frameSpring : policy.spring(.scroll), epsilon: 0.25) {
+            if scroll.advance(dt, parameters: cameraSpring, epsilon: 0.25) {
                 moving = true
                 scrollbarFlash = true
             } else if reportScrollOnSettle {
@@ -35,21 +53,26 @@ extension ScreenContentView {
                 reportLeadingColumn()
             }
         }
+        if !moving { scrollRidesFrames = false }
         applyPresentation()
         // A zoom that landed in this frame lets go of the panes it covered.
         releaseCovered()
         return moving
     }
-    /// A close's first frame of the pane, divider and (riding them) camera springs, in the change
-    /// that starts them, once `syncScroll` placed the camera: the frame that drops the closed pane
-    /// already shows its neighbours covering some of its space.
-    func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.policy) {
+    /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
+    /// each row column's, in the change that starts them, once `syncScroll` placed the camera: the
+    /// frame that drops the closed pane already shows its neighbours covering some of its space,
+    /// and the shift the close needs (the last column or row closed) already under way.
+    func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.panes.policy) {
         guard leadsFrame else { return }
         leadsFrame = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
         for key in Array(paneFrames.keys) { _ = paneFrames[key]?.advance(dt, parameters: frameSpring, alphaParameters: appear) }
         for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advance(dt, parameters: frameSpring) }
-        if scrollRidesFrames, !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
+        if scrollRidesFrames {
+            if !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
+            _ = stepRows(dt, spring: frameSpring)
+        }
         applyPresentation()
     }
 
@@ -73,6 +96,10 @@ extension ScreenContentView {
             // Before the frame moves: chrome that re-checks itself on the move reads the rest.
             let rest = frame.targetRect.offsetBy(dx: scrolls ? restStrip : 0, dy: -rowOffset(of: pane))
             host.restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
+            // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
+            let springing = frame.rect != frame.targetRect
+            if springing { host.isOnLayoutSpring = true }
+            defer { if !springing { host.isOnLayoutSpring = false } }
             if host.frame != placed {
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a
