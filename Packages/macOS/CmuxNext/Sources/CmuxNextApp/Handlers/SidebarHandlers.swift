@@ -20,7 +20,6 @@ enum SidebarHandlers {
                 "vaultFocusSession", "vaultOpenSession", "vaultResumeInNewWorkspace", "vaultCopyResumeCommand",
                 "vaultOpenPullRequest",
             ]),
-            ("match-terminal-background", ["palette.toggleMatchTerminalBackground"]),
         ]
         for (feature, ids) in features {
             for id in ids { registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature)) }
