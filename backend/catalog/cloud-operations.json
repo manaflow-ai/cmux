@@ -2700,6 +2700,14 @@
             "kind": "primitive",
             "name": "int64"
           }
+        },
+        "member_count": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          },
+          "description": "A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them."
         }
       }
     },
@@ -2714,6 +2722,14 @@
         "failed",
         "suppressed",
         "refused_env"
+      ]
+    },
+    "HomeGrantableRole": {
+      "kind": "enum",
+      "values": [
+        "admin",
+        "member",
+        "read_only"
       ]
     },
     "HomeInboxEntry": {
@@ -2808,6 +2824,21 @@
           "type": {
             "kind": "primitive",
             "name": "boolean"
+          }
+        },
+        "large": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed)."
+        },
+        "member_count": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
           }
         },
         "unread": {
@@ -3451,11 +3482,8 @@
         "role": {
           "required": false,
           "type": {
-            "kind": "enum",
-            "values": [
-              "owner",
-              "member"
-            ]
+            "kind": "ref",
+            "name": "HomeParticipantRole"
           }
         },
         "joined_seq": {
@@ -3527,6 +3555,15 @@
           }
         }
       }
+    },
+    "HomeParticipantRole": {
+      "kind": "enum",
+      "values": [
+        "owner",
+        "admin",
+        "member",
+        "read_only"
+      ]
     },
     "HomePartRef": {
       "kind": "object",
@@ -22028,6 +22065,15 @@
             "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
             "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
           },
+          "HomeParticipantRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "read_only"
+            ]
+          },
           "Timestamp": {
             "type": "string",
             "description": "RFC 3339 UTC with milliseconds."
@@ -22064,11 +22110,7 @@
                 "type": "string"
               },
               "role": {
-                "type": "string",
-                "enum": [
-                  "owner",
-                  "member"
-                ]
+                "$ref": "#/$defs/HomeParticipantRole"
               },
               "joined_seq": {
                 "type": "integer",
@@ -22800,6 +22842,11 @@
               "retention_days": {
                 "type": "integer",
                 "minimum": 30
+              },
+              "member_count": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them."
               }
             },
             "required": [
@@ -24014,6 +24061,231 @@
         }
       }
     },
+    "conversation.members": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "conversation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "after": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "members": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HomeParticipant"
+              }
+            }
+          },
+          "member_count": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "next": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "chat members",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "home"
+      },
+      "docs": "Page the current members in join order (default 200, at most 1000); pass next as after for the next page. Works for every conversation; a large group's head carries only a roster.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "after": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "conversation"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/HomeParticipant"
+            }
+          },
+          "member_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "next": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "members",
+          "member_count"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ParticipantId": {
+            "type": "string",
+            "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
+            "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          },
+          "HomeParticipantRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "read_only"
+            ]
+          },
+          "Timestamp": {
+            "type": "string",
+            "description": "RFC 3339 UTC with milliseconds."
+          },
+          "HomeParticipant": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent",
+                  "address"
+                ]
+              },
+              "display_name": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "agent_class": {
+                "type": "string",
+                "enum": [
+                  "mux",
+                  "agent"
+                ]
+              },
+              "acp_session": {
+                "type": "string"
+              },
+              "owner_user": {
+                "type": "string"
+              },
+              "role": {
+                "$ref": "#/$defs/HomeParticipantRole"
+              },
+              "joined_seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "added_by": {
+                "type": "string"
+              },
+              "left_at": {
+                "$ref": "#/$defs/Timestamp"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "display_name"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "conversation.settings.set": {
       "class": "mutation",
       "idempotency": "required",
@@ -24386,6 +24658,15 @@
             "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
             "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
           },
+          "HomeParticipantRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "read_only"
+            ]
+          },
           "Timestamp": {
             "type": "string",
             "description": "RFC 3339 UTC with milliseconds."
@@ -24422,11 +24703,7 @@
                 "type": "string"
               },
               "role": {
-                "type": "string",
-                "enum": [
-                  "owner",
-                  "member"
-                ]
+                "$ref": "#/$defs/HomeParticipantRole"
               },
               "joined_seq": {
                 "type": "integer",
@@ -25158,6 +25435,11 @@
               "retention_days": {
                 "type": "integer",
                 "minimum": 30
+              },
+              "member_count": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them."
               }
             },
             "required": [
@@ -26179,6 +26461,15 @@
             "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
             "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
           },
+          "HomeParticipantRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "read_only"
+            ]
+          },
           "Timestamp": {
             "type": "string",
             "description": "RFC 3339 UTC with milliseconds."
@@ -26215,11 +26506,7 @@
                 "type": "string"
               },
               "role": {
-                "type": "string",
-                "enum": [
-                  "owner",
-                  "member"
-                ]
+                "$ref": "#/$defs/HomeParticipantRole"
               },
               "joined_seq": {
                 "type": "integer",
@@ -26951,6 +27238,11 @@
               "retention_days": {
                 "type": "integer",
                 "minimum": 30
+              },
+              "member_count": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them."
               }
             },
             "required": [
@@ -37501,6 +37793,14 @@
               "removed": {
                 "type": "boolean"
               },
+              "large": {
+                "type": "boolean",
+                "description": "A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed)."
+              },
+              "member_count": {
+                "type": "integer",
+                "minimum": 0
+              },
               "unread": {
                 "type": "integer",
                 "minimum": 0
@@ -37905,6 +38205,14 @@
               "removed": {
                 "type": "boolean"
               },
+              "large": {
+                "type": "boolean",
+                "description": "A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed)."
+              },
+              "member_count": {
+                "type": "integer",
+                "minimum": 0
+              },
               "unread": {
                 "type": "integer",
                 "minimum": 0
@@ -38159,6 +38467,14 @@
               },
               "removed": {
                 "type": "boolean"
+              },
+              "large": {
+                "type": "boolean",
+                "description": "A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed)."
+              },
+              "member_count": {
+                "type": "integer",
+                "minimum": 0
               },
               "unread": {
                 "type": "integer",
@@ -38450,6 +38766,14 @@
               "removed": {
                 "type": "boolean"
               },
+              "large": {
+                "type": "boolean",
+                "description": "A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed)."
+              },
+              "member_count": {
+                "type": "integer",
+                "minimum": 0
+              },
               "unread": {
                 "type": "integer",
                 "minimum": 0
@@ -38715,6 +39039,14 @@
               },
               "removed": {
                 "type": "boolean"
+              },
+              "large": {
+                "type": "boolean",
+                "description": "A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed)."
+              },
+              "member_count": {
+                "type": "integer",
+                "minimum": 0
               },
               "unread": {
                 "type": "integer",
@@ -45634,6 +45966,150 @@
         "$defs": {}
       }
     },
+    "ownership.transfer": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "conversation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "participant": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ParticipantId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "invalid_participant",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "unknown_participant",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat transfer",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Hand a group to another current person (the owner only). You stay as an admin.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "participant": {
+            "$ref": "#/$defs/ParticipantId"
+          }
+        },
+        "required": [
+          "conversation",
+          "participant"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "ParticipantId": {
+            "type": "string",
+            "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
+            "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
     "participant.avatar.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -46058,6 +46534,13 @@
               "name": "HomeParticipantInput"
             }
           },
+          "role": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "HomeGrantableRole"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -46083,16 +46566,19 @@
         "archived",
         "auth.forbidden",
         "auth.unauthenticated",
+        "banned",
         "duplicate_participant",
         "forbidden",
         "home.rate_limited",
         "home.user_not_ready",
         "idempotency.conflict",
         "invalid_participant",
+        "invalid_role",
         "kind_forbids",
         "not_participant",
         "not_reachable",
         "owner.unreachable",
+        "read_only",
         "unknown_conversation",
         "validation.invalid"
       ],
@@ -46119,7 +46605,7 @@
         "expose": "opt_in",
         "group": "home"
       },
-      "docs": "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.",
+      "docs": "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows. role (default member) is at most your own; only the owner adds an admin. A group past 64 members becomes a large group (member rows, a roster in the head). A banned person needs participants.unban first. Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -46129,6 +46615,9 @@
           },
           "participant": {
             "$ref": "#/$defs/HomeParticipantInput"
+          },
+          "role": {
+            "$ref": "#/$defs/HomeGrantableRole"
           }
         },
         "required": [
@@ -46181,6 +46670,14 @@
               "display_name"
             ],
             "additionalProperties": true
+          },
+          "HomeGrantableRole": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "read_only"
+            ]
           }
         }
       },
@@ -46241,6 +46738,13 @@
               "name": "ParticipantId"
             }
           },
+          "ban": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -46298,7 +46802,319 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Leave (yourself), or remove a participant (conversation owner; a chief's owner for that chief). Removing the last human archives the conversation.",
+      "docs": "Leave (yourself), or remove someone below you (an admin or the owner; a chief's owner for that chief). ban: true (admins and the owner) keeps them out of adds and invites until participants.unban. A removed person's sockets close at once. Removing the last human archives the conversation.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "participant": {
+            "$ref": "#/$defs/ParticipantId"
+          },
+          "ban": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "conversation",
+          "participant"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "ParticipantId": {
+            "type": "string",
+            "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
+            "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
+    "participants.set_role": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "conversation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "participant": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ParticipantId"
+            }
+          },
+          "role": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HomeGrantableRole"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "invalid_participant",
+        "invalid_role",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "read_only",
+        "unknown_conversation",
+        "unknown_participant",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat role",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "home"
+      },
+      "docs": "Set a group member's role: admin (the owner only), member or read_only. You change only people below you; an admin never changes another admin. A read_only member reads, moves its read cursor and leaves, and never writes.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "participant": {
+            "$ref": "#/$defs/ParticipantId"
+          },
+          "role": {
+            "$ref": "#/$defs/HomeGrantableRole"
+          }
+        },
+        "required": [
+          "conversation",
+          "participant",
+          "role"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "ParticipantId": {
+            "type": "string",
+            "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
+            "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          },
+          "HomeGrantableRole": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "read_only"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
+    "participants.unban": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "conversation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "participant": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ParticipantId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat unban",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "home"
+      },
+      "docs": "Lift a ban (admins and the owner), so the person may be added or invited again.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

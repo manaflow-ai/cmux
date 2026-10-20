@@ -4,6 +4,73 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Run a chief's brain locally (on a host) or in the cloud (the chief's owner).
+    MuxConfigureOp {
+        name: "mux.configure",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:MuxDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: MuxConfigureParams,
+        result: Value,
+        error: MuxConfigureError,
+    }
+}
+
+wire_enum! {
+    MuxConfigureParamsBrain {
+        Local = "local",
+        Cloud = "cloud",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MuxConfigureParams {
+    pub agent: AgentId,
+    pub brain: MuxConfigureParamsBrain,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub brain_host: Option<Option<String>>,
+}
+
+wire_errors! {
+    /// The error codes mux.configure declares.
+    MuxConfigureError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// List the caller-owned private Cloud networks.
+    NetworkListOp {
+        name: "network.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session],
+        params: NetworkListParams,
+        result: NetworkListResult,
+        error: NetworkListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NetworkListParams {}
+
+wire_enum! {
+    NetworkListResultNetworksItemScope {
+        User = "user",
+        Team = "team",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NetworkListResultNetworksItem {
     pub id: String,
@@ -22,6 +89,45 @@ wire_errors! {
     /// The error codes network.list declares.
     NetworkListError {
         AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Hand a group to another current person (the owner only). You stay as an admin.
+    OwnershipTransferOp {
+        name: "ownership.transfer",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "destructive",
+        principals: [Session],
+        params: OwnershipTransferParams,
+        result: HomeConversationCommit,
+        error: OwnershipTransferError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OwnershipTransferParams {
+    pub conversation: ConversationId,
+    pub participant: ParticipantId,
+}
+
+wire_errors! {
+    /// The error codes ownership.transfer declares.
+    OwnershipTransferError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParticipant = "invalid_participant",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
     }
 }
 
@@ -128,7 +234,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.
+    /// Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows. role (default member) is at most your own; only the owner adds an admin. A group past 64 members becomes a large group (member rows, a roster in the head). A banned person needs participants.unban first. Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.
     ParticipantsAddOp {
         name: "participants.add",
         class: Mutation,
@@ -146,6 +252,8 @@ wire_op! {
 pub struct ParticipantsAddParams {
     pub conversation: ConversationId,
     pub participant: HomeParticipantInput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<HomeGrantableRole>,
 }
 
 wire_errors! {
@@ -154,23 +262,26 @@ wire_errors! {
         Archived = "archived",
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
+        Banned = "banned",
         DuplicateParticipant = "duplicate_participant",
         Forbidden = "forbidden",
         HomeRateLimited = "home.rate_limited",
         HomeUserNotReady = "home.user_not_ready",
         IdempotencyConflict = "idempotency.conflict",
         InvalidParticipant = "invalid_participant",
+        InvalidRole = "invalid_role",
         KindForbids = "kind_forbids",
         NotParticipant = "not_participant",
         NotReachable = "not_reachable",
         OwnerUnreachable = "owner.unreachable",
+        ReadOnly = "read_only",
         UnknownConversation = "unknown_conversation",
         ValidationInvalid = "validation.invalid",
     }
 }
 
 wire_op! {
-    /// Leave (yourself), or remove a participant (conversation owner; a chief's owner for that chief). Removing the last human archives the conversation.
+    /// Leave (yourself), or remove someone below you (an admin or the owner; a chief's owner for that chief). ban: true (admins and the owner) keeps them out of adds and invites until participants.unban. A removed person's sockets close at once. Removing the last human archives the conversation.
     ParticipantsRemoveOp {
         name: "participants.remove",
         class: Mutation,
@@ -188,6 +299,8 @@ wire_op! {
 pub struct ParticipantsRemoveParams {
     pub conversation: ConversationId,
     pub participant: ParticipantId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ban: Option<bool>,
 }
 
 wire_errors! {
@@ -203,6 +316,85 @@ wire_errors! {
         OwnerUnreachable = "owner.unreachable",
         UnknownConversation = "unknown_conversation",
         UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set a group member's role: admin (the owner only), member or read_only. You change only people below you; an admin never changes another admin. A read_only member reads, moves its read cursor and leaves, and never writes.
+    ParticipantsSetRoleOp {
+        name: "participants.set_role",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ParticipantsSetRoleParams,
+        result: HomeConversationCommit,
+        error: ParticipantsSetRoleError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantsSetRoleParams {
+    pub conversation: ConversationId,
+    pub participant: ParticipantId,
+    pub role: HomeGrantableRole,
+}
+
+wire_errors! {
+    /// The error codes participants.set_role declares.
+    ParticipantsSetRoleError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParticipant = "invalid_participant",
+        InvalidRole = "invalid_role",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        ReadOnly = "read_only",
+        UnknownConversation = "unknown_conversation",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Lift a ban (admins and the owner), so the person may be added or invited again.
+    ParticipantsUnbanOp {
+        name: "participants.unban",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ParticipantsUnbanParams,
+        result: HomeConversationCommit,
+        error: ParticipantsUnbanError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantsUnbanParams {
+    pub conversation: ConversationId,
+    pub participant: ParticipantId,
+}
+
+wire_errors! {
+    /// The error codes participants.unban declares.
+    ParticipantsUnbanError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
         ValidationInvalid = "validation.invalid",
     }
 }
@@ -704,199 +896,5 @@ wire_errors! {
         SelectorNotFound = "selector.not_found",
         SsoDiscoveryFailed = "sso.discovery_failed",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Create an OIDC connection in draft (owners and admins). Then set its client secret and activate it.
-    SsoConnectionCreateOp {
-        name: "sso.connection.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: SsoConnectionCreateParams,
-        result: SsoConnection,
-        error: SsoConnectionCreateError,
-    }
-}
-
-wire_enum! {
-    SsoConnectionCreateParamsJitDefaultRole {
-        Member = "member",
-        Admin = "admin",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionCreateParamsJit {
-    pub enabled: bool,
-    pub default_role: SsoConnectionCreateParamsJitDefaultRole,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionCreateParams {
-    pub issuer: String,
-    pub client_id: String,
-    pub domains: Vec<EmailDomain>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scopes: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub jit: Option<SsoConnectionCreateParamsJit>,
-}
-
-wire_errors! {
-    /// The error codes sso.connection.create declares.
-    SsoConnectionCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Disable a connection (owners and admins): sign-in discovery stops routing to it.
-    SsoConnectionDisableOp {
-        name: "sso.connection.disable",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: SsoConnectionDisableParams,
-        result: SsoConnection,
-        error: SsoConnectionDisableError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionDisableParams {
-    pub connection: SsoConnectionId,
-}
-
-wire_errors! {
-    /// The error codes sso.connection.disable declares.
-    SsoConnectionDisableError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The team's SSO connections, without secrets (owners and admins).
-    SsoConnectionListOp {
-        name: "sso.connection.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session],
-        params: SsoConnectionListParams,
-        result: SsoConnectionListResult,
-        error: SsoConnectionListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionListResult {
-    pub team: TeamId,
-    pub connections: Vec<SsoConnection>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes sso.connection.list declares.
-    SsoConnectionListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Seal the OIDC client secret (owners and admins). The secret is never returned, logged or recorded in events.
-    SsoConnectionSetSecretOp {
-        name: "sso.connection.set_secret",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: SsoConnectionSetSecretParams,
-        result: SsoConnection,
-        error: SsoConnectionSetSecretError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionSetSecretParams {
-    pub connection: SsoConnectionId,
-    pub client_secret: String,
-}
-
-wire_errors! {
-    /// The error codes sso.connection.set_secret declares.
-    SsoConnectionSetSecretError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        SsoNotConfigured = "sso.not_configured",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount.
-    TeamAiLimitGetOp {
-        name: "team.ai_limit.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamAiLimitGetParams,
-        result: TeamAiLimitGetResult,
-        error: TeamAiLimitGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitGetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitGetResult {
-    pub team: String,
-    pub default_usd: WireNumber,
-    pub is_default: bool,
-    pub resets_at: i64,
-    pub me: TeamAiLimitMember,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub members: Option<Vec<TeamAiLimitMember>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team_usage: Option<TeamAiUsageLine>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub next_cursor: Option<Option<String>>,
-}
-
-wire_errors! {
-    /// The error codes team.ai_limit.get declares.
-    TeamAiLimitGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
     }
 }

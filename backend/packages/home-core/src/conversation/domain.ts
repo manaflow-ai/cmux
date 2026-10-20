@@ -10,12 +10,13 @@ import { formatRfc3339Millis } from "./ids.ts"
 import { IMPORT_OPS, reduceImport } from "./import.ts"
 import { mentionsOf, type UnreadCounts } from "./fanout.ts"
 import { commitOutbox, createOutbox } from "./outbox.ts"
+import { focusOf, isLarge, namedBy, needsPromotion, promote, settle, viewHead } from "./large.ts"
 import { actorOf, defaultParticipantPolicy, FALLBACK_NAME, stampParticipant, type ParticipantPolicy } from "./policy.ts"
-import type { OpRequest } from "./request.ts"
+import type { Commit, OpRequest } from "./request.ts"
 import { SYSTEM_ACTOR, type ConversationHead, type ConversationKind, type Invite, type Message, type Op, type Participant } from "./types.ts"
 import { currentParticipant, safeDisplayName } from "./validate.ts"
 import { reduceSweep, SWEEP_OP } from "./sweep.ts"
-import { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
+import { inviteWrites, msgKey, TABLE_BAN, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 
 export { actorOf } from "./policy.ts"
 
@@ -30,6 +31,7 @@ export { actorOf } from "./policy.ts"
  * - `inv`: key = invite id, row = Invite (every invite, also closed ones).
  * - `invhash`: key = token hash, row = { invite_id }.
  * - `attref`: key = `<hash>:<message id>`, row = { hash, message_id, seq } (private; attachments.ts).
+ * - `ban`: key = participant id, row = { by, at }; a person removed with `ban` (roles.ts), private.
  * - `consent`: key = author id, row = { at }; a DM author's private consent marker (consent.ts),
  *   never deleted by retention.
  *
@@ -42,7 +44,7 @@ export { actorOf } from "./policy.ts"
  * which the Domain hashes. A token hash seen in an event or row is useless,
  * and a proof appears only in the accept event, after its single use.
  */
-export { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
+export { inviteWrites, msgKey, TABLE_BAN, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 
 export type ConversationState = ConversationHead | null
 export type ConversationParams = Readonly<Record<string, unknown>>
@@ -145,9 +147,11 @@ const prepare = (
   ctx: ReduceContext,
   actor: string,
   options: ConversationDomainOptions
-): { op: Op; trusted?: boolean } | string => {
+): { op: Op; trusted?: boolean; banned?: boolean } | string => {
   // Params never name the actor or the op kind.
   const { actor: _actor, kind: _kind, proof, ...rest } = params as Record<string, unknown>
+  // A banned person never comes back through an invite either.
+  if ((op === "invite.accept" || op === "invite.accept_verified") && rowsOf(ctx).get(TABLE_BAN, actor)) return "banned"
   if (op === "invite.accept_verified") {
     return { op: { kind: "invite.accept_verified", display_name: safeDisplayName(ctx.principal.display_name, FALLBACK_NAME) } }
   }
@@ -167,7 +171,9 @@ const prepare = (
     if (typeof participant !== "object" || participant === null) return "invalid_participant"
     const decision = (options.participantPolicy ?? defaultParticipantPolicy)(ctx.principal, participant as Participant, head)
     if (!decision.ok) return decision.code
-    return { op: { kind: "participants.add", participant: stampParticipant(participant as Participant, decision) }, trusted: true }
+    const role = rest.role === undefined ? {} : { role: rest.role as Participant["role"] & string }
+    const banned = typeof (participant as Participant).id === "string" && rowsOf(ctx).get(TABLE_BAN, (participant as Participant).id) !== undefined
+    return { op: { kind: "participants.add", participant: stampParticipant(participant as Participant, decision), ...role } as Op, trusted: true, banned }
   }
   if (op === "message.send" && typeof rest.client_msg_id === "string") {
     // The owner and the client's own intent preview pass the key; mirror replay does not.
@@ -219,6 +225,29 @@ const unreadBefore = (before: ConversationHead, after: ConversationHead, op: Op,
   return counts
 }
 
+/** The open invite an invite op names in the head (its address is a member row the view loads). */
+const inviteNamed = (head: ConversationHead, op: Op): Invite | undefined => {
+  const id = op.kind === "invite.revoke" || op.kind === "invite.approve_join" || op.kind === "invite.delivery.report" ? op.invite_id : undefined
+  const hash = op.kind === "invite.accept" ? op.token_hash : undefined
+  return head.invites?.find((invite) => invite.id === id || (hash !== undefined && invite.token_hash === hash))
+}
+
+/**
+ * Counts before the commit for the people a large-group commit bumps (large.ts focusOf), each
+ * recounted from its cursor: at most UNREAD_RECOUNT_LIMIT messages per named person, never a
+ * pass over every member.
+ */
+const focusCounts = (before: ConversationHead, after: ConversationHead, request: OpRequest, commit: Commit, rows: RowReader): Record<string, UnreadCounts> => {
+  const counts: Record<string, UnreadCounts> = {}
+  for (const user of focusOf(request, commit.message)) {
+    const wasMember = before.participants.some((p) => p.id === user && p.left_at === undefined)
+    const record = (wasMember ? before : after).participants.find((p) => p.id === user)
+    if (record?.kind !== "human") continue
+    counts[user] = recount(rows, user, unreadFloor(after.read_cursors[user] !== before.read_cursors[user] || !wasMember ? after : before, user))
+  }
+  return counts
+}
+
 const reduceConversation = (
   options: ConversationDomainOptions,
   state: ConversationState,
@@ -237,8 +266,13 @@ const reduceConversation = (
   if (typeof prepared === "string") return refuse(prepared)
   const coreOp = prepared.op
   const loaded = loadInvite(state, ctx, coreOp)
-  const head: ConversationHead = loaded ? { ...state, invites: [...(state.invites ?? []), loaded] } : state
   const messageId = targetMessageId(coreOp)
+  const targetRow = messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null)
+  const lastMessage = rowsOf(ctx).range<Message>(TABLE_MSG, { limit: 1, desc: true })[0]?.row ?? null
+  // A large group runs the op on a view head: the roster plus the member rows it names (large.ts).
+  const invite = loaded ?? inviteNamed(state, coreOp)
+  const base = isLarge(state) ? viewHead(state, rowsOf(ctx), namedBy(coreOp, actor, [lastMessage, targetRow], invite?.address)) : state
+  const head: ConversationHead = loaded ? { ...base, invites: [...(base.invites ?? []), loaded] } : base
   const replyId = coreOp.kind === "message.send" ? coreOp.reply_to?.message_id : undefined
   const threadId = coreOp.kind === "message.send" && typeof coreOp.thread_root === "string" ? coreOp.thread_root : undefined
   const floor = historyFloor(head, actor)
@@ -254,18 +288,16 @@ const reduceConversation = (
     new_message_id: coreOp.kind === "message.send" ? ctx.newId("msg") : "",
     // A thread root below the actor's history floor is refused like a missing one (the thread
     // read's rule), so thread.update never probes or changes hidden history.
-    target: (() => {
-      const row = messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null)
-      return coreOp.kind === "thread.update" ? visible(row) : row
-    })(),
+    target: coreOp.kind === "thread.update" ? visible(targetRow) : targetRow,
     // A reply target or thread root below the actor's history floor (since_join) is not visible
     // to it: refused like a missing one, so a send never probes hidden history.
     reply_target: visible(replyId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, replyId)?.row ?? null)),
     thread_target: visible(threadRow),
     // The loop guard lives in the head (O(1)); only the newest message is read, for summaries.
-    last_message: rowsOf(ctx).range<Message>(TABLE_MSG, { limit: 1, desc: true })[0]?.row ?? null,
+    last_message: lastMessage,
     actor_addresses: verified ? options.addressIdsFor!(ctx.principal) : null,
-    trusted_participant: prepared.trusted ?? null
+    trusted_participant: prepared.trusted ?? null,
+    banned: prepared.banned ?? null
   }
   const result = apply(head, request)
   if (!result.ok) return refuse(result.code)
@@ -291,9 +323,31 @@ const reduceConversation = (
     }
   }
   writes.push(...inviteWrites(head.invites ?? [], commit.head.invites ?? []))
-  const next: ConversationHead = commit.head.invites ? { ...commit.head, invites: commit.head.invites.filter(isOpen) } : commit.head
-  const counts = unreadBefore(head, commit.head, coreOp, rowsOf(ctx))
-  const outbox = commitOutbox(head, request, commit, counts)
+  if (coreOp.kind === "participants.remove" && coreOp.ban === true) {
+    writes.push({ table: TABLE_BAN, op: "upsert", key: coreOp.participant, n: null, row: { by: actor, at: request.now } })
+  }
+  if (coreOp.kind === "participants.unban") writes.push({ table: TABLE_BAN, op: "delete", key: coreOp.participant })
+  // The head to store, and the commit the outbox describes (a large group's counts and tier).
+  let stored: ConversationHead = commit.head
+  let described: Commit = commit
+  let everyone = false
+  if (isLarge(state)) {
+    const settled = settle(state, head, commit.head, rowsOf(ctx))
+    writes.push(...settled.writes)
+    stored = settled.head
+    const { member_count, human_count, state: lifecycle } = settled.head
+    described = { ...commit, head: { ...commit.head, member_count, human_count, ...(lifecycle === undefined ? {} : { state: lifecycle }) } }
+  } else if (needsPromotion(commit.head)) {
+    // Once, in the commit that crosses INLINE_MAX: every member's inbox learns the group is large.
+    const promoted = promote(commit.head)
+    writes.push(...promoted.writes)
+    stored = promoted.head
+    described = { ...commit, head: { ...commit.head, tier: "large", member_count: promoted.head.member_count, human_count: promoted.head.human_count } }
+    everyone = true
+  }
+  const next: ConversationHead = stored.invites ? { ...stored, invites: stored.invites.filter(isOpen) } : stored
+  const counts = isLarge(state) ? focusCounts(head, described.head, request, commit, rowsOf(ctx)) : unreadBefore(head, commit.head, coreOp, rowsOf(ctx))
+  const outbox = commitOutbox(head, request, described, counts, everyone)
   // The counts each bump carries become the stored counts (the next commit starts from them).
   for (const item of outbox) {
     const p = item.payload as { user?: string; unread?: number; mentions?: number }

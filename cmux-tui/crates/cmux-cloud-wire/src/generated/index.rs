@@ -53,6 +53,7 @@ pub mod op_names {
     pub const CONVERSATION_HISTORY: &str = "conversation.history";
     pub const CONVERSATION_IMPORT: &str = "conversation.import";
     pub const CONVERSATION_IMPORT_COMMIT: &str = "conversation.import.commit";
+    pub const CONVERSATION_MEMBERS: &str = "conversation.members";
     pub const CONVERSATION_SETTINGS_SET: &str = "conversation.settings.set";
     pub const CONVERSATION_SNAPSHOT: &str = "conversation.snapshot";
     pub const CONVERSATION_THREAD: &str = "conversation.thread";
@@ -124,10 +125,13 @@ pub mod op_names {
     pub const MUX_ACK: &str = "mux.ack";
     pub const MUX_CONFIGURE: &str = "mux.configure";
     pub const NETWORK_LIST: &str = "network.list";
+    pub const OWNERSHIP_TRANSFER: &str = "ownership.transfer";
     pub const PARTICIPANT_AVATAR_GET: &str = "participant.avatar.get";
     pub const PARTICIPANT_AVATAR_SET: &str = "participant.avatar.set";
     pub const PARTICIPANTS_ADD: &str = "participants.add";
     pub const PARTICIPANTS_REMOVE: &str = "participants.remove";
+    pub const PARTICIPANTS_SET_ROLE: &str = "participants.set_role";
+    pub const PARTICIPANTS_UNBAN: &str = "participants.unban";
     pub const PUSH_TARGET_REGISTER: &str = "push.target.register";
     pub const PUSH_TARGET_REMOVE: &str = "push.target.remove";
     pub const REACTION_ADD: &str = "reaction.add";
@@ -247,6 +251,7 @@ pub mod op_names {
         CONVERSATION_HISTORY,
         CONVERSATION_IMPORT,
         CONVERSATION_IMPORT_COMMIT,
+        CONVERSATION_MEMBERS,
         CONVERSATION_SETTINGS_SET,
         CONVERSATION_SNAPSHOT,
         CONVERSATION_THREAD,
@@ -318,10 +323,13 @@ pub mod op_names {
         MUX_ACK,
         MUX_CONFIGURE,
         NETWORK_LIST,
+        OWNERSHIP_TRANSFER,
         PARTICIPANT_AVATAR_GET,
         PARTICIPANT_AVATAR_SET,
         PARTICIPANTS_ADD,
         PARTICIPANTS_REMOVE,
+        PARTICIPANTS_SET_ROLE,
+        PARTICIPANTS_UNBAN,
         PUSH_TARGET_REGISTER,
         PUSH_TARGET_REMOVE,
         REACTION_ADD,
@@ -444,6 +452,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "conversation.history" => visitor.visit::<ConversationHistoryOp>(),
         "conversation.import" => visitor.visit::<ConversationImportOp>(),
         "conversation.import.commit" => visitor.visit::<ConversationImportCommitOp>(),
+        "conversation.members" => visitor.visit::<ConversationMembersOp>(),
         "conversation.settings.set" => visitor.visit::<ConversationSettingsSetOp>(),
         "conversation.snapshot" => visitor.visit::<ConversationSnapshotOp>(),
         "conversation.thread" => visitor.visit::<ConversationThreadOp>(),
@@ -515,10 +524,13 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "mux.ack" => visitor.visit::<MuxAckOp>(),
         "mux.configure" => visitor.visit::<MuxConfigureOp>(),
         "network.list" => visitor.visit::<NetworkListOp>(),
+        "ownership.transfer" => visitor.visit::<OwnershipTransferOp>(),
         "participant.avatar.get" => visitor.visit::<ParticipantAvatarGetOp>(),
         "participant.avatar.set" => visitor.visit::<ParticipantAvatarSetOp>(),
         "participants.add" => visitor.visit::<ParticipantsAddOp>(),
         "participants.remove" => visitor.visit::<ParticipantsRemoveOp>(),
+        "participants.set_role" => visitor.visit::<ParticipantsSetRoleOp>(),
+        "participants.unban" => visitor.visit::<ParticipantsUnbanOp>(),
         "push.target.register" => visitor.visit::<PushTargetRegisterOp>(),
         "push.target.remove" => visitor.visit::<PushTargetRemoveOp>(),
         "reaction.add" => visitor.visit::<ReactionAddOp>(),
