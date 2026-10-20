@@ -4,7 +4,9 @@ extension ActionRegistry {
     /// removed, or replaced by a chord, is left out: a chord or a numbered
     /// family cannot be one system-wide hot key. So is one whose binding's
     /// `isEnabled` is false (Message the Chief from Any App while the Chief
-    /// pet is off), which leaves its key to other apps.
+    /// pet is off), which leaves its key to other apps. A global action bound
+    /// with `requires:` or `unavailable:` would release its key the same way
+    /// while unavailable, so its predicate must read observed state.
     public func globalHotKeys() -> [ActionID: Shortcut] {
         // `isBound` reads an unobserved index; reading `actions` makes a
         // later bind or unbind re-run observers of this list.

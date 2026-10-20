@@ -544,7 +544,7 @@ Turn it on in Settings > General > Start Agent from Any App. Its key is a separa
 
 ## Message the Chief from any app
 
-Message the Chief (command palette) shows the floating Chief pet with its reply box open, turning the pet on first when it is off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette, which turns the pet on. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+Message the Chief (command palette) shows the floating Chief pet with its reply box open, turning the pet on first when it is off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Show Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette, which turns the pet on. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
 ## `palette.scopes.<scope>.prefix`
 
