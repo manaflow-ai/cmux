@@ -1745,7 +1745,8 @@ function buildRetentionOperations(
         with candidates as materialized (
           select binding.id
           from iroh_endpoint_bindings as binding
-          where binding.revoked_at < ${auditCutoffIso}::timestamptz
+          where binding.revoked_at is not null
+            and binding.revoked_at < ${auditCutoffIso}::timestamptz
             and not exists (
               select 1 from iroh_pair_grant_issuances as pair_grant
               where pair_grant.initiator_binding_id = binding.id
@@ -1841,7 +1842,8 @@ async function irohRetentionBacklogExists(
       ) or exists (
         select 1
         from iroh_endpoint_bindings as binding
-        where binding.revoked_at < ${auditRetentionCutoff.toISOString()}::timestamptz
+        where binding.revoked_at is not null
+          and binding.revoked_at < ${auditRetentionCutoff.toISOString()}::timestamptz
           and not exists (
             select 1 from iroh_pair_grant_issuances as pair_grant
             where pair_grant.initiator_binding_id = binding.id

@@ -152,10 +152,7 @@ extension CMUXCLI {
         let maximumText = cloudVMResizeValue(resource, requested: maximum)
         let resourceName = cloudVMResizeResourceLabel(resource)
         let planName = cloudVMResizePlanName(planID)
-        let upgrade = String(
-            localized: "cli.vm.resize.serverPlanLimit",
-            defaultValue: "Choose a size within the server-advertised capability or change your plan."
-        )
+        let upgrade = String(localized: "cli.vm.resize.chooseSmaller", defaultValue: "Choose a smaller size.")
         let message = String(
             format: String(
                 localized: "cli.vm.resize.planLimit",

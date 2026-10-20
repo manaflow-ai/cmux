@@ -61,7 +61,6 @@ public struct CloudAPIResponseDecoding: Sendable {
                 isPaidPlan: limits["isPaidPlan"] as? Bool,
                 memoryOptionsMb: Self.intArray(limits["memoryOptionsMb"]),
                 defaultMemoryMb: Self.positiveInt(limits["defaultMemoryMb"]),
-                vcpusByMemoryMb: Self.positiveIntMap(limits["vcpusByMemoryMb"]),
                 maxDiskMb: Self.positiveInt(limits["maxDiskMb"]),
                 maxMemoryMb: Self.positiveInt(limits["maxMemoryMb"]),
                 maxVcpus: Self.positiveInt(limits["maxVcpus"]),

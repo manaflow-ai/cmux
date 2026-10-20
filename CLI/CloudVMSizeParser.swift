@@ -1,8 +1,10 @@
+import Foundation
+
 /// Parses the user-facing `--size` spelling without embedding a server image
 /// ladder in the CLI. The control plane validates whether the resulting
 /// memory capability is currently available.
-enum CloudVMSizeParser {
-    static func parse(_ raw: String) -> Int? {
+struct CloudVMSizeParser {
+    func parse(_ raw: String) -> Int? {
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let suffix: String?
         if normalized.hasSuffix("gib") { suffix = "gib" }

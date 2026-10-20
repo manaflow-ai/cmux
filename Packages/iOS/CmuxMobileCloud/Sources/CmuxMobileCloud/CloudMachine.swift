@@ -193,8 +193,6 @@ public struct CloudMachineLimits: Sendable, Equatable {
     public var memoryOptionsMb: [Int]
     /// Memory used when a create omits an explicit size. Server-authoritative.
     public var defaultMemoryMb: Int?
-    /// vCPUs per advertised memory size, keyed by memory in MB.
-    public var vcpusByMemoryMb: [String: Int]?
     public var maxDiskMb: Int?
     public var maxMemoryMb: Int?
     public var maxVcpus: Int?
@@ -218,7 +216,6 @@ public struct CloudMachineLimits: Sendable, Equatable {
         isPaidPlan: Bool? = nil,
         memoryOptionsMb: [Int] = [],
         defaultMemoryMb: Int? = nil,
-        vcpusByMemoryMb: [String: Int]? = nil,
         maxDiskMb: Int? = nil,
         maxMemoryMb: Int? = nil,
         maxVcpus: Int? = nil,
@@ -235,7 +232,6 @@ public struct CloudMachineLimits: Sendable, Equatable {
         self.isPaidPlan = isPaidPlan
         self.memoryOptionsMb = memoryOptionsMb
         self.defaultMemoryMb = defaultMemoryMb
-        self.vcpusByMemoryMb = vcpusByMemoryMb
         self.maxDiskMb = maxDiskMb
         self.maxMemoryMb = maxMemoryMb
         self.maxVcpus = maxVcpus

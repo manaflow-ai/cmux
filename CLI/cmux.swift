@@ -4982,7 +4982,7 @@ struct CMUXCLI {
     /// `gb`, and `gib` are stable unit aliases; bare numbers are MB. The
     /// server validates whether the resulting capability is currently usable.
     static func parseCloudVMSize(_ raw: String) -> Int? {
-        CloudVMSizeParser.parse(raw)
+        CloudVMSizeParser().parse(raw)
     }
     /// All create verbs provision the same devbox. Legacy kind flags remain
     /// accepted; contradictory flags still report the caller's mistake.

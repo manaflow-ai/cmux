@@ -146,7 +146,7 @@ public struct BillingPlanClient: Sendable {
         let paidPlanIDs = ["go", "pro", "max", "team", "founders"]
         let legacyIsPro = paidPlanIDs.contains(decoded.planId?.lowercased() ?? "")
             || paidPlanIDs.contains(decoded.teamPlanId?.lowercased() ?? "")
-        let isPro = decoded.isPro ?? legacyIsPro
+        let isPro = decoded.isPro == true || legacyIsPro
         let canManageBilling = decoded.billingManagement == "stripe"
             || decoded.teamBillingManagement == "stripe"
         // `planId` is "pro" for a Max or Go subscriber; the exact personal
@@ -156,7 +156,7 @@ public struct BillingPlanClient: Sendable {
             subscriptionPlanID: decoded.subscriptionPlanId,
             planID: decoded.planId,
             teamPlanID: decoded.teamPlanId,
-            isPro: decoded.isPro == true
+            isPro: isPro
         )
         return BillingPlanDetails(
             isPro: isPro,

@@ -142,10 +142,10 @@ public func defaultCloudVMAction(status: Int, errorCode: String, response: [Stri
         // is not permission to guess Max and create a client-owned billing
         // ceiling; leave the caller with the safe smaller-size action.
         guard let planID = cloudVMString(response["upgradePlanId"]) ?? cloudVMString(details?["upgradePlanId"]) else {
-            return String(localized: "cloudVM.error.memoryRequiresPlan.unknownAction", defaultValue: "Choose a smaller machine size or check the server-advertised plan capabilities.")
+            return String(localized: "cli.vm.resize.chooseSmaller", defaultValue: "Choose a smaller size.")
         }
         guard let plan = CheckoutPlan(rawValue: planID.lowercased()), plan == .pro || plan == .max else {
-            return String(localized: "cloudVM.error.memoryRequiresPlan.unknownAction", defaultValue: "Choose a smaller machine size or check the server-advertised plan capabilities.")
+            return String(localized: "cli.vm.resize.chooseSmaller", defaultValue: "Choose a smaller size.")
         }
         let checkout = CheckoutAttribution.checkoutURL(source: .vmMemoryRequiresPlanError, plan: plan)
         if plan == .pro {

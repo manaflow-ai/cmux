@@ -435,8 +435,12 @@ struct MachinesPanelView: View {
         )
         // Keep only server-advertised resize targets visible. Missing maps are
         // an explicit compatibility boundary: the menu has no guessed ladder.
-        machineActions.resizeDiskOptionsGiB = Array(Set((viewModel.diskByMemoryMb ?? [:]).values
-            .filter { $0 > 0 && $0 % 1_024 == 0 }.map { $0 / 1_024 })).sorted()
+        var resizeDiskOptionsGiB = Set((viewModel.diskByMemoryMb ?? [:]).values
+            .filter { $0 > 0 && $0 % 1_024 == 0 }.map { $0 / 1_024 })
+        if let maxDiskMb = viewModel.maxDiskMb, maxDiskMb > 0, maxDiskMb % 1_024 == 0 {
+            resizeDiskOptionsGiB.insert(maxDiskMb / 1_024)
+        }
+        machineActions.resizeDiskOptionsGiB = resizeDiskOptionsGiB.sorted()
         machineActions.resizeDiskMaximumGiB = viewModel.maxDiskMb.map { max(0, $0 / 1_024) } ?? 0
         machineActions.resizeCPUOptions = Array(Set((viewModel.vcpusByMemoryMb ?? [:]).values
             .filter { $0 > 0 })).sorted()
