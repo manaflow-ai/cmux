@@ -186,6 +186,31 @@ fn a_state_home_below_a_non_sticky_writable_ancestor_is_refused() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn a_state_home_below_an_acl_writable_ancestor_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-acl-parent-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let shared = root.join("shared");
+    let home = shared.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let status = std::process::Command::new("/bin/chmod")
+        .args(["+a", "group:everyone allow add_file,delete_child", shared.to_str().unwrap()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let error =
+        private_state_dir(&home).expect_err("an ACL-replaceable state pathname was trusted");
+    assert!(error.to_string().contains("ACL"), "{error:#}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///

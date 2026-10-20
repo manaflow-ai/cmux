@@ -11,6 +11,7 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().with_env(&[
     ("ANTHROPIC_AUTH_TOKEN", "synthetic-daemon-token"),
     ("CMUX_REMOTE_TEST_SECRET", "synthetic-cmux-secret"),
+    ("LC_API_TOKEN", "synthetic-locale-shaped-secret"),
     ("SSH_AUTH_SOCK", "/synthetic/ssh-agent.sock"),
     ("UNRELATED_TOKEN", "synthetic-unrelated-token"),
 ]);
@@ -141,14 +142,14 @@ impl Client {
 async fn every_remote_harness_inherits_only_its_explicit_environment() {
     let d = dir("acp-environment");
     let hub = hub_with(&d, true);
-    let prompt = "envs: CMUX_REMOTE_TEST_SECRET,SSH_AUTH_SOCK,UNRELATED_TOKEN,REMOTE_PROFILE_VALUE,HOME,PATH";
+    let prompt = "envs: CMUX_REMOTE_TEST_SECRET,LC_API_TOKEN,SSH_AUTH_SOCK,UNRELATED_TOKEN,REMOTE_PROFILE_VALUE,HOME,PATH";
     let mut web = Client::new(&hub, Origin::Web);
     let remote: Value = serde_json::from_str(
         &web.run_harness(&d, Some("fakeacp"), prompt).await.unwrap_or_else(|e| panic!("{e}")),
     )
     .unwrap();
     assert_eq!(remote["REMOTE_PROFILE_VALUE"], "profile-authorized");
-    for dropped in ["CMUX_REMOTE_TEST_SECRET", "SSH_AUTH_SOCK", "UNRELATED_TOKEN"] {
+    for dropped in ["CMUX_REMOTE_TEST_SECRET", "LC_API_TOKEN", "SSH_AUTH_SOCK", "UNRELATED_TOKEN"] {
         assert_eq!(remote[dropped], "", "remote ACP child inherited {dropped}: {remote}");
     }
     assert!(remote["HOME"].as_str().is_some_and(|v| !v.is_empty()), "{remote}");
@@ -194,6 +195,7 @@ async fn a_remote_chain_inherits_only_profile_and_safe_base_environment() {
     let names = [
         "ANTHROPIC_AUTH_TOKEN",
         "CMUX_REMOTE_TEST_SECRET",
+        "LC_API_TOKEN",
         "SSH_AUTH_SOCK",
         "UNRELATED_TOKEN",
         "REMOTE_PROFILE_VALUE",
@@ -216,7 +218,7 @@ async fn a_remote_chain_inherits_only_profile_and_safe_base_environment() {
             .unwrap();
     assert_eq!(remote["ANTHROPIC_AUTH_TOKEN"], "synthetic-profile-token");
     assert_eq!(remote["REMOTE_PROFILE_VALUE"], "profile-authorized");
-    for dropped in ["CMUX_REMOTE_TEST_SECRET", "SSH_AUTH_SOCK", "UNRELATED_TOKEN"] {
+    for dropped in ["CMUX_REMOTE_TEST_SECRET", "LC_API_TOKEN", "SSH_AUTH_SOCK", "UNRELATED_TOKEN"] {
         assert_eq!(remote[dropped], "", "remote child inherited {dropped}: {remote}");
     }
     assert!(remote["HOME"].as_str().is_some_and(|v| !v.is_empty()), "{remote}");

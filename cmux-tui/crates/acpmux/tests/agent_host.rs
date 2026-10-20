@@ -7,7 +7,8 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().with_env(&[("LC_API_TOKEN", "synthetic-locale-shaped-secret")]);
 
 use acpmux::agent_host::link::{self, Connect, HostLauncher, Link};
 use acpmux::agent_host::{
@@ -144,7 +145,7 @@ async fn agent_host_parent_does_not_retain_the_controller_environment() {
     write_executable(
         &wrapper,
         &format!(
-            "#!/bin/sh\nps eww -p \"$PPID\" > \"$PARENT_ENV_PROBE\"\nexec python3 {}\n",
+            "#!/bin/sh\nps eww -p \"$PPID\" > \"$PARENT_ENV_PROBE\" || exit 97\nexec python3 {}\n",
             daemon_env::sh_quote(FAKE)
         ),
     );
@@ -159,7 +160,8 @@ async fn agent_host_parent_does_not_retain_the_controller_environment() {
     request(&owner, 1, "initialize", json!({"protocolVersion": 1})).await;
     read_until(&owner, &mut logged, |e| is_response(e, 1)).await;
     let observed = std::fs::read_to_string(&parent).unwrap();
-    for name in ["ACPMUX_TEST_HERMETIC=", "CARGO_MANIFEST_DIR="] {
+    assert!(observed.contains("HOME="), "the parent-environment control was empty");
+    for name in ["ACPMUX_TEST_HERMETIC=", "CARGO_MANIFEST_DIR=", "LC_API_TOKEN="] {
         assert!(!observed.contains(name), "agent host parent retained {name}");
     }
     owner.terminate(Duration::from_millis(500)).await.unwrap();
