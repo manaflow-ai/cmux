@@ -227,6 +227,13 @@ enum TabMoves {
     /// incognito page's title stays in memory (R102): the daemon stores the
     /// workspace name and keeps it in closed history.
     static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
+        // A conversation, page or app tab's record is titled `about:blank`, a placeholder (a New
+        // Tab page dragged to the sidebar named its workspace "about:blank"): it names a
+        // workspace after what the strip shows. An agent chat or New Tab page gives no title here.
+        if tab.kind == .conversation || tab.appTab != nil {
+            let title = tab.agentSession == nil ? TabTitleResolver(services: services).title(tab) : nil
+            return NewWorkspaceName.Tab(kind: .terminal, userName: tab.name, title: title, pageTitle: nil, url: nil, cwd: nil)
+        }
         let kind: NewWorkspaceName.Tab.Kind = switch tab.kind {
         case .pty: .terminal
         case .browser: .browser

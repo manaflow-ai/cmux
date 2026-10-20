@@ -25,6 +25,12 @@ extension RemoteTerminalService {
             registry.refuse(RemoteStrings.moveBrowserAcrossMachines)
             return completion(false)
         }
+        // A chat, New Tab, Home or page tab has no terminal to reference there: it says so
+        // instead of failing with the generic "could not move" (it stays where it was).
+        guard tab.kind == .pty || tab.kind == .remoteTerminal else {
+            registry.refuse(RemoteStrings.moveTabAcrossMachines)
+            return completion(false)
+        }
         guard let target = Self.landingPane(in: workspace) else {
             // An empty workspace (no pane yet) cannot hold the tab.
             registry.refuse(RefusalStrings.noPaneID(workspace.displayName))
@@ -82,12 +88,17 @@ extension RemoteTerminalService {
             return completion(false)
         }
         let terminalConnection = tab.kind == .remoteTerminal ? services.machines.daemon(session: ref.sessionID)?.connection : sourceConnection
+        let (name, pinned) = (tab.name.flatMap { $0.isEmpty ? nil : $0 }, tab.pinned)
         registry.track(Task { [weak self] in
             do {
                 // Kept first: closing the old tab must never end it.
                 let kept = try? await terminalConnection?.keepTerminal(ref.terminalID)
                 if let known = kept ?? resource { self?.remember(ref, resource: known) }
-                _ = try await destinationConnection.newRemoteTerminalTab(ref, in: targetHandle, title: title)
+                let created = try await destinationConnection.newRemoteTerminalTab(ref, in: targetHandle, title: title)
+                // The new tab is the same tab to the user: its name and pin come along. A daemon
+                // without tab metadata keeps the tab unpinned; the move still lands.
+                if let name { try? await destinationConnection.renameTab(created.surface, to: name) }
+                if pinned { _ = try? await destinationConnection.setTabPinned(created.surface, true) }
                 try await sourceConnection.closeTab(surface)
                 self?.forget(tabID: tab.id)
                 completion(true)

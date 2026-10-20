@@ -36,6 +36,9 @@ enum RemoteStrings {
     static var moveBrowserAcrossMachines: String {
         String(localized: "remote.terminal.moveBrowser", defaultValue: "Browser tabs cannot move to a workspace on another machine yet.", table: "Remote", bundle: .module)
     }
+    static var moveTabAcrossMachines: String {
+        String(localized: "remote.terminal.moveOtherTab", defaultValue: "Only terminal tabs can move to a workspace on another machine.", table: "Remote", bundle: .module)
+    }
     static var needsRemoteTerminalTabs: String {
         String(localized: "remote.terminal.needsCapability", defaultValue: "This workspace's machine runs a cmux-tui without terminals from other machines. Update it first.", table: "Remote", bundle: .module)
     }

@@ -48,7 +48,7 @@ public nonisolated struct NewWorkspaceName {
             }
             return clean(host)
         case .terminal, .remoteTerminal:
-            if let title = clean(tab.title), !isBareShell(title) { return title }
+            if let title = clean(tab.title), !isBareShell(title), !isPlaceholder(title) { return title }
             let directory = tab.cwd.map { URL(fileURLWithPath: $0).lastPathComponent }
             return clean(directory == "/" ? nil : directory)
         }
@@ -81,6 +81,14 @@ public nonisolated struct NewWorkspaceName {
     /// Shell names a terminal reports as its title while idle; they say
     /// nothing about the work, so the directory names the workspace.
     private static let bareShells: Set<String> = ["zsh", "bash", "fish", "sh", "nu", "dash", "ksh", "tcsh", "pwsh", "login"]
+
+    /// The blank page's and the New Tab page's addresses: what a conversation, page or app tab's
+    /// record carries as its title, never a name.
+    private static let placeholders: Set<String> = ["about:blank", "chrome://newtab", "chrome://newtab/"]
+
+    private static func isPlaceholder(_ title: String) -> Bool {
+        placeholders.contains(title.lowercased())
+    }
 
     private static func isBareShell(_ title: String) -> Bool {
         bareShells.contains(title.hasPrefix("-") ? String(title.dropFirst()) : title)

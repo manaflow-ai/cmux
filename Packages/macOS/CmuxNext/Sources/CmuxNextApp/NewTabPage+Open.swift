@@ -48,8 +48,11 @@ extension NewTabPage {
         // The page's folder: the selected tab's, or (an empty pane of another machine) its workspace's there.
         let cwd = page.cwd
         page.inputToken = inputToken
-        var handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
-            if let pane { BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane) } }
+        // A moved page (another pane, workspace or window) acts in the pane that shows it now; it
+        // opened its pick in the pane it left, or nowhere once that pane closed.
+        var handler = Self.handler(services, cwd: cwd) { [weak pane, weak services] key, request in
+            guard let target = services.flatMap({ Self.hosting(key, $0) }) ?? pane else { return }
+            BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: target) }
         }
         handler.inputReady = { [weak pane] _, token in
             guard let pane else { return }
