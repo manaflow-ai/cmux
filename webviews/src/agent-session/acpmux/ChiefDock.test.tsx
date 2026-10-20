@@ -96,7 +96,9 @@ async function render(sessions: AcpmuxSessionEntry[], defaultExpanded = false): 
 
 /** Buttons a Tab press can reach: not disabled and not inside an inert subtree. */
 const tabStops = (dock: HTMLElement) =>
-  [...dock.querySelectorAll<HTMLButtonElement>("button")].filter((button) => !button.disabled && !button.closest("[inert]"));
+  [...dock.querySelectorAll<HTMLButtonElement>("button")].filter(
+    (button) => !button.disabled && !button.closest("[inert]"),
+  );
 
 const label = (button: Element) => button.getAttribute("aria-label");
 

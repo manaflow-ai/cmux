@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { Icon } from "./icons/Icon";
 import { type StringKey, useT } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -107,27 +107,41 @@ export function ChiefDock({
   const t = useT();
   const [attached, setAttached] = useState(true);
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const cards = useMemo(
+  const mascotButton = useRef<HTMLButtonElement>(null);
+  const ranked = useMemo(
     () =>
-      withoutChildren(sessions.filter(listed))
-        .sort(
-          (left, right) =>
-            urgency(right, right.sessionId === currentId) - urgency(left, left.sessionId === currentId) ||
-            (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
-        )
-        .slice(0, MAX_CARDS),
+      withoutChildren(sessions.filter(listed)).sort(
+        (left, right) =>
+          urgency(right, right.sessionId === currentId) - urgency(left, left.sessionId === currentId) ||
+          (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
+      ),
     [currentId, sessions],
   );
-  const attention = cards.filter((session) => urgency(session, session.sessionId === currentId) >= 4).length;
+  const cards = ranked.slice(0, MAX_CARDS);
+  // Every chat that waits counts, also one past the four cards drawn.
+  const attention = ranked.filter((session) => urgency(session, session.sessionId === currentId) >= 4).length;
+  // Escape folds an open dock and hands focus back to the mascot, so it never lands on a card that
+  // just went inert; a folded dock leaves Escape to the window (the Quick Composer closes on it).
+  const foldOnEscape = (event: KeyboardEvent) => {
+    // A card's context menu is a portal: its Escape closes the menu, not the dock.
+    if (event.key !== "Escape" || !expanded || !event.currentTarget.contains(event.target as Node)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setExpanded(false);
+    mascotButton.current?.focus();
+  };
   return (
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape from the buttons inside folds the dock; the landmark itself is not a control.
     <aside
       className="acpmux-chief-dock"
       data-attached={attached}
       data-expanded={expanded}
       data-attention={attention > 0 ? "true" : undefined}
       aria-label={t("header.agentChat")}
+      onKeyDown={foldOnEscape}
     >
-      <div className="acpmux-chief-dock-cards" aria-hidden={!expanded}>
+      {/* Folded, the deck is a picture of the chats: inert, so none of its buttons is a Tab stop. */}
+      <div className="acpmux-chief-dock-cards" aria-hidden={!expanded} inert={!expanded}>
         <div className="acpmux-chief-dock-stack">
           {cards.length === 0 && <p className="acpmux-chief-dock-empty">{t("sidebar.noSessions")}</p>}
           {cards.map((session, index) => {
@@ -198,7 +212,7 @@ export function ChiefDock({
                   <button
                     type="button"
                     className="acpmux-chief-card-dismiss"
-                    aria-label={t("header.agentChat")}
+                    aria-label={t("render.collapse")}
                     onClick={() => setExpanded(false)}
                   >
                     <span aria-hidden="true">×</span>
@@ -211,6 +225,7 @@ export function ChiefDock({
       </div>
       <div className="acpmux-chief-dock-mascot-wrap">
         <button
+          ref={mascotButton}
           type="button"
           className="acpmux-chief-dock-mascot"
           aria-label={t("header.agentChat")}
@@ -236,8 +251,8 @@ export function ChiefDock({
           <button
             type="button"
             className="acpmux-chief-dock-tool"
-            aria-label={attached ? t("floating.moveToTab") : t("floating.keepOnTop")}
-            aria-pressed={attached}
+            aria-label={t("chiefDock.detach")}
+            aria-pressed={!attached}
             onClick={() => setAttached((value) => !value)}
           >
             <span className="acpmux-chief-dock-wave" aria-hidden="true">
@@ -251,7 +266,8 @@ export function ChiefDock({
           <button
             type="button"
             className="acpmux-chief-dock-tool"
-            aria-label={expanded ? t("header.agentChat") : t("sidebar.newChat")}
+            aria-label={expanded ? t("render.collapse") : t("render.expand")}
+            aria-expanded={expanded}
             onClick={() => setExpanded((value) => !value)}
           >
             <Icon name="disclosure.collapsed" size={18} className="acpmux-chief-dock-collapse-mark" />
