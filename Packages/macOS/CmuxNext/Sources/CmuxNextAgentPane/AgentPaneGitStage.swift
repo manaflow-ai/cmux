@@ -98,7 +98,7 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
         let read = ["-C", folder, "-c", "diff.suppressBlankEmpty=false", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative",
                     "--ignore-submodules=dirty", "-M", "--src-prefix=a/", "--dst-prefix=b/"]
             + (unstage ? ["--cached"] : []) + ["--"] + paths.map { ":(top,literal)" + $0 }
-        let diff = await AgentPaneGitProcess.output(read, timeout: timeout)
+        let diff = await AgentPaneGitProcess.output(read, timeout: timeout, allowRepositoryPrograms: true)
         guard diff.status == 0 else { return diff.message }
         guard let patch = AgentPaneGitHunk.patch(of: hunk, in: diff.text) else { return hunkMovedMessage }
         let apply = ["-C", folder, "apply", "--cached", "--whitespace=nowarn"] + (unstage ? ["--reverse"] : []) + ["-"]
