@@ -23,9 +23,11 @@ extension NewTabPage {
     }
 
     /// `focusesPage` false (a tab dropped on its own pane's edge, #22287): the page neither takes the
-    /// keys nor focus; the dropped tab keeps them. Returns whether the page was started.
+    /// keys nor focus; the dropped tab keeps them. `swapsBack`: once the page's pane is placed on `edge`,
+    /// the two panes swap, so the page ends across from `edge` (as Split Left splits right, then swaps).
+    /// Returns whether the page was started.
     @discardableResult
-    static func split(_ source: PaneController, edge: PaneEdge, focusesPage: Bool = true) -> Bool {
+    static func split(_ source: PaneController, edge: PaneEdge, focusesPage: Bool = true, swapsBack: Bool = false) -> Bool {
         let services = source.services
         var page = Self.page(services, selected: source.selectedTab, pane: source)
         let cwd = page.cwd
@@ -52,11 +54,13 @@ extension NewTabPage {
             : edge == .right ? .right : edge == .bottom ? .down : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
         let sizing = split.flatMap { source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
-        let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split) { [weak source] key in
+        let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split,
+                                                 focuses: focusesPage) { [weak source] key in
             opened.value = key
             guard let source else { return }
-            guard split != nil else { return Self.moveToSplit(key, from: source, edge: edge, keys: keys, focuses: focusesPage) }
+            guard let split else { return Self.moveToSplit(key, from: source, edge: swapsBack ? edge.opposite : edge, keys: keys, focuses: focusesPage) }
             source.workspace?.layoutModel.applySplitSizing(sizing)
+            if swapsBack { source.daemon.send("swap-pane") { [handle = source.pane.handle] in try await $0.swapPane(handle, with: .direction(split == .right ? .right : .down)) } }
             input.flushAll() // the page shows in its pane: a field that reported ready may take the keys now
         }
         if !started { input.endIncoming(keys, pageMade: false) }
@@ -99,7 +103,7 @@ extension NewTabPage {
                 for await located in ObservationStream({ services.locateTab(key) != nil }) where located { break }
             }
             guard case let (tab, pane)? = services.locateTab(key) else { return nil }
-            TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services) { moved in
+            TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services, keepFocus: !focuses) { moved in
                 let input = services.keyRouter.newTabInputCoordinator
                 // A failed move leaves the page unselected in its pane: the held keys go on now.
                 guard let source else { return input.endIncoming(keys, pageMade: false) }

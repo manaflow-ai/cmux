@@ -65,7 +65,9 @@ enum TabMoves {
     static func splitBehind(_ pane: PaneModel, edge: PaneEdge, services: AppServices, completion: @escaping Completion) {
         if ChatDockRules.isChatDock(pane, services: services) { services.registry.refuse(RefusalStrings.chatDockCannotSplit); return completion(false) }
         guard let controller = services.paneController(for: pane) else { return completion(false) }
-        completion(NewTabPage.split(controller, edge: edge.opposite, focusesPage: false))
+        // One commit puts a page right or below; for a drop there the page opens on that side and the panes swap.
+        let near = edge == .right || edge == .bottom
+        completion(NewTabPage.split(controller, edge: near ? edge : edge.opposite, focusesPage: false, swapsBack: near))
     }
 
     /// New pane on `edge` of `pane` holding the tab. `roomDecided`: the
@@ -99,7 +101,7 @@ enum TabMoves {
         // The even sizing lands with the move's echo, in the same layout update as the new split, not a
         // reply later (a visible resize after the drop, #22287); it runs only if the tab left its pane.
         let from = services.locateTab(tab.id)?.1.handle
-        if echoes { daemon.store.whenApplied(transaction) { if services.locateTab(tab.id)?.1.handle != from { sizing() } } }
+        if echoes { daemon.store.whenApplied(transaction) { if let now = services.locateTab(tab.id)?.1.handle, now != from { sizing() } } }
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {
