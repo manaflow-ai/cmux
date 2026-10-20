@@ -1,0 +1,44 @@
+import AppKit
+import CmuxNextActions
+@testable import CmuxNextApp
+@testable import CmuxNextDaemon
+import Testing
+
+/// Leo 2026-10-19 on nightly fc1d07a: "adding and removing groups doesn't work" and "adding new tabs
+/// from the group plus icon doesn't work". With the sidebar document (sidebar-v2, `sidebar-doc-v1`) the
+/// sidebar shows each group under its document item id: a group from the personal store is the item
+/// `itm_g_<group id>` (cmux-tui `group_item_id`). A group header's +, its editor's rows (Delete,
+/// Ungroup, Close) and its menu target that item id, and every group action looked it up as a personal
+/// group id: none matched, so each was refused with "That workspace group no longer exists".
+@MainActor @Suite(.serialized)
+struct SidebarDocGroupTargetTests {
+    static func context() -> AppActionContext {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        var tree = DaemonTree(registryID: "s-local")
+        tree.personal = PersonalState(groups: [
+            WorkspaceGroupSnapshot(id: WorkspaceGroupID(rawValue: "g1"), name: "web", profile: .defaultProfile),
+            WorkspaceGroupSnapshot(id: WorkspaceGroupID(rawValue: "doc-made"), name: "made on the document", index: 1, profile: .defaultProfile),
+        ])
+        services.machines.local.store.apply(snapshot: tree)
+        return AppActionContext(services: services)
+    }
+
+    static func target(_ id: String) -> ActionInvocation {
+        ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: id))
+    }
+
+    /// The header's +, Delete Group and the rest name the group by the item the sidebar shows.
+    @Test func aGroupActionFindsThePersonalGroupBehindItsDocumentItem() throws {
+        let context = Self.context()
+        #expect(try context.group(Self.target("itm_g_g1")).id.rawValue == "g1")
+    }
+
+    /// A group the document made keeps one id in both stores; a personal id still resolves (CLI, MCP).
+    @Test func plainIDsStillResolve() throws {
+        let context = Self.context()
+        #expect(try context.group(Self.target("doc-made")).id.rawValue == "doc-made")
+        #expect(try context.group(Self.target("g1")).id.rawValue == "g1")
+        #expect(throws: ActionFailure.self) { try context.group(Self.target("itm_g_gone")) }
+    }
+}
