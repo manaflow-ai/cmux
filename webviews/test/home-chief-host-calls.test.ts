@@ -63,8 +63,8 @@ async function homeSheets() {
 
 test("a Chief record reads its backend and lock", () => {
   const record = chief({ ...RAW, locked: true, engine: { harness: "codex", model: "gpt-6-astra", effort: "high" } });
-  expect([record.harness, record.model, record.effort, record.locked]).toEqual(["codex", "gpt-6-astra", "high", true]);
-  expect(chief({ ...RAW, engine: {} }).harness).toBeUndefined();
+  expect([record.engine, record.locked]).toEqual([{ harness: "codex", model: "gpt-6-astra", effort: "high" }, true]);
+  expect(chief({ ...RAW, engine: {} }).engine).toBeUndefined();
 });
 
 test("Home's Save sends the backend and the lock with the gesture fields in one host update", async () => {
