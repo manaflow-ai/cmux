@@ -197,6 +197,28 @@ public final class HomeNativeTranscriptView: NSView {
         return transcript.primaryInputShouldTakeKeyboard(from: responder)
     }
 
+    /// Whether a plain Up or Down from `responder` recalls sent messages in
+    /// the message box: no while the person moves through the first-run
+    /// panel's rows, a text input has the keyboard, or the transcript holds a
+    /// text selection.
+    /// - Parameter responder: The window's first responder now.
+    /// - Returns: True when the host should call ``recallPrimaryInputHistory(older:)``.
+    public func primaryInputHistoryTakesArrowKeys(from responder: NSResponder?) -> Bool {
+        if let view = responder as? NSView, view.isDescendant(of: firstRun), !firstRun.isHiddenOrHasHiddenAncestor {
+            return false
+        }
+        return transcript.primaryInputHistoryTakesArrowKeys(from: responder)
+    }
+
+    /// Up (`older`) or Down from outside the message box: the box takes the
+    /// keyboard and recalls a sent message (the draft is kept for Down).
+    /// - Parameter older: True for Up, false for Down.
+    /// - Returns: True when the box took the key.
+    @discardableResult
+    public func recallPrimaryInputHistory(older: Bool) -> Bool {
+        transcript.recallPrimaryInputHistory(older: older)
+    }
+
     /// Cmd+V from the first-run panel (the transcript's own pane handles it
     /// below this view): the message box takes the keyboard and the paste.
     @objc public func paste(_ sender: Any?) { transcript.pasteIntoPrimaryInput(sender) }

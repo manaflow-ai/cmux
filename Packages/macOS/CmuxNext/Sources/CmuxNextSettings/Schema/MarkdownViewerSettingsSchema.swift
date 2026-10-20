@@ -12,6 +12,17 @@ nonisolated enum MarkdownViewerSettingsSchema {
     /// The page's default (`--cmux-md-font-size`, 16px).
     static let fontSizeFallback: Double = 16
 
+    /// `markdown.layout.width`: the widest the text column gets, in characters of the body font.
+    /// Wide enough for an ultrawide monitor (1000 characters is about 8,800 points at 16 points);
+    /// Full Width is its own key, never the top of this range.
+    static let widthRange: ClosedRange<Double> = 30...1000
+    /// The page's default reading width (`MARKDOWN_READING.width`).
+    static let widthFallback: Double = 72
+    /// `markdown.code.scale`: code size as a share of the body text size.
+    static let codeScaleRange: ClosedRange<Double> = 0.6...1.25
+    /// The page's default (`--cmux-md-code-scale`, as GitHub's 85%).
+    static let codeScaleFallback: Double = 0.875
+
     /// Every row's key (agents may set them: looks only).
     static var keys: Set<String> { Set(descriptors.map(\.id)) }
 
@@ -25,9 +36,9 @@ nonisolated enum MarkdownViewerSettingsSchema {
         return [
             row(["layout", "width"], SettingsText.keyed("settings.markdown.width", "Text Width"),
                 help: SettingsText.keyed("settings.markdown.width.help",
-                                         "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box."),
-                .number(SettingNumber(40...160, step: 2, unit: .count, placeholder: 72)), .number(72),
-                ["width", "max width", "column", "measure", "line length"]),
+                                         "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."),
+                .number(SettingNumber(widthRange, step: 1, unit: .count, placeholder: widthFallback)), .number(widthFallback),
+                ["width", "max width", "column", "measure", "line length", "wide", "ultrawide", "monitor"]),
             row(["layout", "fullWidth"], SettingsText.keyed("settings.markdown.fullWidth", "Full Width"),
                 help: SettingsText.keyed("settings.markdown.fullWidth.help", "Text fills the whole pane instead of the text width."),
                 .toggle, .bool(false), ["full", "width", "wide"]),
@@ -54,9 +65,20 @@ nonisolated enum MarkdownViewerSettingsSchema {
                 help: SettingsText.keyed("settings.markdown.paragraphSpacing.help", "The gap after each paragraph, as a share of the text size."),
                 .number(SettingNumber(0...3, step: 0.1, unit: .fraction, placeholder: 1)), .number(1),
                 ["paragraph", "spacing", "gap", "margin"]),
-            row(["code", "blockSize"], SettingsText.keyed("settings.markdown.codeSize", "Code Font Size"),
-                .number(SettingsSchema.points(8...32, step: 1, placeholder: 14)), .number(14),
-                ["code", "font", "size", "monospace"]),
+            row(["code", "scale"], SettingsText.keyed("settings.markdown.codeSize", "Code Font Size"),
+                help: SettingsText.keyed("settings.markdown.codeScale.help",
+                                         "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."),
+                .number(SettingNumber(codeScaleRange, step: 0.025, unit: .fraction, placeholder: codeScaleFallback)),
+                .number(codeScaleFallback), ["code", "font", "size", "monospace", "scale"]),
+            // A fixed code block size in pixels; `code.scale` is the row. Kept so cmux.json files that
+            // set it still validate and the viewer can clear it when the user picks a code size.
+            SettingDescriptor(
+                ["markdown", "code", "blockSize"], section: .appearance, group: group,
+                title: SettingsText.keyed("settings.markdown.codeBlockSize", "Code Block Size"),
+                kind: .number(SettingsSchema.points(8...32, step: 1, placeholder: 14)), default: nil,
+                keywords: ["markdown", "viewer", "reading", "code", "font", "size", "monospace"]
+            )
+            .hiddenFromSettingsPage("a fixed pixel size; Code Font Size (markdown.code.scale) is the row"),
             row(["tables"], SettingsText.keyed("settings.markdown.tables", "Wide Tables"),
                 .choice([
                     SettingChoice("scroll", SettingsText.keyed("settings.choice.markdownTablesScroll", "Scroll Sideways")),

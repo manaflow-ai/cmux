@@ -29,9 +29,12 @@ main-regression comment on your PR (`main_regression_attribution.py`) is a
 fix-forward ask.
 
 **Approval.** The main agent owns dogfood, approval, mergeability and every
-pushed fix. Merging app, runtime or UI changes requires the user's explicit
-approval after dogfood, or a direct merge directive that names the merge action
-(`merge`, `merge it`, `auto-merge`; `finish`, `lgtm` and `ship it` are not).
+pushed fix. Into `main`, merging app, runtime or UI changes requires the user's
+explicit approval after dogfood, or a direct merge directive that names the merge
+action (`merge`, `merge it`, `auto-merge`; `finish`, `lgtm` and `ship it` are not).
+Into `feat-cmux-next`, the bar is a passed review and no red of the PR's own: label
+it `ready-to-land` after the review (again after any later push) and `next-autoland`
+merges that exact head; base reds, flakes and pending checks don't hold it.
 
 **Scope verification to the feature.** Local-backend builds can dogfood desktop
 state, menus, and release-note rendering without a shared Cloud backend. Require
