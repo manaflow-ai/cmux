@@ -187,6 +187,12 @@ impl Brain {
         tasks: &[String],
         peers: &[String],
     ) -> Result<SpawnPlan, String> {
+        if self.state.turn.is_some() && !self.turn_shared_memory {
+            return Err(
+                "spawn is unavailable in a shared conversation; ask the owner in the private Chief chat"
+                    .into(),
+            );
+        }
         if tasks.is_empty() {
             return Err("spawn needs at least one task".into());
         }

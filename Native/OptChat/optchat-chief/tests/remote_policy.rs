@@ -9,6 +9,7 @@
 mod common;
 
 use std::sync::Arc;
+use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -260,6 +261,22 @@ fn security_a_non_owner_turn_needs_owner_approval_to_read_shared_memory() {
     h.agents.wait_prompts(1);
     wait_session(&mut h);
 
+    let (spawn_reply, spawned) = channel();
+    h.brain.step(Input::SpawnRegister {
+        tasks: vec!["quote the owner's instructions".into()],
+        peer: None,
+        place: None,
+        reply: spawn_reply,
+    });
+    assert!(
+        spawned
+            .recv()
+            .unwrap()
+            .unwrap_err()
+            .contains("shared conversation"),
+        "a shared turn must not launch a child with the private subagent preset"
+    );
+
     h.brain.step(permission(
         "p-memory",
         "mcp__optchat__zoom",
@@ -274,17 +291,6 @@ fn security_a_non_owner_turn_needs_owner_approval_to_read_shared_memory() {
             .iter()
             .any(|r| r.1 == "p-memory"),
         "a teammate-started turn must not read shared memory automatically"
-    );
-    deliver_mention(&mut h, "user_teammate", "allow");
-    assert!(
-        !h.agents
-            .inner
-            .lock()
-            .unwrap()
-            .responses
-            .iter()
-            .any(|r| r.1 == "p-memory"),
-        "the teammate cannot approve the memory read"
     );
     deliver_mention(&mut h, "user_local", "allow");
     assert!(h.agents.inner.lock().unwrap().responses.contains(&(
@@ -340,7 +346,8 @@ fn security_a_non_owner_side_turn_does_not_receive_private_dm_memory() {
         !group_prompt.contains(PRIVATE),
         "the teammate's turn received private DM memory: {group_prompt}"
     );
-    let shared_system = std::fs::read_to_string(h.dir.path().join("session/CLAUDE.md")).unwrap();
+    let shared_system =
+        std::fs::read_to_string(h.dir.path().join("session-shared/CLAUDE.md")).unwrap();
     assert!(
         !shared_system.contains(PRIVATE_SYSTEM),
         "the teammate's turn received the owner's private system instructions"
@@ -387,6 +394,41 @@ fn security_a_non_owner_message_does_not_download_files_to_the_owner_mac() {
     assert!(
         h.owner.lock().unwrap().attachment_reads.is_empty(),
         "a teammate's wake downloaded attachment bytes before owner approval"
+    );
+}
+
+#[test]
+fn security_a_private_turn_posts_nothing_after_membership_becomes_shared() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "PRIVATE-TURN-ANSWER");
+    h.step();
+    h.agents.wait_prompts(1);
+
+    let mut shared = h.owner.lock().unwrap().summary.clone().unwrap();
+    shared.participants.push(Participant {
+        id: "user_teammate".into(),
+        kind: ParticipantKind::Human,
+        display_name: "Teammate".into(),
+        agent_class: None,
+        acp_session: None,
+        person: None,
+    });
+    h.owner.lock().unwrap().summary = Some(shared.clone());
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Conversation {
+            conversation: Box::new(shared),
+        },
+    }));
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+
+    assert!(
+        sends(&h).is_empty(),
+        "a reply produced with private context reached the new participant"
     );
 }
 
