@@ -258,6 +258,10 @@ extension SettingsSchema {
         "notifications.dockBounce": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,
+        // An agent must not let itself, or another agent, skip the person's approvals.
+        "sessions.allowFullAccess": .destructive,
+        // On, every agent gets tools that start child chats: the person turns that on.
+        "sessions.promptSuggestions": .userOnly,
         // How many agent sessions an agent may start, and how deep, is the person's call: an agent
         // must not raise its own limits.
         "agents.subsessions.enabled": .userOnly,
