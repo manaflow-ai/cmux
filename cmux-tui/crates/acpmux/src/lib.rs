@@ -63,6 +63,8 @@ pub mod protected_folders;
 pub mod protocol;
 pub mod question_answer;
 pub mod registry;
+pub mod route_account;
+mod route_probe;
 mod router_socket;
 pub mod routes;
 pub mod rpc;
