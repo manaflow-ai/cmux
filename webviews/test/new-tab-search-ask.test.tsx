@@ -1,6 +1,6 @@
 // Leo 2026-10-18: Search and Ask switching comes back to the default New Tab screen (reverses R86,
 // Lawrence 2026-10-04). A Search | Ask switch sits at the field's right with "Tab to switch"; Tab
-// and Shift-Tab flip it without leaving the field, and the mode decides which row Return takes:
+// flips it without leaving the field (Shift-Tab still leaves), and the mode decides which row Return takes:
 // Ask puts the agent first, Search the web search. An address still opens first in either mode.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -185,4 +185,18 @@ test("an arrow pressed before a switch renders keeps its row through the reorder
   expect(selected()).toBe("Search the web for ff");
   await key(field, "Enter");
   expect(calls).toEqual([["search", "ff"]]);
+});
+
+// Review (PR 21817): a Down, then a click on the switch: the highlight is back on the lead row, so
+// the next Tab is the switch's again, not a step through the rows.
+test("after Down and a click on the switch, Tab switches again", async () => {
+  const field = await render([]);
+  await type(field, "ff");
+  await key(field, "ArrowDown");
+  expect(selected()).toBe("Search the web for ff");
+  await act(async () => host.querySelector<HTMLButtonElement>('.nt-mode [data-mode="search"]')!.click());
+  expect(selected()).toBe("Search the web for ff");
+  await key(field, "Tab");
+  expect(pressed()).toEqual(["ask"]);
+  expect(selected()).toBe("Ask Claude Code");
 });

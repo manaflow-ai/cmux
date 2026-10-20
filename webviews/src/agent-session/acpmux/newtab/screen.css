@@ -468,6 +468,10 @@
   color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 45%, transparent));
   white-space: nowrap;
 }
+/* The composer template's row starts 2px lower (its padding-top) than the default's 0. */
+.nt-screen[data-template="composer"] .nt-mode {
+  margin-top: 18px;
+}
 @container (max-width: 520px) {
   .nt-mode-hint {
     display: none;

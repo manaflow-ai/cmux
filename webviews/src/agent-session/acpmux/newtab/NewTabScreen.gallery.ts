@@ -515,7 +515,12 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
         await ctx.press("Tab");
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-mode[data-mode="search"]'));
+        // What React renders, not the data-mode the switch writes first: the rows in Search order.
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector('.nt-mode button[data-mode="search"][aria-pressed="true"]') &&
+            ctx.document.querySelector('#nt-row-0[data-type="search"]'),
+        );
       },
     },
     "typed-ask-mode": {
@@ -525,7 +530,9 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
         await ctx.waitFor(
-          () => ctx.document.querySelector('.nt-mode[data-mode="ask"]') && ctx.document.querySelector(".nt-rows"),
+          () =>
+            ctx.document.querySelector('.nt-mode button[data-mode="ask"][aria-pressed="true"]') &&
+            ctx.document.querySelector('#nt-row-0[data-type="ask"]'),
         );
       },
     },
@@ -536,7 +543,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.focus({ selector: ".nt-field" });
         await ctx.press("Tab");
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-mode[data-mode="search"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-field[placeholder="Search the web or type a URL"]'));
       },
     },
     "typed-url-search-mode": {
@@ -548,8 +555,8 @@ export default agentPaneEntry({
         await ctx.press("Tab");
         await ctx.waitFor(
           () =>
-            ctx.document.querySelector('.nt-mode[data-mode="search"]') &&
-            ctx.document.querySelector('.nt-row[data-type="open"]'),
+            ctx.document.querySelector('.nt-mode button[data-mode="search"][aria-pressed="true"]') &&
+            ctx.document.querySelector('#nt-row-0[data-type="open"]'),
         );
       },
     },

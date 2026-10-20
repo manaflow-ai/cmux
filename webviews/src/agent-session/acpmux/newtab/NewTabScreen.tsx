@@ -443,7 +443,8 @@ export function NewTabScreen(props: Props) {
   const submit = () => {
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
     // A switch whose rows have not rendered yet: Return takes the new mode's row.
-    const switched = liveMode.current !== mode && !shell && !steppedSinceSwitch.current;
+    // An untouched location has no rows in either mode, so a switch changes nothing there.
+    const switched = touched && liveMode.current !== mode && !shell && !steppedSinceSwitch.current;
     const fresh = switched
       ? screenRows(text, { omnibar, home, mode: liveMode.current, create: creates, ...(ask ? { ask } : {}) })
       : [];
@@ -570,6 +571,8 @@ export function NewTabScreen(props: Props) {
     startTransition(() => {
       setMode(next);
       setSelected(undefined);
+      // The highlight goes back to the lead row, so the next Tab is the switch's again.
+      setKeyboardPick(false);
     });
   };
   const placeholder = mode === "search" ? nt("searchPlaceholder") : nt("placeholder");
@@ -818,6 +821,8 @@ export function NewTabScreen(props: Props) {
                 onMouseMove={() => {
                   if (index === current) return;
                   setKeyboardPick(false);
+                  // A row the pointer picked during a switch is the one Return takes.
+                  steppedSinceSwitch.current = true;
                   pick(index);
                 }}
                 onMouseDown={(event) => {
