@@ -172,10 +172,17 @@ fn a_peer_session_names_its_peer_and_sends_only_an_asking_policy() {
     };
     let meta = session_meta(&spec, None);
     assert_eq!(meta["peer"], "cloud1");
-    assert!(meta.get("policy").is_none(), "the VM's default applies: {meta}");
+    assert!(
+        meta.get("policy").is_none(),
+        "the VM's default applies: {meta}"
+    );
     assert!(meta.get("preset").is_none());
     spec.policy = "ask".into();
-    assert_eq!(session_meta(&spec, None)["policy"], "ask", "the spawn floor still asks");
+    assert_eq!(
+        session_meta(&spec, None)["policy"],
+        "ask",
+        "the spawn floor still asks"
+    );
     spec.peer = None;
     spec.policy = "approve-all".into();
     let local = session_meta(&spec, Some("optchat-sub-h0me"));

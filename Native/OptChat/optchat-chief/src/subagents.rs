@@ -209,7 +209,9 @@ impl CloudPlacement {
         env: impl Fn(&str) -> Option<String>,
         instructions: String,
     ) -> Option<CloudPlacement> {
-        let peer = env(PEER_ENV).map(|p| p.trim().to_owned()).filter(|p| !p.is_empty())?;
+        let peer = env(PEER_ENV)
+            .map(|p| p.trim().to_owned())
+            .filter(|p| !p.is_empty())?;
         Some(CloudPlacement {
             peer,
             dir: env("OPTCHAT_SUBAGENT_PEER_DIR")
@@ -406,8 +408,8 @@ impl Spawner {
         // catalog, so it does not apply there.
         let admitted = match &peer {
             Some(_) => crate::harness_gate::Admitted::peer(&s.harness),
-            None => crate::harness_gate::admit_live(&*self.agents, &s.harness).map_err(
-                |reason| {
+            None => {
+                crate::harness_gate::admit_live(&*self.agents, &s.harness).map_err(|reason| {
                     crate::harness_gate::trace_refusal(
                         &self.trace,
                         "subagent",
@@ -415,8 +417,8 @@ impl Spawner {
                         &reason,
                     );
                     crate::harness_gate::refusal(&reason)
-                },
-            )?,
+                })?
+            }
         };
         // No mark of ours in a subagent's first message: Claude Code marks
         // its two system blocks and the last two messages of every later
