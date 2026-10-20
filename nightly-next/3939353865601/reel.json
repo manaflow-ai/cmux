@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "3939353865601",
+  "notes": "notes/3939353865601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22359,
+      "title": "cmux NEXT: What's New change titles show no hover preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22232,
+      "title": "cmux NEXT Home: no terminal on the right until something is shown; the right column closes and drags out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21088,
+      "title": "fix(cmux-tui): respawn a terminal whose unadoptable host died without a record",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22398,
+      "title": "fix(agent-pane): the summary rail sees JSON background shells, wakeups and cron jobs",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
