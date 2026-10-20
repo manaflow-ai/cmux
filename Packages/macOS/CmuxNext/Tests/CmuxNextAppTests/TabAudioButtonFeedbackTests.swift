@@ -73,10 +73,12 @@ import Testing
         harness.send(.leftMouseUp, at: away)
         #expect(harness.intents.isEmpty, "a press on the speaker sent \(harness.intents)")
         #expect(harness.strip.drag == nil && harness.model.selectedID == TabID("tab0"))
-        harness.send(.leftMouseDown, at: speaker)
+        // The pointer comes back over the tab first (its x shows again, so the speaker sits where it did).
+        let again = try harness.speaker()
+        harness.send(.leftMouseDown, at: again)
         harness.send(.leftMouseDragged, at: away)
-        harness.send(.leftMouseDragged, at: speaker)
-        harness.send(.leftMouseUp, at: speaker)
+        harness.send(.leftMouseDragged, at: again)
+        harness.send(.leftMouseUp, at: again)
         #expect(harness.intents == [.toggleAudioMute(TabID("tab1"))])
     }
 
