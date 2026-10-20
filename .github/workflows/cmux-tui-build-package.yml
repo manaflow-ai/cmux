@@ -66,6 +66,11 @@ on:
         required: false
         default: ""
         type: string
+      linux_arm64_runner:
+        description: "Optional Linux ARM64 runner label override"
+        required: false
+        type: string
+        default: ""
       linux_runner:
         description: "Optional Linux x64 runner label override"
         required: false
@@ -137,7 +142,7 @@ jobs:
           LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-8vcpu-ubuntu-2404' }}
           MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
           LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
-          LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm' }}
+          LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm') }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
         shell: bash
         run: |
