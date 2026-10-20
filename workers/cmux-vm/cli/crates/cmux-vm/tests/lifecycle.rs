@@ -7,6 +7,265 @@ use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
+async fn approved_server_codes_redeem_without_account_configuration_or_headers() {
+    let server = MockServer::start().await;
+    let mesh = "mesh_00000000000000000000000000";
+    let id = "dev_00000000000000000000000000";
+    let install =
+        "BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=";
+    let wg = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=";
+    let code = "msc_00000000000000000000000000";
+    let binding = json!({"name":"server","wgPublicKey":wg,"installPublicKey":install});
+    let grant = json!({"code":code,"deviceId":id,"meshId":mesh,"tenantId":"team_alpha","expiresAt":"2026-10-19T00:10:00Z","binding":binding});
+    let dir = std::env::temp_dir().join(format!("cmux-server-code-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("request.json");
+    std::fs::write(&file, serde_json::to_vec(&binding).unwrap()).unwrap();
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/meshes/{mesh}/overlay-server-codes")))
+        .and(authorized())
+        .and(body_json(&binding))
+        .respond_with(ResponseTemplate::new(201).set_body_json(&grant))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let output = cli(
+        &server,
+        &[
+            "--json",
+            "device",
+            "server-code",
+            mesh,
+            "--request",
+            file.to_str().unwrap(),
+        ],
+    )
+    .await;
+    assert_eq!(output.code, exit::OK, "{}", output.stderr);
+    assert_eq!(json_stdout(&output), grant);
+    let request = json!({"code":code,"name":"server","wgPublicKey":wg,"installPublicKey":install,"signedAt":1792370000000_i64,"nonce":"AAECAwQFBgcICQoLDA0ODw","signature":"A".repeat(86)+"=="});
+    let mut local = request.clone();
+    local["privateKey"] = json!("must-not-be-sent");
+    std::fs::write(&file, serde_json::to_vec(&local).unwrap()).unwrap();
+    let receipt = json!({"id":id,"meshId":mesh,"name":"server","wgPublicKey":wg,"installPublicKey":install,"createdAt":"2026-10-19T00:00:00Z","kind":"server","transport":"overlay"});
+    Mock::given(method("POST"))
+        .and(path(format!(
+            "/v1/meshes/{mesh}/overlay-server-enrollments"
+        )))
+        .and(body_json(&request))
+        .respond_with(ResponseTemplate::new(201).set_body_json(&receipt))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let args = [
+        "--json",
+        "device",
+        "redeem-server-code",
+        mesh,
+        "--request",
+        file.to_str().unwrap(),
+    ];
+    let output = cli_with_env(&args, &[("CMUX_VM_BASE_URL", uri.as_str())]).await;
+    assert_eq!(output.code, exit::OK, "{}", output.stderr);
+    assert_eq!(json_stdout(&output), receipt);
+    // Existing ambient credentials must not accompany this request either.
+    let output = cli(&server, &args).await;
+    assert_eq!(output.code, exit::OK, "{}", output.stderr);
+    for request in server
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.url.path().ends_with("/overlay-server-enrollments"))
+    {
+        assert!(!request.headers.contains_key("authorization"));
+        assert!(!request.headers.contains_key("x-cmux-team-id"));
+    }
+    assert!(!output.stderr.contains(code));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn signed_server_codes_do_not_follow_redirects_or_echo_invalid_files() {
+    let server = MockServer::start().await;
+    let destination = MockServer::start().await;
+    let mesh = "mesh_00000000000000000000000000";
+    let code = "msc_00000000000000000000000000";
+    let request = json!({"code":code,"name":"server","wgPublicKey":"dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=","installPublicKey":"BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=","signedAt":1792370000000_i64,"nonce":"AAECAwQFBgcICQoLDA0ODw","signature":"A".repeat(86)+"=="});
+    let dir =
+        std::env::temp_dir().join(format!("cmux-server-code-redirect-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("signed.json");
+    std::fs::write(&file, serde_json::to_vec(&request).unwrap()).unwrap();
+    Mock::given(method("POST"))
+        .and(path(format!(
+            "/v1/meshes/{mesh}/overlay-server-enrollments"
+        )))
+        .respond_with(
+            ResponseTemplate::new(307)
+                .insert_header("Location", format!("{}/leak", destination.uri())),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let args = [
+        "--json",
+        "device",
+        "redeem-server-code",
+        mesh,
+        "--request",
+        file.to_str().unwrap(),
+    ];
+    let output = cli_with_env(&args, &[("CMUX_VM_BASE_URL", uri.as_str())]).await;
+    assert_ne!(output.code, exit::OK);
+    assert!(destination.received_requests().await.unwrap().is_empty());
+    std::fs::write(&file, format!("{code} privateKey invalid-json")).unwrap();
+    let output = cli_with_env(&args, &[("CMUX_VM_BASE_URL", uri.as_str())]).await;
+    assert_eq!(output.code, exit::USAGE);
+    assert!(!output.stderr.contains(code));
+    assert!(!output.stderr.contains("privateKey"));
+    std::fs::write(&file, "x".repeat(16_385)).unwrap();
+    let output = cli_with_env(&args, &[("CMUX_VM_BASE_URL", uri.as_str())]).await;
+    assert_eq!(output.code, exit::USAGE);
+    assert!(output.stderr.contains("16 KiB"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn provider_free_server_enrollment_and_policy_use_their_own_routes() {
+    let server = MockServer::start().await;
+    let mesh = "mesh_00000000000000000000000000";
+    let id = "dev_00000000000000000000000000";
+    let install =
+        "BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=";
+    let wg = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=";
+    let request = json!({"name":"server","wgPublicKey":wg,"installPublicKey":install,"signedAt":1792370000000_i64,"nonce":"AAECAwQFBgcICQoLDA0ODw","signature":"A".repeat(86)+"=="});
+    let dir = std::env::temp_dir().join(format!("cmux-overlay-server-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("enroll.json");
+    let mut local = request.clone();
+    local["privateKey"] = json!("must-not-be-sent");
+    std::fs::write(&file, serde_json::to_vec(&local).unwrap()).unwrap();
+    let receipt = json!({"id":id,"meshId":mesh,"name":"server","wgPublicKey":wg,"installPublicKey":install,"createdAt":"2026-10-19T00:00:00Z","kind":"server","transport":"overlay"});
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/meshes/{mesh}/overlay-servers")))
+        .and(authorized())
+        .and(body_json(&request))
+        .respond_with(ResponseTemplate::new(201).set_body_json(&receipt))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let output = cli(
+        &server,
+        &[
+            "--json",
+            "device",
+            "enroll-server",
+            mesh,
+            "--request",
+            file.to_str().unwrap(),
+        ],
+    )
+    .await;
+    assert_eq!(output.code, exit::OK, "{}", output.stderr);
+    assert_eq!(json_stdout(&output), receipt);
+    let policy = json!({"tenantId":"team_alpha","deviceId":id,"meshId":mesh,"wgPublicKey":wg,"installPublicKey":install,"aclVersion":0,"policyDigest":"a".repeat(64),"peers":[]});
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/overlay-servers/{id}/policy")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&policy))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let output = cli(&server, &["--json", "device", "server-policy", id]).await;
+    assert_eq!(output.code, exit::OK, "{}", output.stderr);
+    assert_eq!(json_stdout(&output), policy);
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/overlay-servers/{id}")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        json_stdout(&cli(&server, &["--json", "device", "get-server", id]).await),
+        receipt
+    );
+    let list = json!({"items":[receipt]});
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/meshes/{mesh}/overlay-servers")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&list))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        json_stdout(&cli(&server, &["--json", "device", "servers", mesh]).await),
+        list
+    );
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/overlay-servers/{id}")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        cli(&server, &["device", "revoke-server", id]).await.code,
+        exit::USAGE
+    );
+    let revoked = cli(&server, &["--json", "device", "revoke-server", id, "--yes"]).await;
+    assert_eq!(revoked.code, exit::OK, "{}", revoked.stderr);
+    assert_eq!(json_stdout(&revoked), json!({"id":id,"revoked":true}));
+    std::fs::remove_dir_all(dir).unwrap();
+    assert_eq!(server.received_requests().await.unwrap().len(), 5);
+}
+
+#[tokio::test]
+async fn device_overlay_policy_is_a_single_authorized_read_with_direction_preserved() {
+    let server = MockServer::start().await;
+    let device = "dev_00000000000000000000000000";
+    let receipt = json!({
+        "deviceId":device,"meshId":"mesh_00000000000000000000000000",
+        "wgPublicKey":"dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=",
+        "installPublicKey":"BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=",
+        "aclVersion":4,"policyDigest":"a".repeat(64),"peers":[{
+          "deviceId":"dev_00000000000000000000000001",
+          "wgPublicKey":"dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDI=",
+          "installPublicKey":"BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=",
+          "inbound":[],"outbound":[{"protocol":"tcp","port":4100}]
+        }],"futureField":"kept"
+    });
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/devices/{device}/overlay-policy")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let output = cli(&server, &["--json", "device", "overlay-policy", device]).await;
+    assert_eq!(output.code, exit::OK, "{}", output.stderr);
+    assert_eq!(json_stdout(&output), receipt);
+    let human = cli(&server, &["device", "overlay-policy", device]).await;
+    assert_eq!(human.code, exit::OK, "{}", human.stderr);
+    assert!(
+        human.stdout.contains("outbound tcp:4100"),
+        "{}",
+        human.stdout
+    );
+    assert!(
+        !human.stdout.contains("inbound tcp:4100"),
+        "{}",
+        human.stdout
+    );
+    let invalid = cli(&server, &["device", "overlay-policy", "vm_not_a_device"]).await;
+    assert_eq!(invalid.code, exit::USAGE);
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn pending_history_advances_bounded_index_work_without_polling_or_exposing_it_as_empty() {
     let server = MockServer::start().await;
     let cursor = format!("i1_{}", "a".repeat(32));
