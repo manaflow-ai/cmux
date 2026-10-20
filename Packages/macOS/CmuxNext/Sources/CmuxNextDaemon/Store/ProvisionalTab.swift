@@ -29,6 +29,13 @@ public struct ProvisionalTab: Sendable, Hashable {
         return snapshot
     }
 
+    /// The stand-in of a new terminal tab (`new-tab`, Ctrl-`) whose terminal host id the client
+    /// chose (`terminal-placement-env-v1`): the daemon's tab carrying `terminal` is this one
+    /// (``matched(_:in:)``), never a guess.
+    public func terminal(_ terminal: TerminalID, cwd: String?) -> TabSnapshot {
+        TabSnapshot(surface: surface, tabResourceID: ResourceID(rawValue: id), terminalID: terminal, kind: .pty, cwd: cwd)
+    }
+
     public static func isProvisional(_ id: String) -> Bool { id.hasPrefix(idPrefix) }
 
     /// Whether `surface` is a provisional tab's (never a daemon surface).
