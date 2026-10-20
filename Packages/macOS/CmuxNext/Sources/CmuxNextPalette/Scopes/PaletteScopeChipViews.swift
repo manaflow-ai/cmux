@@ -59,6 +59,7 @@ final class PaletteScopeChipView: NSView {
     private let chip: PaletteScopeChip
     private let style: PaletteScopeChipStyle
     private let isTop: Bool
+    private var ink: PaletteScopeChipInk
     private let icon = NSImageView()
     private let label: PaletteLabel
     private let rule = NSView()
@@ -67,8 +68,8 @@ final class PaletteScopeChipView: NSView {
         self.chip = chip
         self.style = style
         self.isTop = isTop
-        label = PaletteText.label(style == .header ? Typography.bodyEmphasized : Typography.caption,
-                                  tone: isTop ? .primary : .tertiary)
+        ink = PaletteScopeChipInk.ink(isTop: isTop, increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
+        label = PaletteText.label(style == .header ? Typography.bodyEmphasized : Typography.caption, tone: ink.text)
         super.init(frame: .zero)
         wantsLayer = true
         label.stringValue = chip.title
@@ -110,14 +111,26 @@ final class PaletteScopeChipView: NSView {
 
     override func layout() {
         super.layout()
+        let ink = PaletteScopeChipInk.ink(isTop: isTop, increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
+        if ink != self.ink {
+            self.ink = ink
+            label.tone = ink.text
+        }
         performWithTheme {
-            icon.contentTintColor = isTop ? Palette.textSecondary : Palette.textTertiary
+            icon.contentTintColor = ink.icon.color
             rule.layer?.backgroundColor = Palette.separator.cgColor
             if style == .token {
-                layer?.backgroundColor = (isTop ? Palette.selectionFill : Palette.selectionFill.withAlphaComponent(0.5)).cgColor
+                switch ink.fill {
+                case .none: layer?.backgroundColor = nil
+                case .selection: layer?.backgroundColor = Palette.selectionFill.cgColor
+                case .halfSelection: layer?.backgroundColor = Palette.selectionFill.withAlphaComponent(0.5).cgColor
+                }
+                layer?.borderColor = Palette.separator.cgColor
+                layer?.borderWidth = ink.outlined ? Metrics.dividerThickness : 0
                 layer?.cornerRadius = bounds.height / 2
             } else {
                 layer?.backgroundColor = nil
+                layer?.borderWidth = 0
             }
         }
         let inset = style == .token ? Metrics.space3 : 0
