@@ -9,6 +9,9 @@ nonisolated extension PaletteScopeID {
     public static let settings: PaletteScopeID = "settings"
     public static let shortcuts: PaletteScopeID = "shortcuts"
     public static let scopes: PaletteScopeID = "scopes"
+    /// Search (the sidebar's Search button, plans/cmux-next/sidebar-search.md):
+    /// every kind the other scopes and the App's contributed pages list, in one page.
+    public static let search: PaletteScopeID = "search"
 }
 
 /// The built-in scopes and the root, as descriptors.
@@ -22,7 +25,11 @@ nonisolated extension PaletteScopeDescriptor {
     /// Built-in scopes whose sources exist. English keywords always work;
     /// the localized title also works as a keyword.
     public static func builtIns(tabs: Bool, workspaces: Bool, settings: Bool) -> [PaletteScopeDescriptor] {
-        var scopes: [PaletteScopeDescriptor] = []
+        // Search goes first in the scope list: it is the one that finds everything.
+        var scopes: [PaletteScopeDescriptor] = [
+            scope(PaletteScopeID.search, PaletteStrings.searchEverythingTitle, "magnifyingglass", PaletteStrings.searchEverythingPlaceholder,
+                  keywords: ["search", "everything", "all"]),
+        ]
         if tabs {
             scopes.append(scope(PaletteScopeID.tabs, PaletteStrings.sectionTabs, "rectangle.on.rectangle", PaletteStrings.tabSearchPlaceholder,
                                 prefix: "@", keywords: ["tabs", "tab"], openAction: "tab.search", emptyQuerySelection: 1))

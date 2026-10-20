@@ -37,7 +37,7 @@ characters are scarce). Its page reuses the providers the other pages already ha
 | Settings | `SettingsPaletteProvider` | setting title, group, keywords |
 | Commands | `RegistryPaletteProvider` | every catalog action (same rows as Cmd-Shift-P) |
 | Apps | `sources.extraProviders` | installed apps and their commands |
-| History | App contribution: `history.search` page providers | browser history pages, closed tabs/screens/workspaces, terminal command history, agent sessions |
+| Browser History, Recently Closed, Command History, Agent Sessions | App contributions: the history store by kind (`HistoryPalettePages.searchContributions`), one section each | page visits (title, URL), closed tabs/screens/workspaces, terminal commands, agent sessions; the location trail is left out (the open tabs are listed themselves) |
 | Agent chats | App contribution: `agentPane.searchChats` page providers | acpmux chats from the Recents feed (open or not) |
 
 New code is only composition: `PaletteSources.searchContributions` (a list of the App's
@@ -52,17 +52,17 @@ once the user types (the empty query is Recent only), so the first frame stays s
 
 ## 3. Entry points (one action, every surface)
 
+There is no new action id: every surface runs the existing `palette.open` with
+`scope: search`, whose handler anchors the panel to the active window's Search button
+when that window shows it, and centers it over the window otherwise.
+
 | Surface | How |
 | --- | --- |
-| Sidebar button | runs action `palette.search` with origin `user`, anchored to the button |
-| Palette | "Search Everything" row; the `search` keyword plus Tab; the `?` scope list |
-| Menu | View menu entry through the catalog (menu surface of the action) |
-| CLI | `cmux action run palette.search` (opens the panel), `cmux palette open search` |
-| MCP / headless | `palette.query` on scope `search` (palette-scopes.md 3.6: every scope is queryable without UI) |
-| Shortcut | none by default (Cmd-P and Cmd-Shift-P already exist); the user can bind one in Settings > Keyboard Shortcuts or cmux.json |
-
-The action without a sidebar button on screen (hidden sidebar, CLI) opens the palette
-centered over the window as Cmd-P does.
+| Sidebar button | runs `palette.open {scope: search}` with origin `user` |
+| Palette | the "Search" row in the `?` scope list and the root's Search In rows; the `search` keyword plus Tab |
+| CLI | `cmux palette open --arg scope=search --focus` |
+| MCP / headless | `palette.query {scope: "search", query}` returns the ranked rows without UI; `palette.run` runs one |
+| Shortcut | none by default (Cmd-P and Cmd-Shift-P already exist); bind `palette.open` with `scope: search` in cmux.json |
 
 ## 4. Settings
 
