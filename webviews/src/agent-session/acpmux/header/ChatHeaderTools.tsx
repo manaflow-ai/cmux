@@ -443,7 +443,7 @@ export function ChatHeaderTools({
       <ChatMenu items={addRows} label={t("header.newTab")} icon="action.add" onOpen={onMenuOpen} />
     </>
   );
-  const buttons = tabTools && !quiet && !adds && (
+  const buttons = tabTools && !quiet && !adds && actions.length > 0 && (
     <>
       {actions.map(({ id, mode }) =>
         id === "newTab" ? (
@@ -558,38 +558,47 @@ export function ChatHeaderTools({
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
-      {onCustomize && buttons ? (
-        // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
-        // inside them reaches this host through React.
-        <ContextMenu
-          className="acpmux-header-customize"
-          items={customizeItems(actions, menuTarget, onCustomize, t)}
-          onOpen={() => setMenuTarget(target.current)}
-        >
-          <div
-            className="acpmux-header-customize"
-            onContextMenuCapture={(event) => {
-              const button = (event.target as Element).closest?.("[data-quick-action]");
-              target.current = (button?.getAttribute("data-quick-action") ?? undefined) as QuickActionId | undefined;
-            }}
-          >
-            {buttons}
-          </div>
-        </ContextMenu>
-      ) : (
-        buttons
-      )}
-      {addTools}
-      {tray}
-      {sessionRail}
-      {summary}
-      <ChatMenu
-        items={rows}
-        disabled={rows().length === 0}
-        onOpen={onMenuOpen}
-        expand={expand}
-        onExpanded={onExpanded}
-      />
+      {buttons || addTools || tray ? (
+        <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
+          {onCustomize ? (
+            // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
+            // inside them reaches this host through React.
+            <ContextMenu
+              className="acpmux-header-customize"
+              items={customizeItems(actions, menuTarget, onCustomize, t)}
+              onOpen={() => setMenuTarget(target.current)}
+            >
+              <div
+                className="acpmux-header-customize"
+                onContextMenuCapture={(event) => {
+                  const button = (event.target as Element).closest?.("[data-quick-action]");
+                  target.current = (button?.getAttribute("data-quick-action") ?? undefined) as
+                    | QuickActionId
+                    | undefined;
+                }}
+              >
+                {buttons}
+              </div>
+            </ContextMenu>
+          ) : (
+            buttons
+          )}
+          {addTools}
+          {tray}
+        </div>
+      ) : null}
+      {buttons || addTools || tray ? <hr className="acpmux-header-separator" aria-orientation="vertical" /> : null}
+      <div className="acpmux-header-tool-group acpmux-header-tool-group-meta">
+        {sessionRail}
+        {summary}
+        <ChatMenu
+          items={rows}
+          disabled={rows().length === 0}
+          onOpen={onMenuOpen}
+          expand={expand}
+          onExpanded={onExpanded}
+        />
+      </div>
     </div>
   );
 }

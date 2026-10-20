@@ -6,7 +6,8 @@ import CmuxNextIcons
 /// Borderless icon button with gray hover and press fills (no accent color).
 final class ChromeIconButton: NSButton {
     private let density = DensityBinding()
-    private var iconName = IconName.placeholder
+    /// The pack icon the button draws (`BrowserToolbarReport.icons`).
+    private(set) var iconName = IconName.placeholder
     private var iconLabel = ""
     /// Where the pointer is now (`OmnibarPointer`); a disabled button shows none.
     private var hover: PointerHover?
@@ -69,7 +70,7 @@ final class ChromeIconButton: NSButton {
 
     private func applyIcon() {
         let label = iconLabel
-        let side = CGFloat.iconRowSize(forLabelPointSize: isToolbar ? OmnibarStyle.buttonSymbolSize : BrowserMetrics.symbolPointSize)
+        let side = isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize)
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon
@@ -94,6 +95,17 @@ final class ChromeIconButton: NSButton {
     /// fill; the app accent is a neutral gray, so a tint would not read.
     var isOn = false {
         didSet { if isOn != oldValue { updateFill() } }
+    }
+
+    /// Chrome's pressed lock: the button keeps its pressed fill while its menu or bubble is
+    /// open. When it closes the hover is read again from the pointer: an `NSMenu` tracks the
+    /// mouse itself, so the button got no exit event while it was open (u2426).
+    var isMenuOpen = false {
+        didSet {
+            guard isMenuOpen != oldValue else { return }
+            if !isMenuOpen { hover?.refresh() }
+            updateFill()
+        }
     }
 
     // A button hidden under a still pointer (collapsed, its tab parked)
@@ -140,7 +152,9 @@ final class ChromeIconButton: NSButton {
     private func showHoldMenu() {
         guard let menu = menuProvider?() else { return }
         showedHoldMenu = true
-            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 2), in: self)
+        isMenuOpen = true
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 2), in: self)
+        isMenuOpen = false
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -158,7 +172,7 @@ final class ChromeIconButton: NSButton {
         performWithTheme {
             let color: NSColor = if !isEnabled {
                 .clear
-            } else if isHighlighted || isOn {
+            } else if isHighlighted || isOn || isMenuOpen {
                 Palette.selectionFill
             } else if isHovering {
                 Palette.hoverFill

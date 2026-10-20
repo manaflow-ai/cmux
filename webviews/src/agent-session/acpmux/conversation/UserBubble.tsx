@@ -1,4 +1,4 @@
-// A prompt's bubble, with Copy and Edit under it (cx-ncc.60, Claude parity). Edit opens the prompt in
+// A prompt's bubble, with Copy, Bookmark and Edit under it (cx-ncc.60, Claude parity). Edit opens the prompt in
 // place; Send forks the chat through the turn before it and sends the edited text there (the App's
 // `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork
 // before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
@@ -17,6 +17,8 @@ import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
 import { useLab } from "../labs";
 import { PromptBubble } from "./PromptBubble";
+import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
+import { usePromptRowMark } from "../threadMinimap/promptMarks";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const t = useT();
@@ -24,6 +26,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
   const copies = experimentArm(hoverActions) === "all";
   const collapse = useLab("promptCollapse");
@@ -52,7 +55,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
       ) : (
         <div className="cv-user__bubble selectable">{text}</div>
       )}
-      {text && !row.failed && !row.queued && (copies || branch || through !== undefined) && (
+      {text && !row.failed && !row.queued && (copies || branch || through !== undefined || mark.can) && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (
             <span className="cv-user__versions">
@@ -98,6 +101,19 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               }
             >
               <Copy size={14} />
+            </button>
+          )}
+          {/* The prompt's bookmark, the same mark as the thread minimap's dot and card. */}
+          {mark.can && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact cv-user__bookmark"
+              aria-pressed={mark.marked}
+              aria-label={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+              title={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+              onClick={mark.toggle}
+            >
+              <BookmarkIcon filled={mark.marked} size={14} />
             </button>
           )}
           {through !== undefined && (

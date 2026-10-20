@@ -229,16 +229,41 @@ export function isAgentHome(cwd: string | undefined): boolean {
 
 /// The folder of the most recently used chat on this Mac (Leo 2026-10-18): where a New Tab with no
 /// folder of its own starts. Not a private agent-home folder, the home folder or `/`, and not a chat
-/// on another machine (a peer or a Cloud host).
-export function mostRecentProject(sessions: readonly AcpmuxSessionEntry[], home?: string): string | undefined {
-  let newest: AcpmuxSessionEntry | undefined;
-  for (const session of sessions) {
+/// on another machine (a peer or a Cloud host). With `known` (the host's project list, which drops
+/// folders that no longer exist), only a folder in it: a deleted or removed project never starts one.
+/// An empty list is one not loaded yet, so every local chat folder counts until it lands.
+export function mostRecentProject(
+  sessions: readonly AcpmuxSessionEntry[],
+  home?: string,
+  known?: readonly string[],
+): string | undefined {
+  return firstProject(recentLocalFolders(sessions), home, known);
+}
+
+/// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
+/// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
+/// page's first frame (newtab/recentProject.ts).
+export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limit = Infinity): string[] {
+  const local = sessions.filter((session) => {
     const cwd = session.cwd?.replace(/\/+$/, "");
-    if (!cwd || cwd === "~" || cwd === home?.replace(/\/+$/, "") || isAgentHome(cwd)) continue;
-    if (session.peer || (session.hostKind && session.hostKind !== "local") || !listed(session)) continue;
-    if (!newest || (session.updatedAt ?? 0) > (newest.updatedAt ?? 0)) newest = session;
+    if (!cwd || cwd === "~" || isAgentHome(cwd)) return false;
+    return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session);
+  });
+  const folders: string[] = [];
+  for (const session of byRecency(local)) {
+    const cwd = session.cwd!.replace(/\/+$/, "");
+    if (!folders.includes(cwd)) folders.push(cwd);
+    if (folders.length >= limit) break;
   }
-  return newest?.cwd;
+  return folders;
+}
+
+/// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
+/// `known` (the host's project list; empty is not loaded yet) one in it.
+export function firstProject(folders: readonly string[], home?: string, known?: readonly string[]): string | undefined {
+  const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
+  const homeFolder = home?.replace(/\/+$/, "");
+  return folders.find((cwd) => cwd !== homeFolder && (!projects || projects.has(cwd)));
 }
 
 /** A project's name for its header: the folder's last component, `~` for a home folder. */

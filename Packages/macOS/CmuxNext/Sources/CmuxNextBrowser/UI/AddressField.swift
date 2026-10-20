@@ -7,8 +7,15 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     var onFocus: (() -> Void)?
     var onPasteAndGo: (() -> Void)?
     var pasteAndGoTitle: (() -> String?)?
+    /// The address bar's own items at the end of the context menu ("Always
+    /// Show Full URLs", "Manage Search Engines…").
+    var extraMenuItems: (() -> [NSMenuItem])?
     weak var sink: (any OmnibarFieldEditorSink)? {
         didSet { (cell as? AddressFieldCell)?.editor.sink = sink }
+    }
+    /// Bench marks (`debug.omnibar_bench`): nil outside a bench run.
+    var probe: ((String) -> Void)? {
+        didSet { (cell as? AddressFieldCell)?.editor.probe = probe }
     }
 
     override class var cellClass: AnyClass? {
@@ -35,7 +42,9 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     private var lastStyle: OmnibarPresentation.Style = .plain
 
     override func becomeFirstResponder() -> Bool {
+        probe?("field.becomeFirstResponder")
         let accepted = super.becomeFirstResponder()
+        probe?("field.becameFirstResponder")
         if accepted {
             performWithTheme {
                 (currentEditor() as? NSTextView)?.selectedTextAttributes = [.backgroundColor: OmnibarStyle.selection]
@@ -50,9 +59,12 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         // editor (which reports the up); the focus coordinator sees the
         // responder change. Select-all on the focusing click is a state
         // machine rule.
+        probe?("field.mouseDown")
         sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: nil)
         super.mouseDown(with: event)
+        probe?("field.tracked")
         sink?.fieldEditorMouseUp()
+        probe?("field.mouseUpDone")
     }
 
     /// A right-click on the unfocused omnibar focuses it and
@@ -170,11 +182,17 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
 
     /// The field editor's context menu (the field is its delegate).
     @objc(textView:menu:forEvent:atIndex:) func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
-        guard let title = pasteAndGoTitle?() else { return menu }
-        let item = NSMenuItem(title: title, action: #selector(performPasteAndGo(_:)), keyEquivalent: "")
-        item.target = self
-        let paste = menu.items.firstIndex { $0.action == #selector(NSText.paste(_:)) }
-        menu.insertItem(item, at: paste.map { $0 + 1 } ?? 0)
+        if let title = pasteAndGoTitle?() {
+            let item = NSMenuItem(title: title, action: #selector(performPasteAndGo(_:)), keyEquivalent: "")
+            item.target = self
+            let paste = menu.items.firstIndex { $0.action == #selector(NSText.paste(_:)) }
+            menu.insertItem(item, at: paste.map { $0 + 1 } ?? 0)
+        }
+        let extras = extraMenuItems?() ?? []
+        if !extras.isEmpty {
+            menu.addItem(.separator())
+            extras.forEach(menu.addItem)
+        }
         return menu
     }
 

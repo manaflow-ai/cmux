@@ -9,18 +9,23 @@ import CmuxNextFocus
 // type-ahead queue of a page whose document has not focused its primary
 // input yet (`PageInputReadiness`). Shortcuts resolve before either.
 extension KeyRouter {
-    /// A printable key on a screen whose primary input should take it
-    /// (R65): focus that input and type the key there. Typing in a terminal
-    /// never looks up the window (typing-latency path).
+    /// A key on a screen whose primary input claims it (R65; Home's message
+    /// box: printable and dead keys, `PrimaryInputTarget.routesToPrimaryInput`)
+    /// while none of the screen's text inputs has the keyboard: focus that
+    /// input and give it the key. This is the one path for keys bound to a
+    /// screen's primary input from anywhere in the screen. Typing in a
+    /// terminal never looks up the window (typing-latency path).
     func typesIntoPrimaryInput(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let window, !(window.firstResponder is TerminalSurfaceView), Self.isPrintable(event) else { return false }
+        guard let window, !(window.firstResponder is TerminalSurfaceView), event.type == .keyDown,
+              !Self.isChord(event.modifierFlags) else { return false }
         let (controller, kind) = focus(for: window)
         guard let controller, kind == .content else { return false }
         let focus = controller.focus.state
         guard Self.mayHavePrimaryInput(focus.resolved), let pane = focus.resolved.pane,
-              let target = controller.content?.paneController(key: pane)?.currentContent?.primaryInput else { return false }
+              let target = controller.content?.paneController(key: pane)?.currentContent?.primaryInput,
+              target.routesToPrimaryInput(event) else { return false }
         let facts = Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
-                          primaryInputReady: target.acceptsRedirectedTyping)
+                          primaryInputReady: target.acceptsRedirectedTyping, primaryInputClaimsKey: true)
         guard decide(event, focus: focus, keyWindow: kind, facts: facts) == .primaryInput else { return false }
         decided.add(event)
         target.beginTyping(with: event)

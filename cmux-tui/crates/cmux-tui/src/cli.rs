@@ -17,6 +17,7 @@ mod app;
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+mod capability_cache;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
@@ -404,8 +405,10 @@ fn run_app_action_fallback(args: &[String]) -> Option<i32> {
         return None;
     }
     let name = command_args[..words].join(" ");
-    app::run_cli_action(&global, &name, &command_args[words..])
-        .or_else(|| action_hint::report(&name, global.output))
+    // `<noun> move-to-window --new` is `<noun> move-to-new-window`.
+    let (name, rest) = app::new_window_spelling(&name, &command_args[words..])
+        .unwrap_or_else(|| (name, command_args[words..].to_vec()));
+    app::run_cli_action(&global, &name, &rest).or_else(|| action_hint::report(&name, global.output))
 }
 
 fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailure> {
@@ -939,7 +942,9 @@ USAGE
   cmux agent message release <message-id> --recipient <agent> --approve|--decline
   cmux agent message unsend <message-id> [--recipient <agent>]
   cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
-  cmux agent list [OPTIONS]
+  cmux agent list [--needs-me] [--state <state>] [--terminal <id>]
+                  [--sort needs-me|recent|none] [--limit <n>] [--counts]
+  cmux agent <agent> focus
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]

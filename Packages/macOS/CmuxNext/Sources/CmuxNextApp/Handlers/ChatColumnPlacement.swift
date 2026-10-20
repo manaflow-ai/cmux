@@ -1,51 +1,9 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
-
-/// Where a person's new tab goes when it is opened from an agent chat
-/// (lawrence-call-1006 D, two columns like the Codex app). The chat dock is
-/// the left dock column with the agent chat role: tools opened from it are
-/// tabs in the scrolling strip. It shows its tab bar like every pane
-/// (cx-v4dmy).
-enum ChatColumnPlacement: Equatable {
-    /// A tab in the pane it was opened from.
-    case here
-    /// A tab in this pane of the scrolling strip.
-    case tab(in: LayoutPaneID)
-    /// The chat is alone on its screen: it moves into a new left dock with
-    /// the agent chat role, and the new tab stays in its pane.
-    case dockChat
-
-    /// `columns` are the screen's, in strip order; `recent` orders panes by
-    /// last focus, newest first; `isLoneChat` says whether a column is one
-    /// pane holding one agent chat. Only the role makes a chat dock: chats
-    /// in a plain dock or beside other columns are normal panes. A `zoomed`
-    /// screen shows only its zoomed pane, so nothing docks or moves. The
-    /// daemon never keeps a dock without a scrolling column (an all-docked
-    /// screen undocks), so a chat dock always has a strip to send tabs to.
-    static func resolve(from pane: LayoutPaneID, columns: [LayoutColumn], recent: [LayoutPaneID] = [],
-                        zoomed: Bool = false, isLoneChat: (LayoutColumn) -> Bool) -> ChatColumnPlacement {
-        guard !zoomed, let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return .here }
-        let column = columns[index]
-        let strip = columns.filter { $0.dock == nil }
-        if column.dock?.role == .agentChat {
-            guard let target = strip.first else { return .here }
-            return .tab(in: recent.first { id in strip.contains { $0.root.contains(id) } } ?? target.root.panes[0])
-        }
-        guard column.dock == nil, strip.count == 1, !columns.contains(where: { $0.dock?.role == .agentChat }),
-              isLoneChat(column) else { return .here }
-        return .dockChat
-    }
-}
+import Foundation
 
 extension ChatColumnPlacement {
-    /// `screen`'s columns in strip order. A screen stored as one split tree
-    /// is one implicit column.
-    static func columns(of screen: LayoutScreen, containing pane: LayoutPaneID) -> [LayoutColumn] {
-        screen.layout.columns.isEmpty
-            ? screen.column(containing: pane).map { [$0] } ?? [] : screen.layout.columns
-    }
-
     /// What a person's new tab from `controller`'s pane becomes. `sharing`: a chat that shares its
     /// pane with other tabs counts as lone too (Debug Settings `agentChat.dockBesideTabs`).
     @MainActor static func resolve(from controller: PaneController, services: AppServices,
@@ -105,6 +63,42 @@ extension ChatColumnPlacement {
                 }
             }
             return nil
+        case .besideDock:
+            openBesideDock(controller, respawn: respawn, services: services)
+            return nil
         }
+    }
+
+    /// A person's new tab from Home's pinned dock alone (`pinned-dock-alone-v1`): a new column
+    /// right of the dock holds it. A terminal is a new column with its shell, spawned with the
+    /// tab's options (cwd, keep); a web page opens the way Home's links do (`workspace.open_url`,
+    /// which makes the column right of a lone dock); the New Tab page is a split to the right,
+    /// which the daemon makes a column beside the dock; any other address is a browser tab aimed
+    /// at the dock, which the daemon makes in a new column right of it.
+    @MainActor static func openBesideDock(_ controller: PaneController, respawn: SplitRespawn?, services: AppServices) {
+        switch respawn {
+        case .terminal(let spawn)?:
+            controller.workspace?.newColumn(after: controller.layoutPaneID, options: spawn)
+        case .browser(let url, _, _)? where URL(string: url).map(isWebPage) == true:
+            let daemon = controller.daemon
+            services.registry.track(Task { @MainActor in
+                _ = await daemon.request("workspace.open_url") { try await WorkspaceOpenURLClient($0).openOnHome(url) }
+                return nil
+            })
+        case .browser(let url, let engine, let profileID)? where !isNewTabAddress(url, services: services):
+            // The daemon makes a browser tab aimed at the lone dock in a new column right of it.
+            controller.newBrowserTab(url: URL(string: url), engine: engine.rawValue, profile: profileID)
+        case .browser?, nil:
+            NewTabPage.split(controller, edge: .right)
+        }
+    }
+
+    /// Whether `url` is a New Tab page address (the setting's page or an engine's own).
+    @MainActor private static func isNewTabAddress(_ url: String, services: AppServices) -> Bool {
+        [BrowserEngineChoice(engine: .cef), BrowserEngineChoice(engine: .webkit)].contains { services.newTabAddress(for: $0) == url }
+    }
+
+    private static func isWebPage(_ url: URL) -> Bool {
+        ["http", "https"].contains(url.scheme?.lowercased() ?? "")
     }
 }

@@ -19,6 +19,9 @@ public struct AgentPaneHeaderHooks {
     /// Shows subagent `agent` of session `session` in an agent pane right of the chat
     /// (``AgentSubagentPanes``), focused with `focus`; false when no pane opened.
     public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
+    /// Opens `viewer` (a background process's read-only terminal) in a tab beside the chat; false
+    /// when no tab opened.
+    public var openProcess: @MainActor (_ viewer: AgentPaneProcessViewer) -> Bool
     /// A started chat's New Chat Here: a New Tab page in folder `cwd`, in a tab beside the chat's;
     /// false when none opened.
     public var newChat: @MainActor (String) -> Bool
@@ -51,6 +54,7 @@ public struct AgentPaneHeaderHooks {
                 openSide: @escaping @MainActor (String, String) -> Void = { _, _ in },
                 openTab: @escaping @MainActor (String) -> Bool = { _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
+                openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
@@ -63,6 +67,7 @@ public struct AgentPaneHeaderHooks {
         self.openSide = openSide
         self.openTab = openTab
         self.openSubagent = openSubagent
+        self.openProcess = openProcess
         self.newChat = newChat
         self.sideTabs = sideTabs
         self.preview = preview
@@ -165,6 +170,8 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
             }
             return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
+        case .processTerminal(let call):
+            return AgentPaneProcessViewer.open(call, in: self)
         case .chatTab(let chat):
             // Only a chat this pane made (its fork's or handoff start's reply put it in the pane's
             // scope), never the chat itself, and not from a New Tab page. A refusal (another

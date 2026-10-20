@@ -42,4 +42,9 @@ final class TabAndGroupTargetSource: PaletteTargetSource {
     private var panes: [PaneModel] {
         services.machines.allWorkspaces.map(\.0).flatMap { $0.screens.flatMap(\.panes) }
     }
+
+    /// Descriptions belong to kinds `next` lists.
+    func currentDescription(of target: ActionTargetRef) -> String? {
+        next.currentDescription(of: target)
+    }
 }

@@ -110,6 +110,23 @@ const headerStyleIs =
     await ctx.waitFor(() => ctx.document.querySelector('[aria-label="New tab"]'));
   };
 
+// Action controls and session metadata stay separate in the compact top-right cluster while every
+// existing control keeps its 26px hit target.
+const groupedControls: Play = async (ctx) => {
+  const actions = ctx.find({ selector: ".acpmux-header-tool-group-actions" });
+  const meta = ctx.find({ selector: ".acpmux-header-tool-group-meta" });
+  const separator = ctx.find({ selector: ".acpmux-header-separator" });
+  if (actions.getBoundingClientRect().width <= 0 || meta.getBoundingClientRect().width <= 0)
+    throw new Error("header control groups must remain visible");
+  // An <hr> is a separator by its implicit role, so the play checks the element, not an attribute.
+  if (separator.tagName !== "HR") throw new Error("header group separator is not semantic");
+  if (separator.getAttribute("aria-orientation") !== "vertical")
+    throw new Error("header separator orientation changed");
+  const tools = ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button");
+  if ([...tools].some((button) => Math.round(button.getBoundingClientRect().height) !== 26))
+    throw new Error("header control hit target changed");
+};
+
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
 const pullRequestChip: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
@@ -324,6 +341,11 @@ export default componentEntry<HeaderToolsProps>({
       note: "Debug Settings agentChat.panelTabs: with a panel beside the chat its tab strip takes new tabs, so the header keeps only the summary and the chat menu, which lists Terminal and Browser first.",
       props: { ...base, sideTabs: true },
       play: panelTabsOpen,
+    },
+    "grouped-controls": {
+      note: "Quick actions and session metadata are separated without changing the existing button hit targets.",
+      props: base,
+      play: groupedControls,
     },
     "pull-request": {
       note: "The chat branch's pull request leads the tools: its number, its state and how its checks stand (cx-tcwj).",

@@ -12,6 +12,7 @@ use tungstenite::{Message, WebSocket, accept_hdr_with_config};
 use super::attachment_http;
 use super::page_files;
 use super::*;
+use crate::net_keepalive::{WebSocketKeepalive, enable_tcp_keepalive};
 use crate::pairing::CredentialMatch;
 
 /// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.
@@ -89,6 +90,30 @@ pub fn serve_websocket_with_pages(
     access: &WebSocketAccess,
     pages: Option<PathBuf>,
 ) -> anyhow::Result<WebSocketServer> {
+    serve_websocket_with_keepalive(
+        mux,
+        addr,
+        token,
+        allow_insecure_bind,
+        access,
+        pages,
+        WebSocketKeepalive::default(),
+    )
+}
+
+/// [`serve_websocket_with_pages`] with a chosen dead-peer policy. Every
+/// production listener uses [`WebSocketKeepalive::default`]; tests pass
+/// short intervals to observe pings and dead-peer closes.
+#[doc(hidden)]
+pub fn serve_websocket_with_keepalive(
+    mux: Arc<Mux>,
+    addr: SocketAddr,
+    token: Option<String>,
+    allow_insecure_bind: bool,
+    access: &WebSocketAccess,
+    pages: Option<PathBuf>,
+    keepalive: WebSocketKeepalive,
+) -> anyhow::Result<WebSocketServer> {
     // WebSocket has no TLS here. Remote deployments must explicitly opt in and
     // should put cmux-tui behind a TLS-terminating reverse proxy.
     if !addr.ip().is_loopback() && !allow_insecure_bind {
@@ -107,7 +132,7 @@ pub fn serve_websocket_with_pages(
     let listener = TcpListener::bind(addr)?;
     let local_addr = listener.local_addr()?;
     let policy = websocket_listener_policy(local_addr, access);
-    let rules = Arc::new(ListenerRules { policy, pages });
+    let rules = Arc::new(ListenerRules { policy, pages, keepalive });
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
     let next_connection = Arc::new(AtomicU64::new(1));
@@ -137,6 +162,7 @@ pub fn serve_websocket_with_pages(
             if stream.set_nodelay(true).is_err() {
                 continue;
             }
+            enable_tcp_keepalive(&stream);
             if thread_shutdown.load(Ordering::Acquire) {
                 break;
             }
@@ -182,15 +208,21 @@ pub(super) fn handle_websocket_connection(
     token: Option<&str>,
     render_service: Arc<RenderService>,
 ) {
-    let rules = ListenerRules { policy: cmux_local_auth::ListenerPolicy::loopback(0), pages: None };
+    let rules = ListenerRules {
+        policy: cmux_local_auth::ListenerPolicy::loopback(0),
+        pages: None,
+        keepalive: WebSocketKeepalive::default(),
+    };
     handle_websocket_connection_with_permit(mux, stream, peer, token, &rules, render_service, None);
 }
 
 /// What a listener checks and serves besides the protocol: the Host/Origin
-/// rule and the page bundle directory (none: every page request is a 404).
+/// rule, the page bundle directory (none: every page request is a 404) and
+/// when an idle connection is pinged and closed.
 struct ListenerRules {
     policy: cmux_local_auth::ListenerPolicy,
     pages: Option<PathBuf>,
+    keepalive: WebSocketKeepalive,
 }
 
 /// The Origin and Host rule of a daemon WebSocket listener bound on `local`.
@@ -305,9 +337,17 @@ fn handle_websocket_connection_with_permit(
         config.max_message_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
         config.max_frame_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
     });
-    let _ = websocket.get_mut().set_read_timeout(None);
+    // The read timeout is the ping clock: a read that sees nothing for one
+    // interval returns, and the loop below pings or gives up.
+    let keepalive = rules.keepalive;
+    if websocket.get_mut().set_read_timeout(Some(keepalive.ping_interval)).is_err() {
+        return;
+    }
     let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let Ok(writer_stream) = websocket.get_ref().try_clone() else { return };
+    // Shares the write lock with the writer thread and tungstenite's Pong
+    // replies, so a Ping is never written inside another frame.
+    let Ok(mut ping_stream) = websocket.get_ref().try_clone() else { return };
     let Ok(writer_shutdown) = writer_stream.try_clone_raw() else { return };
     let Ok(control) = writer_stream.try_clone_raw() else { return };
     let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
@@ -363,12 +403,20 @@ fn handle_websocket_connection_with_permit(
         connection_permit.clone(),
     ));
 
+    // Any inbound byte, including part of a frame or a Pong, is liveness.
+    let mut idle_since = Instant::now();
+    let mut bytes_seen = websocket.get_ref().bytes_read();
     loop {
         if !writer.is_open() {
             break;
         }
 
         let incoming = websocket.read();
+        let bytes_read = websocket.get_ref().bytes_read();
+        if bytes_read != bytes_seen {
+            bytes_seen = bytes_read;
+            idle_since = Instant::now();
+        }
         match incoming {
             Ok(Message::Text(text)) => {
                 let mut text = text.to_string();
@@ -388,12 +436,31 @@ fn handle_websocket_connection_with_permit(
                 if !keep_open {
                     break;
                 }
+                // Time spent handling the frame (a handler can wait on a
+                // slow client's queue) is not inbound silence.
+                idle_since = Instant::now();
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
                 let _ = websocket.flush();
             }
             Ok(Message::Close(_)) => break,
             Ok(_) => break,
+            // A full ping interval of inbound silence (the read timeout:
+            // WouldBlock on Unix, TimedOut on Windows). Tungstenite keeps a
+            // partly read frame buffered across it.
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if idle_since.elapsed() >= keepalive.dead_peer_timeout {
+                    break;
+                }
+                if ping_stream.write_websocket_ping().is_err() {
+                    break;
+                }
+            }
             Err(_) => break,
         }
     }

@@ -23,16 +23,44 @@ final class SuggestionRowView: NSView {
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
     private var tracking: NSTrackingArea?
-    private let title: String
-    private let detail: String
+    private var title = ""
+    private var detail = ""
+    private var iconKind: IconName?
+    /// The match shown now.
+    private(set) var suggestion: BrowserSuggestion
+    /// The site icon of a page row (Chrome draws each match's favicon), from
+    /// the address bar (`AddressBarView.rowFavicon`). Nil: kind glyphs only.
+    var faviconSource: ((URL) async -> NSImage?)?
+    /// The page whose icon shows (or loads) now, and the load.
+    private var faviconURL: URL?
+    private(set) var faviconTask: Task<Void, Never>?
+    /// True while the row draws a site icon instead of its kind glyph.
+    private(set) var showsFavicon = false
 
-    init(suggestion: BrowserSuggestion) {
-        title = suggestion.title
-        detail = suggestion.detail
+    init(suggestion: BrowserSuggestion, faviconSource: ((URL) async -> NSImage?)? = nil) {
+        self.suggestion = suggestion
+        self.faviconSource = faviconSource
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerCurve = .continuous
+        icon.imageScaling = .scaleNone
+        label.lineBreakMode = .byTruncatingTail
+        label.cell?.truncatesLastVisibleLine = true
+        addSubview(icon)
+        addSubview(label)
 
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilitySelected(false)
+        show(suggestion, force: true)
+    }
+
+    /// Shows `suggestion` in this row, in place (Chromium
+    /// `OmniboxResultView::SetMatch`): typing changes the rows' text, it
+    /// never tears the card's views down. Touches only what changed.
+    func show(_ suggestion: BrowserSuggestion, force: Bool = false) {
+        guard force || suggestion != self.suggestion else { return }
+        self.suggestion = suggestion
         let kind: IconName = switch suggestion.kind {
         case .navigate: .browser
         case .search: .search
@@ -42,22 +70,55 @@ final class SuggestionRowView: NSView {
         case .switchToTab: .omnibarSwitchtab
         case .answer: .omnibarAnswer
         }
-        icon.image = NSImage.icon(kind, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
-        icon.imageScaling = .scaleNone
-        label.lineBreakMode = .byTruncatingTail
-        label.cell?.truncatesLastVisibleLine = true
-        addSubview(icon)
-        addSubview(label)
-
-        setAccessibilityElement(true)
-        setAccessibilityRole(.button)
+        let page = Self.showsSiteIcon(suggestion) ? suggestion.url : nil
+        if page != faviconURL {
+            // Another page: its glyph until its icon arrives.
+            faviconURL = page
+            faviconTask?.cancel()
+            faviconTask = nil
+            showsFavicon = false
+            iconKind = nil
+            if let page, let source = faviconSource {
+                // task-owner: this row; cancelled when the row shows another page.
+                faviconTask = Task { [weak self] in
+                    let image = await source(page)
+                    guard !Task.isCancelled, let self, self.faviconURL == page, let image else { return }
+                    self.showFavicon(image)
+                }
+            }
+        }
+        if kind != iconKind, !showsFavicon {
+            iconKind = kind
+            icon.image = NSImage.icon(kind, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
+        }
         setAccessibilityLabel([suggestion.title, suggestion.detail].filter { !$0.isEmpty }.joined(separator: ", "))
-        setAccessibilitySelected(false)
+        guard force || suggestion.title != title || suggestion.detail != detail else { return }
+        title = suggestion.title
+        detail = suggestion.detail
         applyColors()
+        needsLayout = true
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Rows that name a known web page show its site icon: history,
+    /// bookmarks and open tabs. The typed address keeps its globe (Chrome
+    /// too), so a half-typed host is never fetched; searches, answers and
+    /// extension rows keep their glyph.
+    static func showsSiteIcon(_ suggestion: BrowserSuggestion) -> Bool {
+        guard [.history, .bookmark, .switchToTab].contains(suggestion.kind),
+              let scheme = suggestion.url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+
+    private func showFavicon(_ image: NSImage) {
+        let sized = image.copy() as? NSImage ?? image
+        sized.size = NSSize(width: 16, height: 16)
+        showsFavicon = true
+        iconKind = nil
+        icon.image = sized
+    }
 
     override func layout() {
         super.layout()

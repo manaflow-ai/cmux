@@ -4,7 +4,7 @@ import QuartzCore
 /// The tab's status badge in a status icon set (cx-kxa2): with a candidate
 /// set chosen (`StatusIconSet`, Debug Settings `status.iconSet`), needs
 /// input, done and failed draw the set's mark (with the OSC 7501 blocked
-/// kind) at the icon's corner in place of the colored dot. The default set
+/// kind) where the colored dot draws (the trailing cluster, TabCell+TrailingMarks). The default set
 /// keeps the dot, so nothing changes until a set is picked. The unread dot
 /// is not a status and stays a dot.
 extension TabCell {
@@ -52,15 +52,13 @@ extension TabCell {
         layoutLayers()
     }
 
-    /// Places the badge mark at the icon's top trailing corner, where the dot
-    /// sits; true when it draws (the dot is then skipped).
-    func layoutStatusGlyph(iconFrame: CGRect, visible: Bool) -> Bool {
+    /// Places the badge mark at `frame` (the trailing cluster's far right, or the icon's corner
+    /// on a tab without a title, TabCell+TrailingMarks); true when it draws (the dot is then skipped).
+    func layoutStatusGlyph(frame: CGRect, visible: Bool) -> Bool {
         guard let statusGlyphLayer else { return false }
         statusGlyphLayer.contentsScale = scale
         statusGlyphLayer.layer.opacity = visible ? 1 : 0
-        let side = pixel(iconFrame.width * 0.62)
-        statusGlyphLayer.frame = CGRect(x: pixel(iconFrame.maxX - side + Metrics.space1), y: pixel(iconFrame.minY - Metrics.space1),
-                                        width: side, height: side)
+        statusGlyphLayer.frame = frame
         return visible
     }
 }

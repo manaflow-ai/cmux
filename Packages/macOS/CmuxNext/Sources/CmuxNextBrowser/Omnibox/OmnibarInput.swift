@@ -30,6 +30,10 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
     public enum Key: Equatable, Sendable {
         case up, down, tab, backTab
         case enter(Disposition)
+        /// Control-Enter: a bare word gets `www.` and `.com`
+        /// (`example` loads `https://www.example.com`); other text
+        /// commits as Enter does (Chromium's desired TLD).
+        case enterAddingTLD(Disposition)
         case escape
         /// Cmd-A (the field editor's `selectAll:`). Never unelides.
         case selectAll
@@ -47,6 +51,9 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
         /// Backspace with the caret at the start of the text: leaves an
         /// extension keyword session (not handled outside one).
         case backspaceAtStart
+        /// Opt-Cmd-F (Chrome's Search the Web, `IDC_FOCUS_SEARCH`): while
+        /// focused, a keyword session of the default search engine, empty.
+        case searchWithDefaultEngine
     }
 
     public enum FocusSource: Equatable, Sendable { case mouse, keyboard, programmatic }
@@ -85,6 +92,8 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
     case moreSuggestions(generation: UInt64, rows: [BrowserSuggestion], capacity: Int)
 
     case pageURLChanged(URL?)
+    /// `browser.omnibar.showFullURLs` changed (`OmnibarState.showsFullURLs`).
+    case showFullURLsChanged(Bool)
     case searchEngineChanged
     case pasteAndGo(String)
 }
@@ -105,6 +114,10 @@ public nonisolated enum OmnibarEffect: Equatable, Sendable {
     /// Enter loaded the typed text as a URL (what-you-typed or its inline
     /// completion): the visit counts as typed (Chromium `PAGE_TRANSITION_TYPED`).
     case typedNavigation(URL)
+    /// Enter loads typed text without a scheme over https (`example.com`):
+    /// if https cannot connect, the chrome loads it once over http
+    /// (`HTTPSUpgradeFallback`, Chrome's HTTPS-Upgrades fallback).
+    case typedHTTPSUpgrade(URL)
     /// Enter fixed a top-level-domain typo in this typed host
     /// (`HostTypoFixup`): remember it, so typing it again loads it as typed.
     case hostTypoFixed(typedHost: String)
