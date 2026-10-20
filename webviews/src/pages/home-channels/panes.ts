@@ -11,10 +11,12 @@ export const NARROW_PAGE = 720;
 export type Pane = "list" | "conversation";
 
 const CONVERSATION = /^#\/conversation\/[A-Za-z0-9_]+(?:\/|$)/;
+/** New Chief and Edit Chief draw a page where the conversation is (routes.ts). */
+const CHIEF_PAGE = /^#\/(?:new\/chief|chief\/[A-Za-z0-9_-]+\/edit)\/?$/;
 
 /** The pane a page hash names. */
 export function paneOf(hash: string): Pane {
-  return CONVERSATION.test(hash) ? "conversation" : "list";
+  return CONVERSATION.test(hash) || CHIEF_PAGE.test(hash) ? "conversation" : "list";
 }
 
 export const conversationHash = (id: string) => `#/conversation/${id}`;

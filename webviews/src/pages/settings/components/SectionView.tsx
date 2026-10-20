@@ -4,12 +4,14 @@ import { sections } from "../schema";
 import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
+import { ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
+import { MobileCard } from "./MobileCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
@@ -31,9 +33,11 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   machines: () => <MachinesSection title={machinesTitle()} />,
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
+  chiefs: () => <ChiefsCard />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
   backdrops: (focus, workspace) => <Backdrops focus={focus} workspace={workspace} />,
+  mobile: () => <MobileCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */

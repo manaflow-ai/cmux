@@ -231,9 +231,9 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
       await page.close();
     });
 
-    // A press is the Claude app's: a tiny shrink with an almost invisible dip that springs back,
-    // never a brighter or tinted tone (that part is the test above). The chips that open a menu do
-    // it on pointerdown, which can take :active away before the press frame paints.
+    // A press changes nothing (Leo 2026-10-19: no mousedown and mouseup click feedback): no shrink,
+    // no dip and no spring back, and never a brighter or tinted tone (that part is the test above).
+    // The chips that open a menu do it on pointerdown, so the press is read held and released too.
     const PRESSED = [
       { name: "New Tab model", entry: "agent-pane.new-tab", variant: "reasoning-chip", selector: chip("Model") },
       ...Object.entries(BAR).map(([name, selector]) => ({
@@ -244,7 +244,7 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
       })),
     ];
     for (const target of PRESSED)
-      test(`${engine}: ${target.name}: a press shrinks the button a hair and dips it faintly, then springs back`, async () => {
+      test(`${engine}: ${target.name}: a press neither shrinks nor dims the button, held or released`, async () => {
         const page = await open(engine, target.entry, target.variant);
         const button = page.locator(target.selector).first();
         const read = () =>
@@ -253,29 +253,28 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
             const scale = style.transform === "none" ? 1 : new DOMMatrixReadOnly(style.transform).a;
             return { scale, opacity: Number(style.opacity) };
           });
-        // The release springs back: transform and opacity ease, never snap.
+        // Nothing to spring back: neither transform nor opacity is eased.
         const eased = await button.evaluate((element) => getComputedStyle(element).transitionProperty);
         const box = (await button.boundingBox())!;
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.waitForTimeout(200);
+        const hover = await read();
         await page.mouse.down();
         const pressed = await read();
-        // Held past the release's spring: a chip whose menu opened on pointerdown has lost :active
-        // by now, so this is where a press keyed on :active alone springs back too soon.
+        // Held: a chip whose menu opened on pointerdown has lost :active by now, but keeps
+        // data-press-active (popoverTrigger.ts) until the release.
         await page.waitForTimeout(300);
         const held = await read();
         await page.mouse.up();
         await page.waitForTimeout(400);
         const after = await read();
         await page.close();
-        expect(eased, "the release eases the shrink back").toContain("transform");
-        expect(eased, "the release eases the dip back").toContain("opacity");
-        expect(pressed.scale, "the press shrinks the button").toBeLessThan(0.99);
-        expect(pressed.scale, "only a hair").toBeGreaterThanOrEqual(0.96);
-        expect(pressed.opacity, "a faint dip").toBeLessThan(1);
-        expect(pressed.opacity, "almost imperceptible").toBeGreaterThanOrEqual(0.9);
-        expect(held, "the press holds while the button is down").toEqual(pressed);
-        expect(after, "nothing lingers").toEqual({ scale: 1, opacity: 1 });
+        expect(eased, "no transform to ease").not.toContain("transform");
+        expect(eased, "no opacity to ease").not.toContain("opacity");
+        expect(hover, "at hover the button is full size and opaque").toEqual({ scale: 1, opacity: 1 });
+        expect(pressed, "mousedown changes nothing").toEqual(hover);
+        expect(held, "held, nothing changes").toEqual(hover);
+        expect(after, "mouseup changes nothing").toEqual(hover);
       });
   }
 });
