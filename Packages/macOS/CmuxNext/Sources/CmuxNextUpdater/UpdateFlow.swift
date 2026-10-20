@@ -11,7 +11,15 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     /// The user asked to install; held until the update is staged.
     public private(set) var installRequested = false
     /// The user asked to check: checking, downloading and the result show.
+    /// Only the person's own check sets it; a scheduled (background) check
+    /// clears it, so it shows nothing until its update is staged (Lawrence
+    /// 2026-10-20: "if there is a background check for updates, it should
+    /// not be visible to the user").
     public private(set) var userAsked = false
+    /// The person's request waits for its check to start: the next
+    /// ``UpdateIndicatorPhase/checking`` is theirs. A check that starts
+    /// without one is a scheduled check.
+    private var askPending = false
 
     public init() {}
 
@@ -21,6 +29,8 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             return sparkleMoved(to: next)
         case .checkRequested:
             userAsked = true
+            // Joining a check that already runs needs no new start.
+            askPending = phase != .checking
             return []
         case .installRequested:
             switch phase {
@@ -51,7 +61,21 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     }
 
     private mutating func sparkleMoved(to next: UpdateIndicatorPhase) -> [UpdateFlowEffect] {
+        let previous = phase
         phase = next
+        switch next {
+        case .checking:
+            // A check the person did not ask for (scheduled) shows nothing,
+            // even while an earlier result of theirs still waits for its x.
+            if askPending { askPending = false } else if previous != .checking { userAsked = false }
+        case .hidden:
+            // A check or download that ended with nothing ends the request:
+            // the next scheduled check stays silent. (A note that leaves
+            // through ``UpdateFlowEvent/noteExpired`` ends it there.)
+            if previous == .checking || previous.isDownloading { userAsked = false }
+        case .note, .available, .downloading, .ready, .installing:
+            askPending = false
+        }
         switch next {
         case .ready:
             userAsked = false
@@ -85,10 +109,17 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     /// The notice card's update status, or nil: what the user asked for (a
     /// check, its download, its result), and a found update that waits for
     /// a click (`updates.downloadAutomatically` off), which needs no check.
+    /// A scheduled check, its download and its result show nothing.
     /// A staged or installing update is never this card (the staged update
     /// card, ``footerPill(preferences:)``).
-    public var card: UpdateCard? {
-        if case .available(let version) = phase { return .available(version: version) }
+    ///
+    /// - Parameter downloadsAutomatically: `updates.downloadAutomatically`.
+    ///   While on, a found update that is not downloaded yet (the download
+    ///   waits for Low Data Mode or a metered link to end) shows nothing until
+    ///   it is staged, unless the person asked; off, the found update shows,
+    ///   since nothing else would tell the person about it.
+    public func card(downloadsAutomatically: Bool) -> UpdateCard? {
+        if case .available(let version) = phase, userAsked || !downloadsAutomatically { return .available(version: version) }
         guard userAsked else { return nil }
         switch phase {
         case .checking: return .checking
@@ -108,6 +139,13 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         case .installing: .installing
         case .hidden, .checking, .downloading, .available, .note: nil
         }
+    }
+}
+
+extension UpdateIndicatorPhase {
+    /// Downloading or unpacking.
+    nonisolated var isDownloading: Bool {
+        if case .downloading = self { true } else { false }
     }
 }
 

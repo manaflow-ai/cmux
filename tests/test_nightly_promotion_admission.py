@@ -45,7 +45,7 @@ HARNESS = r"""
 // environment variable (E2BIG).
 const scenario = JSON.parse((await import('node:fs')).readFileSync(process.env.SCENARIO_FILE, 'utf8'));
 const guard = await import(process.env.GUARD);
-const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0 };
+const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0, commitReads: 0, commitInFlight: 0, commitMaxInFlight: 0 };
 const pullsListCommits = Symbol('listCommits');
 const notices = [];
 const actions = {
@@ -137,9 +137,16 @@ const github = {
         calls.comparePages += 1;
         return { data: { status, total_commits: scenario.totalCommitsOverride ?? inRange.length, commits: pageCommits, files: files.slice(0, cap) } };
       },
+      // Each read takes a little time, as on GitHub, so the test sees how
+      // many the guard keeps in flight at once.
       getCommit: async ({ ref, per_page = 300, page = 1 }) => {
         const c = commits[ref];
         if (!c) throw new Error(`unexpected commit ${ref}`);
+        calls.commitReads += 1;
+        calls.commitInFlight += 1;
+        calls.commitMaxInFlight = Math.max(calls.commitMaxInFlight, calls.commitInFlight);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        calls.commitInFlight -= 1;
         const all = c.files || [];
         return { data: { ...c, files: all.slice((page - 1) * per_page, page * per_page) } };
       },
@@ -168,7 +175,13 @@ const github = {
     },
   }),
   request: async (route, params) => {
-    if (route === 'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls') return { data: scenario.commitPulls[params.commit_sha] || [] };
+    if (route === 'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls') {
+      // GitHub answers 500 now and then (run 39413299148): the first
+      // `pullsErrors` reads of this list fail with a server error.
+      calls.pullsReads = (calls.pullsReads || 0) + 1;
+      if (calls.pullsReads <= (scenario.pullsErrors || 0)) throw Object.assign(new Error('Server Error'), { status: scenario.pullsErrorStatus || 500 });
+      return { data: scenario.commitPulls[params.commit_sha] || [] };
+    }
     if (route === 'GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals') return { data: scenario.approvals };
     throw new Error(`unexpected request ${route}`);
   },
@@ -534,6 +547,45 @@ def test_a_surface_change_on_a_late_page_of_a_long_range_still_asks_for_an_ack()
     assert out["decision"]["action"] == "needs-ack", out["decision"]
     assert out["decision"]["surfaceFiles"] == [".github/workflows/nightly.yml"]
     assert "austinywang" in out["decision"]["landers"], out["decision"]
+
+
+def test_a_long_surface_range_reads_its_commits_in_parallel_within_a_bound() -> None:
+    # Run 39410930509: read one by one, 1782 commits ran the decide job past
+    # its 10-minute limit. Reads overlap, but never more than 16 at once.
+    out = run(merged_long_range(232, 1549, surface_at_side=5))
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert out["calls"]["commitReads"] >= 1782, out["calls"]
+    assert 8 <= out["calls"]["commitMaxInFlight"] <= 16, out["calls"]
+
+
+def test_a_transient_github_server_error_is_retried() -> None:
+    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}], pullsErrors=2)
+    case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
+    out = run(case)
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert "teamleaderleo" in out["decision"]["landers"], out["decision"]
+
+
+def test_a_lasting_github_server_error_still_fails() -> None:
+    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}], pullsErrors=99)
+    case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
+    try:
+        out = run(case)
+    except RuntimeError as error:
+        assert "Server Error" in str(error), error
+    else:
+        raise AssertionError(f"a lasting 500 must not decide: {out['decision']}")
+
+
+def test_a_client_error_is_not_retried() -> None:
+    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}], pullsErrors=1, pullsErrorStatus=404)
+    case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
+    try:
+        out = run(case)
+    except RuntimeError as error:
+        assert "Server Error" in str(error), error
+    else:
+        raise AssertionError(f"a 404 must not be retried: {out['decision']}")
 
 
 def test_a_long_range_the_compare_api_lists_short_is_refused() -> None:

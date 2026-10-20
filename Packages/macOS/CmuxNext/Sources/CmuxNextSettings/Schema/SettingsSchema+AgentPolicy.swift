@@ -52,6 +52,7 @@ extension SettingsSchema {
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
         "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
+        "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
@@ -209,6 +210,8 @@ extension SettingsSchema {
         "agents.chats.discovery": .privacy,
         "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
+        // Which of the person's folders the Screenshots page reads.
+        "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
         // under the user's Return.
         "palette.aliases": .userOnly, "palette.pins": .userOnly,
