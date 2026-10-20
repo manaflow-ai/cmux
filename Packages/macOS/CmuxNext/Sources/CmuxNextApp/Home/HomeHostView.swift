@@ -96,13 +96,11 @@ final class HomeHostView: NSView {
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: invocation)
         }
         settingsView.onRename = { [weak service] name in
-            guard let connection = service?.connection else { return }
-            // task-owner: one op; ends with its reply
-            Task {
-                let key = "home-chief-rename-\(UUID().uuidString.lowercased())"
-                _ = try? await CmuxNextDaemon.ConversationClient(connection).op(
-                    CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))
-            }
+            // One op; the daemon refusing it (or no daemon, or one without the op) is false, and the card says so.
+            guard let connection = service?.connection else { return false }
+            let key = "home-chief-rename-\(UUID().uuidString.lowercased())"
+            return (try? await CmuxNextDaemon.ConversationClient(connection).op(
+                CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))) != nil
         }
         toggleObserver = NotificationCenter.default.addObserver(forName: Self.toggleSettings, object: nil, queue: .main) { [weak self] note in
             // task-owner: one hop to the main actor for the toggle; only the front window's Home answers (the posted window)

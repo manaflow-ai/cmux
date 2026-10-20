@@ -72,8 +72,8 @@ public final class HomeChiefSettingsView: NSView {
     /// The note says why the person's own change did not take (a pick, a picture): it stays
     /// through refreshes until their next change or another Chief.
     var changeFailed = false
-    /// Renames the Chief conversation (the daemon's set-title op).
-    public var onRename: (String) -> Void = { _ in }
+    /// Renames the Chief conversation (the daemon's set-title op); false when it did not take.
+    public var onRename: @MainActor (String) async -> Bool = { _ in true }
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
     /// registry for a Chief of this Mac (set by the header view); nil writes this panel's
     /// mux home's files (a cloud Chief).
@@ -234,13 +234,30 @@ public final class HomeChiefSettingsView: NSView {
 
     /// Return, or the end of an edit: a new, non-empty name renames the Chief.
     @objc func renamed() {
+        commitName()
+    }
+
+    /// Renames the Chief to the field's new, non-empty name; nil when the name is no change. A
+    /// rename the daemon refuses (or with no daemon to send it to) shows the kept name again and
+    /// says so, unless a newer name came since. The Home reads the title again on every
+    /// transcript or typing change (`setName`), so the kept name arriving meanwhile is no newer name.
+    @discardableResult
+    func commitName() -> Task<Void, Never>? {
         let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         // A blank name renames nothing, so the field shows the name the Chief keeps; a kept
         // name shows as it is saved, without the spaces around it.
         nameField.stringValue = name.isEmpty ? shownName : name
-        guard !name.isEmpty, name != shownName else { return }
+        guard !name.isEmpty, name != shownName else { return nil }
+        let kept = shownName
         shownName = name
-        onRename(name)
+        // task-owner: one rename; ends with the daemon's answer
+        return Task { [weak self] in
+            guard let self, !(await onRename(name)), shownName == name || shownName == kept else { return }
+            shownName = kept
+            // Still in the field after Return: it shows the kept name too, unless the person typed on.
+            if nameField.currentEditor() == nil || nameField.stringValue == name { nameField.stringValue = kept }
+            note(HomeEngineStrings.renameRefused, kept: true)
+        }
     }
 
     // MARK: Picture
