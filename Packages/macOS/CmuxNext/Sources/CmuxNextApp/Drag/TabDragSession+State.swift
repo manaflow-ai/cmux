@@ -107,14 +107,3 @@ extension TabDragSession {
         }
     }
 }
-
-extension TabDropEdge {
-    var paneEdge: PaneEdge {
-        switch self {
-        case .left: .left
-        case .right: .right
-        case .top: .top
-        case .bottom: .bottom
-        }
-    }
-}

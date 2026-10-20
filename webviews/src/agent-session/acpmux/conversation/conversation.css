@@ -1505,6 +1505,34 @@ pre.cv-math-source {
 .cv-tool-output-card .cv-tool-output {
   margin: 0;
 }
+/* An opened MCP call (McpCallRows.tsx): its request and response as tight blocks under small
+   heads, no wider than the output card and with less padding. */
+.cv-mcp-call {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 8px;
+}
+.cv-mcp-call__head {
+  margin: 0 0 2px 2px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  line-height: 14px;
+}
+.cv-mcp-call__body {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-text-muted);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  line-height: 17px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .cv-tool-output__copy {
   position: absolute;
   top: 4px;
@@ -2492,15 +2520,16 @@ pre.cv-math-source {
   backdrop-filter: none;
 }
 
-/* The agent's todo list (PlanList.tsx, cx-ncc.80). */
+/* The agent's todo list (PlanList.tsx, cx-ncc.80): a quiet card, as in Claude desktop. A filled
+   check is done, a thin spinner runs and a dashed circle waits; no heading, strike-through or bold. */
 .cv-plan {
+  position: relative;
   margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   font-size: var(--text-body);
-}
-.cv-plan__heading {
-  height: 20px;
-  font-size: var(--text-caption);
-  color: var(--cv-text-muted);
 }
 .cv-plan__items {
   margin: 0;
@@ -2509,9 +2538,16 @@ pre.cv-math-source {
 }
 .cv-plan__item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  min-height: 22px;
+  min-height: 24px;
+  padding-block: 4px;
+  box-sizing: border-box;
+  line-height: 16px;
+}
+.cv-plan__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .cv-plan__mark {
   flex: 0 0 auto;
@@ -2521,10 +2557,12 @@ pre.cv-math-source {
   width: 12px;
   height: 12px;
   border: 1.5px solid var(--cv-text-muted);
+  margin-top: 2px;
   border-radius: 50%;
   box-sizing: border-box;
 }
-/* The item's state for screen readers only (the pane does not load ui.css's .ui-sr-only). */
+/* The progress and each item's state for screen readers only (the pane does not load ui.css's
+   .ui-sr-only). */
 .cv-plan__state {
   position: absolute;
   width: 1px;
@@ -2535,18 +2573,37 @@ pre.cv-math-source {
 }
 .cv-plan__item[data-status="completed"] {
   color: var(--cv-text-muted);
-  text-decoration: line-through;
 }
 .cv-plan__item[data-status="completed"] .cv-plan__mark {
   border-color: transparent;
   background: var(--cv-text-muted);
   color: var(--agent-accent-text, #fff);
 }
-.cv-plan__item[data-status="in_progress"] {
-  font-weight: 600;
+.cv-plan__item[data-status="pending"] .cv-plan__mark {
+  border-style: dashed;
 }
+/* A thin arc on a faint ring; it turns while the turn runs. */
 .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
-  border-color: var(--agent-text);
+  border-color: var(--cv-card-ring);
+  border-top-color: var(--agent-text);
+}
+/* Left in progress when its turn ended: a plain ring, not an arc frozen mid-turn. */
+.cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+  border-color: var(--cv-text-muted);
+}
+/* Static status indicators and Reduce Motion: the arc holds still. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"])
+    .cv-plan:not([data-ended])
+    .cv-plan__item[data-status="in_progress"]
+    .cv-plan__mark {
+    animation: cv-plan-spin 0.9s linear infinite;
+  }
+}
+@keyframes cv-plan-spin {
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
@@ -2593,6 +2650,101 @@ pre.cv-math-source {
   color: var(--agent-text);
 }
 .cv-session-start__dismiss:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+
+/* ---------- A paused agent pair (AgentPairNote.tsx) ---------- */
+/* Its sentence wraps; the held count and Resume sit under it, indented to the text. */
+.cv-agent-pair[data-state="paused"] {
+  align-items: flex-start;
+  padding-top: 3px;
+}
+.cv-agent-pair[data-state="paused"] .cv-tool__icon {
+  margin-top: 2px;
+}
+.cv-agent-pair__text {
+  white-space: normal;
+}
+.cv-agent-pair__detail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  padding-left: 22.5px;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__toggle {
+  all: unset;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__toggle:hover {
+  color: var(--agent-text);
+}
+.cv-agent-pair__toggle:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+/* The held previews, under the detail line: plain quoted text, one per line. */
+.cv-agent-pair__held {
+  margin: 2px 0 4px;
+  padding: 0 0 0 22.5px;
+  list-style: none;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__held li {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--agent-border);
+  overflow-wrap: anywhere;
+}
+.cv-agent-pair__held li.cv-agent-pair__more {
+  border-left-color: transparent;
+}
+.cv-agent-pair__held li + li {
+  margin-top: 4px;
+}
+/* The live region (<output>, role status): the held and dropped counts and a failed Resume. A box
+   of its own, not display: contents, which drops the role in WebKit. */
+.cv-agent-pair__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.cv-agent-pair__status:empty {
+  display: none;
+}
+.cv-agent-pair[data-state="resumed"] .cv-agent-pair__dropped {
+  flex: none;
+  margin-left: 8px;
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__failed {
+  color: var(--agent-danger);
+}
+.cv-agent-pair__resume {
+  all: unset;
+  padding: 1px 8px;
+  border: 1px solid var(--agent-border);
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--agent-text);
+}
+.cv-agent-pair__resume:hover:not(:disabled) {
+  background: var(--cv-card-fill);
+}
+.cv-agent-pair__resume:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.cv-agent-pair__resume:focus-visible {
   outline: 2px solid var(--agent-accent, currentColor);
   outline-offset: 1px;
 }

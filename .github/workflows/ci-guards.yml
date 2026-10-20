@@ -1258,6 +1258,14 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_feed_rollback.py
 
+      - name: Validate the nightly-next canary mode and its one-week flip
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_canary_mode.py
+
+      - name: Validate the nightly-next fix-forward after a pull
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_fix_forward.py
+
       - name: Validate the nightly-next arm64-only track
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_arm64_only.py
