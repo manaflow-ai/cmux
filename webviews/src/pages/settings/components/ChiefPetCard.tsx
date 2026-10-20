@@ -7,38 +7,34 @@ import { useRowState, useStore, type RowState } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
 import { RowStatus } from "./SettingRow";
+import mascotOrb from "../../../agent-session/acpmux/mascots/ChiefMascotOrb.png";
+import mascotOrbSpark from "../../../agent-session/acpmux/mascots/ChiefMascotOrbSpark.png";
+import mascotOrbHood from "../../../agent-session/acpmux/mascots/ChiefMascotOrbHood.png";
+import mascotMachine from "../../../agent-session/acpmux/mascots/ChiefMascotMachine.png";
+import mascotMachineCyan from "../../../agent-session/acpmux/mascots/ChiefMascotMachineCyan.png";
+import mascotMachineBlue from "../../../agent-session/acpmux/mascots/ChiefMascotMachineBlue.png";
+import mascotMoon from "../../../agent-session/acpmux/mascots/ChiefMascotMoon.png";
+import mascotMoonBlue from "../../../agent-session/acpmux/mascots/ChiefMascotMoonBlue.png";
+import mascotFox from "../../../agent-session/acpmux/mascots/ChiefMascotFox.png";
 
 export const CHIEF_PET_ENABLED = "home.chiefPetEnabled";
 export const CHIEF_PET_MASCOT = "home.chiefPetMascot";
 /** The rows this card draws in place of their group. */
 export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([CHIEF_PET_ENABLED, CHIEF_PET_MASCOT]);
 
-/** The characters in the setting's order (`HomeChiefPetSetting.mascots`), with their art. */
+/** The characters in the setting's order (`HomeChiefPetSetting.mascots`), with their art. Imported,
+ * not `new URL(..., import.meta.url)`: the shipped page is one self-contained index.html whose CSP
+ * allows `img-src data:` only, so its bundler (bundle.mjs) inlines each PNG as a data URL. */
 export const CHIEF_PET_MASCOTS: ReadonlyArray<{ id: string; art: string }> = [
-  { id: "orb", art: new URL("../../../agent-session/acpmux/mascots/ChiefMascotOrb.png", import.meta.url).href },
-  {
-    id: "orb-spark",
-    art: new URL("../../../agent-session/acpmux/mascots/ChiefMascotOrbSpark.png", import.meta.url).href,
-  },
-  {
-    id: "orb-hood",
-    art: new URL("../../../agent-session/acpmux/mascots/ChiefMascotOrbHood.png", import.meta.url).href,
-  },
-  { id: "machine", art: new URL("../../../agent-session/acpmux/mascots/ChiefMascotMachine.png", import.meta.url).href },
-  {
-    id: "machine-cyan",
-    art: new URL("../../../agent-session/acpmux/mascots/ChiefMascotMachineCyan.png", import.meta.url).href,
-  },
-  {
-    id: "machine-blue",
-    art: new URL("../../../agent-session/acpmux/mascots/ChiefMascotMachineBlue.png", import.meta.url).href,
-  },
-  { id: "moon", art: new URL("../../../agent-session/acpmux/mascots/ChiefMascotMoon.png", import.meta.url).href },
-  {
-    id: "moon-blue",
-    art: new URL("../../../agent-session/acpmux/mascots/ChiefMascotMoonBlue.png", import.meta.url).href,
-  },
-  { id: "fox", art: new URL("../../../agent-session/acpmux/mascots/ChiefMascotFox.png", import.meta.url).href },
+  { id: "orb", art: mascotOrb },
+  { id: "orb-spark", art: mascotOrbSpark },
+  { id: "orb-hood", art: mascotOrbHood },
+  { id: "machine", art: mascotMachine },
+  { id: "machine-cyan", art: mascotMachineCyan },
+  { id: "machine-blue", art: mascotMachineBlue },
+  { id: "moon", art: mascotMoon },
+  { id: "moon-blue", art: mascotMoonBlue },
+  { id: "fox", art: mascotFox },
 ];
 
 /** The rail under the pet, as the pet draws it: compose and the chevron. */
