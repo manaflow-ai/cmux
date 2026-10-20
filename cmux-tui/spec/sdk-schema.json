@@ -1925,7 +1925,7 @@
      "presence": "optional",
      "nullable": true,
      "constraints": [
-      "The cmux-tui crate version; `version` is the npm/PyPI release (equal in app and local builds)."
+      "The cmux-tui crate version; `version` is the npm/PyPI release (equal in app and local builds). Only with identify {revisions: true}."
      ]
     },
     "build_commit": {
@@ -1960,7 +1960,7 @@
      "presence": "optional",
      "nullable": true,
      "constraints": [
-      "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions."
+      "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions. Only with identify {revisions: true}."
      ]
     },
     "min_api_revision": {
@@ -1971,7 +1971,7 @@
      "presence": "optional",
      "nullable": true,
      "constraints": [
-      "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info."
+      "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info. Only with identify {revisions: true}."
      ]
     },
     "install": {
@@ -1982,7 +1982,7 @@
      "presence": "optional",
      "nullable": true,
      "constraints": [
-      "How this daemon's binary was installed: npm, pypi, app or other."
+      "How this daemon's binary was installed: npm, pypi, app or other. Only with identify {revisions: true}."
      ]
     },
     "update_command": {
@@ -1993,7 +1993,7 @@
      "presence": "optional",
      "nullable": true,
      "constraints": [
-      "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal."
+      "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal. Only with identify {revisions: true}."
      ]
     },
     "capabilities": {
@@ -9212,6 +9212,18 @@
       "nullable": false,
       "since": 12,
       "capability": "machine-identity-v1"
+     },
+     "revisions": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "constraints": [
+       "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+      ]
      }
     },
     "additional_properties": false

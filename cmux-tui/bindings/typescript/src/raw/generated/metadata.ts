@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b. */
+/* cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b" as const;
+export const SDK_IR_SHA256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1438,6 +1438,10 @@ export const COMMAND_METADATA = {
       "machine_metadata": {
         "since": 12,
         "capability": "machine-identity-v1"
+      },
+      "revisions": {
+        "since": 12,
+        "capability": null
       }
     },
     "stream": null,
@@ -7150,7 +7154,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "fields": {
       "api_revision": {
         "constraints": [
-          "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions."
+          "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions. Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -7209,7 +7213,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "crate_version": {
         "constraints": [
-          "The cmux-tui crate version; `version` is the npm/PyPI release (equal in app and local builds)."
+          "The cmux-tui crate version; `version` is the npm/PyPI release (equal in app and local builds). Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -7246,7 +7250,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "install": {
         "constraints": [
-          "How this daemon's binary was installed: npm, pypi, app or other."
+          "How this daemon's binary was installed: npm, pypi, app or other. Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -7317,7 +7321,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "min_api_revision": {
         "constraints": [
-          "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info."
+          "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info. Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -7379,7 +7383,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "update_command": {
         "constraints": [
-          "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal."
+          "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal. Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -19380,6 +19384,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "fields": {
         "machine_metadata": {
           "capability": "machine-identity-v1",
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "revisions": {
+          "constraints": [
+            "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+          ],
           "nullable": false,
           "presence": "optional",
           "since": 12,

@@ -678,6 +678,10 @@ enum Command {
     Identify {
         #[serde(default)]
         machine_metadata: bool,
+        /// Adds `api_revision`, `min_api_revision`, `crate_version`,
+        /// `install` and `update_command` (server/api_revision_wire.rs).
+        #[serde(default)]
+        revisions: bool,
     },
     BrowserHostProvider,
     SubscribeActivity,
