@@ -1,7 +1,7 @@
 import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
-import { sendTeamInvite, userTeams } from "./stack.ts"
+import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
 import { apnsConfig, apnsTopics, clean, sendApns } from "./push.ts"
 import { openStore, PUSH_KINDS, type Device, type PushKind, type Store } from "./store.ts"
 import type { Attachment } from "./team-hub.ts"
@@ -409,6 +409,23 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId }]
       })
     })
+  }
+
+  if (path === "/v1/teams" && method === "POST") {
+    // Create team (PROTOCOL.md): Stack's client API refuses it, so the Worker creates the team with the
+    // caller's project server key and the caller as its creator and first member.
+    const b = await readJson(req)
+    const name = typeof b.name === "string" ? b.name.trim() : ""
+    if (!name || name.length > 64) throw new HttpError(400, "bad_request", "name must be 1 to 64 characters")
+    await limit(env.INVITE_LIMIT, me, "team creations")
+    const r = await createTeam(env, caller, name)
+    if (!r.ok) {
+      if (r.code === "team_creation_unavailable") return fail(503, r.code, "this service can't create teams for your account yet")
+      return fail(r.status === 401 || r.status === 403 ? 403 : 502, "team_create_failed", `Stack refused the team (${r.code})`)
+    }
+    // The caller's cached memberships predate the new team.
+    teamsCache.delete(`${caller.projectId}\u0000${caller.userId}`)
+    return json({ team: { id: r.id, name: r.name } })
   }
 
   const team = path.match(/^\/v1\/teams\/([^/]+)\/(macs|prefs|invites|signal|hub)$/)
