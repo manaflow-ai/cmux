@@ -113,6 +113,10 @@ final class AppServices {
     }()
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
+    /// What agent cursor tags say and where a click on one goes.
+    private(set) lazy var agentCursorTagLinks = AgentCursorTagLinks { [weak self] tab in
+        self?.revealTab(tab, intent: .raise) ?? false
+    }
     /// The session vault (past agent sessions); tests may set one over a fixed source.
     lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
     /// `cmux://vault`: Open Vault as Pane.

@@ -141,6 +141,21 @@ public nonisolated enum MotionTunables {
         "motion.popup.closeScale", .palette, "Popup close scale", help: "Scale a popup shrinks to, toward its control, when it closes.",
         default: 0.97, range: 0.8...1, step: 0.005, unit: .multiplier, code: "MotionTunables.popupCloseScale")
 
+    // MARK: Agent cursor
+
+    /// User, 2026-10-20: the agent cursor's motion is "quick: short, snappy".
+    /// A glide keeps the cmux-cua path (speed envelope, then the spring
+    /// settle) and plays it in this share of its time, never longer than
+    /// ``agentCursorGlideMax``.
+    public static let agentCursorGlideScale = Tunable<Double>.number(
+        "motion.agentCursor.glideScale", .fades, "Agent cursor glide time",
+        help: "Share of the cmux-cua glide time an agent cursor glide plays in.",
+        default: 0.5, range: 0.1...1, step: 0.05, unit: .multiplier, code: "MotionTunables.agentCursorGlideScale")
+    public static let agentCursorGlideMax = Tunable<Double>.number(
+        "motion.agentCursor.glideMax", .fades, "Agent cursor glide limit",
+        help: "The longest an agent cursor glide plays, however far it goes.",
+        default: 0.28, range: 0.05...1, step: 0.01, unit: .seconds, code: "MotionTunables.agentCursorGlideMax")
+
     // MARK: Launch
 
     public static let launchMarkDelay = Tunable<Double>.number(
@@ -161,6 +176,7 @@ public nonisolated enum MotionTunables {
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
                tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim].map(\.descriptor)
             + [panelOpenScale, panelCloseScale, popupOpenScale, popupCloseScale].map(\.descriptor)
+            + [agentCursorGlideScale, agentCursorGlideMax].map(\.descriptor)
     }
 }
 
