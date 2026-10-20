@@ -284,13 +284,7 @@ export function PermissionCard({
       return [event, handler] as const;
     });
     return () => handlers.forEach(([event, handler]) => window.removeEventListener(event, handler));
-  }, [
-    permission.pending,
-    permission.permissionId,
-    permission.options,
-    shortcutLabels,
-    shortcutOptions,
-  ]);
+  }, [permission.pending, permission.permissionId, permission.options, shortcutLabels, shortcutOptions]);
   const sendFeedback = async (text: string) => {
     if (!feedback || !onDenyWithFeedback || writing?.sending || answered.current === permission.permissionId) return;
     const permissionId = permission.permissionId;
