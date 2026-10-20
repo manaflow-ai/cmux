@@ -98,7 +98,10 @@ pub(super) fn validate_registry_viewport(
         }
         return Ok(());
     }
-    if viewport.columns.len() < 2 && !viewport.has_lone_row_column() && !viewport.has_lone_pinned_column() {
+    if viewport.columns.len() < 2
+        && !viewport.has_lone_row_column()
+        && !viewport.has_lone_pinned_column()
+    {
         anyhow::bail!("viewport must have at least two columns when active");
     }
     let base_width =

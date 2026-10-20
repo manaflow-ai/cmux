@@ -265,8 +265,16 @@ fn closing_the_last_column_beside_a_pinned_dock_leaves_the_dock_alone() {
     wire.ok(json!({"cmd": "close-surface", "surface": right}));
     let (columns, dock, kept) = wire.mux.with_state(|state| {
         let screen = &state.workspaces[0].screens[0];
-        let columns = screen.layout_columns.iter().map(|c| (c.width, c.root.pane_ids_vec())).collect::<Vec<_>>();
-        (columns, screen.layout_columns.first().and_then(|c| c.dock), state.panes.contains_key(&panes[1]))
+        let columns = screen
+            .layout_columns
+            .iter()
+            .map(|c| (c.width, c.root.pane_ids_vec()))
+            .collect::<Vec<_>>();
+        (
+            columns,
+            screen.layout_columns.first().and_then(|c| c.dock),
+            state.panes.contains_key(&panes[1]),
+        )
     });
     assert_eq!(columns, vec![(width, vec![panes[0]])], "the dock is the screen's only column");
     let dock = dock.expect("still docked");
@@ -305,7 +313,9 @@ fn a_screens_only_tab_becomes_a_lone_pinned_dock_without_a_respawn() {
         (columns, screen.root.pane_ids_vec())
     });
     assert_eq!(panes, vec![new_pane], "no terminal was left behind");
-    let [(width, Some(dock))] = columns.as_slice() else { panic!("one docked column: {columns:?}") };
+    let [(width, Some(dock))] = columns.as_slice() else {
+        panic!("one docked column: {columns:?}")
+    };
     assert!((width - 0.4).abs() < 1e-6 && dock.pinned, "{columns:?}");
     assert_eq!(dock.role, Some(crate::model::DockRole::AgentChat));
 }

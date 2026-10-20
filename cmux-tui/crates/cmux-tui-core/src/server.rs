@@ -307,11 +307,6 @@ pub const PERMANENT_DOCK_CAPABILITY: &str = "permanent-dock-v1";
 /// `column.update` takes `pinned` and `allow_tabs`; refusals answer
 /// `dock-column-pinned`.
 pub const PINNED_DOCK_CAPABILITY: &str = "pinned-dock-v1";
-/// A pinned column may be a screen's only column (the Home dock with nothing
-/// beside it): `move-tab-to-column` with a pinned `dock` makes it from a
-/// screen's only tab without a `respawn`, and closing the last column beside
-/// it leaves the pinned column alone instead of being refused.
-pub const PINNED_DOCK_ALONE_CAPABILITY: &str = "pinned-dock-alone-v1";
 /// Top and bottom docks: `set-column-dock` and `move-tab-to-column` accept
 /// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
