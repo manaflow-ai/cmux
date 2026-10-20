@@ -43,7 +43,11 @@ enum NewTabSlot {
     /// named tab, `pane` the pane's tabs (for the start with no current tab).
     static func target(current: TabModel?, pane: [TabModel], explicit: NewTabPosition?, user: Bool,
                        setting: NewTabPosition?) -> Target? {
-        explicit == .afterCurrent || (user && setting == .afterCurrent) ? current.map(Target.after) : nil
+        switch explicit ?? (user ? setting ?? NewTabPosition.fallback : .end) {
+        case .end: nil
+        case .afterCurrent: current.map(Target.after)
+        case .start: (current ?? pane.first).map(Target.start)
+        }
     }
 
     /// `then` for a new tab's surface that first moves the tab right after `anchor`.

@@ -26,6 +26,10 @@ enum TabHandlers {
         registry.bind("newTab.default", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
         registry.bind("newTab.ofKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, followsSetting: false) })
         registry.bind("newTab.toRight", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, position: .afterCurrent) })
+        // Cmd-T's tab in a named place, whatever `tabs.newTabPosition` says (Lawrence 2026-10-20).
+        registry.bind("newTab.afterCurrent", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, position: .afterCurrent) })
+        registry.bind("newTab.atStart", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, position: .start) })
+        registry.bind("newTab.atEnd", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, position: .end) })
         registry.bind(NewTabPage.action, invoke: { ctx.paneController($0)?.newTabPage() })
         registry.bind(NewTabSubmit.action, invoke: { NewTabSubmit.run($0, ctx) })
         registry.bind(NewTabPage.focusLocation, invoke: { ctx.paneController($0)?.focusLocation($0) })

@@ -13,7 +13,7 @@ public nonisolated enum NewTabPosition: String, Sendable, Hashable, CaseIterable
 /// `tabs.newTabPosition` in cmux.json: "afterCurrent" (default), "end" or "start".
 nonisolated extension NewTabPosition {
     public static let configPath = ["tabs", "newTabPosition"]
-    public static let fallback: NewTabPosition = .end
+    public static let fallback: NewTabPosition = .afterCurrent
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
