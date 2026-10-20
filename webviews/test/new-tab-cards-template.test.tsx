@@ -78,7 +78,14 @@ test("Cards is a template and a style, and the page an unset template shows", ()
   expect(PAGE_STYLES[0]).toBe("cards");
   expect(parseNewTabTemplate("cards")).toBe("cards");
   expect(screenTemplate("cards")).toBe("cards");
-  expect(screenSections("cards")).toEqual({ chats: "cards", allChats: false, recent: 3, prompt: false, closed: false });
+  expect(screenSections("cards")).toEqual({
+    chats: "cards",
+    allChats: false,
+    recent: 3,
+    prompt: false,
+    closed: false,
+    stage: false,
+  });
   // Unset: Cards. Debug Settings design "a" still shows Classic; a saved pick always wins.
   expect(shownTemplate({ layout: "b" })).toBe("cards");
   expect(shownTemplate({ layout: "a" })).toBe("classic");

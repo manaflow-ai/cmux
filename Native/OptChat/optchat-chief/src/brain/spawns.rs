@@ -636,7 +636,7 @@ impl Brain {
         let Some(record) = self.state.spawns.get(spawn) else {
             return;
         };
-        let done: Vec<(String, String, u64, bool)> = record
+        let done: Vec<(String, String, u64, bool, bool)> = record
             .subs
             .iter()
             .filter(|s| s.status == SubStatus::Done)
@@ -647,14 +647,16 @@ impl Brain {
                     s.id.clone(),
                     format!("[{}] {report}\n{footer}", s.id),
                     s.floor,
+                    s.policy.as_deref() == Some(crate::approval::ASK),
                     s.stopped,
                 )
             })
             .collect();
-        for (id, text, floor, quiet) in done {
+        for (id, text, floor, requires_approval, quiet) in done {
             let source = Source::Spawn(SpawnRef {
                 spawn: spawn.to_owned(),
                 subs: vec![(id.clone(), floor)],
+                requires_approval,
                 quiet,
             });
             // On its way into the running turn (a steer not read yet): it is
