@@ -873,10 +873,38 @@ public final class ComputerUseRuntimeService {
         }
     }
 
+    /// Waits briefly for another cmux instance to finish its helper handoff.
+    /// Onboarding rollback must eventually stop the helper; silently skipping
+    /// shutdown when the lease is briefly busy leaves the other instance's
+    /// daemon running after setup reports failure.
+    private func acquireRuntimeLease(waitingUpToNanoseconds budget: UInt64) async -> ComputerUseLaunchLease? {
+        guard prepareRuntimeForLaunch() else { return nil }
+        do {
+            let lease = try ComputerUseLaunchLease(runtimeDirectory: paths.runtimeDirectoryURL)
+            let deadline = DispatchTime.now().uptimeNanoseconds + budget
+            while !Task.isCancelled {
+                if try lease.tryAcquire() {
+                    return lease
+                }
+                let now = DispatchTime.now().uptimeNanoseconds
+                guard now < deadline else { break }
+                let remaining = deadline - now
+                try await Task.sleep(nanoseconds: min(remaining, 50_000_000))
+            }
+            lease.release()
+            return nil
+        } catch is CancellationError {
+            return nil
+        } catch {
+            computerUseLogger.error("Computer Use launch lease unavailable while waiting: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
     /// Stops helpers during onboarding rollback under the same cross-process
     /// lease used by start, install, and explicit disable operations.
     func stopDaemonWithRuntimeLease() async {
-        guard prepareRuntimeForLaunch(), let lease = acquireRuntimeLease() else { return }
+        guard let lease = await acquireRuntimeLease(waitingUpToNanoseconds: 30_000_000_000) else { return }
         defer { lease.release() }
         _ = await stopDaemon()
     }
