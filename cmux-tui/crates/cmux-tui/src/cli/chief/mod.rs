@@ -21,6 +21,7 @@ mod link;
 mod messages;
 mod pipe;
 pub(in crate::cli) mod registry;
+mod relocate;
 mod render;
 mod shutdown;
 #[cfg(test)]
@@ -173,6 +174,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     let m = messages();
     if args.first().is_some_and(|word| registry::WORDS.contains(&word.as_str())) {
         return registry::run(&global, args);
+    }
+    if args.first().is_some_and(|word| word == "move") {
+        return relocate::run(&global, &args[1..]);
     }
     let args = match parse_args(args) {
         Ok(args) => args,
