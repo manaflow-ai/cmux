@@ -65,7 +65,7 @@ struct ControlAuthorizer: Sendable {
         case .automation, .password:
             return peer.uid == getuid()
         case .cmuxOnly:
-            guard let pid = peer.pid else { return false }
+            guard peer.uid == getuid(), let pid = peer.pid else { return false }
             return ControlPeerAncestry.system.isInside(pid, ancestor: configuration.trustedAncestor,
                                                        executables: configuration.trustedExecutables)
         }
