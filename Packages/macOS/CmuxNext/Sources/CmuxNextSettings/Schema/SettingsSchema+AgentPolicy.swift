@@ -88,6 +88,7 @@ extension SettingsSchema {
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
         "appearance.background",
+        "appearance.paneBackgrounds",
         "appearance.experimentalControls",
         "app.uiScale",
         "appearance.glassTransparency",

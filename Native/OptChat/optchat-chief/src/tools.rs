@@ -54,6 +54,19 @@ pub trait Orchestrator: Send + Sync {
         let _ = effort;
         self.spawn(tasks, cwd)
     }
+    /// `spawn` at `effort` and `place` (`"cloud"`: on the cloud peer,
+    /// `"local"`: on this host; None: the saved default
+    /// (`control cloud`), else `OPTCHAT_SUBAGENT_PEER`, else local).
+    fn spawn_placed(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+    ) -> Result<String, String> {
+        let _ = place;
+        self.spawn_with_effort(tasks, cwd, effort)
+    }
     /// Sends `message` to subagent `id`.
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
     /// `tell` with an idempotency key: a repeat of `key` is not sent again.
@@ -137,6 +150,10 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         ("control", ["cap", n]) => {
             Call::parse("control", &serde_json::json!({"action": "cap", "n": n}))
         }
+        ("control", ["cloud", peer]) => Call::parse(
+            "control",
+            &serde_json::json!({"action": "cloud", "peer": peer}),
+        ),
         ("control", ["answer", id, option]) => Call::parse(
             "control",
             &serde_json::json!({"action": "answer", "id": id, "option": option}),
@@ -172,7 +189,7 @@ pub fn usage(tool: &str) -> String {
             "chiefs" =>
                 "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
             "control" =>
-                "status [ID] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N",
+                "status [ID] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N | cloud [PEER|off]",
             _ => "ID \"message\"",
         }
     )
@@ -186,8 +203,11 @@ pub fn agent_id(id: &str) -> bool {
 /// The efforts `spawn` takes (acpmux maps them onto the harness's own).
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
+/// Where `spawn` runs its subagents (`place`).
+pub const PLACES: [&str; 2] = ["cloud", "local"];
+
 /// The `control` tool's actions.
-pub const CONTROL_ACTIONS: [&str; 9] = [
+pub const CONTROL_ACTIONS: [&str; 10] = [
     "status",
     "interrupt",
     "answer",
@@ -197,6 +217,7 @@ pub const CONTROL_ACTIONS: [&str; 9] = [
     "restart",
     "priority",
     "cap",
+    "cloud",
 ];
 
 /// One `control` call.
@@ -207,6 +228,8 @@ pub struct ControlCall {
     pub message: Option<String>,
     pub option: Option<String>,
     pub n: Option<u64>,
+    /// `cloud`: the acpmux peer cloud subagents run on, or `off`.
+    pub peer: Option<String>,
 }
 
 impl ControlCall {
@@ -239,8 +262,9 @@ impl ControlCall {
             message: text("message"),
             option: text("option"),
             n,
+            peer: text("peer"),
         };
-        let needs_id = !matches!(call.action.as_str(), "status" | "cap");
+        let needs_id = !matches!(call.action.as_str(), "status" | "cap" | "cloud");
         if needs_id && call.id.is_none() {
             return Err(format!("control {}: `id` is required", call.action));
         }
@@ -266,6 +290,9 @@ impl ControlCall {
         }
         if let Some(n) = self.n {
             v["n"] = json!(n);
+        }
+        if let Some(p) = &self.peer {
+            v["peer"] = json!(p);
         }
         v
     }
@@ -293,6 +320,8 @@ pub enum Call {
         cwd: Option<String>,
         /// How hard they think; None: as hard as the calling turn.
         effort: Option<String>,
+        /// `cloud` or `local`; None: the saved default (`control cloud`).
+        place: Option<String>,
     },
     Tell {
         id: String,
@@ -388,7 +417,23 @@ impl Call {
                         EFFORTS.join(", ")
                     ));
                 }
-                Ok(Call::Spawn { tasks, cwd, effort })
+                let place = args
+                    .get("place")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|e| !e.is_empty())
+                    .map(str::to_owned);
+                if let Some(p) = place.as_deref()
+                    && !PLACES.contains(&p)
+                {
+                    return Err(format!("spawn: no place {p}; one of {}", PLACES.join(", ")));
+                }
+                Ok(Call::Spawn {
+                    tasks,
+                    cwd,
+                    effort,
+                    place,
+                })
             }
             "tell" => {
                 let text = |key: &str| {
@@ -480,8 +525,16 @@ impl Call {
             Call::Zoom { id, n } => json!({"tool": "zoom", "id": id, "n": n}),
             Call::ZoomAgent { id, at } => json!({"tool": "zoom", "id": id, "at": at}),
             Call::Date { id } => json!({"tool": "date", "id": id}),
-            Call::Spawn { tasks, cwd, effort } => {
+            Call::Spawn {
+                tasks,
+                cwd,
+                effort,
+                place,
+            } => {
                 let mut v = json!({"tool": "spawn", "tasks": tasks});
+                if let Some(place) = place {
+                    v["place"] = json!(place);
+                }
                 if let Some(cwd) = cwd {
                     v["cwd"] = json!(cwd);
                 }
@@ -805,8 +858,13 @@ fn connection(conn: UnixStream, served: &Served) {
                         Some(chief) => chief.profile_call(&args),
                         None => Err(crate::chief_profile::Grant::refusal("profile")),
                     },
-                    Ok(Call::Spawn { tasks, cwd, effort }) => match &served.orchestrator {
-                        Some(o) => o.spawn_with_effort(tasks, cwd, effort),
+                    Ok(Call::Spawn {
+                        tasks,
+                        cwd,
+                        effort,
+                        place,
+                    }) => match &served.orchestrator {
+                        Some(o) => o.spawn_placed(tasks, cwd, effort, place),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
                     Ok(Call::Tell { id, message, key }) => match &served.orchestrator {
