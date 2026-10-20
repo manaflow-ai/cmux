@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 public import Foundation
 
 /// Runs `/usr/bin/osascript` with arguments and returns its standard output: the seam that
@@ -53,21 +54,25 @@ public nonisolated struct OsascriptRunner: VerificationScriptRunning {
     }
 
     /// Reads a pipe to its end, by raw descriptor (an `Int32` is `Sendable`), without holding a
-    /// thread: FileHandle hands each chunk to a readability handler as it arrives, and the empty
-    /// chunk at EOF resumes the wait once.
+    /// thread: FileHandle calls a readability handler when bytes are ready, and the handler takes
+    /// them with one `read(2)`. End of file or a read error ends the drain with what arrived;
+    /// FirstOutcome resumes the wait once even if the handler runs again after that.
     @concurrent private static func drain(_ fd: Int32) async -> Data {
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
         let collected = PipeOutput()
-        let data = await withCheckedContinuation { continuation in
-            handle.readabilityHandler = { handle in
-                // concurrency-allow: FileHandle calls a readability handler on its own background queue, when data is ready.
-                let chunk = handle.availableData
-                guard chunk.isEmpty else { return collected.append(chunk) }
-                handle.readabilityHandler = nil
-                continuation.resume(returning: collected.data)
-            }
+        let outcome = FirstOutcome<Data>()
+        handle.readabilityHandler = { handle in
+            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+            // One read of bytes that are ready; unlike `availableData` a failure returns -1
+            // instead of raising an Objective-C exception.
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count > 0 { return collected.append(Data(buffer[..<count])) }
+            if count < 0, errno == EINTR || errno == EAGAIN { return }
+            handle.readabilityHandler = nil
+            outcome.resolve(collected.data)
         }
-        // The handle owns the readability source: keep it until EOF.
+        let data = await outcome.value()
+        // The handle owns the readability source: keep it until the drain ends.
         withExtendedLifetime(handle) {}
         return data
     }

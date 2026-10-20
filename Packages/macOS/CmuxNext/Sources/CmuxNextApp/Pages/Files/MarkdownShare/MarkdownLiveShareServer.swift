@@ -169,13 +169,10 @@ final class MarkdownLiveShareServer {
         case .page(let token):
             guard let share = shares[token] else { break }
             let events = "/md/\(token)/\(share.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? token)/events"
-            let file = share.file, name = share.name
-            // One read off the main actor per page request; it ends with the response.
-            Task { [weak self] in
-                let text = await Self.contents(of: file)
-                guard let self else { return connection.cancel() }
-                let page = self.renderer.document(text, title: name, eventsPath: events)
-                self.send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
+            Task { [weak self, file = share.file, name = share.name] in // one off-main read per page request
+                let text = await Task.detached { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }.value
+                guard let page = self?.renderer.document(text, title: name, eventsPath: events) else { return connection.cancel() }
+                self?.send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
             }
             return
         case .events(let token):
@@ -211,12 +208,6 @@ final class MarkdownLiveShareServer {
     }
 
     // MARK: Helpers
-
-    /// The shared file's text, read off the main actor; empty when it cannot be read.
-    @concurrent
-    private static func contents(of file: URL) async -> String {
-        (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-    }
 
     /// A DNS-rebound page names its own host; only the loopback names of this port are served.
     static func isLoopbackHost(_ host: String?, port: UInt16?) -> Bool {

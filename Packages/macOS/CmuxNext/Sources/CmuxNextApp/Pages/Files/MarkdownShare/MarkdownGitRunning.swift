@@ -27,11 +27,8 @@ nonisolated struct ProcessMarkdownGitRunner: MarkdownGitRunning {
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
-        var environment = ProcessInfo.processInfo.environment
-        environment["GIT_OPTIONAL_LOCKS"] = "0"
-        environment["GIT_TERMINAL_PROMPT"] = "0"
-        environment["LC_ALL"] = "C"
-        process.environment = environment
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            ["GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"]) { _, ours in ours }
         do { try process.run() } catch { return nil }
         let running = process
         // The raw descriptor crosses into the reading task (a FileHandle is not Sendable); the
