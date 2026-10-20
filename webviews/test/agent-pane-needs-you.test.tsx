@@ -18,7 +18,12 @@ import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../src/agent-
 import { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } from "../src/agent-session/acpmux/needsYou/links";
 import { nextAsk, NeedsYouPill } from "../src/agent-session/acpmux/needsYou/JumpPill";
 import { answerParams } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
-import { NeedsYouPanel, needsYouMode, sideQuestionPrompt, type NeedsYouActions } from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import {
+  NeedsYouPanel,
+  needsYouMode,
+  sideQuestionPrompt,
+  type NeedsYouActions,
+} from "../src/agent-session/acpmux/needsYou/NeedsYou";
 
 const options: AcpmuxPermission["options"] = [
   { id: "allow", name: "Allow", kind: "allow_once", allow: true },
@@ -145,7 +150,10 @@ test("the open chat's held agent pair messages are one item with Resume; a resum
   });
   expect(items).toHaveLength(1);
   expect(items[0]).toMatchObject({ id: "held:s1:a", kind: "held", peer: "a", held: 1, ask: "Agent a" });
-  expect(answerParams(items[0]!, items[0]!.answers[0]!)).toEqual({ method: "chat.agentPair.resume", params: { peer: "a" } });
+  expect(answerParams(items[0]!, items[0]!.answers[0]!)).toEqual({
+    method: "chat.agentPair.resume",
+    params: { peer: "a" },
+  });
 });
 
 test("a subagent's ask names the chat that started it", () => {
@@ -159,7 +167,10 @@ test("a subagent's ask names the chat that started it", () => {
 test("an answer goes to the ask's own chat: a permission by option, a question in its harness's shape", () => {
   const [approval, decision] = [
     needsYouItems({ sessions: [session("s1")], asks: [ask("s1", permission({}), 1)] })[0]!,
-    needsYouItems({ sessions: [session("s-q")], asks: [ask("s-q", permission({ permissionId: "q-perm", question: question() }), 1)] })[0]!,
+    needsYouItems({
+      sessions: [session("s-q")],
+      asks: [ask("s-q", permission({ permissionId: "q-perm", question: question() }), 1)],
+    })[0]!,
   ];
   expect(answerParams(approval, approval.answers[1]!)).toEqual({
     method: "chat.permission",
@@ -232,7 +243,9 @@ test("the side question carries the ask, its choices and earlier answers", () =>
     sessions: [session("s-q")],
     asks: [ask("s-q", permission({ permissionId: "q-perm", question: question() }), 1)],
   });
-  const prompt = sideQuestionPrompt(item!, "Which is safer?", [{ question: "What is this?", answer: "A login choice." }]);
+  const prompt = sideQuestionPrompt(item!, "Which is safer?", [
+    { question: "What is this?", answer: "A login choice." },
+  ]);
   expect(prompt).toContain("Which login should the app use?");
   expect(prompt).toContain("Choices: OAuth / Passkeys");
   expect(prompt).toContain("You said: A login choice.");
@@ -283,7 +296,10 @@ test("the panel lists each ask with who asked, answers it, and hides it once sen
   const host = installDom();
   const items = needsYouItems({
     sessions: [session("s1", { displayTitle: "Fix login" }), session("c", { harness: "chief", name: "Chief" })],
-    asks: [ask("s1", permission({ title: "Run npm test" }), Date.now()), ask("c", permission({ permissionId: "p2", title: "Merge?" }), 1)],
+    asks: [
+      ask("s1", permission({ title: "Run npm test" }), Date.now()),
+      ask("c", permission({ permissionId: "p2", title: "Merge?" }), 1),
+    ],
   });
   const answered: string[] = [];
   const went: string[] = [];
@@ -325,7 +341,11 @@ test("a refused answer stays in the list and says so; the empty list says nothin
 test("compact mode lists asks without answers", () => {
   const items = needsYouItems({ sessions: [session("s1")], asks: [ask("s1", permission({ title: "Run it" }), 1)] });
   const html = renderToStaticMarkup(
-    <NeedsYouPanel items={items} mode="compact" actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => "" }} />,
+    <NeedsYouPanel
+      items={items}
+      mode="compact"
+      actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => "" }}
+    />,
   );
   expect(html).toContain("Run it");
   expect(html).not.toContain("acpmux-needs-you-answer");

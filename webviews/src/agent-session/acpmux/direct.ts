@@ -1196,8 +1196,7 @@ export class AcpmuxDirectClient {
     else if (isNotification(notification, "_acpmux/permission_pending")) {
       this.asks.pending(notification.params);
       this.applyPermission(notification.params);
-    }
-    else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+    } else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
     else if (notification.method === "_acpmux/harnesses_changed") {
       this.onHarnessesChanged?.();

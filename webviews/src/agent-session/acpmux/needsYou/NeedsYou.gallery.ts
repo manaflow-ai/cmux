@@ -50,7 +50,12 @@ const asks: WatchedAsk[] = [
   {
     sessionId: "s-chief",
     at: ago(3),
-    permission: { permissionId: "ask-chief", title: "Merge #22410 into feat-cmux-next?", pending: true, options: yesNo },
+    permission: {
+      permissionId: "ask-chief",
+      title: "Merge #22410 into feat-cmux-next?",
+      pending: true,
+      options: yesNo,
+    },
   },
   {
     sessionId: "s-codex",
@@ -80,7 +85,13 @@ const sessions = [
     indicator: "input",
     updatedAt: ago(6),
   }),
-  session({ sessionId: "s-verify", title: "Sidebar dot polish", pendingPermissions: 1, indicator: "input", updatedAt: ago(14) }),
+  session({
+    sessionId: "s-verify",
+    title: "Sidebar dot polish",
+    pendingPermissions: 1,
+    indicator: "input",
+    updatedAt: ago(14),
+  }),
   session({
     sessionId: "s-remote",
     title: "Release notes on build box",
@@ -119,10 +130,7 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 640,
   keywords: ["needs you", "asks", "approvals", "pending", "inbox", "needs your input"],
-  covers: [
-    "agent-session/acpmux/needsYou/NeedsYou.tsx",
-    "agent-session/acpmux/needsYou/JumpPill.tsx#NeedsYouPill",
-  ],
+  covers: ["agent-session/acpmux/needsYou/NeedsYou.tsx", "agent-session/acpmux/needsYou/JumpPill.tsx#NeedsYouPill"],
   variants: {
     list: {
       note: "The list open: this chat's command, the Chief's merge, a subagent's choice, a verify ask and a chat on another computer.",

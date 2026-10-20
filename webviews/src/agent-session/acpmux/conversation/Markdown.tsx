@@ -465,7 +465,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             {renderInline(lm[1], labelOpts)}
           </button>,
         );
-      else if (named) out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
+      else if (named)
+        out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
       else if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
       else if (app)
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).

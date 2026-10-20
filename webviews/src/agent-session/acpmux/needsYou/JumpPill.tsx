@@ -17,7 +17,9 @@ export type TranscriptNeedsYou = {
   next(behind: boolean): void;
 };
 
-export function needsYouPillOn(root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement): boolean {
+export function needsYouPillOn(
+  root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement,
+): boolean {
   return root?.dataset.needsYouPill !== "off";
 }
 
@@ -69,7 +71,14 @@ export function NeedsYouPill({
       <span className="acpmux-needs-you-dot" aria-hidden="true" />
       <span className="acpmux-needs-you-pill__label">{label}</span>
       <svg className="acpmux-needs-you-pill__chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-        <path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M3 4.5 6 7.5 9 4.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     </button>
   );

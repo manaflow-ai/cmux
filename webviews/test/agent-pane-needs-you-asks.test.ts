@@ -9,7 +9,9 @@ import { AskTracker, type PendingEntry } from "../src/agent-session/acpmux/needs
 
 const parse = (message: unknown, sessionId: string): AcpmuxPermission | undefined => {
   const id = (message as { permissionId?: unknown }).permissionId;
-  return typeof id === "string" ? { permissionId: id, pending: true, options: [], title: `${sessionId}:${id}` } : undefined;
+  return typeof id === "string"
+    ? { permissionId: id, pending: true, options: [], title: `${sessionId}:${id}` }
+    : undefined;
 };
 
 type Read = { sessionId: string; resolve(entries: readonly PendingEntry[] | undefined): void };

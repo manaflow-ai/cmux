@@ -127,7 +127,9 @@ function askItem(
 ): NeedsYouItem {
   const { permission } = watched;
   const question = permission.question;
-  const ask = question ? questionSummary(question) : (permission.title ?? permission.description ?? permission.kind ?? "");
+  const ask = question
+    ? questionSummary(question)
+    : (permission.title ?? permission.description ?? permission.kind ?? "");
   const detail = question ? undefined : (permission.command ?? permission.description);
   const kind: NeedsYouKind = VERIFY.test(ask) ? "verify" : question ? "decision" : "approval";
   const asker = who(session, watched.sessionId, byId);

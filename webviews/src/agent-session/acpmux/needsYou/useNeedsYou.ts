@@ -17,7 +17,8 @@ export function answerParams(
   item: NeedsYouItem,
   choice: NeedsYouAnswer,
 ): { method: string; params: Record<string, unknown> } | undefined {
-  if (item.kind === "held") return item.peer ? { method: "chat.agentPair.resume", params: { peer: item.peer } } : undefined;
+  if (item.kind === "held")
+    return item.peer ? { method: "chat.agentPair.resume", params: { peer: item.peer } } : undefined;
   if (!item.permissionId) return undefined;
   if (item.question) {
     const first = item.question.items[0];
@@ -53,7 +54,10 @@ export function useNeedsYou({
   const goTo = (item: NeedsYouItem) => {
     const reveal = () => {
       if (item.turnId) void revealTurnWhenShown(item.turnId);
-      else document.querySelector(item.kind === "held" ? ".cv-agent-pair" : ".acpmux-permission")?.scrollIntoView({ block: "nearest" });
+      else
+        document
+          .querySelector(item.kind === "held" ? ".cv-agent-pair" : ".acpmux-permission")
+          ?.scrollIntoView({ block: "nearest" });
     };
     if (item.sessionId === sessionId) return reveal();
     void callNative("chat.select", { sessionId: item.sessionId }).then(reveal, () => undefined);

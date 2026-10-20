@@ -22,7 +22,9 @@ import "./needsYou.css";
 /// draws each ask with its answers; `compact` one line per ask; `off` no badge at all.
 export type NeedsYouMode = "pinned" | "compact" | "off";
 
-export function needsYouMode(root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement): NeedsYouMode {
+export function needsYouMode(
+  root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement,
+): NeedsYouMode {
   const value = root?.dataset.needsYou;
   return value === "off" || value === "compact" ? value : "pinned";
 }
@@ -289,7 +291,13 @@ function NeedsYouRow({
       )}
       {failed && <p className="acpmux-needs-you-error">{t("needsYou.answerFailed")}</p>}
       {asking && !compact && (
-        <SideQuestion item={item} asked={asked} onAsked={setAsked} ask={actions.ask} githubRepository={githubRepository} />
+        <SideQuestion
+          item={item}
+          asked={asked}
+          onAsked={setAsked}
+          ask={actions.ask}
+          githubRepository={githubRepository}
+        />
       )}
     </li>
   );
@@ -357,7 +365,7 @@ function SideQuestion({
           aria-label={t("needsYou.askAbout")}
           placeholder={t("needsYou.askSeed")}
           onChange={(event) => setDraft(event.target.value)}
-          // biome-ignore lint: the field opens on the person's own click
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- the field opens on the person's own click on Ask about this.
           autoFocus
         />
         <button type="submit" className="acpmux-needs-you-side-send" disabled={busy || !draft.trim()}>
@@ -370,7 +378,16 @@ function SideQuestion({
 
 function Avatar({ item }: { item: NeedsYouItem }) {
   if (item.who.chief)
-    return <img className="acpmux-needs-you-avatar is-chief" src={CHIEF_AVATAR} alt="" width={18} height={18} draggable={false} />;
+    return (
+      <img
+        className="acpmux-needs-you-avatar is-chief"
+        src={CHIEF_AVATAR}
+        alt=""
+        width={18}
+        height={18}
+        draggable={false}
+      />
+    );
   return (
     <span className="acpmux-needs-you-avatar" title={item.who.harness ? agentDisplayName(item.who.harness) : undefined}>
       <AgentMark agent={item.who.harness} size={12} reserve />
