@@ -1,5 +1,5 @@
 public import Foundation
-import QuartzCore
+public import QuartzCore
 
 /// The one time base every loading indicator loop counts its phase from: Unix time modulo the
 /// loop's period. Native spinners (``StatusIndicatorLayer``) and the web pages' spinners
