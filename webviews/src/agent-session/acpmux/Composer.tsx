@@ -69,6 +69,7 @@ export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
   placeholderQueued: "composer.placeholderQueued",
   placeholderSteer: "composer.placeholderSteer",
+  placeholderSteerQuick: "composer.placeholderSteerQuick",
   placeholderInterrupt: "composer.placeholderInterrupt",
   add: "composer.add",
   mention: "composer.mention",
@@ -592,9 +593,12 @@ export function Composer({
     field.current?.focus();
   };
   /// Sends the draft; false when there was nothing to send or the host refused it.
+  /// Mid-turn, Return reaches the agent at once, as the Chief's tell does: a steer for an agent
+  /// that takes one (`send` with steer; acpmux interrupts one that cannot), else a plain send,
+  /// which acpmux runs next after stopping the turn.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
-    return send(false);
+    return send(false, steerable && steerKind === "steer");
   };
   const send = (force: boolean, steer = false, queue = false): boolean => {
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
@@ -769,14 +773,14 @@ export function Composer({
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
-    // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
+    // ⌘Return while a turn runs stops it and sends now (Return steers an agent that steers). (The
     // Quick Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
     const commandReturn =
       event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && !quick;
     if (commandReturn && steerable) {
       event.preventDefault();
-      send(false, true);
+      send(false);
       return;
     }
     // ⌥Return while a turn runs queues: the prompt waits for the turn to end instead of stopping it.
@@ -931,11 +935,14 @@ export function Composer({
   // takes a prompt mid-turn, ⌥Return queues. The Quick Composer keeps its own ⌘Return and ⌥Return,
   // so it says only that Return interrupts; ⌘Return needs typed text, so with only attachments
   // staged it does not name steering.
+  const steers = steerKind === "steer" && attachments.length === 0;
   const placeholder = !queues
     ? COMPOSER_LABELS.placeholder
     : onOpenInWindow
-      ? COMPOSER_LABELS.placeholderQueued
-      : steerKind === "steer" && attachments.length === 0
+      ? steers
+        ? COMPOSER_LABELS.placeholderSteerQuick
+        : COMPOSER_LABELS.placeholderQueued
+      : steers
         ? COMPOSER_LABELS.placeholderSteer
         : COMPOSER_LABELS.placeholderInterrupt;
   // Focus leaving the composer closes the menu and takes back what + wrote.
