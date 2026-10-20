@@ -151,7 +151,9 @@ public actor WorkstreamPersistence {
                 return BoundedLatestResult(
                     items: latestByID.values.sorted { $0.sequence < $1.sequence }.map(\.item),
                     exceededBudget: true,
-                    startOffset: latestByID.isEmpty ? nil : latestByID.values.map(\.offset).min()
+                    startOffset: latestByID.isEmpty
+                        ? (tail.startOffset > 0 ? tail.startOffset : nil)
+                        : latestByID.values.map(\.offset).min()
                 )
             }
             guard line.data.count <= Self.maximumPersistedRowBytes,
@@ -163,7 +165,7 @@ public actor WorkstreamPersistence {
             items: latestByID.values.sorted { $0.sequence < $1.sequence }.map(\.item),
             exceededBudget: tail.exceededBudget,
             startOffset: latestByID.isEmpty
-                ? nil
+                ? (tail.startOffset > 0 ? tail.startOffset : nil)
                 : (latestByID.values.map(\.offset).min() ?? tail.startOffset)
         )
     }

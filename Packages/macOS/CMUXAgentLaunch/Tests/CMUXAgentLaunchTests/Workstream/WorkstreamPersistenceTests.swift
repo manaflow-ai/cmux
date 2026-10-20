@@ -194,7 +194,7 @@ struct WorkstreamPersistenceTests {
         #expect(loaded.map(\.workstreamId) == ["old", "new"])
     }
 
-    @Test("startup budget cutoff fails closed without a cursor")
+    @Test("startup budget cutoff preserves an older-history cursor")
     func startupBudgetCutoffFailsClosedWithoutCursor() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-workstream-oversized-budget-\(UUID().uuidString).jsonl")
@@ -227,8 +227,8 @@ struct WorkstreamPersistenceTests {
             hardBudgetNanoseconds: 0
         )
         #expect(snapshot.diagnostics.exceededBudget)
-        #expect(snapshot.page.startOffset == nil)
-        #expect(!snapshot.page.hasMoreBefore)
+        #expect(snapshot.page.startOffset != nil)
+        #expect(snapshot.page.hasMoreBefore)
     }
 
     @Test("loadPage pages older rows before a stable byte cursor")

@@ -464,8 +464,9 @@ extension DockSplitStore {
                 )
             }
         let processDetectedStartupBinding = Workspace.processDetectedStartupBinding(
-            terminalSnapshot.resumeBinding,
-            isAllowedByPolicy: resumeBindingForStartup != nil
+            approvedResumeBinding,
+            isAllowedByPolicy: approvedResumeBinding != nil &&
+                terminalSnapshot.isRemoteTerminal != true
         )
         let compatibilityBindingStartupLaunch: WorkspaceSurfaceResumeStartupLaunch? =
             processDetectedStartupBinding.map { binding in

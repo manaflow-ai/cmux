@@ -1937,8 +1937,9 @@ extension Workspace {
                     nil
                 }
             let processDetectedStartupBinding = Self.processDetectedStartupBinding(
-                persistedResumeBinding,
-                isAllowedByPolicy: resumeBindingForStartup != nil
+                effectiveResumeBindingForStartup,
+                isAllowedByPolicy: effectiveResumeBindingForStartup != nil &&
+                    !restoresRemoteWorkspaceTerminalSnapshot
             )
             let compatibilityBindingStartupLaunch: SurfaceResumeStartupLaunch? =
                 processDetectedStartupBinding.map { binding in
