@@ -110,17 +110,24 @@ extension SessionPersistencePolicy {
         return (pruned, removedAny)
     }
 
-    /// A crash can leave the same window manifest written twice.  Replaying
-    /// both copies creates a second set of panels; agent admission suppresses
+    /// A crash can leave the same window manifest written twice. Replaying both
+    /// copies creates a second set of panels; agent admission suppresses
     /// duplicate providers, but the resulting empty/stale tabs still consume
-    /// UI and persistence resources.  Workspace identities are globally unique
-    /// within a session, so an exact repeated workspace identity sequence is a
-    /// safe duplicate-window fingerprint.  Windows without identities remain
-    /// eligible for normal legacy restoration and are never collapsed here.
+    /// UI and persistence resources. Some crash snapshots preserve workspace
+    /// identities in both copies, while others preserve only the same agent
+    /// checkpoint sequence. In the latter case the panel checkpoint sequence
+    /// is the stable identity and the richer copy must win.
+    private struct SessionWindowDuplicateFingerprint: Hashable {
+        var workspaceIDs: [UUID]?
+        var agentSessionIDs: [String]?
+        var workspaceCount: Int
+        var panelCount: Int
+    }
+
     private static func deduplicatingSessionWindows(
         _ windows: [SessionWindowSnapshot]
     ) -> (windows: [SessionWindowSnapshot], removedAny: Bool) {
-        var seenWorkspaceIdentitySequences = Set<[UUID]>()
+        var seenFingerprints: [SessionWindowDuplicateFingerprint: Int] = [:]
         var result: [SessionWindowSnapshot] = []
         result.reserveCapacity(windows.count)
         var removedAny = false
@@ -129,14 +136,68 @@ extension SessionPersistencePolicy {
             let workspaceIDs = window.tabManager.workspaces.compactMap(\.workspaceId)
             let hasCompleteIdentitySequence = workspaceIDs.count == window.tabManager.workspaces.count
                 && !workspaceIDs.isEmpty
-            if hasCompleteIdentitySequence,
-               !seenWorkspaceIdentitySequences.insert(workspaceIDs).inserted {
+            let panelCount = window.tabManager.workspaces.reduce(into: 0) { count, workspace in
+                count += workspace.panels.count
+            }
+            let agentSessionIDs = window.tabManager.workspaces.flatMap { workspace in
+                workspace.panels.compactMap { panel -> String? in
+                    guard let terminal = panel.terminal else { return nil }
+                    return terminal.agent?.sessionId ?? terminal.resumeBinding?.checkpointId
+                }
+            }
+            let fingerprint: SessionWindowDuplicateFingerprint?
+            if !agentSessionIDs.isEmpty {
+                fingerprint = SessionWindowDuplicateFingerprint(
+                    workspaceIDs: nil,
+                    agentSessionIDs: agentSessionIDs,
+                    workspaceCount: window.tabManager.workspaces.count,
+                    panelCount: panelCount
+                )
+            } else if hasCompleteIdentitySequence {
+                fingerprint = SessionWindowDuplicateFingerprint(
+                    workspaceIDs: workspaceIDs,
+                    agentSessionIDs: nil,
+                    workspaceCount: window.tabManager.workspaces.count,
+                    panelCount: panelCount
+                )
+            } else {
+                fingerprint = nil
+            }
+
+            guard let fingerprint else {
+                result.append(window)
+                continue
+            }
+            if let existingIndex = seenFingerprints[fingerprint] {
+                if sessionWindowRestoreFidelityScore(window) >
+                    sessionWindowRestoreFidelityScore(result[existingIndex]) {
+                    result[existingIndex] = window
+                }
                 removedAny = true
                 continue
             }
+            seenFingerprints[fingerprint] = result.count
             result.append(window)
         }
         return (result, removedAny)
+    }
+
+    private static func sessionWindowRestoreFidelityScore(_ window: SessionWindowSnapshot) -> Int {
+        window.tabManager.workspaces.reduce(0) { score, workspace in
+            score
+                + (workspace.workspaceId == nil ? 0 : 1)
+                + (workspace.currentDirectory.isEmpty ? 0 : 1)
+                + workspace.panels.reduce(0) { panelScore, panel in
+                    panelScore
+                        + (panel.directory == nil ? 0 : 1)
+                        + (panel.terminal?.workingDirectory == nil ? 0 : 4)
+                        + (panel.terminal?.agent?.workingDirectory == nil ? 0 : 4)
+                        + (panel.terminal?.agent?.launchCommand == nil ? 0 : 3)
+                        + (panel.terminal?.resumeBinding?.cwd == nil ? 0 : 3)
+                        + (panel.terminal?.resumeBinding?.launchCommand == nil ? 0 : 2)
+                        + (panel.terminal?.resumeBinding?.isAgentHookBinding == true ? 2 : 0)
+                }
+        }
     }
 
     static func isCmuxCrashDiagnosticWindow(

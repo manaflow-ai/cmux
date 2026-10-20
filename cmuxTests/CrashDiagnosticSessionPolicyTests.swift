@@ -214,6 +214,86 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func sessionSnapshotKeepsTheRicherCopyWhenCrashWindowsShareAgentCheckpoints() {
+        let checkpointID = "01a149a7-fbec-7240-9c88-ed6faec559ca"
+        let projectDirectory = "/Volumes/Workshop/Code/pulp"
+        let panelID = UUID()
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: checkpointID,
+            workingDirectory: projectDirectory
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume \(checkpointID)",
+            cwd: projectDirectory,
+            checkpointId: checkpointID,
+            source: "agent-hook",
+            autoResume: true
+        )
+        let richTerminal = SessionTerminalPanelSnapshot(
+            workingDirectory: projectDirectory,
+            agent: agent,
+            resumeBinding: binding,
+            wasAgentRunning: true
+        )
+        let degradedTerminal = SessionTerminalPanelSnapshot(
+            workingDirectory: "/Users/danielraffel",
+            agent: agent,
+            wasAgentRunning: true
+        )
+
+        func window(workspaceID: UUID, currentDirectory: String, terminal: SessionTerminalPanelSnapshot) -> SessionWindowSnapshot {
+            let workspace = SessionWorkspaceSnapshot(
+                workspaceId: workspaceID,
+                processTitle: "Terminal",
+                customTitle: nil,
+                customColor: nil,
+                isPinned: false,
+                currentDirectory: currentDirectory,
+                focusedPanelId: panelID,
+                layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID)),
+                panels: [terminalPanelSnapshot(id: panelID, directory: currentDirectory, terminal: terminal)],
+                statusEntries: [],
+                logEntries: [],
+                progress: nil,
+                gitBranch: nil
+            )
+            return SessionWindowSnapshot(
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: [workspace]),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+            )
+        }
+
+        let degraded = window(
+            workspaceID: UUID(),
+            currentDirectory: "/Users/danielraffel",
+            terminal: degradedTerminal
+        )
+        let rich = window(
+            workspaceID: UUID(),
+            currentDirectory: projectDirectory,
+            terminal: richTerminal
+        )
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [degraded, rich]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 1)
+        let keptWorkspace = pruned.snapshot?.windows.first?.tabManager.workspaces.first
+        #expect(keptWorkspace?.currentDirectory == projectDirectory)
+        #expect(keptWorkspace?.panels.first?.terminal?.workingDirectory == projectDirectory)
+        #expect(keptWorkspace?.panels.first?.terminal?.resumeBinding?.cwd == projectDirectory)
+    }
+
+    @Test
     func sessionSnapshotKeepsWorkspacelessWindowWithEmptyPinnedGroup() {
         // TabManager persists an empty pinned group even when no workspace in
         // the window is restorable; that group is user state, not a phantom.

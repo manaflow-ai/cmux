@@ -59,8 +59,10 @@ struct AgentRestoreRecoveryRegressionTests {
         let restoredPanelID = try #require(restoredIDs[sourcePanelID])
         let terminal = try #require(restored.terminalPanel(for: restoredPanelID))
         let input = try #require(terminal.surface.debugInitialInputForTesting())
+        let restoredBinding = try #require(restored.surfaceResumeBinding(panelId: restoredPanelID))
         #expect(input.contains("cmux restore codex \(sessionID)"), Comment(rawValue: input))
         #expect(!input.contains("'sr' 'codex'"), Comment(rawValue: input))
+        #expect(restoredBinding.launchCommand?.arguments.contains("model_provider=subrouter") == true)
     }
 
     @Test("A binding-only Subrouter Claude snapshot is reconstructed through cmux restore")
@@ -120,8 +122,10 @@ struct AgentRestoreRecoveryRegressionTests {
         let restoredPanelID = try #require(restoredIDs[sourcePanelID])
         let terminal = try #require(restored.terminalPanel(for: restoredPanelID))
         let input = try #require(terminal.surface.debugInitialInputForTesting())
+        let restoredBinding = try #require(restored.surfaceResumeBinding(panelId: restoredPanelID))
         #expect(input.contains("cmux restore claude \(sessionID)"), Comment(rawValue: input))
         #expect(!input.contains("'sr' 'claude'"), Comment(rawValue: input))
+        #expect(restoredBinding.environment?[SubrouterClaudeResumeRouting.environmentKey] == marker)
     }
 
     @Test("A managed-only Subrouter Codex binding survives workspace restore")

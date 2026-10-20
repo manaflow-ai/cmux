@@ -1215,11 +1215,17 @@ extension Workspace {
         workingDirectory: String?
     ) -> SessionRestorableAgentSnapshot? {
         guard let resumeBinding,
+              terminal.agent == nil,
+              resumeBinding.isAgentHookBinding,
               resumeBinding.autoResume == true,
               let kindValue = resumeBinding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
               let kind = RestorableAgentKind(persistedRawValue: kindValue, registration: nil),
               kind == .codex || kind == .claude,
-              let sessionID = resumeBinding.checkpointId,
+              terminal.isRemoteTerminal != true,
+              terminal.remotePTYSessionID == nil,
+              let rawSessionID = resumeBinding.checkpointId,
+              let sessionID = normalizedResumeBindingValue(rawSessionID),
+              SessionSnapshotImportTrust.isSafeSessionID(sessionID),
               let validated = legacySubrouterResumeStartupInput(
                   kind: kind.rawValue,
                   sessionID: sessionID,
@@ -1234,7 +1240,11 @@ extension Workspace {
             kind: kind,
             sessionId: sessionID,
             workingDirectory: resumeBinding.cwd ?? workingDirectory,
-            launchCommand: nil
+            // Keep the captured provider evidence attached to the synthesized
+            // record as well as the persisted binding.  The generic restore
+            // planner can then retain the Subrouter route even if a later
+            // compatibility layer has already detached the binding.
+            launchCommand: resumeBinding.launchCommand
         )
     }
 
@@ -1785,11 +1795,14 @@ extension Workspace {
                 snapshotRestorableAgent,
                 resumeBinding: persistedManagedResumeBinding ?? persistedResumeBinding
             )
-            let restorableAgent = persistedAgent ?? Self.synthesizedLegacySubrouterAgent(
+            let synthesizedLegacyAgent = persistedAgent == nil
+                ? Self.synthesizedLegacySubrouterAgent(
                 resumeBinding: persistedManagedResumeBinding ?? persistedResumeBinding,
                 terminal: snapshot.terminal ?? SessionTerminalPanelSnapshot(),
                 workingDirectory: snapshot.terminal?.workingDirectory ?? snapshot.directory
             )
+                : nil
+            let restorableAgent = persistedAgent ?? synthesizedLegacyAgent
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
             // Running agents and validated normally completed Claude sessions can resume.
@@ -1819,7 +1832,9 @@ extension Workspace {
                 ?? restoredRemotePTYSessionID.flatMap { Self.parsedDefaultSSHPTYSessionID($0)?.workspaceId }
                 ?? id
             let resumeBinding = Self.resumeBindingForSessionRestore(
-                persistedResumeBinding,
+                synthesizedLegacyAgent == nil
+                    ? persistedResumeBinding
+                    : (persistedManagedResumeBinding ?? persistedResumeBinding),
                 restorableAgent: restorableAgent
             )
             // A Claude background session lives on in Claude's daemon. One pane
