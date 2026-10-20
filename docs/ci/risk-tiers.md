@@ -6,10 +6,12 @@ from the paths it changes. The label decides what evidence the description needs
 Nothing merges while that check is red on the exact head: `next-autoland` into `feat-cmux-next` and `gh-merge-green` into `main` both refuse it.
 
 Why: in the two weeks to 2026-10-18, 2,049 pull requests merged into `feat-cmux-next`. 932 of them
-had a failing check on their merged head that wasn't a review bot or a report-only lane. Pull
-requests into `feat-cmux-next` don't run `cmux-next swift test` unless they're labeled `full-ci`,
-so a new Swift test usually compiles and never runs before merge. Green CI on a pull request
-here says little about runtime behavior. The tiers ask for proof where a regression would hurt.
+had a failing check on their merged head that wasn't a review bot or a report-only lane. Until
+#22303, pull requests into `feat-cmux-next` didn't run `cmux-next swift test` unless they were
+labeled `full-ci`, so a new Swift test usually compiled and never ran before merge. A
+same-repository pull request now runs the Swift targets its change reaches, but a green run
+still says little about runtime behavior outside them. The tiers ask for proof where a
+regression would hurt.
 
 ## Tiers
 
@@ -51,9 +53,10 @@ Runtime test: AgentQueueTests/aFailedTurnHoldsTheQueue() in https://github.com/m
   A `Review:` commit older than the head says the later commits went unreviewed; re-review
   anything beyond a merge of the base.
 - `Runtime test:` names the test, and the run URL where it executed this change, or the commit of
-  this pull request that a tagged build or a Testbox ran. Pull requests here
-  skip `cmux-next swift test`, so dispatch it: `gh workflow run cmux-next.yml --ref <branch>`
-  runs every tier on that branch. A `cargo test` run on a Testbox, or a tagged build you drove
+  this pull request that a tagged build or a Testbox ran. A same-repository pull request's own
+  `cmux-next` run executes the tiers its paths reach (`cmux-next swift test` among them); for
+  every tier, `gh workflow run cmux-next.yml --ref <branch>` runs them all on that branch. A
+  fork pull request runs its Mac tiers only with `full-ci`. A `cargo test` run on a Testbox, or a tagged build you drove
   with `scripts/cmux-debug-cli.sh`, works too: give the command and the SHA it ran on.
 
 The check re-runs when the description is edited, so adding the lines turns it green.

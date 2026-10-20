@@ -123,7 +123,7 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   `## Proof`, next to its cmux-design-references match. High (release, migrations, defaults,
   protocol spec, pins and merge gates at any size; daemon and runtime changes over 40 lines;
   taking back a change merged in the last week): also `Review:` with the reviewed SHA and
-  `Runtime test:` with the run that executed it; PRs here skip Swift tests, so dispatch `cmux-next.yml`.
+  `Runtime test:` with the run that executed it; a same-repo PR's own `cmux-next` run executes its Swift tests.
   Ship user-visible high-tier behavior behind a default-off setting. After merging high tier,
   check the first nightly-next that has it; revert with `gh-merge-green --revert` if it broke
   and the fix misses the next cut. Never add `risk:waived`; only a maintainer does.
