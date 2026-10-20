@@ -248,7 +248,13 @@ final class SidebarListView: NSView {
         guard drag == nil, let window else { return setHovered(nil) }
         let point = convert(windowPoint ?? window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
         guard visibleRect.contains(point) else { return setHovered(nil) }
-        setHovered(displayed.row(at: point.y)?.key)
+        setHovered(hoverHit(at: point)?.key)
+    }
+    /// The row the pointer at `point` hovers (`SidebarLayout.hoverRow`); the
+    /// hover pill's corners come in past the drawn ones (Leo 2026-10-19).
+    func hoverHit(at point: CGPoint) -> SidebarRow? {
+        displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
+                           cornerRadius: SidebarStyle.rowCornerRadius + Metrics.space1, inset: Metrics.space1)
     }
     func setHovered(_ key: SidebarRowKey?) {
         guard key != hoveredKey else { return }
