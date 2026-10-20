@@ -31,6 +31,7 @@ import { TaskCheckbox } from "../../../ui/TaskCheckbox";
 import { githubReferences } from "../../../githubReferences";
 import { openingFence, closesFence } from "./markdownFence";
 import { acpmuxPerf } from "../perf";
+import { entranceAllowed } from "../../shared/pageReveal";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -957,6 +958,8 @@ export function Markdown({
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
+  // Blocks first drawn while entrances wait (the page hidden or just shown again).
+  const awayBlocks = useRef(new Set<string>());
   // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
   // same object until a new reference arrives.
   // The reveal clock can re-render a streaming reply while its source is unchanged. Keep the
@@ -986,8 +989,13 @@ export function Markdown({
       : undefined;
   const lastBlock = revealedBlocks.at(-1)?.block;
   const openFence = streaming && lastBlock?.type === "code" && lastBlock.open;
+  // A block that streamed in while the chat was hidden, or that lands before its first frame back,
+  // came while the user was away: it never enters (WebKit would play its suspended entrance on
+  // return, shared/pageReveal.ts). It still hands its code over like any live block.
+  const away = streaming && !entranceAllowed();
   const draw = (entry: KeyedBlock) => {
     const live = !atMount.current!.has(entry.key);
+    if (live && away) awayBlocks.current.add(entry.key);
     const fromReceived = renderByKey.has(entry.key) && receivedRender(entry.block);
     const open = fromReceived
       ? entry.block.type === "code" && !!entry.block.open
@@ -1001,7 +1009,7 @@ export function Markdown({
         opts={opts}
         depth={0}
         turnStreaming={turnStreaming}
-        enter={streaming && live}
+        enter={streaming && live && !awayBlocks.current.has(entry.key)}
         code={plainCode ? "plain" : open ? "open" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={entry.key === revealedBlocks.at(-1)?.key && !receivedRender(entry.block) ? freshTail : undefined}
       />

@@ -13,8 +13,10 @@ name: cmux-next PR autofix
 # changes their inputs (autofix-areas.sh: actions, settings), action-exports
 # regenerates them on a Mac (scripts/cmux-next/regenerate-action-exports.sh,
 # regenerate-settings-exports.sh) and repair copies them in before it rewrites
-# the docs shortcuts and the defaults snapshot from them. Rust and the docs read the
-# committed copy, so they stay checked in, but no person regenerates them.
+# the defaults snapshot from them, and the docs shortcuts and app-host files
+# from regenerated action exports (never from a settings-only artifact). Rust
+# and the docs read the committed copy, so they stay checked in, but no person
+# regenerates them.
 #
 # Two jobs hold the token boundary, so the pull request's own code never runs next to a write token:
 #   repair: runs the repairs the pull request's changed paths need
@@ -397,10 +399,14 @@ jobs:
         run: |
           set -euo pipefail
           args=()
-          # Regenerated action exports: the docs shortcuts and app-host files follow them.
+          # Regenerated exports are copied in. The docs shortcuts and app-host
+          # files follow the action exports only when this run regenerated them:
+          # a settings-only artifact would rewrite them from the committed
+          # action-surfaces.json, which can be older than their committed copies
+          # (#21814 lost paletteKey.toggleActions that way).
           if [[ -d "$RUNNER_TEMP/action-exports" ]]; then
             args+=(--generated "$RUNNER_TEMP/action-exports")
-            SHORTCUTS=true APPHOST=true
+            [[ -d "$RUNNER_TEMP/action-exports/plans/cmux-next" ]] && SHORTCUTS=true APPHOST=true
           fi
           [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
           [[ "$STRINGS" == true ]] && args+=(--strings)
