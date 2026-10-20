@@ -22249,6 +22249,196 @@
         }
       }
     },
+    "cloud.vm.receiver.lifecycle": {
+      "class": "mutation",
+      "idempotency": "none",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          },
+          "phase": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "read",
+                "begin",
+                "ready",
+                "end"
+              ]
+            }
+          },
+          "expected": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "attempt": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "machine": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "MachineId"
+                }
+              },
+              "generation": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "phase": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "idle",
+                    "starting",
+                    "ready",
+                    "stopped"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud.machine.not_found",
+        "cloud.rate_limited",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "execute",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "read",
+              "begin",
+              "ready",
+              "end"
+            ]
+          },
+          "expected": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "attempt": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          }
+        },
+        "required": [
+          "machine",
+          "phase"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          },
+          "generation": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "starting",
+              "ready",
+              "stopped"
+            ]
+          }
+        },
+        "required": [
+          "machine",
+          "generation",
+          "phase"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          }
+        }
+      }
+    },
     "cloud.vm.self.get": {
       "class": "read",
       "idempotency": "forbidden",

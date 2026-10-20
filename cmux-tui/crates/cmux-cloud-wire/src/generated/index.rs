@@ -48,6 +48,7 @@ pub mod op_names {
     pub const CLOUD_SNAPSHOT_RESTORE: &str = "cloud.snapshot.restore";
     pub const CLOUD_VM_EVENT_EMIT: &str = "cloud.vm.event.emit";
     pub const CLOUD_VM_NETWORK_POLICY: &str = "cloud.vm.network_policy";
+    pub const CLOUD_VM_RECEIVER_LIFECYCLE: &str = "cloud.vm.receiver.lifecycle";
     pub const CLOUD_VM_SELF_GET: &str = "cloud.vm.self.get";
     pub const CLOUD_VM_STATUS_REPORT: &str = "cloud.vm.status.report";
     pub const CONVERSATION_CREATE: &str = "conversation.create";
@@ -244,6 +245,7 @@ pub mod op_names {
         CLOUD_SNAPSHOT_RESTORE,
         CLOUD_VM_EVENT_EMIT,
         CLOUD_VM_NETWORK_POLICY,
+        CLOUD_VM_RECEIVER_LIFECYCLE,
         CLOUD_VM_SELF_GET,
         CLOUD_VM_STATUS_REPORT,
         CONVERSATION_CREATE,
@@ -443,6 +445,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.snapshot.restore" => visitor.visit::<CloudSnapshotRestoreOp>(),
         "cloud.vm.event.emit" => visitor.visit::<CloudVmEventEmitOp>(),
         "cloud.vm.network_policy" => visitor.visit::<CloudVmNetworkPolicyOp>(),
+        "cloud.vm.receiver.lifecycle" => visitor.visit::<CloudVmReceiverLifecycleOp>(),
         "cloud.vm.self.get" => visitor.visit::<CloudVmSelfGetOp>(),
         "cloud.vm.status.report" => visitor.visit::<CloudVmStatusReportOp>(),
         "conversation.create" => visitor.visit::<ConversationCreateOp>(),

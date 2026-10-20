@@ -4,6 +4,70 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes message.send declares.
+    MessageSendError {
+        AddressCannotAct = "address_cannot_act",
+        AgentBudget = "agent_budget",
+        AgentRate = "agent_rate",
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        IdempotencyConflict2 = "idempotency_conflict",
+        InvalidClientMsgId = "invalid_client_msg_id",
+        InvalidParts = "invalid_parts",
+        InvalidThreadRoot = "invalid_thread_root",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The chief's brain host acknowledges its wakes in a conversation up to seq (moves its catch-up cursor).
+    MuxAckOp {
+        name: "mux.ack",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:MuxDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: MuxAckParams,
+        result: MuxAckResult,
+        error: MuxAckError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MuxAckParams {
+    pub agent: AgentId,
+    pub conversation: ConversationId,
+    pub seq: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MuxAckResult {
+    pub cursor: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleared: Option<i64>,
+}
+
+wire_errors! {
+    /// The error codes mux.ack declares.
+    MuxAckError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Run a chief's brain locally (on a host) or in the cloud (the chief's owner).
     MuxConfigureOp {
@@ -838,55 +902,5 @@ wire_op! {
         params: SsoConnectionDisableParams,
         result: SsoConnection,
         error: SsoConnectionDisableError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionDisableParams {
-    pub connection: SsoConnectionId,
-}
-
-wire_errors! {
-    /// The error codes sso.connection.disable declares.
-    SsoConnectionDisableError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The team's SSO connections, without secrets (owners and admins).
-    SsoConnectionListOp {
-        name: "sso.connection.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session],
-        params: SsoConnectionListParams,
-        result: SsoConnectionListResult,
-        error: SsoConnectionListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionListResult {
-    pub team: TeamId,
-    pub connections: Vec<SsoConnection>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes sso.connection.list declares.
-    SsoConnectionListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
     }
 }

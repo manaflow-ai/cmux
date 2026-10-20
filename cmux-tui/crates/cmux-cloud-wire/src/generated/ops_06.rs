@@ -5,6 +5,58 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalGetParams {
+    pub request: String,
+}
+
+wire_enum! {
+    IntegrationApprovalGetResultState {
+        Pending = "pending",
+        Done = "done",
+        Denied = "denied",
+        Expired = "expired",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalGetResult {
+    pub request: String,
+    pub op: String,
+    pub connection: String,
+    pub target: String,
+    pub summary: String,
+    pub params: Value,
+    pub digest: String,
+    pub state: IntegrationApprovalGetResultState,
+    pub created_at: WireNumber,
+    pub expires_at: WireNumber,
+}
+
+wire_errors! {
+    /// The error codes integration.approval.get declares.
+    IntegrationApprovalGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Finish a connection from the provider's redirect (the signed-in user must be the one who started it).
+    IntegrationCompleteOp {
+        name: "integration.complete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: IntegrationCompleteParams,
+        result: Connection,
+        error: IntegrationCompleteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IntegrationCompleteParams {
     pub state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -832,68 +884,4 @@ pub struct MessageSendParams {
     pub reply_to: Option<HomePartRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_root: Option<MessageId>,
-}
-
-wire_errors! {
-    /// The error codes message.send declares.
-    MessageSendError {
-        AddressCannotAct = "address_cannot_act",
-        AgentBudget = "agent_budget",
-        AgentRate = "agent_rate",
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        IdempotencyConflict2 = "idempotency_conflict",
-        InvalidClientMsgId = "invalid_client_msg_id",
-        InvalidParts = "invalid_parts",
-        InvalidThreadRoot = "invalid_thread_root",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The chief's brain host acknowledges its wakes in a conversation up to seq (moves its catch-up cursor).
-    MuxAckOp {
-        name: "mux.ack",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:MuxDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: MuxAckParams,
-        result: MuxAckResult,
-        error: MuxAckError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MuxAckParams {
-    pub agent: AgentId,
-    pub conversation: ConversationId,
-    pub seq: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MuxAckResult {
-    pub cursor: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cleared: Option<i64>,
-}
-
-wire_errors! {
-    /// The error codes mux.ack declares.
-    MuxAckError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }
