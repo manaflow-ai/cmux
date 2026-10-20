@@ -14,15 +14,20 @@
 //! - the listener runs as this user,
 //! - one `identify` gets no answer within `PROBE_DEADLINE` (an owner that
 //!   answers, also one that reports it is still starting, is kept and
-//!   awaited by the normal ensure),
+//!   awaited by the normal ensure), or the owner refuses every connection
+//!   at its connection limit for that bound (a wedged owner whose connection
+//!   threads never end, https://github.com/manaflow-ai/cmux/issues/22311),
 //! - the same process still listens after the exit watch is armed.
 //!
 //! The caller decides when an owner is stuck: an owner also holds connections
 //! unanswered while it restores its session (up to `RESTORE_DEADLINE`), and
-//! this probe cannot tell the two apart. The app offers the option only after
-//! a plain ensure has failed (`server.restore_timeout` or no answer), so the
-//! restore bound has passed. Replacing a slow restore costs restore time, not
-//! terminals: the hosts survive and the next owner adopts them.
+//! this probe cannot tell the two apart. Nor can it tell a wedged owner at its
+//! connection limit from a healthy one whose clients all stay connected. The
+//! app offers the option only after a plain ensure has failed
+//! (`server.restore_timeout`, `server.unavailable`, `server.busy` or no
+//! answer), so the restore bound or the busy bound has passed. Replacing a
+//! slow restore costs restore time, not terminals: the hosts survive and the
+//! next owner adopts them.
 //!
 //! Stop: SIGTERM and SIGCONT (a stopped process acts on SIGTERM only after it
 //! continues), wait for the exit up to `TERM_GRACE`, then SIGKILL and wait up
@@ -103,7 +108,7 @@ pub(crate) fn replace_if_unresponsive(spec: &OwnerSpec) -> Result<Option<Replace
     // Read on the probed connection; refuse only once the owner is stuck, so
     // a healthy owner never fails here.
     let key = probe.peer_process_key();
-    if !unanswered(probe) {
+    if !unresponsive(spec, probe) {
         return Ok(None);
     }
     let listener = listener_of(key)?;
@@ -156,36 +161,92 @@ fn listener_of(key: Option<String>) -> Result<Listener, ReplaceError> {
     Ok(Listener { pid, version })
 }
 
-/// Whether one `identify` stays unanswered for `PROBE_DEADLINE`. Any answer
-/// (also "still starting") or a closed connection is not a stuck owner.
-fn unanswered(stream: Box<dyn cmux_tui_core::platform::transport::Stream>) -> bool {
+/// How one `identify` on a fresh connection ended.
+enum Probe {
+    /// An answer (also "still starting"), or the connection closed.
+    Answered,
+    /// No answer before the deadline.
+    Silent,
+    /// The owner refused the connection at its connection limit.
+    Refused,
+}
+
+/// Whether the owner gives no answer for `PROBE_DEADLINE`: one `identify`
+/// stays unanswered, or every connection is refused at the connection limit
+/// (re-asked on a new connection, since a healthy owner frees a slot as soon
+/// as one of its clients leaves). Any answer, also "still starting", or a
+/// closed connection is not a stuck owner.
+fn unresponsive(
+    spec: &OwnerSpec,
+    mut stream: Box<dyn cmux_tui_core::platform::transport::Stream>,
+) -> bool {
     let deadline = Instant::now() + PROBE_DEADLINE;
-    if stream.set_write_timeout(Some(PROBE_DEADLINE)).is_err() {
-        return false;
+    loop {
+        // A re-ask after a refusal near the deadline still gets its answer
+        // read, so a slot freed at the end keeps the owner.
+        let read_until = deadline.max(Instant::now() + super::BUSY_POLL_INTERVAL);
+        match probe(stream, read_until) {
+            Probe::Answered => return false,
+            Probe::Silent => return true,
+            Probe::Refused if Instant::now() >= deadline => return true,
+            Probe::Refused => {}
+        }
+        std::thread::sleep(super::BUSY_POLL_INTERVAL);
+        let Ok(next) =
+            cmux_tui_core::server::connect_session_socket(&spec.socket, spec.socket_is_derived)
+        else {
+            // Nothing listens any more: the normal ensure starts an owner.
+            return false;
+        };
+        stream = next;
     }
+}
+
+fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: Instant) -> Probe {
+    let remaining =
+        deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
     let mut connection = BufReader::new(stream);
+    if let Err(error) = connection.get_ref().set_write_timeout(Some(remaining)) {
+        return closed(&mut connection, &error);
+    }
     let request = serde_json::json!({"id":1,"cmd":"identify"});
     match writeln!(connection.get_mut(), "{request}").and_then(|()| connection.get_mut().flush()) {
         Ok(()) => {}
         // A full send buffer for one short line: the owner reads nothing.
-        Err(error) if is_timeout(&error) => return true,
-        Err(_) => return false,
+        Err(error) if is_timeout(&error) => return Probe::Silent,
+        // A full owner may close before this write lands.
+        Err(_) if super::identify::refused_after_write(&mut connection) => return Probe::Refused,
+        Err(_) => return Probe::Answered,
     }
     let mut line = Vec::new();
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return true;
+            return Probe::Silent;
         }
-        if connection.get_mut().set_read_timeout(Some(remaining)).is_err() {
-            return false;
+        if let Err(error) = connection.get_ref().set_read_timeout(Some(remaining)) {
+            return closed(&mut connection, &error);
         }
         match connection.read_until(b'\n', &mut line) {
-            Ok(_) => return false,
+            Ok(_) if super::identify::is_refusal(&line) => return Probe::Refused,
+            Ok(_) => return Probe::Answered,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) if is_timeout(&error) => {}
-            Err(_) => return false,
+            Err(_) => return Probe::Answered,
         }
+    }
+}
+
+/// A socket timeout failed: a refusal when the owner closed after its
+/// refusal line (macOS EINVAL), otherwise a closed connection.
+fn closed(
+    connection: &mut BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
+    error: &io::Error,
+) -> Probe {
+    if super::identify::refused_after_closed(connection, error) {
+        Probe::Refused
+    } else {
+        Probe::Answered
     }
 }
 
