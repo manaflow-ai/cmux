@@ -62,9 +62,15 @@ impl Brain {
             },
             _ => return entry,
         };
-        // Pictures and videos the reply names (media.rs) go whether or not the owner takes cards.
-        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-        let media = super::media::media_refs(&reply, home.as_deref());
+        // Pictures and videos go only from this turn's fresh, private outbox.
+        // Model-authored paths elsewhere are text, never implicit file reads.
+        let media_root = self
+            .state
+            .turn
+            .as_ref()
+            .and_then(|turn| turn.first_id)
+            .map(|first| super::media::turn_outbox(&self.settings.session_dir, first));
+        let media = super::media::media_refs(&reply, media_root.as_deref());
         let fetcher = self.previewer.clone().filter(|_| {
             daemon.supports(LINK_PREVIEW_CAPABILITY)
                 && link_preview::split::text_parts(&reply)

@@ -727,6 +727,13 @@ pub fn set_claude_md(session: &Path, text: Option<&str>) -> io::Result<()> {
     }
 }
 
+/// Writes the turn directory's AGENTS.md for a non-Claude harness. The brain
+/// swaps between the private and shared-conversation text before session/new.
+pub fn set_agents_md(session: &Path, text: &str) -> io::Result<()> {
+    std::fs::create_dir_all(session)?;
+    write_if_changed(&session.join("AGENTS.md"), text.as_bytes())
+}
+
 /// Sets `promptCacheTtl` in the session directory's Claude Code project
 /// settings (settings.json and settings.local.json; the other keys stay):
 /// Claude Code's own cache marks then take the TTL of ours, since the API

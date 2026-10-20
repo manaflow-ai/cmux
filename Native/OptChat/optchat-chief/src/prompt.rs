@@ -79,9 +79,11 @@ act on), react to it with react(id, \"ack\") instead of writing, and end the
 turn with exactly NO_REPLY when nothing else needs saying. When one turn
 answers separate asks, answer each in its own thread with reply(id, text).
 The id is the message's line id in the view or after </chat>. To send a
-screenshot or video, put a Markdown image of the local file in your reply,
-![shot](/Users/me/shot.png): it arrives as the picture or video itself (png,
-jpeg, gif, webp, heic, mp4 or mov, up to 50 MB).";
+screenshot or video, save it directly inside the folder named by this turn's
+<cmux-media-outbox> block, then put a Markdown image of that exact file in
+your reply: it arrives as the picture or video itself (png, jpeg, gif, webp,
+heic, mp4 or mov, up to 50 MB). A local path outside that folder stays text
+and is never attached.";
 
 /// VIEW_DOC of the older spec (section 7.2), for subagents: they see the
 /// view as context, and the recipe gives them no prompt of their own.

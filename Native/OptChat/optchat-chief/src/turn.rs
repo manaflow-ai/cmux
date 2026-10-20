@@ -127,6 +127,9 @@ pub struct TurnStart {
     /// The view pieces, then the new messages (prompt::turn_blocks), or the
     /// cached layout's blocks (prompt::cached_layout).
     pub blocks: Vec<Value>,
+    /// Refuse direct shared-memory reads on engines that cannot ask the owner.
+    /// The prompt itself is conversation-scoped when this is true.
+    pub restrict_shared_memory: bool,
     /// The cached layout (Claude harnesses): the text the session's preset
     /// (`session.preset`) gets as its system prompt before the session
     /// starts. None: the session starts with what its preset holds.
