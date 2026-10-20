@@ -601,6 +601,28 @@ class PathRoutingStructure(unittest.TestCase):
                 self.assertNotIn("Authorization: Bearer", script)
 
 
+class SwiftCanaryFleetCoverage(unittest.TestCase):
+    """The fleet's app check vouches only for targets the app executable links."""
+
+    def test_targets_outside_the_app_go_to_the_mac_canary(self):
+        graph = json.loads((ROOT / "Packages/macOS/CmuxNext/ci-target-graph.json").read_text(encoding="utf-8"))
+        targets = graph["targets"]
+        seen, stack = set(), ["CmuxNextApp"]
+        while stack:
+            name = stack.pop()
+            if name in seen or name not in targets:
+                continue
+            seen.add(name)
+            stack.extend(targets[name]["targets"])
+        self.assertIn("CmuxNextApp", seen)
+        outside = {n for n, v in targets.items() if v["kind"] in {"regular", "executable"} and n not in seen}
+        step = next(s for s in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]["steps"]
+                    if s.get("id") == "check")
+        listed = set(re.search(r"^\s*([A-Za-z|]+)\)\n\s*echo \"::notice", step["run"], re.M).group(1).split("|"))
+        self.assertEqual(listed, outside, "update the swift-canary-fleet target list to the production targets CmuxNextApp does not reach")
+        self.assertIn("compile-check --ref \"$REF\" --app", step["run"])
+
+
 class PushPreflightBehavior(unittest.TestCase):
     """Execute the workflow shell with bounded fake network and git responses."""
 
