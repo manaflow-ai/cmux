@@ -128,3 +128,44 @@ test("a file the last turn changed again opens the last turn's diff", async () =
   expect(opened).toEqual(["/repo/src/upload.sh"]);
   expect(outputsOpened).toEqual(["/repo/README.md"]);
 });
+
+// Review on #22166: a file named like one the last turn changed, in another folder, is its own output.
+test("a same-named file in another folder keeps its own row and opens its own changes", async () => {
+  const opened: string[] = [];
+  const outputsOpened: string[] = [];
+  // Before the checkpoint loads, a one-file turn's file reads by its bare name.
+  const last = { ...(file("/repo/b/index.ts", 2) as object), displayPath: "index.ts" } as never;
+  await sourcesRows(
+    [file("/repo/a/index.ts", 1), file("/repo/b/index.ts", 2)],
+    [last],
+    (path) => opened.push(path!),
+    (path) => outputsOpened.push(path),
+  );
+  const buttons = [...host.querySelectorAll<HTMLButtonElement>("section button")].filter((b) =>
+    b.textContent?.includes("index.ts"),
+  );
+  expect(buttons.length).toBe(2);
+  for (const button of buttons) await act(async () => button.click());
+  expect(opened).toEqual(["/repo/b/index.ts"]);
+  expect(outputsOpened).toEqual(["/repo/a/index.ts"]);
+});
+
+// A checkpoint's root file takes the root output, not a package's file of the same name.
+test("a checkpoint's root package.json is the root output, not a package's", async () => {
+  const opened: string[] = [];
+  const outputsOpened: string[] = [];
+  const root = { ...(file("/Users/me/repo/package.json", 1) as object), displayPath: "package.json" } as never;
+  await sourcesRows(
+    [file("~/repo/packages/x/package.json", 3), file("~/repo/package.json", 1)],
+    [root],
+    (path) => opened.push(path!),
+    (path) => outputsOpened.push(path),
+  );
+  const buttons = [...host.querySelectorAll<HTMLButtonElement>("section button")].filter((b) =>
+    b.textContent?.includes("package.json"),
+  );
+  expect(buttons.length).toBe(2);
+  for (const button of buttons) await act(async () => button.click());
+  expect(opened).toEqual(["/Users/me/repo/package.json"]);
+  expect(outputsOpened).toEqual(["~/repo/packages/x/package.json"]);
+});

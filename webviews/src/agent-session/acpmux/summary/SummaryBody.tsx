@@ -64,15 +64,30 @@ export function SummaryBody({
   // A file the last turn changed opens that turn's diff, also when an earlier turn's edit tool made
   // it an output: its last change is the one to show.
   const lastTurn = changes?.files ?? [];
-  const rows = [
+  const named = new Set(summary.outputs.map((output) => output.path));
+  // The output a last-turn file is: the one with its path, else (a checkpoint file, under the repository
+  // root) the shortest output path ending in its path, so `index.ts` in one folder never takes another
+  // folder's `index.ts`, nor a root `package.json` a package's.
+  const outputOf = (file: (typeof lastTurn)[number]) =>
+    named.has(file.path)
+      ? file.path
+      : summary.outputs
+          .filter((output) => changedByTools(file, [output]))
+          .reduce<string | undefined>((best, output) => (!best || output.path.length < best.length ? output.path : best), undefined);
+  const turnOf = new Map<string, (typeof lastTurn)[number]>();
+  const checkpointOnly: (typeof lastTurn)[number][] = [];
+  for (const file of lastTurn) {
+    const output = outputOf(file);
+    if (output === undefined) checkpointOnly.push(file);
+    else if (!turnOf.has(output)) turnOf.set(output, file);
+  }
+  const outputs = [
     ...summary.outputs.map((output) => {
-      const turn = lastTurn.find((file) => changedByTools(file, [output]));
+      const turn = turnOf.get(output.path);
       return turn ? { file: turn, inTurnDiff: true } : { file: output, inTurnDiff: false };
     }),
-    ...lastTurn.filter((file) => !changedByTools(file, summary.outputs)).map((file) => ({ file, inTurnDiff: true })),
+    ...checkpointOnly.map((file) => ({ file, inTurnDiff: true })),
   ];
-  // Two outputs the agent wrote differently (`~/x/a.ts`, `/Users/me/x/a.ts`) are one checkpoint file.
-  const outputs = rows.filter((row, index) => rows.findIndex((other) => other.file.path === row.file.path) === index);
   return (
     <>
       <SummarySection
