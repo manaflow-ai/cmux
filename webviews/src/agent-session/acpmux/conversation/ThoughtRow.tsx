@@ -3,6 +3,7 @@ import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
+import { isAgentMotionOff } from "../../shared/motion";
 import { formatDuration } from "./turns";
 
 /// With the live viewport off, a done thought folds once it is taller than the transcript's
@@ -131,7 +132,7 @@ export function ThoughtRow({
     if (!toggled.current) return;
     toggled.current = false;
     const node = body.current;
-    if (!node || typeof node.animate !== "function" || thoughtLayout.reducedMotion()) {
+    if (isAgentMotionOff() || !node || typeof node.animate !== "function" || thoughtLayout.reducedMotion()) {
       setClosing(false);
       return;
     }
@@ -161,7 +162,7 @@ export function ThoughtRow({
     ms !== undefined && ms >= 1000 ? t("tools.thoughtFor", { time: formatDuration(ms) }) : t("tools.thought");
   const toggle = () => {
     toggled.current = true;
-    if (open && !thoughtLayout.reducedMotion()) setClosing(true);
+    if (open && !thoughtLayout.reducedMotion() && !isAgentMotionOff()) setClosing(true);
     choose(!open);
   };
   return (

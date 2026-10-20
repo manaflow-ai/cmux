@@ -53,6 +53,17 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "link.circle", surfaces: [.palette, .keyboard], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser focus-address-bar"
             ),
+            // Chrome's Search the Web (IDC_FOCUS_SEARCH, Opt-Cmd-F on the Mac): the
+            // address bar in a search with the default engine. No default key:
+            // Opt-Cmd-F stays Search All Windows (a default moves only with the
+            // user's OK); bind one in cmux.json or run it from the palette.
+            ActionDescriptor(
+                id: "browser.focusSearch",
+                title: String(localized: "action.browser.focusSearch", defaultValue: "Search the Web", bundle: .module),
+                keywords: ["browser", "search", "omnibox", "address bar", "google", "engine"],
+                category: .browser, symbol: "magnifyingglass.circle", surfaces: [.palette, .keyboard], requires: [.browserFocused],
+                targets: [.pane], cliName: "browser focus-search"
+            ),
             ActionDescriptor(
                 id: "browserZoomIn",
                 title: String(localized: "action.browserZoomIn", defaultValue: "Zoom In", bundle: .module),
@@ -98,9 +109,9 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "toggleBrowserDeveloperTools",
                 title: String(localized: "action.toggleBrowserDeveloperTools", defaultValue: "Toggle Developer Tools", bundle: .module),
-                keywords: ["browser", "devtools", "inspector"],
+                keywords: ["browser", "devtools", "inspector", "web inspector", "debug", "web view"],
                 defaultShortcut: Shortcut("i", modifiers: [.option, .command]), category: .browser, symbol: "hammer",
-                surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused], targets: [.pane],
+                surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "browser toggle-developer-tools", mainMenu: .view
             ),
             ActionDescriptor(
@@ -108,15 +119,15 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.showBrowserJavaScriptConsole", defaultValue: "Show JavaScript Console", bundle: .module),
                 keywords: ["browser", "devtools", "console"],
                 defaultShortcut: Shortcut("j", modifiers: [.option, .command]), category: .browser, symbol: "terminal",
-                surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused], targets: [.pane],
+                surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "browser show-javascript-console", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "inspectBrowserElement",
                 title: String(localized: "action.inspectBrowserElement", defaultValue: "Inspect Element", bundle: .module),
-                keywords: ["browser", "devtools", "inspector", "element", "picker"],
+                keywords: ["browser", "devtools", "inspector", "element", "picker", "web inspector", "debug", "web view"],
                 defaultShortcut: Shortcut("c", modifiers: [.option, .command]), category: .browser, symbol: "cursorarrow.rays",
-                surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused], targets: [.pane],
+                surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "browser inspect-element", mainMenu: .view
             ),
             ActionDescriptor(
@@ -188,8 +199,9 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.browserClearHistory",
                 title: String(localized: "action.palette.browserClearHistory", defaultValue: "Clear Browser History", bundle: .module),
-                keywords: ["browser", "privacy"], category: .browser, symbol: "clock.badge.xmark", surfaces: [.palette],
-                targets: [.pane], cliName: "browser clear-history"
+                keywords: ["browser", "privacy", "clear", "delete"], category: .browser, symbol: "clock.badge.xmark", surfaces: [.palette],
+                arguments: [HistoryActionCatalog.historyRange, CatalogArgument.browserProfile],
+                targets: [.pane], cliName: "browser clear-history", destructive: true
             ),
             {
                 // Person-only and no CLI verb (PASSWORDS-IMPORT-ANY-BROWSER): an agent must not put
@@ -313,6 +325,13 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 requires: [.filePreviewFocused], targets: [.pane], cliName: "browser reveal-file-in-finder"
             ),
             ActionDescriptor(
+                id: "filePreviewRevealInFiles",
+                title: String(localized: "action.filePreviewRevealInFiles", defaultValue: "Reveal File in cmux Files", bundle: .module),
+                keywords: ["file", "files", "finder", "reveal", "folder"], category: .browser, symbol: "folder",
+                surfaces: [.contextMenu], requires: [.filePreviewFocused], targets: [.pane],
+                cliName: "browser reveal-file-in-files"
+            ),
+            ActionDescriptor(
                 id: "diffViewerNextLine",
                 title: String(localized: "action.diffViewerNextLine", defaultValue: "Diff: Next Line", bundle: .module),
                 keywords: ["diff", "vim"], defaultShortcut: Shortcut("j", modifiers: []), category: .browser,
@@ -428,5 +447,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 targets: [.pane], cliName: "browser fit-desktop-1280"
             ),
         ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + importCookiesDescriptors() + pinnedPageDescriptors()
+            + devToolsDescriptors()
     }
 }

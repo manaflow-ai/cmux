@@ -16,6 +16,10 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     /// answers it as it answers the same refusal reported at once (`unavailable` with the
     /// reason, or `not_found`). Nil for a daemon failure (`daemon_error`).
     public var refusal: ActionWorkRefusal?
+    /// The control error code a caller answers instead of the default
+    /// (`screenshot.unavailable`), with `message` as its reason. Nil for the
+    /// default mapping (``refusal``, a timeout, or `daemon_error`).
+    public var code: String?
 
     public init(_ message: String, mayHaveApplied: Bool = false, terminalMayAppear: Bool = false) {
         self.message = message
@@ -27,6 +31,12 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     public init(refusal: ActionWorkRefusal, reason: String) {
         self.init(reason)
         self.refusal = refusal
+    }
+
+    /// A failure the control socket answers with error `code` and `reason`.
+    public init(code: String, reason: String) {
+        self.init(reason)
+        self.code = code
     }
 
     public init(stringLiteral value: String) {
@@ -59,14 +69,36 @@ extension ActionRegistry {
         if capturedWork != nil { capturedWork?.append(task) }
     }
 
+    /// Reports a task that produces the action's value (a screenshot's
+    /// path and size): a capturing caller awaits it like ``track(_:)`` work
+    /// and answers its fields (`action.run` `result`). Ignored unless a
+    /// caller is capturing.
+    public func track(result task: ActionResultWork) {
+        guard capturedWork != nil else { return }
+        capturedWork?.append(Task {
+            if case .failure(let failure) = await task.value { return failure }
+            return nil
+        })
+        capturedResults?.append(task)
+    }
+
     /// Runs `body` (a synchronous `perform`) and returns the tasks its
     /// handlers reported.
     public func capturingWork(_ body: () -> Void) -> [ActionWork] {
-        let previous = capturedWork
+        capturingRun(body).work
+    }
+
+    /// Runs `body` (a synchronous `perform`) and returns the tasks its
+    /// handlers reported: all of their work, and the value-producing tasks
+    /// among them (``track(result:)``).
+    public func capturingRun(_ body: () -> Void) -> (work: [ActionWork], results: [ActionResultWork]) {
+        let previous = capturedWork, previousResults = capturedResults
         capturedWork = []
+        capturedResults = []
         body()
-        let work = capturedWork ?? []
+        let work = capturedWork ?? [], results = capturedResults ?? []
         capturedWork = previous.map { $0 + work }
-        return work
+        capturedResults = previousResults.map { $0 + results }
+        return (work, results)
     }
 }

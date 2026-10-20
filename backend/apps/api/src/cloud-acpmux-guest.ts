@@ -25,7 +25,7 @@ export const ACPMUX_STDIN_EXEC_TIMEOUT_MS = 4_500
 /** The shutdown with agent handoff of the prepare step (no stdin). */
 export const ACPMUX_PREPARE_TIMEOUT_MS = 75_000
 
-const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
+export const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
 
 const WORK_USER = "cmux"
 const WORK_HOME = `/home/${WORK_USER}`
@@ -33,7 +33,7 @@ const LEGACY_HOME = "/root"
 const DAEMON_TERMINAL_ENV = 'TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)"'
 
 /** CMUX_TUI_USER, _HOME, _BIN and _LAYOUT of the layout this machine serves (web cmuxTuiLayoutSelector). */
-const layoutSelector = (): string =>
+export const layoutSelector = (): string =>
   `if id -u ${WORK_USER} >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && ` +
   `setpriv --reuid=${WORK_USER} --regid=${WORK_USER} --init-groups test -w ${WORK_HOME} 2>/dev/null && ` +
   `setpriv --reuid=${WORK_USER} --regid=${WORK_USER} --init-groups sudo -n true >/dev/null 2>&1; then ` +
@@ -42,7 +42,7 @@ const layoutSelector = (): string =>
   `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"`
 
 /** `command` as the daemon's user through setpriv (web cmuxTuiAsDaemonUser). */
-const asDaemonUser = (command: string, options?: { readonly exec?: boolean }): string => {
+export const asDaemonUser = (command: string, options?: { readonly exec?: boolean }): string => {
   const run = options?.exec === true ? "exec " : ""
   return (
     `if [ "$CMUX_TUI_USER" = root ]; then ${run}env HOME="$CMUX_TUI_HOME" ${DAEMON_TERMINAL_ENV} ${command}; ` +

@@ -204,6 +204,9 @@ pub(crate) struct JournalKernel {
     tailer: Mutex<Option<std::thread::JoinHandle<()>>>,
     enabled: bool,
     producers: RwLock<HashMap<String, Arc<CompiledJournalProducer>>>,
+    /// The registry file, so a reader behind the ring opens its own
+    /// read-only connection without the registry lock.
+    database_path: Option<PathBuf>,
 }
 
 struct CompiledJournalProducer {
@@ -254,6 +257,7 @@ impl JournalKernel {
                 tailer: Mutex::new(None),
                 enabled: false,
                 producers: RwLock::new(producers),
+                database_path: None,
             }));
         };
 
@@ -275,6 +279,7 @@ impl JournalKernel {
             tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(producers),
+            database_path: Some(database_path),
         });
         Self::start_tailer(&kernel, reader, head_sequence)?;
         Ok(kernel)
@@ -295,6 +300,14 @@ impl JournalKernel {
 
     pub(crate) const fn enabled(&self) -> bool {
         self.enabled
+    }
+
+    /// A new read-only journal reader on its own connection, for a consumer
+    /// whose cursor fell behind the ring (a [`SharedJournalRead::Gap`]).
+    /// It takes no registry lock, so a long catch-up never stalls writers.
+    /// `None` for an in-memory registry.
+    pub(crate) fn open_reader(&self) -> anyhow::Result<Option<SessionJournalReader>> {
+        self.database_path.as_deref().map(SessionJournalReader::open).transpose()
     }
 
     /// Wakes the tailer after the writer commits. No SQLite work or record
@@ -772,6 +785,7 @@ mod performance_tests {
             tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
+            database_path: None,
         };
         let observed = kernel.epoch();
         kernel.wake_waiters();
@@ -824,6 +838,7 @@ mod performance_tests {
             tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
+            database_path: None,
         };
 
         let iterations = 100_000_u64;
