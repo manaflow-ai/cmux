@@ -41,6 +41,10 @@ final class WorkspaceHoverCardController: HoverCardSource {
     private let ticker = DemandTimer(owner: "sidebar.hover-card.elapsed")
     /// The user's customization (`cmux.hovercard/1`); the App injects it.
     var customization: (any SidebarCustomization)?
+    /// A workspace's history of prompts, waits and finished turns (u3320); the App injects it.
+    var timelineSource: SidebarTimelineSource?
+    /// How many moments a card reads: its stats count them all, its list shows `maxRows`.
+    static let timelineReadLimit = 100
     /// The shown card's custom content and its workspace; released when the card hides or moves.
     private var custom: (id: WorkspaceID, content: any SidebarCustomContent)?
 
@@ -93,7 +97,10 @@ final class WorkspaceHoverCardController: HoverCardSource {
         let body = body ?? WorkspaceHoverCardView()
         self.body = body
         let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }
-        let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date())
+        let options = DesignSettings.shared.workspaceHoverCard
+        let wantsTimeline = options.layout != .classic
+        let timeline = wantsTimeline ? (timelineSource?(ws, Self.timelineReadLimit) ?? []) : []
+        let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline)
         body.configure(content)
         body.setResources(resources.report)
         bodyID = id
@@ -171,6 +178,11 @@ final class WorkspaceHoverCardView: NSView {
     /// blank band beside a short name); a long name wraps at the widest.
     static var cardWidth: CGFloat { 280 }
     static var minCardWidth: CGFloat { 180 }
+    /// The full history layout's width: a prompt reads in longer lines (u3320).
+    static var logCardWidth: CGFloat { 340 }
+    /// How tall the history may grow before it scrolls: the default card, and the full history.
+    static var timelineMaxHeight: CGFloat { 220 }
+    static var logMaxHeight: CGFloat { 360 }
     private static var iconSize: CGFloat { 13 }
     /// The body font with digits of one width, for lines whose running time ticks.
     private static var liveFont: NSFont { Typography.system(.monospacedDigit, size: Typography.body.pointSize, weight: .regular) }
@@ -196,6 +208,13 @@ final class WorkspaceHoverCardView: NSView {
     private let factsStack = NSStackView()
     /// CPU and memory with the last seconds of CPU as bars (`WorkspaceHoverCardContent.resourceRow`).
     private let resourceRow = HoverCardRowView()
+    /// "Prompts: 4 · Worked 12m", under the status (u3320).
+    private let statsLabel = ChromeLabel(labelWithString: "")
+    /// The scrollable history of prompts, waits and finished turns (u3320).
+    let timeline = WorkspaceHoverCardTimelineView()
+    /// The card's widest; the full history layout widens it.
+    private var widthLimit: NSLayoutConstraint?
+    private var width: CGFloat = WorkspaceHoverCardView.cardWidth
     /// The user's card (`cmux.hovercard/1`) once its first scene arrives; the built-in rows hide.
     private let customSlot = NSView()
     /// Why the user's card did not render: shown under the built-in card, which stays.
@@ -237,6 +256,10 @@ final class WorkspaceHoverCardView: NSView {
         activityLabel.font = Self.liveFont
         activityLabel.lineBreakMode = .byTruncatingTail
         resourceRow.isHidden = true
+        statsLabel.font = Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
+        statsLabel.lineBreakMode = .byTruncatingTail
+        statsLabel.isHidden = true
+        timeline.isHidden = true
 
         // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
         // grid), so the kind icon leads the name instead of floating after it.
@@ -262,16 +285,19 @@ final class WorkspaceHoverCardView: NSView {
         customError.maximumNumberOfLines = 3
         customError.isHidden = true
         customSlot.isHidden = true
-        builtIn = [titleRow, activityRow, factsStack, resourceRow]
-        let stack = NSStackView(views: [customSlot, titleRow, activityRow, factsStack, resourceRow, customError])
+        builtIn = [titleRow, activityRow, statsLabel, factsStack, timeline, resourceRow]
+        let stack = NSStackView(views: [customSlot, titleRow, activityRow, statsLabel, factsStack, timeline, resourceRow, customError])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space3
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
         let p = Self.padding
+        let widthLimit = content.widthAnchor.constraint(lessThanOrEqualToConstant: Self.cardWidth)
+        self.widthLimit = widthLimit
         NSLayoutConstraint.activate([
-            content.widthAnchor.constraint(lessThanOrEqualToConstant: Self.cardWidth),
+            widthLimit,
+            timeline.widthAnchor.constraint(equalTo: stack.widthAnchor),
             content.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minCardWidth),
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
@@ -300,7 +326,9 @@ final class WorkspaceHoverCardView: NSView {
         var lines = [[titleLabel.stringValue, ageLabel.isHidden ? "" : ageLabel.stringValue]
             .filter { !$0.isEmpty }.joined(separator: " ")]
         if !activityRow.isHidden { lines.append(activityLabel.stringValue) }
+        if !statsLabel.isHidden { lines.append(statsLabel.stringValue) }
         lines += factViews.filter { !$0.isHidden }.map(\.shownText)
+        if !timeline.isHidden { lines += timeline.lines }
         if !resourceRow.isHidden { lines.append(resourceRow.shownText) }
         if !customError.isHidden { lines.append(customError.stringValue) }
         return lines
@@ -333,6 +361,10 @@ final class WorkspaceHoverCardView: NSView {
 
     func configure(_ content: WorkspaceHoverCardContent, now: Date = Date()) {
         self.content = content
+        width = content.options.layout == .log ? Self.logCardWidth : Self.cardWidth
+        widthLimit?.constant = width
+        statsLabel.stringValue = content.stats ?? ""
+        statsLabel.isHidden = content.stats == nil
         titleLabel.stringValue = content.title
         kindIcon.image = NSImage.icon(content.icon, size: Self.iconSize)
         ageLabel.stringValue = content.age ?? ""
@@ -345,9 +377,9 @@ final class WorkspaceHoverCardView: NSView {
         // The width the title wraps at (the panel sizes the card in one
         // pass): the row less its icon and the age.
         let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space4
-        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 - age
+        titleLabel.preferredMaxLayoutWidth = width - 2 * Self.padding - Self.iconSize - Metrics.space2 - age
         while factViews.count < content.facts.count { addFactRow() }
-        let wrap = Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2
+        let wrap = width - 2 * Self.padding - Self.iconSize - Metrics.space2
         for (index, row) in factViews.enumerated() {
             let fact = index < content.facts.count ? content.facts[index] : nil
             row.isHidden = fact == nil
@@ -365,6 +397,12 @@ final class WorkspaceHoverCardView: NSView {
                                         after: row)
         }
         factsStack.isHidden = content.facts.isEmpty
+        let log = content.options.layout == .log
+        timeline.isHidden = content.timeline.isEmpty
+        if !content.timeline.isEmpty {
+            timeline.configure(content.timeline, width: width - 2 * Self.padding,
+                               maxHeight: log ? Self.logMaxHeight : Self.timelineMaxHeight, textLines: log ? 3 : 2, now: now)
+        }
         applyColors()
     }
 
@@ -483,6 +521,8 @@ extension WorkspaceHoverCardView {
             ageLabel.textColor = Palette.textSecondary
             activityLabel.textColor = Palette.textPrimary
             kindIcon.contentTintColor = Palette.textSecondary
+            statsLabel.textColor = Palette.textSecondary
+            timeline.applyColors()
             customError.textColor = Palette.textSecondary
         }
         // A clear title, muted metadata, and what was said in the primary ink (Leo 2026-10-19,
