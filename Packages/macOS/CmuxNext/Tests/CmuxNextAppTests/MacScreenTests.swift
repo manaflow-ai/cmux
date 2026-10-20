@@ -11,7 +11,7 @@ import Foundation
 import SwiftUI
 import Testing
 
-private let deviceID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
+nonisolated private let deviceID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
 /// A counter shared with a Sendable closure (tests).
 nonisolated private final class Locked<Value: Sendable>: @unchecked Sendable {
