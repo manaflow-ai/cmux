@@ -101,7 +101,8 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
     {
       name: "New Tab composer",
       entry: "agent-pane.new-tab",
-      variant: "reasoning-chip",
+      // Cards (composer-mic pins it), the first dot, whose box and quiet row these checks read.
+      variant: "composer-mic",
       field: ".nt-field",
       box: ".nt-box",
       row: ":is(.nt-pickers, .acpmux-composer-foot)",

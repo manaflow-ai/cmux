@@ -225,7 +225,9 @@ export default agentPaneEntry({
           note: width
             ? "The New Tab composer squeezed to 300 px: the mic and Send stay in the box, the prompt shrinks; the quiet row under it keeps the mode, model and effort."
             : "The New Tab composer: the box holds the prompt, the mic and Send; under it the quiet row with the permission mode on the left and the model and effort on the right.",
-          ready: newTab(),
+          // Cards, the page an unset template shows (the first dot), draws Claude Code's split; the
+          // Default template (the second dot) keeps the chips in its box.
+          ready: newTab({ template: "cards" }),
           snapshot: reasoningChat(),
           play: async (ctx: PlayContext) => {
             await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
