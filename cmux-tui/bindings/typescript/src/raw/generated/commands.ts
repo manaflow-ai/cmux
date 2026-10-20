@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9392cc109f8bc0c8c0f000289c18ad6bb03e6eb1a959c08811fc510fb5f822e0. */
+/* cmux-tui mux protocol 12, IR 6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06. */
 
 
 import type * as T from "./types.js";
@@ -593,6 +593,12 @@ export interface CloudParticipantAvatarGetRequest extends CmuxRequestBase {
   "participant_id": string;
 }
 export type CloudParticipantAvatarGetResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudRequestsListRequest extends CmuxRequestBase {
+  cmd: "cloud-requests-list";
+}
+export type CloudRequestsListResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudSessionClearRequest extends CmuxRequestBase {
@@ -2245,6 +2251,7 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 /** Protocol v6; authority: control. */
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
+  "api_revision"?: (number) | null;
   "capabilities"?: (Array<string>) | null;
   "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
@@ -2870,6 +2877,7 @@ export type CmuxRequest =
   | CloudMuxSubscribeRequest
   | CloudMuxUnsubscribeRequest
   | CloudParticipantAvatarGetRequest
+  | CloudRequestsListRequest
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
@@ -3547,6 +3555,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "participant-avatars-v1";
+    stream: null;
+  };
+  "cloud-requests-list": {
+    request: CloudRequestsListRequest;
+    result: CloudRequestsListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
     stream: null;
   };
   "cloud-session-clear": {

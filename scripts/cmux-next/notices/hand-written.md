@@ -44,6 +44,48 @@ SOFTWARE.
 
 ---
 
+## Chromium vector icons (browser chrome icons)
+
+- **License:** BSD 3-Clause License
+- **Copyright:** Copyright 2015 The Chromium Authors
+- **Source:** https://chromium.googlesource.com/chromium/src (revision ae65a7090c7185668498f7f323680c1065ce98e3)
+
+The browser toolbar, address bar, find bar, extension and media icons are Chromium's
+vector icons (`.icon` files from `components/vector_icons`, `chrome/app/vector_icons` and
+`components/omnibox/browser/vector_icons`). The files are vendored unchanged in
+`design/icons/chromium/src/`, listed in `design/icons/chromium/manifest.json`, and converted
+into the cmux icon pack by `scripts/icons/chromium_icons.py`.
+
+Copyright 2015 The Chromium Authors
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * Neither the name of Google LLC nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+---
+
 ## Emoji data (icon picker)
 
 - **Unicode emoji-test.txt 17.0** and **CLDR annotations 48.2.0** (`en`, `ja`):
@@ -485,6 +527,13 @@ viewer has no runtime CDN dependency.
 - **License:** MIT License
 - **Copyright:** Copyright (c) 2014-2024 Knut Sveidqvist and Mermaid contributors
 - **Source:** https://github.com/mermaid-js/mermaid/releases/tag/mermaid%4011.4.1
+
+### Ondine
+
+- **Version:** 0.0.1 (`Resources/markdown-viewer/ondine.min.js`, built by `scripts/cmux-next/vendor-ondine.mjs`)
+- **License:** MIT License (`Resources/markdown-viewer/ondine.LICENSE`)
+- **Copyright:** Copyright (c) 2025-present wevm contributors
+- **Source:** https://github.com/wevm/ondine (npm `ondine@0.0.1`, built from commit f662aa795b91bf2dfc7162f48035be3884201193)
 
 ### Vega
 

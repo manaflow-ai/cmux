@@ -144,6 +144,13 @@ extension AgentPaneRequest {
             self = .touched
         case "newTab.context":
             self = .newTabContext
+        case "newTab.warm":
+            if let warm = params?["warm"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: warm),
+               data.count <= AgentPaneNewTab.maximumWarmBytes, let text = String(data: data, encoding: .utf8) {
+                self = .newTabWarm(text)
+            } else {
+                self = .unsupported(method)
+            }
         case "newTab.setTemplate":
             if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
                 self = .setNewTabTemplate(template)

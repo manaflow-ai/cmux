@@ -150,14 +150,30 @@ describe("Home: reaching people by email", { timeout: 60_000 }, () => {
     expect(listed.map((r) => r.conversation)).toEqual([fromHal])
   })
 
-  it("a request from the same company domain is trusted; a public mailbox domain never is", async () => {
+  it("same company domain: the DM opens at once by default; with trust_same_domain off it is a trusted request; a public domain never is trusted", async () => {
     const ivy = await signIn("req-ivy", "ivy@initech.test", "Ivy")
     const jon = await signIn("req-jon", "jon@initech.test", "Jon")
+    const opened = await op(ivy.token, "dm.open", { peer: { email: jon.email } })
+    expect(opened.error).toBeUndefined()
+    expect(opened.value.invite).toBeUndefined()
+    const direct = homeConversation.dmConversationId(ivy.user, jon.user)
+    expect(opened.value.conversation.id).toBe(direct)
+    const seen = await read(jon.token, "conversation.snapshot", { conversation: direct, tail: 0 })
+    expect(seen.error).toBeUndefined()
+
+    const uma = await signIn("req-uma", "uma@globex.test", "Uma")
+    const val = await signIn("req-val", "val@globex.test", "Val")
+    const off = await op(uma.token, "home.settings.set", { trust_same_domain: false })
+    expect(off.error).toBeUndefined()
+    expect(off.value.trust_same_domain).toBe(false)
+    const asked = (await op(val.token, "dm.open", { peer: { email: uma.email } })).value
+    expect(asked.invite).toEqual({ ok: true })
+    expect((await waitRequests(uma, [asked.conversation.id], 1))[0].trusted).toBe(true)
+
     const kim = await signIn("req-kim", "kim@gmail.com", "Kim")
     const lee = await signIn("req-lee", "lee@gmail.com", "Lee")
-    const a = (await op(ivy.token, "dm.open", { peer: { email: jon.email } })).value.conversation.id as string
-    const b = (await op(kim.token, "dm.open", { peer: { email: lee.email } })).value.conversation.id as string
-    expect((await waitRequests(jon, [a], 1))[0].trusted).toBe(true)
-    expect((await waitRequests(lee, [b], 1))[0].trusted).toBe(false)
+    const b = (await op(kim.token, "dm.open", { peer: { email: lee.email } })).value
+    expect(b.invite).toEqual({ ok: true })
+    expect((await waitRequests(lee, [b.conversation.id], 1))[0].trusted).toBe(false)
   })
 })
