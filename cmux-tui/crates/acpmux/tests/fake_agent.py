@@ -668,6 +668,13 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "thinking"}})
+    # FAKE_TOOL_CALLS=N: N finished shell calls first, as a working agent's turn shows them.
+    for k in range(int(os.environ.get("FAKE_TOOL_CALLS", "0") or 0)):
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"run-{k}", "kind": "execute",
+                     "status": "completed", "title": f"echo probe {k}"})
+    # FAKE_SHORT_ECHO=1: echo only the prompt's last line (a Chief envelope is 100+ KB).
+    if os.environ.get("FAKE_SHORT_ECHO") == "1" and text.strip():
+        text = text.strip().splitlines()[-1]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 

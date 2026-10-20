@@ -128415,6 +128415,268 @@
           }
         }
       }
+    },
+    "settings.browser.freezeHiddenTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freeze Hidden Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "非表示のタブを凍結"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجميد علامات التبويب المخفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamrzni skrivene kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frys skjulte faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausgeblendete Tabs einfrieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Congelar pestañas ocultas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geler les onglets masqués"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Congela le schede nascoste"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្កកផ្ទាំងដែលលាក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "숨겨진 탭 정지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frys skjulte faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamrażaj ukryte karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Congelar abas ocultas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Замораживать скрытые вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุดแท็บที่ซ่อนอยู่ชั่วคราว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizli sekmeleri dondur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Заморожувати приховані вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đóng băng các tab bị ẩn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "冻结隐藏的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "凍結隱藏的分頁"
+          }
+        }
+      }
+    },
+    "settings.browser.freezeHiddenTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "電力を節約します。非表示の Chromium タブは表示するまで停止します。固定したタブと「休止しない」ホストは動作を続けます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يوفر الطاقة: تتوقف علامة تبويب Chromium المخفية عن العمل حتى تعرضها. تبقى علامات التبويب المثبتة ومضيفو «عدم الإسبات مطلقًا» نشطة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Štedi energiju: skrivena Chromium kartica prestaje raditi dok je ne prikažete. Zakačene kartice i hostovi iz „Nikad ne hiberniraj“ ostaju aktivni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sparer strøm: en skjult Chromium-fane stopper, indtil du viser den. Fastgjorte faner og værter under Gå aldrig i dvale forbliver aktive."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spart Energie: Ein ausgeblendeter Chromium-Tab läuft erst weiter, wenn du ihn zeigst. Angeheftete Tabs und Hosts unter „Nie ruhen lassen“ bleiben aktiv."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ahorra energía: una pestaña oculta de Chromium deja de ejecutarse hasta que la muestres. Las pestañas fijadas y los hosts de Nunca hibernar siguen activos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Économise l'énergie : un onglet Chromium masqué s'arrête jusqu'à ce que vous l'affichiez. Les onglets épinglés et les hôtes de Ne jamais mettre en veille restent actifs."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Risparmia energia: una scheda Chromium nascosta si ferma finché non la mostri. Le schede fissate e gli host in Non ibernare mai restano attivi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សន្សំថាមពល៖ ផ្ទាំង Chromium ដែលលាក់ឈប់ដំណើរការរហូតដល់អ្នកបង្ហាញវា។ ផ្ទាំងដែលបានខ្ទាស់ និងម៉ាស៊ីនក្នុង «កុំសម្រាកដាច់ខាត» នៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전력을 절약합니다. 숨겨진 Chromium 탭은 다시 표시할 때까지 실행을 멈춥니다. 고정된 탭과 '절대 최대 절전 안 함' 호스트는 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sparer strøm: en skjult Chromium-fane stopper til du viser den. Festede faner og verter under Aldri dvale forblir aktive."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oszczędza energię: ukryta karta Chromium przestaje działać, dopóki jej nie pokażesz. Przypięte karty i hosty z listy Nigdy nie usypiaj działają dalej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Economiza energia: uma aba oculta do Chromium para até você mostrá-la. Abas fixadas e hosts em Nunca hibernar continuam ativos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Экономит энергию: скрытая вкладка Chromium не работает, пока вы её не покажете. Закреплённые вкладки и хосты из списка «Никогда не усыплять» остаются активными."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประหยัดพลังงาน: แท็บ Chromium ที่ซ่อนอยู่จะหยุดทำงานจนกว่าคุณจะแสดงแท็บนั้น แท็บที่ปักหมุดและโฮสต์ใน ไม่พักเครื่องเลย จะยังทำงานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güç tasarrufu sağlar: gizli bir Chromium sekmesi siz gösterene kadar durur. Sabitlenmiş sekmeler ve Asla uyutma ana makineleri etkin kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Заощаджує енергію: прихована вкладка Chromium не працює, доки ви її не покажете. Закріплені вкладки та хости зі списку «Ніколи не присипляти» залишаються активними."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiết kiệm điện: tab Chromium bị ẩn sẽ ngừng chạy cho đến khi bạn hiển thị nó. Tab đã ghim và các máy chủ trong Không bao giờ ngủ đông vẫn hoạt động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "节省电量：隐藏的 Chromium 标签页会停止运行，直到你显示它。固定的标签页和“永不休眠”中的主机保持运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "節省電力：隱藏的 Chromium 分頁會停止執行，直到你顯示它。固定的分頁和「永不休眠」中的主機會保持執行。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
