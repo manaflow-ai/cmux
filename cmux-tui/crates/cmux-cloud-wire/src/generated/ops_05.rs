@@ -177,7 +177,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email.
+    /// Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), whether a message request also sends an email, and whether people with your company email domain reach you directly (trust_same_domain, default on).
     HomeSettingsSetOp {
         name: "home.settings.set",
         class: Mutation,
@@ -209,6 +209,8 @@ pub struct HomeSettingsSetParams {
     pub allow_requests_from: Option<HomeSettingsSetParamsAllowRequestsFrom>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email_requests: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_same_domain: Option<bool>,
 }
 
 wire_enum! {
@@ -225,6 +227,7 @@ pub struct HomeSettingsSetResult {
     pub discoverable_by_phone: bool,
     pub allow_requests_from: HomeSettingsSetResultAllowRequestsFrom,
     pub email_requests: bool,
+    pub trust_same_domain: bool,
 }
 
 wire_errors! {
@@ -895,11 +898,4 @@ pub struct IntegrationListParams {}
 pub struct IntegrationListResultProvidersItem {
     pub provider: IntegrationProvider,
     pub configured: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationListResult {
-    pub connections: Vec<Connection>,
-    pub providers: Vec<IntegrationListResultProvidersItem>,
-    pub revision: String,
 }

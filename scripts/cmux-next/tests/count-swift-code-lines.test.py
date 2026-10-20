@@ -61,5 +61,35 @@ class CountSwiftCodeLinesTests(unittest.TestCase):
             self.assertEqual(self.run_counter(root), 1)
 
 
+    def test_grown_lists_the_files_whose_source_grew_largest_first(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = root / "Packages/macOS/CmuxNext/Sources/CmuxNextApp"
+            app.mkdir(parents=True)
+            (app / "Same.swift").write_text("let a = 1\n")
+            (app / "Grows.swift").write_text("let b = 1\n")
+            (app / "Shrinks.swift").write_text("let c = 1\nlet d = 2\n")
+            (app / "Deleted.swift").write_text("let i = 1\n")
+            git = ["git", "-C", str(root), "-c", "user.email=t@example.invalid", "-c", "user.name=T"]
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            (app / "Same.swift").write_text("let a = 1\n// comment only\n")
+            (app / "Grows.swift").write_text("let b = 1\nlet e = 2\n")
+            (app / "Shrinks.swift").write_text("let c = 1\n")
+            (app / "New.swift").write_text("let f = 1\nlet g = 2\nlet h = 3\n")
+            (app / "Deleted.swift").unlink()
+            result = subprocess.run(
+                ["python3", str(COUNTER), "--grown", "HEAD", str(root)],
+                check=True, capture_output=True, text=True,
+            )
+            self.assertEqual(result.stdout.splitlines(), [
+                "+3 New.swift (0 -> 3)",
+                "+1 Grows.swift (1 -> 2)",
+                "-1 Deleted.swift (1 -> 0)",
+                "-1 Shrinks.swift (2 -> 1)",
+            ])
+
+
 if __name__ == "__main__":
     unittest.main()
