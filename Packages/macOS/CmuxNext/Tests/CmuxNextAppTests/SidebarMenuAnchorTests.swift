@@ -13,8 +13,10 @@ import Testing
 
     /// A sidebar `width` wide in a window that is never ordered front (the bubble is laid out,
     /// not shown), with one group.
-    static func sidebar(width: CGFloat) throws -> (SidebarView, GroupID, NSWindow) {
+    static func sidebar(width: CGFloat, menu: ((SidebarContextTarget) -> NSMenu?)? = nil) throws -> (SidebarView, GroupID, NSWindow) {
         let (sidebar, ids) = try GroupPaletteDefaultTests.sidebar([.red])
+        // Rows take their more button's action when they are wired: the provider comes first.
+        if let menu { sidebar.contextMenuProvider = menu }
         let window = NSWindow(contentRect: NSRect(x: 100, y: 200, width: width, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -67,5 +69,69 @@ import Testing
         let card = try Self.card(sidebar)
         #expect(abs(card.minX - name.minX) <= 1, "width \(width): card \(card) is not on the name \(name)'s leading edge")
         #expect(card.maxY <= name.minY + 0.5 && name.minY - card.maxY <= 12)
+    }
+
+    /// The menu `present` opened: its frame in `view` (flipped, y down), from the anchor's origin.
+    static func menuFrame(_ menu: NSMenu, _ anchor: PopupAnchor, _ view: NSView) -> CGRect {
+        let origin = anchor.menuOrigin(size: menu.size, flipped: view.isFlipped)
+        return CGRect(origin: origin, size: menu.size)
+    }
+
+    static func wideMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Move Workspace to a New Window Somewhere Else", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "Close", action: nil, keyEquivalent: "")
+        return menu
+    }
+
+    /// A workspace row's more button opens the row's menu under the button, on its trailing edge.
+    @Test(arguments: widths)
+    func aWorkspaceRowMoreButtonOpensItsMenuUnderTheButton(width: CGFloat) throws {
+        let (sidebar, _, window) = try Self.sidebar(width: width, menu: { _ in Self.wideMenu() })
+        defer { window.close() }
+        var shown: (NSMenu, PopupAnchor, NSView)?
+        sidebar.list.menuPresenter = { shown = ($0, $1, $2) }
+        let row = try #require(sidebar.list.rowViews.values.compactMap { $0 as? WorkspaceRowView }.first, "no workspace row")
+        row.isHovered = true
+        row.layoutSubtreeIfNeeded()
+        let more = row.moreButton
+        #expect(more.sendAction(more.action, to: more.target), "the row's more button has no action")
+        let (menu, anchor, view) = try #require(shown, "the more button opened no menu")
+        #expect(view === row)
+        let frame = Self.menuFrame(menu, anchor, view)
+        let button = more.frame
+        #expect(abs(frame.maxX - button.maxX) <= 1, "width \(width): menu \(frame) is not on the button \(button)'s trailing edge")
+        #expect(frame.minY >= button.maxY && frame.minY - button.maxY <= 8, "width \(width): menu \(frame) is not just under \(button)")
+    }
+
+    /// The editor's More Group Actions row opens the group's full menu under the header's more button.
+    @Test(arguments: widths)
+    func moreGroupActionsOpensTheMenuUnderTheMoreButton(width: CGFloat) throws {
+        let (sidebar, id, window) = try Self.sidebar(width: width)
+        defer { window.close() }
+        sidebar.contextMenuProvider = { _ in Self.wideMenu() }
+        var shown: (NSMenu, PopupAnchor, NSView)?
+        sidebar.list.menuPresenter = { shown = ($0, $1, $2) }
+        sidebar.list.groupEditing.showMenu(id)
+        let header = try #require(sidebar.list.rowViews[.group(id)] as? GroupHeaderRowView)
+        let (menu, anchor, view) = try #require(shown, "More Group Actions opened no menu")
+        #expect(view === header)
+        let frame = Self.menuFrame(menu, anchor, view)
+        let button = header.moreButton.frame
+        #expect(abs(frame.maxX - button.maxX) <= 1, "width \(width): menu \(frame) is not on the button \(button)'s trailing edge")
+        #expect(frame.minY >= button.maxY && frame.minY - button.maxY <= 8)
+    }
+
+    /// A right-click on a group header opens the editor at the pointer, not at a button.
+    @Test func aRightClickOpensTheGroupEditorAtThePointer() throws {
+        let (sidebar, id, window) = try Self.sidebar(width: 700)
+        defer { sidebar.list.groupEditor.hide(); window.close() }
+        let list = sidebar.list
+        let row = try #require(list.displayed.row(for: .group(id)))
+        let point = NSPoint(x: 500, y: list.frame(for: row).midY)
+        list.groupEditing.open(id, from: .pointer(point))
+        let pointer = try #require(list.window).convertPoint(toScreen: list.convert(point, to: nil))
+        let card = try Self.card(sidebar)
+        #expect(abs(card.minX - pointer.x) <= 1 && abs(card.maxY - pointer.y) <= 1, "card \(card) is not at the pointer \(pointer)")
     }
 }
