@@ -62,6 +62,7 @@ mod shutdown;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
+mod start_mode_state;
 mod startup;
 mod steer_end;
 mod stream;
@@ -306,6 +307,8 @@ pub struct Hub {
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
+    /// The forced start mode and the setting's change count (`start_mode_state.rs`).
+    pub(super) start_mode_state: start_mode_state::StartModeCell,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
@@ -377,6 +380,7 @@ impl Hub {
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
+            start_mode_state: Default::default(),
             harness_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),

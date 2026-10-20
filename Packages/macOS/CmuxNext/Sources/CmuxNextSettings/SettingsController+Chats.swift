@@ -1,7 +1,7 @@
 extension SettingsController {
     /// Effective, validated values sent to the local acpmux daemon.
     public var chatSettings: ChatSettings {
-        ChatSettings(effective: snapshot.root, file: fileRoot, managedRoots: managedChatRoots)
+        ChatSettings(effective: snapshot.root, file: fileRoot, managedRoots: managedChatRoots, managedKeys: managedKeys)
     }
 
     /// Rows preserve refused values so a person can see the reason and remove their own entry.
