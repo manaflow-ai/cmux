@@ -174,6 +174,7 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudResizeMachine": [p(.cloudMachine, .connection, 200, folder: .connection)],
         "palette.cloud.deleteSnapshot": [p(.cloudMachine, .close, 301, folder: .connection)],
         "remote.connect": [p(.sidebarBackground, .create, 201, folder: .new)],
+        "remote.newGroup": [p(.sidebarBackground, .create, 9)],
         "remote.newWorkspace": [p(.sshMachine, .create, 0)],
         "remote.openTerminalHere": [p(.pane, .create, 7, folder: .new)],
         "remote.reconnect": [p(.sshMachine, .connection, 100)],

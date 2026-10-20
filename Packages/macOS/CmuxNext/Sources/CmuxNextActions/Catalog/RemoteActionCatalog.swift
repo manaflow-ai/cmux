@@ -27,6 +27,13 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 cliName: "remote connect", mainMenu: .file
             ),
             ActionDescriptor(
+                id: "remote.newGroup",
+                title: String(localized: "action.remote.newGroup", defaultValue: "New Remote Group…", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "host", "server", "group", "mac mini", "linux", "vm"], category: .remote, symbol: "rectangle.stack.badge.plus",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.destinationString],
+                cliName: "remote new-group"
+            ),
+            ActionDescriptor(
                 id: "remote.newWorkspace",
                 title: String(localized: "action.remote.newWorkspace", defaultValue: "New Workspace on Machine", table: "RemoteActions", bundle: .module),
                 keywords: ["ssh", "remote", "host", "terminal"], category: .remote, symbol: "plus.rectangle.on.rectangle",

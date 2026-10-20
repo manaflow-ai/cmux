@@ -77,6 +77,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public var unplaced: [SidebarDocWorkspaceRef]
     /// The groups of Pinned and custom sections, in document order, with their members.
     public var bandGroups: [Group]
+    /// The machine sections made remote groups (remote-groups-DESIGN.md slice 4), by document section id.
+    public var hostGroups: Set<String> = []
 
     /// The layout item kind of a group placed in Pinned or a custom section.
     public static let groupKind = "group"
@@ -142,6 +144,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         self.machineOrder = machineOrder
         self.unplaced = unplaced
         self.bandGroups = bandGroups
+        hostGroups = Set(records.sections.values.filter(\.hostGroup).map(\.id))
     }
 
     private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout [String: [Node]],
