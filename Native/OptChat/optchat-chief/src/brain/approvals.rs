@@ -1,13 +1,24 @@
 //! A remote-origin turn's approvals (README "Remote-origin messages"): the
 //! turn session's permission requests, answered at once for the memory
-//! tools and otherwise asked in the Chief chat; each answer is recorded in
-//! the trace with the approving device.
+//! tools and otherwise asked in the Chief chat as a card (Allow / Deny);
+//! each answer is recorded in the trace with the approving device.
 
-use cmux_conversation::{Message, Origin};
+use cmux_conversation::{Message, Op, Origin, Part, Question, QuestionState};
 use serde_json::{Value, json};
 
-use super::{Brain, reply_entry};
-use crate::approval::{Answer, Pending, is_memory_tool, option_for, question, tool_name};
+use super::{Brain, op_entry, reply_entry};
+use crate::approval::{Answer, Pending, card, card_answer, is_memory_tool, option_for, tool_name};
+
+/// An approval card the Chief posted, kept until its approval is settled
+/// so a card left pending can be cancelled.
+pub(super) struct Card {
+    pub permission_id: String,
+    /// The `message.send` key, matched when the owner confirms the send.
+    pub key: String,
+    pub conversation: String,
+    pub question: Question,
+    pub message_id: Option<String>,
+}
 
 impl Brain {
     /// Whether `session_id` is the running turn's session.
@@ -34,7 +45,20 @@ impl Brain {
                 self.agents
                     .respond_permission(&session_id, &permission_id, option.as_deref())
             {
-                (self.log)(&format!("allowing {tool}: {e}"));
+                // acpmux takes an allow only from the person, and the
+                // harness may not pre-allow MCP tools: a refused allow would
+                // leave the turn waiting on a request nobody is asked. A
+                // deny lets the turn go on without the memory read.
+                (self.log)(&format!(
+                    "memory tool {tool}: acpmux refused the Chief's allow ({e}); denied so the turn goes on"
+                ));
+                let deny = option_for(&request, Answer::Deny);
+                if let Err(e) =
+                    self.agents
+                        .respond_permission(&session_id, &permission_id, deny.as_deref())
+                {
+                    (self.log)(&format!("denying {tool}: {e}"));
+                }
             }
             return;
         }
@@ -84,18 +108,141 @@ impl Brain {
     /// Asks in the conversation the request belongs to (G9): the running
     /// turn's, or the main one for a child.
     fn ask_person(&mut self, pending: Pending, key: &str) {
-        let text = question(&pending);
+        let question = card(&pending, self.turn_ask_reason);
         let conversation = pending
             .conversation
             .clone()
             .or_else(|| self.state.conversation.clone());
+        let permission_id = pending.permission_id.clone();
         self.approvals.push_back(pending);
         if let Some(conversation) = conversation {
-            self.state
-                .outbox
-                .push(reply_entry(conversation, key, &text));
+            let mut entry = reply_entry(conversation.clone(), key, "");
+            if let Op::MessageSend { parts, .. } = &mut entry.op {
+                *parts = vec![Part::Question(question.clone())];
+            }
+            // An owner that refuses the card gets the question as text.
+            entry.plain_text = Some(crate::approval::question_text(&question.items[0].prompt));
+            self.approval_cards.push(Card {
+                permission_id,
+                key: key.to_owned(),
+                conversation,
+                question,
+                message_id: None,
+            });
+            self.state.outbox.push(entry);
             self.save();
             self.flush_outbox();
+        }
+    }
+
+    /// The owner confirmed the send of `key`: an approval card's message id.
+    pub(super) fn card_sent(&mut self, key: &str, message_id: &str) {
+        if let Some(card) = self.approval_cards.iter_mut().find(|c| c.key == key) {
+            card.message_id = Some(message_id.to_owned());
+        }
+    }
+
+    /// The approval of `permission_id` was settled some other way than its
+    /// card (a chat reply, a newer message, the turn's end): the card moves
+    /// from pending to cancelled so nobody answers it. Best effort.
+    fn cancel_card(&mut self, permission_id: &str) {
+        let Some(k) = self
+            .approval_cards
+            .iter()
+            .position(|c| c.permission_id == permission_id)
+        else {
+            return;
+        };
+        let card = self.approval_cards.remove(k);
+        let Some(message_id) = card.message_id else {
+            (self.log)(&format!(
+                "approval {permission_id}: its card was never confirmed; it stays as sent"
+            ));
+            return;
+        };
+        let question = Question {
+            state: QuestionState::Cancelled,
+            ..card.question
+        };
+        self.state.outbox.push(op_entry(
+            card.conversation,
+            &format!("{}:cancel", card.key),
+            Op::MessageEdit {
+                message_id,
+                parts: vec![Part::Question(question)],
+            },
+        ));
+        self.save();
+        self.flush_outbox();
+    }
+
+    /// Forgets the card of an approval its card answered (it is closed).
+    fn forget_card(&mut self, permission_id: &str) {
+        self.approval_cards
+            .retain(|c| c.permission_id != permission_id);
+    }
+
+    /// An updated message of the Chief's own: when it is an approval card a
+    /// person answered, the answer settles its pending approval. Allow: the
+    /// app already answered acpmux itself with the person's proof (an allow
+    /// from the Chief is refused), so the approval is only dropped. Deny:
+    /// the Chief denies it. Side conversations' cards are answered the same
+    /// way once their updates reach the brain (they do not yet).
+    pub(super) fn on_card_update(&mut self, message: &Message) {
+        for part in &message.parts {
+            let Part::Question(question) = part else {
+                continue;
+            };
+            let Some((permission, answer, who)) = card_answer(question) else {
+                continue;
+            };
+            let Some(k) = self
+                .approvals
+                .iter()
+                .position(|p| p.permission_id == permission)
+            else {
+                continue;
+            };
+            let Some(pending) = self.approvals.remove(k) else {
+                continue;
+            };
+            self.forget_card(&permission);
+            // The Mac app answers acpmux itself before it answers the card,
+            // so acpmux no longer holds an allowed request. Answering again
+            // confirms that: "no pending permission" means it is settled.
+            match self.respond(&pending, answer, &who, None) {
+                Ok(()) => {}
+                Err(e) if e.contains("no pending permission") => {
+                    (self.log)(&format!(
+                        "approval {permission}: {} in the app by {who}",
+                        answer.as_str()
+                    ));
+                    self.trace_approval(&pending, answer, None, &who, None, true);
+                }
+                Err(e) => {
+                    // Answered elsewhere (a paired device, another person)
+                    // without the person's proof: acpmux still waits, so the
+                    // approval stays and the person hears why.
+                    let conversation = pending
+                        .conversation
+                        .clone()
+                        .or_else(|| self.state.conversation.clone());
+                    let text = format!(
+                        "That {} was not accepted, so {} is still waiting: {e}. Allow it in the cmux app on this Mac, or reply deny or send a new message to skip it.",
+                        answer.as_str(),
+                        pending.tool
+                    );
+                    let key = format!("approval:{permission}:card-undelivered:{}", message.seq);
+                    self.approvals.insert(k, pending);
+                    if let Some(conversation) = conversation {
+                        self.state
+                            .outbox
+                            .push(reply_entry(conversation, &key, &text));
+                        self.save();
+                        self.flush_outbox();
+                    }
+                }
+            }
         }
     }
 
@@ -129,7 +276,12 @@ impl Brain {
     /// Drops the running turn's own pending approvals (its session ends);
     /// children's stay.
     pub(super) fn clear_turn_approvals(&mut self) {
-        self.approvals.retain(|p| p.child.is_some());
+        let (turn, children): (Vec<Pending>, Vec<Pending>) =
+            self.approvals.drain(..).partition(|p| p.child.is_none());
+        self.approvals.extend(children);
+        for pending in turn {
+            self.cancel_card(&pending.permission_id);
+        }
     }
 
     /// Whether an approval waits for an answer in `conversation` (None:
@@ -163,17 +315,24 @@ impl Brain {
             .origin
             .as_ref()
             .map(|Origin::Remote { install }| install.clone());
-        if let Err(e) = self.respond(&pending, answer, &message.author, install.as_deref()) {
+        let result = self.respond(&pending, answer, &message.author, install.as_deref());
+        if result.is_ok() {
+            self.cancel_card(&pending.permission_id);
+        }
+        if let Err(e) = result {
             // acpmux still holds the request (an allow needs the person's
             // decision proof, which a chat reply never carries): keep it, so
             // a deny or a newer message still answers it, and say so rather
             // than leave the turn waiting in silence.
             let text = format!(
-                "That {} was not accepted, so {} is still waiting: {e}. Approve it in the cmux app, or reply deny or send a new message to skip it.",
+                "That {} was not accepted, so {} is still waiting: {e}. Use Allow on the card, or reply deny or send a new message to skip it.",
                 answer.as_str(),
                 pending.tool
             );
-            let key = format!("approval:{}:undelivered:{}", pending.permission_id, message.seq);
+            let key = format!(
+                "approval:{}:undelivered:{}",
+                pending.permission_id, message.seq
+            );
             let conversation = pending
                 .conversation
                 .clone()
@@ -198,6 +357,7 @@ impl Brain {
         for pending in turn {
             // A deny that does not land has no better answer to try.
             let _ = self.respond(&pending, Answer::Deny, why, None);
+            self.cancel_card(&pending.permission_id);
         }
     }
 
@@ -224,6 +384,20 @@ impl Brain {
                 Err(e) => format!(" (not delivered: {e})"),
             }
         ));
+        self.trace_approval(pending, answer, option, approver, install, result.is_ok());
+        result
+    }
+
+    /// Records one approval decision in the trace.
+    fn trace_approval(
+        &self,
+        pending: &Pending,
+        answer: Answer,
+        option: Option<String>,
+        approver: &str,
+        install: Option<&str>,
+        delivered: bool,
+    ) {
         if let Some(dir) = &self.settings.trace_dir {
             let fields = json!({
                 "turn": self.state.turn.as_ref().map(|t| t.key.clone()),
@@ -235,12 +409,11 @@ impl Brain {
                 "option": option,
                 "approver": approver,
                 "install": install,
-                "delivered": result.is_ok(),
+                "delivered": delivered,
             });
             if let Err(e) = crate::approval::record(dir, fields) {
                 (self.log)(&format!("recording an approval in the trace: {e}"));
             }
         }
-        result
     }
 }

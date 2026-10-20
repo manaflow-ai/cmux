@@ -668,11 +668,15 @@ pub struct Brain {
     turn_remote: bool,
     /// The running turn runs with policy `ask` (remote, no auto-approve).
     turn_ask: bool,
+    /// Why the running turn asks (the approval card says it).
+    turn_ask_reason: crate::approval::AskReason,
     /// A remote-origin turn was stopped for a newer message: the turn that
     /// answers both keeps its origin.
     remote_taint: bool,
     /// The running turn's permission requests waiting for a person.
     approvals: VecDeque<crate::approval::Pending>,
+    /// The approval cards posted for them, until each is settled.
+    approval_cards: Vec<approvals::Card>,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
     /// Images being described now (`conversation/hash`), started once each.
@@ -788,8 +792,10 @@ impl Brain {
             chief,
             turn_remote: false,
             turn_ask: false,
+            turn_ask_reason: crate::approval::AskReason::Unknown,
             remote_taint: false,
             approvals: VecDeque::new(),
+            approval_cards: Vec::new(),
             after_turn: None,
             notices: Vec::new(),
             noticed: HashSet::new(),
@@ -1259,6 +1265,7 @@ impl Brain {
 
     /// The owner confirmed the message sent under `key`.
     pub(super) fn sent(&mut self, key: &str, message_id: &str) {
+        self.card_sent(key, message_id);
         if let Some(posted) = self.state.compactor_notice.as_mut()
             && posted.key == key
         {

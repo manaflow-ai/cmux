@@ -117,4 +117,41 @@ enum CmuxStrings {
         if case .failed(let reason) = status, reason == mayHaveBeenDeliveredReason { return mayNotHaveBeenDelivered }
         return notDelivered
     }
+
+    // MARK: The Chief's approval card (HomeApprovalRowProvider)
+
+    /// The card's button that lets the Chief run what it asked for.
+    static var approvalAllow: String {
+        String(localized: "home.approval.allow", defaultValue: "Allow", table: "CmuxHome", bundle: .module)
+    }
+    /// The card's button that refuses it.
+    static var approvalDeny: String {
+        String(localized: "home.approval.deny", defaultValue: "Deny", table: "CmuxHome", bundle: .module)
+    }
+    /// The answered card's line.
+    static var approvalAllowed: String {
+        String(localized: "home.approval.allowed", defaultValue: "Allowed", table: "CmuxHome", bundle: .module)
+    }
+    static var approvalDenied: String {
+        String(localized: "home.approval.denied", defaultValue: "Denied", table: "CmuxHome", bundle: .module)
+    }
+    /// The answered card's line when a paired device answered: "Allowed on Lawrence's iPhone".
+    static func approvalAllowedOn(_ device: String) -> String {
+        String(format: String(localized: "home.approval.allowedOn", defaultValue: "Allowed on %@", table: "CmuxHome", bundle: .module), device)
+    }
+    static func approvalDeniedOn(_ device: String) -> String {
+        String(format: String(localized: "home.approval.deniedOn", defaultValue: "Denied on %@", table: "CmuxHome", bundle: .module), device)
+    }
+    /// The card's line when the approval ended unanswered (a newer message, the turn stopped).
+    static var approvalSkipped: String {
+        String(localized: "home.approval.skipped", defaultValue: "Skipped", table: "CmuxHome", bundle: .module)
+    }
+    /// Under the buttons when an answer was refused; the buttons work again.
+    static func approvalRefused(_ reason: String) -> String {
+        String(format: String(localized: "home.approval.refused", defaultValue: "Not answered: %@", table: "CmuxHome", bundle: .module), reason)
+    }
+    /// The reason when this window cannot answer the Chief's approvals (no acpmux client here).
+    static var approvalUnavailable: String {
+        String(localized: "home.approval.unavailable", defaultValue: "Answer it in the Chief's agent tab", table: "CmuxHome", bundle: .module)
+    }
 }

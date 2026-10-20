@@ -21,6 +21,7 @@ let package = Package(
         .library(name: "MessagesLabSidebar", targets: ["MessagesLabSidebar"]),
     ],
     dependencies: [
+        .package(path: "../CmuxAgentQuestion"),
         .package(path: "../CmuxHomeCore"),
         .package(path: "../CmuxHomeRender"),
     ],
@@ -28,6 +29,8 @@ let package = Package(
         .target(
             name: "MessagesLabHome",
             dependencies: [
+                // The Chief's approval card reads and answers a question part (HomeApprovalRowProvider).
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
@@ -56,6 +59,7 @@ let package = Package(
             name: "MessagesLabHomeTests",
             dependencies: [
                 "MessagesLabHome",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],

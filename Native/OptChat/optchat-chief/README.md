@@ -1141,12 +1141,21 @@ the turn wins until it ends.
   read the OptChat memory. Plain replies need nothing.
 - Any other request (a shell command, a file write or edit, a workspace or
   subagent spawn through `cmux` or `chief`, computer use) is posted in the
-  Chief chat with the tool and its input: "Approval needed ... Reply allow or
-  deny." The next message `allow` or `deny` from a person the gate admits (the
-  Mac user or their own paired device) answers the oldest request, with the
-  allow-once or reject-once option (never "always"), and is logged; it is not
-  a new message and does not interrupt the turn. Any other new message denies
-  the pending requests so the turn reaches its next tool boundary and reads it.
+  Chief chat as an approval card: a `question` part (harness `chief`, the
+  session and permission, one item `approval` with options `allow` and
+  `deny`) whose prompt names the tool and its input ("Approval needed ...
+  Allow or deny it here, or reply deny."). Allow on the card is answered by
+  the cmux app itself, which proves the person to acpmux, then the card; the
+  Chief only drops its pending request. Deny on the card is answered by the
+  Chief. The next message `allow` or `deny` from a person the gate admits (the
+  Mac user or their own paired device) answers the oldest request too, with
+  the allow-once or reject-once option (never "always"), and is logged; it is
+  not a new message and does not interrupt the turn. acpmux refuses an allow
+  that comes from the Chief (it needs the person's decision proof): the
+  request then stays pending and the chat says so. Any other new message
+  denies the pending requests so the turn reaches its next tool boundary and
+  reads it. A request settled any way but its card cancels the card; an owner
+  that refuses the card gets the question as text.
 - Every answer goes to the trace (`optchat/traces/YYYY-MM-DD.jsonl`, event
   `approval`: turn, permission, tool, decision, option, approver, install,
   delivered); the approver is the answering participant (`user_local` or

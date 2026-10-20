@@ -164,6 +164,8 @@ impl Store {
             .filter_map(|(key, op)| match op {
                 Op::MessageSend { parts, .. } => match &parts[0] {
                     Part::Text { text, .. } => Some((key.clone(), text.clone())),
+                    // An approval card: its prompt.
+                    Part::Question(q) => Some((key.clone(), q.items[0].prompt.clone())),
                     _ => None,
                 },
                 _ => None,
@@ -179,6 +181,8 @@ impl Owner {
             .filter_map(|(key, op)| match op {
                 Op::MessageSend { parts, .. } => match &parts[0] {
                     Part::Text { text, .. } => Some((key.clone(), text.clone())),
+                    // An approval card: its prompt.
+                    Part::Question(q) => Some((key.clone(), q.items[0].prompt.clone())),
                     _ => None,
                 },
                 _ => None,
@@ -567,6 +571,9 @@ pub struct Agents {
     /// acpmux refuses an allow (the daemon wants the person's decision
     /// proof, which a chat reply never carries); a reject still lands.
     pub refuse_allows: bool,
+    /// Permissions acpmux already settled (the app answered them): any
+    /// answer gets acpmux's "no pending permission".
+    pub settled: Vec<String>,
     /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
     pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
     /// Every `set_mode`: (session, mode id, prompts sent before it).
@@ -907,6 +914,11 @@ impl AgentPort for FakeAgents {
         option: Option<&str>,
     ) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
+        if inner.settled.iter().any(|p| p == permission) {
+            return Err(format!(
+                "permission_respond: no pending permission {permission}"
+            ));
+        }
         if inner.refuse_allows && option.is_some_and(|o| o.starts_with("allow")) {
             return Err("permission_respond: approve this on the Mac app: allowing a permission is accepted only from the cmux app, never from the CLI, a script or an agent".into());
         }

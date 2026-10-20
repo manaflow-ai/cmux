@@ -456,6 +456,16 @@ impl Brain {
         self.turn_ask = participant_requires_approval
             || ambient_requires_approval
             || (self.turn_remote && !self.chief.remote_auto_approve);
+        // Why it asks, for the approval card's text: the first true reason.
+        self.turn_ask_reason = if self.turn_remote && !self.chief.remote_auto_approve {
+            crate::approval::AskReason::Remote
+        } else if participant_requires_approval {
+            crate::approval::AskReason::Participant
+        } else if ambient_requires_approval {
+            crate::approval::AskReason::Ambient
+        } else {
+            crate::approval::AskReason::Unknown
+        };
         self.clear_turn_approvals();
         self.interrupt.set_gate(self.turn_ask);
         // The shared rule (cmux_chief::policy::turn_policy, the corpus's

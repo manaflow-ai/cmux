@@ -110,11 +110,15 @@ public final class HomeNativeTranscriptView: NSView {
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
 
-    /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
+    /// - Parameters:
+    ///   - diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
+    ///   - approvals: answers the Chief's approval cards as the person (the app's Chief acpmux); nil leaves only Deny.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
+                approvals: (any HomeApprovalDeciding)? = nil) {
         HomeReduceMotion.install()
         self.me = me
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams,
+                                         approvals: approvals)
         // One binding per shown conversation; it opens the conversation on
         // the store now and `stop()` closes exactly that open, once.
         binding = HomeStoreBinding(store: store, conversation: conversation)

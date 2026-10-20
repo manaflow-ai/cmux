@@ -2,8 +2,8 @@
 //! messages"). The turn session runs with acpmux policy `ask`; each
 //! permission request it raises is either one of the memory tools (answered
 //! at once: reading the memory has no local effect) or shown in the Chief
-//! chat and answered by the next `allow` or `deny` a person of the
-//! conversation sends. Every answer goes to the trace with the approving
+//! chat as a card (Allow / Deny) and answered there, or by the next `allow`
+//! or `deny` a person of the conversation sends. Every answer goes to the trace with the approving
 //! device.
 
 use std::io::Write;
@@ -102,26 +102,135 @@ pub fn option_for(request: &Value, answer: Answer) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// The Chief chat's question for one request.
-pub fn question(pending: &Pending) -> String {
-    let input = pending
-        .request
-        .pointer("/toolCall/rawInput")
-        .map(|raw| {
-            let text: String = raw.to_string().chars().take(1_000).collect();
-            format!("\n{text}")
-        })
-        .unwrap_or_default();
-    match &pending.child {
+/// Why a turn asks before each local effect.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AskReason {
+    /// A paired device's message started it (`remote.autoApprove` off).
+    Remote,
+    /// Another participant's message started it.
+    Participant,
+    /// It reads the ambient text of the Home terminals.
+    Ambient,
+    /// Not known here.
+    #[default]
+    Unknown,
+}
+
+impl AskReason {
+    fn text(self) -> &'static str {
+        match self {
+            AskReason::Remote => "this turn started from a paired device",
+            AskReason::Participant => "another participant's message started this turn",
+            AskReason::Ambient => "this turn reads your Home terminals' text",
+            AskReason::Unknown => "this turn needs approval for local effects",
+        }
+    }
+}
+
+/// The Chief chat's question for one request: what the card's prompt says.
+/// The input preview is cut so the whole prompt fits a question part
+/// (`MAX_QUESTION_TEXT_BYTES`).
+pub fn question(pending: &Pending, reason: AskReason) -> String {
+    let head = match &pending.child {
         None => format!(
-            "Approval needed: this turn started from a paired device, so every local effect waits for you. {} wants to run:{input}\nReply allow or deny.",
+            "Approval needed: {}, so every local effect waits for you. {} wants to run:",
+            reason.text(),
             pending.tool
         ),
         Some(child) => format!(
-            "Approval needed: subagent {child} started from a turn that needs approvals, so its local effects wait for you too. {} wants to run:{input}\nReply allow or deny.",
+            "Approval needed: subagent {child} started from a turn that needs approvals, so its local effects wait for you too. {} wants to run:",
             pending.tool
         ),
+    };
+    let tail = CARD_TAIL;
+    let raw = pending
+        .request
+        .pointer("/toolCall/rawInput")
+        .map(Value::to_string)
+        .unwrap_or_default();
+    // One byte for the newline before the input, three for an ellipsis.
+    let budget =
+        cmux_conversation::MAX_QUESTION_TEXT_BYTES.saturating_sub(head.len() + tail.len() + 4);
+    let input = if raw.is_empty() {
+        String::new()
+    } else if raw.len() <= budget {
+        format!("\n{raw}")
+    } else {
+        let mut cut = budget;
+        while !raw.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        format!("\n{}…", &raw[..cut])
+    };
+    format!("{head}{input}{tail}")
+}
+
+/// The card's prompt as a plain chat message, for an owner that refuses the
+/// card: chat can deny, and only the cmux app can allow.
+pub fn question_text(prompt: &str) -> String {
+    prompt.replace(CARD_TAIL, "\nReply deny, or allow it in the cmux app.")
+}
+
+/// The end of a card's prompt.
+const CARD_TAIL: &str = "\nAllow or deny it here, or reply deny.";
+
+/// The card item's id and its two options' ids.
+pub const CARD_ITEM: &str = "approval";
+pub const CARD_ALLOW: &str = "allow";
+pub const CARD_DENY: &str = "deny";
+
+/// The approval as a question card (plans/cmux-next/agent-questions.md
+/// §5): the app answers the permission itself with the person's proof and
+/// then the card; a chat `deny` still answers it too.
+pub fn card(pending: &Pending, reason: AskReason) -> cmux_conversation::Question {
+    use cmux_conversation::{
+        Question, QuestionHarness, QuestionItem, QuestionOption, QuestionState,
+    };
+    let option = |id: &str, label: &str| QuestionOption {
+        id: id.to_owned(),
+        label: label.to_owned(),
+        detail: None,
+        preview: None,
+    };
+    Question {
+        harness: QuestionHarness::Chief,
+        session: pending.session_id.clone(),
+        permission: Some(pending.permission_id.clone()),
+        agent: pending.child.clone(),
+        items: vec![QuestionItem {
+            id: CARD_ITEM.to_owned(),
+            header: Some("Approval".to_owned()),
+            prompt: question(pending, reason),
+            options: vec![option(CARD_ALLOW, "Allow"), option(CARD_DENY, "Deny")],
+            multi_select: false,
+            allows_other: false,
+        }],
+        state: QuestionState::Pending,
     }
+}
+
+/// An answered approval card: its permission id, the answer and who gave
+/// it. None: not a Chief approval card, or not answered.
+pub fn card_answer(question: &cmux_conversation::Question) -> Option<(String, Answer, String)> {
+    use cmux_conversation::{QuestionHarness, QuestionState};
+    if question.harness != QuestionHarness::Chief {
+        return None;
+    }
+    let permission = question.permission.clone()?;
+    let QuestionState::Answered { answer } = &question.state else {
+        return None;
+    };
+    let chosen = answer.selections.get(CARD_ITEM)?.option_ids.first()?;
+    let decision = match chosen.as_str() {
+        CARD_ALLOW => Answer::Allow,
+        CARD_DENY => Answer::Deny,
+        _ => return None,
+    };
+    let who = answer
+        .respondent
+        .as_ref()
+        .map_or_else(|| "a person".to_owned(), |r| r.participant.clone());
+    Some((permission, decision, who))
 }
 
 /// Appends one `approval` event to the trace in `dir`

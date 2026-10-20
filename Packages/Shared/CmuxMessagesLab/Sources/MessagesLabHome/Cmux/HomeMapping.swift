@@ -245,9 +245,13 @@ enum HomeMapping {
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
-        case .work, .approval, .question:
-            // Agent session, approval and question cards are not MessagesLab rows
-            // yet: their text. The question card moves to the custom-row seam.
+        case .question(let question):
+            // The Chief's permission approval is a card with Allow and Deny (HomeApprovalRowProvider);
+            // any other question is its text until the question card takes the custom-row seam.
+            if let card = HomeApprovalRowProvider.installed?.part(question) { return card }
+            return .text(p.plainText, runs: [])
+        case .work, .approval:
+            // Agent session and approval cards are not MessagesLab rows yet: their text.
             return .text(p.plainText, runs: [])
         }
     }

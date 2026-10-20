@@ -50,6 +50,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onRowsChange: () -> Void = {}
     /// A refused tapback (a refused send restores its draft instead).
     var onRefusal: (HomeIntent, HomeRejection) -> Void = { _, _ in }
+    /// Answers the Chief's approval cards as the person (HomeProjection+Approval.swift); nil: only
+    /// Deny answers, and Allow says to answer in the Chief's agent tab.
+    var approvals: (any HomeApprovalDeciding)?
 
     // Attachments (lane 16): the host owns the intake (picker, paste and
     // drop checks, preparing through HomeStore, notices); the chips, the

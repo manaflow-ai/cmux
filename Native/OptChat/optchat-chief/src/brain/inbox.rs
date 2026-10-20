@@ -120,6 +120,8 @@ impl Brain {
             return;
         };
         if message.author == self.settings.membership.participant {
+            // A person answered one of the Chief's approval cards.
+            self.on_card_update(message);
             return;
         }
         let key = format!("{main}#{}", message.seq);
