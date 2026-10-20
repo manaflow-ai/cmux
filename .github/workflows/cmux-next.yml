@@ -52,6 +52,7 @@ on:
       - scripts/ci/cmux-tui-darwin-builder
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
+      - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
@@ -254,6 +255,7 @@ on:
       - scripts/ci/cmux-tui-darwin-builder
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
+      - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
