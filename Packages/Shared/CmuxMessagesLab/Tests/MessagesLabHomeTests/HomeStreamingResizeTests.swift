@@ -78,9 +78,8 @@ import Testing
     /// The Chief's reply streams one more chunk (the whole reply so far, as HomeStore holds it).
     static func stream(_ rig: inout Rig, _ chunk: String) {
         rig.text += chunk
-        var draft = HomeTurnDraft(participant: chief, turn: turn)
-        draft.segments[0] = rig.text
-        for action in rig.core.stream(draft, state: rig.store.state) { rig.store.dispatch(action) }
+        let row = HomeStreamRow(turn: turn, author: chief, text: rig.text)
+        for action in rig.core.streams([row], state: rig.store.state) { rig.store.dispatch(action) }
     }
 
     /// One width change as a divider drag makes it: the frame only, then AppKit's layout pass.
