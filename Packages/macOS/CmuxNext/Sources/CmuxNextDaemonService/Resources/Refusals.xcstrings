@@ -15852,6 +15852,399 @@
         }
       }
     },
+    "refusal.server.pairWordsMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass the four words the server shows with the code."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مرّر الكلمات الأربع التي يعرضها الخادم مع الرمز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedite četiri riječi koje server prikazuje uz kod."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv de fire ord, serveren viser sammen med koden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gib die vier Wörter an, die der Server mit dem Code anzeigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica las cuatro palabras que el servidor muestra con el código."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indiquez les quatre mots que le serveur affiche avec le code."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica le quattro parole che il server mostra con il codice."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーがコードと一緒に表示する4つの単語を指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ជូនពាក្យបួនដែលម៉ាស៊ីនមេបង្ហាញជាមួយលេខកូដ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버가 코드와 함께 표시하는 네 단어를 전달하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppgi de fire ordene serveren viser sammen med koden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podaj cztery słowa, które serwer pokazuje razem z kodem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Informe as quatro palavras que o servidor mostra com o código."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите четыре слова, которые сервер показывает вместе с кодом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุคำสี่คำที่เซิร์ฟเวอร์แสดงพร้อมกับรหัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucunun kodla birlikte gösterdiği dört sözcüğü verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажіть чотири слова, які сервер показує разом із кодом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cung cấp bốn từ mà máy chủ hiển thị cùng mã."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请提供服务器与代码一起显示的四个词。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請提供伺服器與代碼一起顯示的四個字詞。"
+          }
+        }
+      }
+    },
+    "refusal.server.pairWordsDiffer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The words do not match that server. Nothing was approved."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الكلمات لا تطابق ذلك الخادم. لم تتم الموافقة على أي شيء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riječi se ne podudaraju s tim serverom. Ništa nije odobreno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordene passer ikke til den server. Intet blev godkendt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Wörter passen nicht zu diesem Server. Nichts wurde genehmigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las palabras no coinciden con ese servidor. No se aprobó nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les mots ne correspondent pas à ce serveur. Rien n’a été approuvé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le parole non corrispondono a quel server. Nulla è stato approvato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "単語がそのサーバーと一致しません。何も承認されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យមិនត្រូវនឹងម៉ាស៊ីនមេនោះទេ។ គ្មានអ្វីត្រូវបានអនុម័តទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "단어가 해당 서버와 일치하지 않습니다. 아무것도 승인되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordene stemmer ikke med den serveren. Ingenting ble godkjent."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Słowa nie pasują do tego serwera. Nic nie zostało zatwierdzone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As palavras não correspondem a esse servidor. Nada foi aprovado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Слова не совпадают с этим сервером. Ничего не одобрено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำไม่ตรงกับเซิร์ฟเวอร์นั้น ไม่มีสิ่งใดได้รับการอนุมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sözcükler o sunucuyla eşleşmiyor. Hiçbir şey onaylanmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Слова не збігаються з цим сервером. Нічого не схвалено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các từ không khớp với máy chủ đó. Không có gì được phê duyệt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这些词与该服务器不匹配。未批准任何内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這些字詞與該伺服器不相符。未核准任何內容。"
+          }
+        }
+      }
+    },
+    "refusal.server.pairLocalOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve servers from this Mac only."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وافق على الخوادم من هذا الـMac فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Servere odobravajte samo s ovog Maca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkend kun servere fra denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server nur von diesem Mac aus genehmigen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aprueba servidores solo desde este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Approuvez les serveurs depuis ce Mac uniquement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Approva i server solo da questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーの承認はこのMacからのみ行えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុម័តម៉ាស៊ីនមេពី Mac នេះតែប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버는 이 Mac에서만 승인할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkjenn servere bare fra denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatwierdzaj serwery tylko z tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aprove servidores somente a partir deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Одобряйте серверы только с этого Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุมัติเซิร์ฟเวอร์จาก Mac เครื่องนี้เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucuları yalnızca bu Mac'ten onaylayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Схвалюйте сервери лише з цього Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ phê duyệt máy chủ từ máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只能在这台 Mac 上批准服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只能在這台 Mac 上核准伺服器。"
+          }
+        }
+      }
+    },
     "refusal.server.pairSignedOut": {
       "extractionState": "manual",
       "localizations": {
@@ -26462,6 +26855,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%@ 上的聊天絕不會在主資料夾之上的資料夾中執行。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.workspaceHasNoAudio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tab in this workspace plays sound"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースで音を再生しているタブはありません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد علامة تبويب تشغّل صوتًا في مساحة العمل هذه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan tab u ovom radnom prostoru ne reprodukuje zvuk"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen fane i dette arbejdsområde afspiller lyd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Tab in diesem Workspace gibt Ton wieder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ninguna pestaña de este espacio de trabajo reproduce sonido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun onglet de cet espace de travail ne lit de son"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna scheda in questo spazio di lavoro riproduce audio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានថេបណាមួយក្នុងកន្លែងធ្វើការនេះកំពុងចាក់សំឡេងទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업 공간에서 소리를 재생하는 탭이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen fane i dette arbeidsområdet spiller av lyd"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żadna karta w tym obszarze roboczym nie odtwarza dźwięku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma aba deste espaço de trabalho reproduz som"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ни одна вкладка в этом рабочем пространстве не воспроизводит звук"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีแท็บใดในพื้นที่ทำงานนี้ที่กำลังเล่นเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu çalışma alanında ses çalan sekme yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Жодна вкладка в цьому робочому просторі не відтворює звук"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có tab nào trong không gian làm việc này đang phát âm thanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作区中没有正在播放声音的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作區中沒有正在播放聲音的分頁"
           }
         }
       }

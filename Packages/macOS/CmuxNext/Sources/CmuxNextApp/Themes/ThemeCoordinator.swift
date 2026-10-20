@@ -135,8 +135,10 @@ final class ThemeCoordinator {
             self?.resolver.changed()
         }
         catalog.load()
+        // Other sources (layout templates) keep the lists their owners installed.
+        let otherSuggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { source in
-            source == ActionSuggestions.ghosttyThemes ? catalog.names.map { ActionEnumCase(value: $0, title: $0) } : []
+            source == ActionSuggestions.ghosttyThemes ? catalog.names.map { ActionEnumCase(value: $0, title: $0) } : otherSuggestions?(source) ?? []
         }
         registry.argumentValidation = { source, text in source != ActionSuggestions.ghosttyThemes || catalog.accepts(text) }
         let store = services.machines.local.store

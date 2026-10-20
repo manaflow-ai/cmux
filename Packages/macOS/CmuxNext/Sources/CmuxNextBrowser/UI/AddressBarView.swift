@@ -52,6 +52,14 @@ public final class AddressBarView: NSView {
     public var pageTitle: (() -> String?)?
     /// The page's URL changed (the host refreshes the bookmark star).
     public var onPageURLChange: ((URL?) -> Void)?
+    /// Bench marks (`debug.omnibar_bench`): the press path's stages, nil
+    /// outside a bench run.
+    public var benchProbe: ((String) -> Void)? {
+        didSet {
+            field.probe = benchProbe
+            controller.probe = benchProbe
+        }
+    }
     /// Set by `focus()` for the responder change it causes.
     var pendingFocusSource: OmnibarInput.FocusSource?
     private var security: BrowserSecurityState = .none
@@ -338,7 +346,10 @@ public final class AddressBarView: NSView {
 
     private func perform(_ effect: OmnibarEffect) {
         switch effect {
-        case .began: onEvent?(.didBeginEditing)
+        case .began:
+            benchProbe?("began")
+            onEvent?(.didBeginEditing)
+            benchProbe?("began.done")
         case .ended(let reason): onEvent?(.didEndEditing(reason))
         case .beep: NSSound.beep()
         case .deleteSuggestion(let url): suggestionEngine.deleteSuggestion(url)
@@ -389,6 +400,7 @@ public final class AddressBarView: NSView {
     /// caret at the nearest character.
     public override func mouseDown(with event: NSEvent) {
         guard isBarHit(event) else { return super.mouseDown(with: event) }
+        benchProbe?("bar.mouseDown")
         // While editing the field editor tracks the press (it reports it to
         // the state machine itself).
         if controller.state.hasFocus, let editor = field.editor { return editor.mouseDown(with: event) }
@@ -444,6 +456,7 @@ public final class AddressBarView: NSView {
     // MARK: Appearance
 
     private func updateChrome() {
+        benchProbe?("chrome.update")
         let state = controller.state
         if state.hasFocus != cursorRectsEditing {
             // The field's cursor follows editing (`AddressField.resetCursorRects`).

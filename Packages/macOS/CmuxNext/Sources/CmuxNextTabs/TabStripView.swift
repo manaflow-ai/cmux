@@ -121,6 +121,8 @@ public final class TabStripView: NSView {
     var hoveredID: TabID?
     var closeHoveredID: TabID?
     var pressedCloseID: TabID?
+    /// A press on a tab's speaker (`TabCell.audioButtonRect`): its release there mutes or unmutes the tab.
+    var pressedAudioID: TabID?
     var middlePressID: TabID?
     var pressedNewTab = false
     /// Press-and-hold on + opens the new tab menu (`TabNewTabHold`).
@@ -145,6 +147,12 @@ public final class TabStripView: NSView {
     /// Tab torn out of this strip and handed to the App's drag session. Its
     /// slot stays collapsed until the model drops it or the App restores it.
     var detachedID: TabID?
+    /// The other selected tabs of a multi-tab drag: hidden while it runs (stacked under the
+    /// dragged tab), shown again at the drop.
+    var dragCompanions: Set<TabID> = []
+    /// A multi-tab drop's order: it stays shown while the App lands it one move at a time.
+    var multiReorderTarget: [TabID]?
+    private(set) lazy var selectionEscape = TabSelectionEscapeMonitor(strip: self)
     /// Display index of the phantom gap shown for an external drag.
     var dropPlaceholderIndex: Int?
     /// Pointer of the external drag, in view coordinates, for edge autoscroll.
@@ -291,6 +299,7 @@ public final class TabStripView: NSView {
         groupEditor.hide()
         groups.holdTask?.cancel()
         escapeMonitor.remove()
+        selectionEscape.remove()
         closingWatch.end()
         closingModeWidth = nil
         menuTracking.end()
@@ -323,6 +332,7 @@ public final class TabStripView: NSView {
             return
         }
         hoverCards.register(hoverCard)
+        applyMultiSelection()
         if appearanceIsStale {
             appearanceIsStale = false
             applyAppearance()
@@ -397,7 +407,7 @@ public final class TabStripView: NSView {
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.
-            relayout(animated: !dying.isEmpty && !inLiveResize && !reduceMotion, keepsSelectedInView: viewport < lastViewportWidth)
+            relayout(animated: !dying.isEmpty && !Motion.isLiveResizing(window) && !reduceMotion, keepsSelectedInView: viewport < lastViewportWidth)
             lastViewportWidth = viewport
         } else {
             applyFrames()

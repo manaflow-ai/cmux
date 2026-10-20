@@ -203,13 +203,6 @@ wire_enum! {
     }
 }
 
-wire_enum! {
-    HomeParticipantRole {
-        Owner = "owner",
-        Member = "member",
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeParticipantInput {
     pub id: ParticipantId,
@@ -232,6 +225,15 @@ wire_enum! {
     HomeParticipantInputAgentClass {
         Mux = "mux",
         Agent = "agent",
+    }
+}
+
+wire_enum! {
+    HomeParticipantRole {
+        Owner = "owner",
+        Admin = "admin",
+        Member = "member",
+        ReadOnly = "read_only",
     }
 }
 
@@ -773,6 +775,8 @@ pub enum Step {
     Sleep(StepSleep),
     Note(StepNote),
     Op(StepOp),
+    Machine(StepMachine),
+    Agent(StepAgent),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
 }
@@ -804,6 +808,35 @@ pub struct StepOp {
     pub r#type: LitOp,
     pub op: StepOpOp,
     pub params: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepMachine {
+    pub r#type: LitMachine,
+    pub machine: MachineId,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_from: Option<i64>,
+    pub timeout_seconds: i64,
+}
+
+wire_enum! {
+    StepAgentHarness {
+        Claude = "claude",
+        Codex = "codex",
+        Opencode = "opencode",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepAgent {
+    pub r#type: LitAgent,
+    pub machine: MachineId,
+    pub harness: StepAgentHarness,
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_from: Option<i64>,
+    pub timeout_seconds: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -864,38 +897,4 @@ pub struct TeamAiUsageLine {
     pub period_end: i64,
     pub stop_applies: bool,
     pub stopped: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAuditEntry {
-    pub n: i64,
-    pub op: String,
-    pub actor: String,
-    pub at: i64,
-    pub category: TeamAuditEntryCategory,
-    pub summary: String,
-    pub detail: Value,
-    pub hash: String,
-}
-
-wire_enum! {
-    TeamAuditEntryCategory {
-        Admin = "admin",
-        Billing = "billing",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDomain {
-    pub domain: EmailDomain,
-    pub state: TeamDomainState,
-    pub record_name: String,
-    pub record_value: String,
-    pub requested_at: i64,
-    pub expires_at: i64,
-    pub verified_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_checked_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub check_failures: Option<i64>,
 }

@@ -95,6 +95,42 @@ fn json_stdout(out: &Output) -> Value {
 }
 
 #[tokio::test]
+async fn list_created_by_me_sends_caller_selector() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/vms"))
+        .and(authorized())
+        .and(query_param("createdBy", "caller"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"items": [], "nextCursor": null})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "list", "--created-by-me"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out), json!({"items": [], "nextCursor": null}));
+}
+
+#[tokio::test]
+async fn snapshot_list_created_by_me_sends_caller_selector() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/snapshots"))
+        .and(authorized())
+        .and(query_param("createdBy", "caller"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"items": [], "nextCursor": null})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "snapshot", "list", "--created-by-me"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out), json!({"items": [], "nextCursor": null}));
+}
+
+#[tokio::test]
 async fn create_sends_the_body_and_idempotency_key() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -1059,4 +1095,570 @@ async fn help_names_the_cmux_dev_default_base_url() {
         out.stdout
     );
     assert_eq!(cmux_vm_client::DEFAULT_BASE_URL, "https://vm.cmux.dev");
+}
+
+#[tokio::test]
+async fn create_with_an_approved_image_revision() {
+    let server = MockServer::start().await;
+    let mut response = vm("starting");
+    response["bootImage"] =
+        json!({ "id": "cloud-standard", "revision": "r1", "displayName": "Cloud standard" });
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .and(body_json(
+            json!({ "image": { "id": "cloud-standard", "revision": "r1" } }),
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(response))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "create",
+            "--image",
+            "cloud-standard",
+            "--image-revision",
+            "r1",
+            "--json",
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out)["bootImage"]["revision"], "r1");
+}
+
+#[tokio::test]
+async fn list_approved_images_as_json() {
+    let server = MockServer::start().await;
+    let response = json!({ "items": [{ "id": "cloud-standard", "revision": "r1", "displayName": "Cloud standard" }] });
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-images"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["image", "list", "--json"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out), response);
+}
+
+#[tokio::test]
+async fn image_flags_are_paired_and_exclude_snapshot_without_http() {
+    let server = MockServer::start().await;
+    for args in [
+        vec!["create", "--image", "cloud-standard"],
+        vec!["create", "--image-revision", "r1"],
+        vec![
+            "create",
+            "--image",
+            "cloud-standard",
+            "--image-revision",
+            "r1",
+            "--snapshot",
+            "snap_fixture",
+        ],
+    ] {
+        let out = cli(&server, &args).await;
+        assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn image_create_requires_the_requested_receipt_without_deleting_or_retrying() {
+    for receipt in [
+        json!(null),
+        json!({"id": "other", "revision": "r1"}),
+        json!({"id": "cloud-standard", "revision": "r0"}),
+    ] {
+        let server = MockServer::start().await;
+        let mut response = vm("starting");
+        response["bootImage"] = receipt;
+        Mock::given(method("POST"))
+            .and(path("/v1/vms"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(
+            &server,
+            &[
+                "--json",
+                "create",
+                "--image",
+                "cloud-standard",
+                "--image-revision",
+                "r1",
+                "--idempotency-key",
+                "image-retry-key",
+            ],
+        )
+        .await;
+        assert_ne!(out.code, exit::OK);
+        assert!(out.stdout.is_empty());
+        assert!(out.stderr.contains(VM_ID), "{}", out.stderr);
+        assert!(out.stderr.contains("image-retry-key"), "{}", out.stderr);
+        assert!(out.stderr.contains("may have succeeded"), "{}", out.stderr);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn an_unvalidated_vm_id_is_not_reflected_in_a_missing_image_receipt_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(json!({"id": "private-provider-reference"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "create",
+            "--image",
+            "cloud-standard",
+            "--image-revision",
+            "r1",
+        ],
+    )
+    .await;
+    assert_ne!(out.code, exit::OK);
+    assert!(out.stdout.is_empty());
+    assert!(!out.stderr.contains("private-provider-reference"));
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn explicit_public_egress_is_sent_and_requires_confirmation() {
+    for confirmed in [true, false] {
+        let server = MockServer::start().await;
+        let mut response = vm("starting");
+        if confirmed {
+            response["initialNetwork"] = json!({"publicEgress": true, "httpsProxyHosts": []});
+        }
+        Mock::given(method("POST"))
+            .and(path("/v1/vms"))
+            .and(body_json(json!({"initialNetwork": {"publicEgress": true}})))
+            .respond_with(ResponseTemplate::new(201).set_body_json(response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(&server, &["--json", "create", "--public-egress"]).await;
+        assert_eq!(out.code == exit::OK, confirmed, "{}", out.stderr);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn image_list_human_output_includes_revision() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/v1/vm-images"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [{"id": "cloud-standard", "revision": "r1", "displayName": "Cloud standard"}]})))
+        .expect(1).mount(&server).await;
+    let out = cli(&server, &["image", "list"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(out.stdout.contains("cloud-standard"));
+    assert!(out.stdout.contains("r1"));
+}
+
+#[tokio::test]
+async fn resize_sends_resource_floors_and_retry_key() {
+    let server = MockServer::start().await;
+    let mut response = vm("running");
+    response["resources"]["diskMib"] = json!(65536);
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/resize")))
+        .and(authorized())
+        .and(header("idempotency-key", "resize-retry"))
+        .and(body_json(json!({"resources": {"diskMib": 65536}})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "resize",
+            VM_ID,
+            "--disk-mib",
+            "65536",
+            "--idempotency-key",
+            "resize-retry",
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out)["id"], VM_ID);
+    assert_eq!(json_stdout(&out)["resources"]["diskMib"], 65536);
+}
+
+#[tokio::test]
+async fn resize_human_output_confirms_all_requested_axes() {
+    let server = MockServer::start().await;
+    let mut response = vm("running");
+    response["resources"] = json!({"vcpus": 8, "memoryMib": 16384, "diskMib": 65536});
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/resize")))
+        .and(body_json(
+            json!({"resources": {"vcpus": 8, "memoryMib": 16384, "diskMib": 65536}}),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "resize",
+            VM_ID,
+            "--vcpus",
+            "8",
+            "--memory-mib",
+            "16384",
+            "--disk-mib",
+            "65536",
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(out.stdout.contains("16384 MiB"));
+    assert!(out.stdout.contains("65536 MiB"));
+}
+
+#[tokio::test]
+async fn resize_rejects_invalid_or_missing_resource_axes_without_http() {
+    let server = MockServer::start().await;
+    for args in [
+        vec!["resize", VM_ID],
+        vec!["resize", VM_ID, "--vcpus", "1"],
+        vec!["resize", VM_ID, "--memory-mib", "65537"],
+        vec!["resize", VM_ID, "--disk-mib", "16384.5"],
+        vec!["resize", "private-provider-reference", "--vcpus", "8"],
+    ] {
+        let out = cli(&server, &args).await;
+        assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+        if args[1] == "private-provider-reference" {
+            assert!(out.stderr.contains("invalid VM id"), "{}", out.stderr);
+            assert!(
+                !out.stderr.contains("invalid --idempotency-key"),
+                "{}",
+                out.stderr
+            );
+        }
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn resize_refuses_insufficient_or_wrong_vm_receipts_and_retains_the_key() {
+    for wrong_id in [false, true] {
+        let server = MockServer::start().await;
+        let mut response = vm("running");
+        if wrong_id {
+            response["id"] = json!("vm_00000000000000000000000000");
+            response["resources"]["diskMib"] = json!(65536);
+        }
+        Mock::given(method("POST"))
+            .and(path(format!("/v1/vms/{VM_ID}/resize")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(
+            &server,
+            &[
+                "--json",
+                "resize",
+                VM_ID,
+                "--disk-mib",
+                "65536",
+                "--idempotency-key",
+                "resize-receipt",
+            ],
+        )
+        .await;
+        assert_ne!(out.code, exit::OK);
+        assert!(out.stdout.is_empty());
+        assert!(out.stderr.contains("resize-receipt"), "{}", out.stderr);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn resize_provider_failure_reports_the_actual_generated_key_without_retrying() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/resize")))
+        .and(wiremock::matchers::header_exists("idempotency-key"))
+        .respond_with(ResponseTemplate::new(503).set_body_json(
+            json!({"_tag": "ServiceUnavailable", "message": "VM service unavailable"}),
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "resize", VM_ID, "--disk-mib", "65536"]).await;
+    assert_eq!(out.code, exit::SERVICE_UNAVAILABLE, "{}", out.stderr);
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let key = requests[0]
+        .headers
+        .get("idempotency-key")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(out.stderr.contains(key), "{}", out.stderr);
+    assert!(out.stdout.is_empty());
+}
+
+#[tokio::test]
+async fn retire_confirms_the_exact_vm_for_json_and_human_callers() {
+    let server = MockServer::start().await;
+    let receipt = json!({"id": VM_ID, "state": "paused", "retired": true});
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/retire")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let json_out = cli(&server, &["--json", "retire", VM_ID, "--yes"]).await;
+    assert_eq!(json_out.code, exit::OK, "{}", json_out.stderr);
+    assert_eq!(json_stdout(&json_out), receipt);
+    let human = cli(&server, &["retire", VM_ID, "--yes"]).await;
+    assert_eq!(human.code, exit::OK, "{}", human.stderr);
+    assert!(human.stdout.contains("retired"));
+    assert!(human.stdout.contains(VM_ID));
+}
+
+#[tokio::test]
+async fn retire_needs_confirmation_and_a_valid_public_id_before_http() {
+    let server = MockServer::start().await;
+    for args in [
+        vec!["retire", VM_ID],
+        vec!["retire", "private-provider-reference", "--yes"],
+    ] {
+        let out = cli(&server, &args).await;
+        assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+        assert!(out.stdout.is_empty());
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn retire_refuses_ordinary_pause_wrong_id_and_incomplete_receipts() {
+    for receipt in [
+        vm("paused"),
+        json!({"id": VM_ID, "state": "running", "retired": true}),
+        json!({"id": "vm_00000000000000000000000000", "state": "paused", "retired": true}),
+        json!({"id": VM_ID, "state": "paused", "retired": false}),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(format!("/v1/vms/{VM_ID}/retire")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(receipt))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(&server, &["--json", "retire", VM_ID, "--yes"]).await;
+        assert_ne!(out.code, exit::OK);
+        assert!(out.stdout.is_empty());
+        assert!(out.stderr.contains("unconfirmed"), "{}", out.stderr);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn retire_interactive_confirmation_requires_the_exact_vm_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/retire")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"id": VM_ID, "state": "stopped", "retired": true})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let env = [("CMUX_VM_API_KEY", KEY), ("CMUX_VM_BASE_URL", uri.as_str())];
+    let mut refused = Tty {
+        answer: "wrong-vm",
+        asked: 0,
+    };
+    let out = cli_with_prompt(&["retire", VM_ID], &env, &mut refused).await;
+    assert_eq!(out.code, exit::CANCELLED, "{}", out.stderr);
+    assert!(out.stderr.contains("nothing was retired"));
+    assert!(server.received_requests().await.unwrap().is_empty());
+    let mut accepted = Tty {
+        answer: VM_ID,
+        asked: 0,
+    };
+    let out = cli_with_prompt(&["--json", "retire", VM_ID], &env, &mut accepted).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(accepted.asked, 1);
+    assert_eq!(json_stdout(&out)["retired"], true);
+}
+
+#[tokio::test]
+async fn file_stat_preserves_public_metadata_and_uses_one_read_request() {
+    let server = MockServer::start().await;
+    let stat = json!({"kind": "file", "size": 12, "mode": 416, "mtime": null, "owner": "ubuntu", "group": "staff"});
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}/files/stat")))
+        .and(query_param("path", "/srv/team/a b"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&stat))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let json_out = cli(&server, &["--json", "file", "stat", VM_ID, "/srv/team/a b"]).await;
+    assert_eq!(json_out.code, exit::OK, "{}", json_out.stderr);
+    assert_eq!(json_stdout(&json_out), stat);
+    let human = cli(&server, &["file", "stat", VM_ID, "/srv/team/a b"]).await;
+    assert_eq!(human.code, exit::OK, "{}", human.stderr);
+    assert!(human.stdout.contains("0640"));
+    assert!(human.stdout.contains("unknown"));
+    assert!(human.stdout.contains("ubuntu"));
+}
+
+#[tokio::test]
+async fn file_stat_rejects_invalid_paths_and_private_ids_without_http() {
+    let server = MockServer::start().await;
+    for (id, path) in [
+        (VM_ID, "relative"),
+        (VM_ID, "/srv/../etc"),
+        ("private-provider-reference", "/safe"),
+    ] {
+        let out = cli(&server, &["--json", "file", "stat", id, path]).await;
+        assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+        assert!(out.stdout.is_empty());
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn file_stat_reports_missing_paths_without_retry_or_guest_execution() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}/files/stat")))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(json!({"_tag": "NotFound", "message": "File not found"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "file", "stat", VM_ID, "/missing"]).await;
+    assert_eq!(out.code, exit::NOT_FOUND, "{}", out.stderr);
+    assert!(out.stdout.is_empty());
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn file_stat_human_output_escapes_guest_control_characters() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path(format!("/v1/vms/{VM_ID}/files/stat")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"kind": "file", "size": 0, "mode": 384, "mtime": 0, "owner": "bad\u{1b}[2J\nname", "group": "users"})))
+        .expect(1).mount(&server).await;
+    let out = cli(&server, &["file", "stat", VM_ID, "/saved"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(!out.stdout.contains('\u{1b}'));
+    assert!(out.stdout.contains("\\nname"));
+}
+
+#[tokio::test]
+async fn file_stat_round_trips_numeric_and_unknown_modification_times() {
+    for mtime in [
+        json!(-1),
+        json!(1790812800_i64),
+        json!(253402300799_i64),
+        json!(null),
+    ] {
+        let server = MockServer::start().await;
+        let stat = json!({"kind": "file", "size": 12, "mode": 416, "mtime": mtime, "owner": "ubuntu", "group": "staff"});
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/vms/{VM_ID}/files/stat")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&stat))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(&server, &["--json", "file", "stat", VM_ID, "/saved"]).await;
+        assert_eq!(out.code, exit::OK, "{}", out.stderr);
+        assert_eq!(json_stdout(&out), stat);
+    }
+}
+
+#[tokio::test]
+async fn identity_reads_the_exact_public_allocation_for_json_and_humans() {
+    let server = MockServer::start().await;
+    let receipt = json!({"id": VM_ID, "scheme": "sha256-v1", "fingerprint": "a".repeat(64)});
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}/identity")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let json_out = cli(&server, &["--json", "identity", VM_ID]).await;
+    assert_eq!(json_out.code, exit::OK, "{}", json_out.stderr);
+    assert_eq!(json_stdout(&json_out), receipt);
+    let human = cli(&server, &["identity", VM_ID]).await;
+    assert_eq!(human.code, exit::OK, "{}", human.stderr);
+    assert!(human.stdout.contains("sha256-v1"));
+    assert!(human.stdout.contains(&"a".repeat(64)));
+}
+
+#[tokio::test]
+async fn identity_refuses_foreign_or_unrecognized_receipts_without_retry() {
+    for receipt in [
+        json!({"id": "vm_00000000000000000000000000", "scheme": "sha256-v1", "fingerprint": "a".repeat(64)}),
+        json!({"id": VM_ID, "scheme": "other", "fingerprint": "a".repeat(64)}),
+        json!({"id": VM_ID, "scheme": "sha256-v1", "fingerprint": "invalid"}),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/vms/{VM_ID}/identity")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(receipt))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(&server, &["--json", "identity", VM_ID]).await;
+        assert_ne!(out.code, exit::OK);
+        assert!(out.stdout.is_empty());
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn identity_checks_presence_only_when_requested_and_requires_a_receipt() {
+    for presence in [Some("present"), Some("missing"), None, Some("unknown")] {
+        let server = MockServer::start().await;
+        let mut receipt =
+            json!({"id": VM_ID, "scheme": "sha256-v1", "fingerprint": "a".repeat(64)});
+        if let Some(value) = presence {
+            receipt["presence"] = json!(value);
+        }
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/vms/{VM_ID}/identity")))
+            .and(wiremock::matchers::query_param("checkPresence", "true"))
+            .and(authorized())
+            .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(&server, &["--json", "identity", VM_ID, "--check-presence"]).await;
+        if matches!(presence, Some("present" | "missing")) {
+            assert_eq!(out.code, exit::OK, "{}", out.stderr);
+            assert_eq!(json_stdout(&out), receipt);
+        } else {
+            assert_ne!(out.code, exit::OK);
+            assert!(out.stdout.is_empty());
+        }
+    }
 }

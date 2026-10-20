@@ -249,6 +249,8 @@ public struct DaemonCapabilities: Sendable {
     public let cloudChiefLive = "cloud-chief-live-v1"
     public let conversationRuns = "conversation-runs-v1"
     public let cloudConversationRuns = "cloud-conversation-runs-v1"
+    /// `cloud-conversation-typing` command and event: typing in Cloud DMs and groups.
+    public let cloudConversationTyping = "cloud-conversation-typing-v1"
     /// `workspace.ensure_home` and the home workspace (`kind: home`; home.md 7).
     public let workspaceKind = "workspace-kind-v1"
     /// `workspace.agent_folder.set` and `extra.agent_folder` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
@@ -452,7 +454,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread, tabMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
-                                            sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
+                                            sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, cloudConversationTyping, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,

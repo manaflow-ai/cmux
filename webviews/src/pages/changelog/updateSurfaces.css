@@ -112,6 +112,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.wn-pop-from { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); font-variant-numeric: tabular-nums; }
 .wn-pop-list { list-style: none; margin: 6px 0 0; padding: 0; }
 .wn-pop-list li { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 6px; padding: 3px 0; }
 .wn-pop-n {

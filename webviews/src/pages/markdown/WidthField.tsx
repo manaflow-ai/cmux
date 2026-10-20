@@ -205,6 +205,7 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
           value={preset}
           options={options}
           onChange={choosePreset}
+          closeOnPick
         />
       </div>
       <output className="md-width-approx" htmlFor={id}>

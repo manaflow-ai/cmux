@@ -153,7 +153,6 @@ public final class LayoutModel {
     /// Receives every intent. Set by the App (or `MockLayoutSource`).
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
-    @ObservationIgnored private var pendingIntents: [PendingKey: LayoutIntent] = [:]
     @ObservationIgnored private var splitOverrides: [SplitID: Override] = [:]
     /// Until this uptime, a ratio-only change is an explicit equalize the screens spring (Lawrence 2026-10-16).
     @ObservationIgnored public private(set) var explicitReflowUntil: TimeInterval = 0
@@ -162,10 +161,6 @@ public final class LayoutModel {
     public var animatesReflow: Bool { ProcessInfo.processInfo.systemUptime < explicitReflowUntil }
     @ObservationIgnored private var widthOverrides: [ColumnID: Override] = [:]
 
-    private enum PendingKey: Hashable {
-        case split(SplitID)
-        case column(ColumnID)
-    }
 
     private struct Override {
         var value: Double
@@ -340,15 +335,14 @@ public final class LayoutModel {
 
     // MARK: Divider and column gestures
 
-    /// Sets a divider ratio locally and reports it. `.changed` intents are
-    /// coalesced until `flushPendingGestureIntents()` (called once per display
-    /// frame by the view); `.ended` flushes immediately.
+    /// Sets a divider ratio locally. Only the `.ended` value is reported (one
+    /// daemon command per drag): a live value moves the layout here and
+    /// nowhere else, so a drag costs the daemon nothing until it ends.
     public func setSplitRatio(_ split: SplitID, ratio: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase) {
         let ratio = min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
         updateScreen(where: { $0.ratio(of: split) != nil }) { $0.settingRatio(ratio, for: split) }
         splitOverrides[split] = Override(value: ratio, transaction: transaction, ended: phase == .ended)
-        let intent = LayoutIntent.setSplitRatio(split, ratio: ratio, transaction: transaction, phase: phase)
-        record(intent, key: .split(split), phase: phase)
+        if phase == .ended { emit(.setSplitRatio(split, ratio: ratio, transaction: transaction, phase: phase)) }
     }
 
     /// Equalizes `split` so every cell in its same-axis chain gets equal size. An explicit
@@ -361,14 +355,13 @@ public final class LayoutModel {
         setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
     }
 
-    /// Sets a column width locally and reports it. Same throttling as `setSplitRatio`.
+    /// Sets a column width locally; reports only the `.ended` value, like `setSplitRatio`.
     public func setColumnWidth(_ column: ColumnID, width: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase) {
         let width = min(max(width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
         guard let anyPane = screens.lazy.compactMap({ $0.layout.columns.first { $0.id == column }?.root.panes.first }).first else { return }
         updateScreen(where: { layout in layout.columns.contains { $0.id == column } }) { $0.settingWidth(width, for: column) }
         widthOverrides[column] = Override(value: width, transaction: transaction, ended: phase == .ended)
-        let intent = LayoutIntent.setColumnWidth(column, anyPane: anyPane, width: width, transaction: transaction, phase: phase)
-        record(intent, key: .column(column), phase: phase)
+        if phase == .ended { emit(.setColumnWidth(column, anyPane: anyPane, width: width, transaction: transaction, phase: phase)) }
     }
 
     /// Marks the start and end of a pointer gesture so views skip animation
@@ -377,42 +370,13 @@ public final class LayoutModel {
         if isGestureActive != active { isGestureActive = active }
     }
 
-    /// Emits the latest coalesced `.changed` intent per divider or column.
-    public func flushPendingGestureIntents() {
-        guard !pendingIntents.isEmpty else { return }
-        let intents = pendingIntents.values
-        pendingIntents.removeAll()
-        for intent in intents { emit(intent) }
-    }
-
-    public var hasPendingGestureIntents: Bool { !pendingIntents.isEmpty }
-
     /// Cancels a pointer gesture that will get no release (its divider or
-    /// column went away mid-drag): its overrides and its coalesced intents
-    /// drop, so no stale `.changed` reaches the daemon or another column,
-    /// the last daemon values show, and `.cancelGesture` closes the
-    /// transaction for the App.
+    /// column went away mid-drag): its overrides drop, the last daemon
+    /// values show, and `.cancelGesture` tells the App. Nothing of the
+    /// gesture reached the daemon (live values are local).
     public func cancelGesture(_ transaction: LayoutTransactionID) {
-        pendingIntents = pendingIntents.filter { Self.transaction(of: $0.value) != transaction }
         rejectTransaction(transaction)
         emit(.cancelGesture(transaction))
-    }
-
-    private static func transaction(of intent: LayoutIntent) -> LayoutTransactionID? {
-        switch intent {
-        case .setSplitRatio(_, _, let transaction, _), .setColumnWidth(_, _, _, let transaction, _): transaction
-        default: nil
-        }
-    }
-
-    private func record(_ intent: LayoutIntent, key: PendingKey, phase: LayoutGesturePhase) {
-        switch phase {
-        case .changed:
-            pendingIntents[key] = intent
-        case .ended:
-            pendingIntents[key] = nil
-            emit(intent)
-        }
     }
 
     /// Rewrites the one screen whose layout matches `owns` (a split or a

@@ -10,6 +10,16 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 symbol: "rectangle.split.2x1", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-right", mainMenu: .view, startsTerminal: true
             ),
+            // A PNG of the pane as on screen, never changing focus or selection
+            // (ScreenshotHandlers): Copy menu, palette, CLI, MCP.
+            ActionDescriptor(
+                id: "pane.screenshot",
+                title: String(localized: "action.pane.screenshot", defaultValue: "Screenshot Pane", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .pane, symbol: "camera",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.pane],
+                cliName: "pane screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .inspect, 510, folder: .copy)])
+            ),
             ActionDescriptor(
                 id: "newColumn",
                 title: String(localized: "action.newColumn", defaultValue: "New Column", bundle: .module),

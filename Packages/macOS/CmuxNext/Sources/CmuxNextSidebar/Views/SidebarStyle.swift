@@ -61,8 +61,11 @@ enum SidebarStyle {
     /// How far a group member's content moves in past the row's own
     /// leading edge, which already starts right of the line (`groupGutter`).
     static var groupMemberIndent: CGFloat { Metrics.space1 }
-    /// The header bar inside its row: 26 of 32 pt, scaled with the row height.
-    static func groupHeaderBarHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
+    /// The size a group header's name, glyphs, buttons and corner scale from: 26 of a 32 pt row,
+    /// scaled with the row height. The colored bar itself fills the row, as tall as a workspace
+    /// row (Lawrence 2026-10-19: "the height of the group headers is identical to the height of
+    /// each workspace").
+    static func groupHeaderContentHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
     /// The header's name: medium weight (cx-qno.17: more contrast on the
     /// pastel bar), 14 pt on a 26 pt bar, scaled.
     static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
