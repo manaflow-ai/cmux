@@ -312,7 +312,6 @@
           {
             "key" : "settings.group.windowBackground",
             "rows" : [
-              "appearance.backdropArt",
               "appearance.background",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur"
@@ -1201,7 +1200,6 @@
           {
             "key" : "settings.group.appearanceTuning",
             "rows" : [
-              "appearance.glassTransparency",
               "appearance.hue",
               "appearance.saturation"
             ],
@@ -8597,7 +8595,7 @@
         "legacy"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "backdropArt"
@@ -10284,7 +10282,10 @@
         true
       ],
       "section" : "appearance",
-      "summary" : null,
+      "summary" : {
+        "key" : "settings.appearance.backgroundBlur.summary",
+        "text" : "Clear Glass shows the desktop through the wallpaper"
+      },
       "title" : {
         "key" : "settings.appearance.backgroundBlur",
         "text" : "Material"
@@ -10321,7 +10322,7 @@
         "clear"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "glassTransparency"
