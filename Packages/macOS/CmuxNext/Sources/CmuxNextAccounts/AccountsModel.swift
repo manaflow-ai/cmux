@@ -21,6 +21,9 @@ public final class AccountsModel {
     @ObservationIgnored private var generation = 0
     /// Providers whose login was started here; re-detected on activation.
     @ObservationIgnored private var pendingReauth: Set<AIProvider> = []
+    /// A detection has finished. Until then every row reads Checking… and
+    /// refuses work, which the palette and CLI meet before the screen opens.
+    @ObservationIgnored private var hasDetected = false
 
     public init(services: any AccountsServices) {
         self.services = services
@@ -58,12 +61,24 @@ public final class AccountsModel {
             let found = await detecting.value, accounts = await loading.value
             guard let self, current == self.generation, !Task.isCancelled else { return }
             for detection in found { self.apply(.detected(detection), to: detection.provider) }
+            self.hasDetected = true
             switch accounts {
             case .success(let list): self.apply(.linkedLoaded(list))
             case .failure(let message): self.apply(.linkedFailed(message))
             case nil: break
             }
             self.isRefreshing = false
+        }
+    }
+
+    /// Waits for the running refresh, first starting one when no detection
+    /// has finished yet, so an action never meets rows that are still Checking….
+    public func settle() async {
+        if !hasDetected, !isRefreshing { refresh() }
+        while isRefreshing, let task = refreshTask {
+            await task.value
+            // A superseded refresh hands over to the newer one; the same task twice is done.
+            if refreshTask == task { break }
         }
     }
 
@@ -75,11 +90,27 @@ public final class AccountsModel {
         refresh()
     }
 
-    public func reauthenticate(_ provider: AIProvider) {
-        guard row(provider).canReauthenticate, !row(provider).isBusy else { return }
+    /// Starts the provider's own login. Returns why it did not start (the
+    /// row is busy), or nil. Before any detection finished, the login starts
+    /// once one has.
+    @discardableResult
+    public func reauthenticate(_ provider: AIProvider) -> String? {
+        guard row(provider).canReauthenticate else { return nil }
+        guard hasDetected else {
+            Task { await settle(); startReauthentication(provider) }
+            return nil
+        }
+        return startReauthentication(provider)
+    }
+
+    @discardableResult
+    private func startReauthentication(_ provider: AIProvider) -> String? {
+        guard row(provider).canReauthenticate else { return nil }
+        guard !row(provider).isBusy else { return AccountsStrings.errorBusy }
         apply(.reauthStarted, to: provider)
         pendingReauth.insert(provider)
         services.reauthenticate(provider, plan: provider.reauthPlan)
+        return nil
     }
 
     /// Connect: asks for a paste first when there is no local secret to send.
@@ -108,9 +139,10 @@ public final class AccountsModel {
     /// (the palette and CLI report it).
     @discardableResult
     public func performConnect(_ provider: AIProvider, pasted: String? = nil) async -> String? {
+        await settle()
         let state = row(provider)
-        guard state.canConnect else { return state.isLinkable ? AccountsStrings.errorNotSignedIn : AccountsStrings.unsupported }
-        guard !state.isBusy else { return nil }
+        guard !state.isBusy else { return AccountsStrings.errorBusy }
+        if let refusal = AccountsStrings.connectRefusal(state) { return refusal }
         apply(.connectStarted, to: provider)
         return await runConnect(provider, pasted: pasted)
     }
@@ -138,9 +170,11 @@ public final class AccountsModel {
     /// Removes and waits; returns the failure text, or nil.
     @discardableResult
     public func performRemove(_ account: LinkedAccount) async -> String? {
-        guard !row(account.provider).isBusy else { return nil }
+        await settle()
+        guard !row(account.provider).isBusy else { return AccountsStrings.errorBusy }
         apply(.removeStarted(accountID: account.id), to: account.provider)
-        guard case .removing = row(account.provider).phase else { return nil }
+        // Not in the account list this screen last read.
+        guard case .removing = row(account.provider).phase else { return AccountsStrings.errorStaleList }
         return await runRemove(account)
     }
 

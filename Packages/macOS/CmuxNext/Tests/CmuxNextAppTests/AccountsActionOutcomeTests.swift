@@ -60,6 +60,15 @@ import Testing
         #expect(failure != nil)
     }
 
+    @Test func aReauthenticateWhileTheRowIsBusySaysSo() async {
+        let services = MockAccountsServices()
+        let model = await refreshed(services)
+        model.connect(.codex, confirmed: true)
+        #expect(model.row(.codex).phase == .connecting)
+        #expect(model.reauthenticate(.codex) != nil)
+        #expect(!services.calls.contains("reauth:codex"))
+    }
+
     @Test func aCodexConnectWithoutACodexSignInNamesCodexNotCmux() async {
         let services = MockAccountsServices()
         services.detections.removeAll { $0.provider == .codex }
