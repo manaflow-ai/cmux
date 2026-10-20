@@ -52,6 +52,20 @@ enum BrowserHandlers {
             let tab = entry.tab
             Task { _ = try? await tab.evaluate(script) }
         })
+        // React Grab (classic parity): the first toggle on a document loads the pinned library into
+        // the page world, later toggles flip it. A load failure says so on the page.
+        registry.bind("toggleReactGrab", run: { invocation in
+            let entry = try context.page(invocation)
+            let tab = entry.tab, grab = context.services.reactGrab, logger = context.daemon.logger
+            Task { [weak chrome = entry.chrome] in
+                do {
+                    try await grab.toggle(tab)
+                } catch {
+                    logger.error("react-grab toggle failed: \(String(describing: error), privacy: .public)")
+                    chrome?.showNotice(MiscHandlerStrings.reactGrabFailed)
+                }
+            }
+        })
         registry.bind("palette.browserOpenDefault", run: { invocation in
             guard let url = try context.page(invocation).tab.state.url, url.scheme != "about" else {
                 throw ActionFailure(message: MiscHandlerStrings.noPageURL)
@@ -204,7 +218,6 @@ enum BrowserHandlers {
 
     private static func bindUnavailable(_ registry: ActionRegistry) {
         func unavailable(_ ids: [ActionID], _ reason: String) { registry.bindUnavailable(ids, ActionFailure(message: reason)) }
-        unavailable(["toggleReactGrab"], MiscHandlerStrings.reactGrab)
         unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
         unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
         unavailable(["palette.enableBrowser", "palette.disableBrowser"], MiscHandlerStrings.browserToggle)

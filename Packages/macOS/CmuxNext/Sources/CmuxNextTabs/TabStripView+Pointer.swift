@@ -28,6 +28,15 @@ extension TabStripView {
         return rect.insetBy(dx: -2, dy: -2).contains(inCell)
     }
 
+    /// Whether `point` (strip coordinates) is on tab `id`'s speaker, with a
+    /// little slack around the small glyph.
+    func isInAudioButton(_ id: TabID, _ point: CGPoint) -> Bool {
+        guard let cell = cells[id], let rect = cell.audioButtonRect else { return false }
+        let local = convert(point, to: tabsClip)
+        let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
+        return rect.insetBy(dx: -3, dy: -4).contains(inCell)
+    }
+
     func isInNewTabButton(_ point: CGPoint) -> Bool {
         !newTabButton.isHidden && newTabButton.frame.contains(convert(point, to: contentView))
     }
@@ -133,6 +142,12 @@ extension TabStripView {
                 cells[id]?.isClosePressed = true
                 return
             }
+            // The speaker is a button: the press neither selects nor drags the
+            // tab, and the release on it mutes or unmutes (Chrome).
+            if isInAudioButton(id, point) {
+                pressedAudioID = id
+                return
+            }
             if event.clickCount == 2, renamesOnDoubleClick, Self.selectionClick(event.modifierFlags) == .plain {
                 beginInlineRename(id)
                 return
@@ -161,6 +176,7 @@ extension TabStripView {
             newTabButton.isPressed = isInNewTabButton(point)
             return
         }
+        if pressedAudioID != nil { return }
         if drag != nil {
             updateDrag(at: point, event: event)
             return
@@ -186,6 +202,11 @@ extension TabStripView {
             pressedCloseID = nil
             cells[id]?.isClosePressed = false
             if isInCloseButton(id, point) || arrivingCloseTab(at: point) == id { close(id, source: .mouse, at: point) }
+            return
+        }
+        if let id = pressedAudioID {
+            pressedAudioID = nil
+            if isInAudioButton(id, point) { model.send(.toggleAudioMute(id)) }
             return
         }
         if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }
