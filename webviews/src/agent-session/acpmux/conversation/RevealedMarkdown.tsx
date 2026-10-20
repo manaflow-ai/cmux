@@ -5,6 +5,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { StreamReveal } from "../streamReveal";
 import { Markdown } from "./Markdown";
 import { MessageBoundary } from "./MessageBoundary";
+import { entranceAllowed } from "../../shared/pageReveal";
 
 /// The display frames the reveal runs on (tests drive their own).
 export const revealFrames = {
@@ -53,12 +54,21 @@ export function useStreamReveal(
         return;
       }
       lastCommit = now;
-      // Text that arrived while the page was hidden shows at once; nobody watched it arrive.
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") current.flush();
+      // Text that arrived while the page was hidden shows at once, with no fade; nobody watched it
+      // arrive. WebKit runs no frames while a page is hidden, so this tick usually runs as the page
+      // shows again: until its first frame back has passed, the backlog counts as away too
+      // (shared/pageReveal.ts), and its blocks draw in place (Markdown's awayBlocks).
+      const away = !entranceAllowed();
       const before = latest.current.shown;
-      const length = current.advance(latest.current.text, now, !latest.current.streaming);
-      const fresh = before.fresh.filter((step) => now - step.born < FADE_MS);
-      if (length > before.length && !reduce.current)
+      let length = current.advance(latest.current.text, now, !latest.current.streaming);
+      // After `advance`, which takes in the text received meanwhile: all of it shows.
+      if (away) {
+        current.flush();
+        length = latest.current.text.length;
+      }
+      // Nothing fades in on return, including the steps that were fading as the page hid.
+      const fresh = away ? [] : before.fresh.filter((step) => now - step.born < FADE_MS);
+      if (length > before.length && !reduce.current && !away)
         fresh.push({ id: (nextId.current += 1), count: length - before.length, born: now });
       const next = { length, fresh, now, settled: current.settled };
       latest.current.shown = next;
