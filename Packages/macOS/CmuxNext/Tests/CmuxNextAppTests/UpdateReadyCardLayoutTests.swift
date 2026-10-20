@@ -18,6 +18,7 @@ import Testing
         var contentHeight: CGFloat = 120
         var onHeightChange: (() -> Void)?
         var onAction: (() -> Void)?
+        var onDismiss: (() -> Void)?
         func close() {}
     }
 

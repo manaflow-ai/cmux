@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -574,6 +575,220 @@ class Bisect(unittest.TestCase):
                 self.assertLessEqual(len(controller.probes), 3)  # log2(8)
 
 
+CHECKS_LOG = """\
+2026-10-19T03:02:59.3742502Z \x1b[36;1m  echo "### ${#failed[@]} cmux-next check(s) failed"\x1b[0m
+2026-10-19T03:02:59.3742784Z \x1b[36;1m  printf -- '- %s\\n' "${failed[@]}"\x1b[0m
+2026-10-19T03:02:59.3791306Z ### 2 cmux-next check(s) failed
+2026-10-19T03:02:59.3791407Z 
+2026-10-19T03:02:59.3791459Z - Type scale (failure)
+2026-10-19T03:02:59.3791577Z - Tier routing (failure)
+2026-10-19T03:02:59.3791651Z 
+2026-10-19T03:02:59.3791707Z Each check's own step log has the details.
+2026-10-19T03:02:59.3792894Z ##[error]Process completed with exit code 1.
+"""
+
+
+class BaseReds(unittest.TestCase):
+    """Base pushes and dispatches skip the checks job, so the batch validates the
+    base itself and compares single checks, not the whole job."""
+
+    def controller(self) -> nb.Controller:
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r", dry_run=False, keep_branches=False)
+        controller.gh = mock.Mock()
+        controller.base_failures = None
+        controller.base_probe = None
+        controller.base_probe_result = {}
+        controller.base_probe_stop = threading.Event()
+        controller.base_tree_waited = False
+        controller.base_sha = "b" * 40
+        controller.batch_id = "local-1"
+        return controller
+
+    def test_reads_the_red_checks_from_the_jobs_last_step(self):
+        self.assertEqual(nb.red_subchecks(CHECKS_LOG), ["Type scale", "Tier routing"])
+        self.assertEqual(nb.red_subchecks("no listing here\n"), [])
+
+    def test_a_red_checks_job_counts_each_red_check(self):
+        controller = self.controller()
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 7, "name": nb.CHECKS_JOB, "conclusion": "failure"},
+            {"id": 8, "name": "cmux-next swift test", "conclusion": "failure"},
+            {"id": 9, "name": "cmux-next daemon tests", "conclusion": "success"},
+        ]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, CHECKS_LOG, "")
+        self.assertEqual(controller.failed_jobs(1), [
+            f"{nb.CHECKS_JOB}: Tier routing", f"{nb.CHECKS_JOB}: Type scale", "cmux-next swift test"])
+        self.assertIn("actions/jobs/7/logs", " ".join(controller.gh.gh.call_args.args))
+
+    def test_an_unreadable_log_keeps_the_job(self):
+        controller = self.controller()
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "not found")
+        self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7), {nb.CHECKS_JOB})
+
+    def test_the_probes_reds_are_the_inherited_ones(self):
+        controller = self.controller()
+        controller.base_probe_result = {"failed": {f"{nb.CHECKS_JOB}: Type scale"}}
+        self.assertEqual(controller.failing_on_base("b" * 40), {f"{nb.CHECKS_JOB}: Type scale"})
+        controller.gh.runs.assert_not_called()
+
+    def test_without_a_probe_only_outright_failures_in_the_push_run_count(self):
+        controller = self.controller()
+        controller.gh.runs.return_value = [{"id": 1, "status": "completed", "head_branch": nb.BASE}]
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 7, "name": "cmux-next generated files", "conclusion": "cancelled"},
+            {"id": 8, "name": "cmux app scheme compile (Debug)", "conclusion": "failure"},
+        ]}
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug)"})
+        self.assertIn("event=push", controller.gh.runs.call_args.args[1])
+
+    def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
+        controller = self.controller()
+        controller.gh.runs.return_value = [
+            {"id": 3, "status": "in_progress", "head_branch": nb.BASE, "html_url": "u"},
+            {"id": 4, "status": "in_progress", "head_branch": "next-batch/x-1", "html_url": "u"},
+            {"id": 5, "status": "completed", "head_branch": nb.BASE, "html_url": "u"},
+        ]
+        waited = []
+        controller.wait_run = lambda run_id, timeout: waited.append(run_id) or {"status": "completed"}
+        controller.wait_base_tree()
+        controller.wait_base_tree()
+        self.assertEqual(waited, [3])
+        self.assertEqual(controller.gh.runs.call_args.args[0], nb.TUI_WORKFLOW)
+
+    def test_a_cancelled_probe_is_never_rerun(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        controller.wait_run = lambda run_id, timeout: {"status": "completed", "conclusion": "cancelled"}
+        controller.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test"]
+        controller.probe_base()
+        self.assertNotIn("rerun", [call.args[0] for call in controller.gh.gh.call_args_list])
+        self.assertNotIn("failed", controller.base_probe_result)
+
+    def test_a_batch_that_ends_first_cancels_the_probes_run(self):
+        controller = self.controller()
+        controller.base_probe = mock.Mock(is_alive=lambda: True)
+        controller.base_probe_result = {"run": 42}
+        controller.stop_base_probe()
+        self.assertEqual(controller.gh.gh.call_args.args[:3], ("run", "cancel", "42"))
+
+    def test_the_probe_validates_the_base_on_its_own_branch(self):
+        controller = self.controller()
+        pushed = []
+        controller.push = lambda sha, ref: pushed.append((sha, ref))
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        controller.wait_run = lambda run_id, timeout: {"status": "completed"}
+        controller.failed_jobs = lambda run_id, detail=False: [f"{nb.CHECKS_JOB}: Type scale"]
+        with mock.patch.object(nb.time, "sleep"):
+            controller.probe_base()
+        self.assertEqual(pushed, [("b" * 40, "next-batch/local-1-base")])
+        controller.gh.dispatch.assert_called_once_with(nb.HEAVY_WORKFLOW, "next-batch/local-1-base")
+        self.assertEqual(controller.base_probe_result["failed"], {f"{nb.CHECKS_JOB}: Type scale"})
+        self.assertEqual(controller.base_probe_result["url"], "https://probe")
+
+
+    def test_a_base_red_job_excuses_only_the_tests_that_fail_on_the_base(self):
+        """A red swift test on the base must not excuse a stack that breaks another test."""
+        controller = self.controller()
+        steps = [{"name": "Set up job", "conclusion": "success"}, {"name": "Run tests", "conclusion": "failure"}]
+        job = {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}
+        controller.gh.api.return_value = {"jobs": [job]}
+
+        def failing(*tests):
+            text = "".join(f"2026-10-19T03:02:59.1Z \u2718 Test {name} recorded an issue at A.swift:1:2: x\n" for name in tests)
+            return subprocess.CompletedProcess([], 0, text, "")
+
+        controller.gh.gh.return_value = failing("alpha()")
+        base = set(controller.failed_jobs(1, detail=True))
+        controller.gh.gh.return_value = failing("alpha()", "beta()")
+        stack = set(controller.failed_jobs(2, detail=True))
+        self.assertIn("cmux-next swift test: test beta()", stack - base)
+        controller.gh.gh.return_value = failing("alpha()")
+        self.assertEqual(set(controller.failed_jobs(3, detail=True)) - base, set())
+        # Job-level names stay for gh-merge-green's lanes.
+        self.assertEqual(controller.failed_jobs(1), ["cmux-next swift test"])
+
+    def test_a_job_with_nothing_to_compare_is_never_excused_by_its_steps(self):
+        """A timeout or a crash leaves only the failed step; the base failing that step for another reason excuses nothing."""
+        controller = self.controller()
+        steps = [{"name": "Run tests", "conclusion": "failure"}]
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess(
+            [], 0, "2026-10-19T03:02:59.1Z \u2718 Test alpha() recorded an issue at A.swift:1:2: x\n", "")
+        base = set(controller.failed_jobs(1, detail=True))
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z still running\n", "")
+        self.assertEqual(set(controller.failed_jobs(2, detail=True)) - base, {"cmux-next swift test"})
+        crash = "2026-10-19T03:02:59.1Z error: Exited with unexpected signal code 5\n".replace("Exited", "exited")
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crash, "")
+        self.assertIn("cmux-next swift test: crash signal 5", set(controller.failed_jobs(3, detail=True)) - base)
+
+    def test_a_probe_stopped_before_its_run_is_found_cancels_it(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        deleted = []
+        controller.delete_branch = deleted.append
+
+        def find_run(workflow, branch, match, since):
+            controller.base_probe_stop.set()  # the batch ended while the probe looked for its run
+            return {"id": 5, "html_url": "https://probe"}
+
+        controller.find_run = find_run
+        controller.wait_run = mock.Mock()
+        controller.probe_base()
+        controller.wait_run.assert_not_called()
+        self.assertIn(("run", "cancel", "5"), [call.args[:3] for call in controller.gh.gh.call_args_list])
+        self.assertEqual(deleted, ["next-batch/local-1-base"])
+        self.assertNotIn("failed", controller.base_probe_result)
+
+    def test_a_probe_whose_rerun_does_not_finish_records_nothing(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        states = iter([{"status": "completed", "conclusion": "failure"}, {"status": "in_progress"}])
+        controller.wait_run = lambda run_id, timeout: next(states)
+        controller.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test: test flaky()"]
+        with mock.patch.object(nb.time, "sleep"):
+            controller.probe_base()
+        self.assertNotIn("failed", controller.base_probe_result)
+
+    def test_a_batch_that_raises_still_cleans_up(self):
+        controller = self.controller()
+        controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, keep_branches=False, prs="7")
+        controller.reported = lambda pr, kinds: ""
+        controller.validations = []
+        controller.base_probe_result = {"branch": "next-batch/local-1-base", "run": 9}
+        controller.base_probe = mock.Mock(is_alive=lambda: True)
+        deleted = []
+        controller.delete_branch = deleted.append
+
+        def validate(prs, name):
+            controller.validations.append(nb.Validation(name=name, stack=nb.Stack(base="b", head="c"),
+                                                        branch="next-batch/local-1-1"))
+            raise RuntimeError("HTTP 502")
+
+        controller.validate = validate
+        with mock.patch.object(nb, "open_prs", return_value=[]), \
+                mock.patch.object(nb, "select", return_value=([pr(7)], {})), \
+                mock.patch.object(nb, "admit_reviewed", return_value=([pr(7)], {})), \
+                mock.patch.object(nb, "freeze_check", return_value=(0, "")):
+            with self.assertRaises(RuntimeError):
+                controller.run()
+        self.assertEqual(deleted, ["next-batch/local-1-1", "next-batch/local-1-base"])
+        self.assertIn(("run", "cancel", "9"), [call.args[:3] for call in controller.gh.gh.call_args_list])
+
+class TreeInputs(unittest.TestCase):
+    def test_a_tree_input_outside_cmux_tui_counts_and_other_files_do_not(self):
+        root = Path(tempfile.mkdtemp())
+        (root / "scripts/cmux-next").mkdir(parents=True)
+        (root / nb.TREE_INPUTS).write_text("# inputs\ntree first-party-apps/cloud/server\nfile schemas/x/vectors.json\n")
+        self.assertTrue(nb.touches_tree(["schemas/x/vectors.json"], root))
+        self.assertTrue(nb.touches_tree(["first-party-apps/cloud/server/main.rs"], root))
+        self.assertTrue(nb.touches_tree(["cmux-tui/crates/a.rs"], root))
+        self.assertFalse(nb.touches_tree(["webviews/src/a.tsx", "schemas/x/other.json"], root))
+
+
 class RemoteRegeneration(unittest.TestCase):
     """Generators run the stack's code, so they run in a dispatched job and
     send back a patch; the controller never runs them on its own host."""
@@ -777,7 +992,6 @@ class FormatBeforeLanding(unittest.TestCase):
         controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, land=False)
         controller.run_url = "u"
         controller.gh = mock.Mock()
-        controller.merge_green = lambda: Path("/bin/true")
         controller.comment_once = lambda *args: None
         formatted = []
         controller.format_pr = lambda item, branch: formatted.append(item.number) or "f" * 40
@@ -796,11 +1010,10 @@ class FormatBeforeLanding(unittest.TestCase):
         red = pr(1, files=["webviews/a.ts"], checks=[("web / react-apps-check", "completed", "failure")])
         clean = pr(2, files=["webviews/b.ts"])
         controller.gh = mock.Mock()
-        controller.merge_green = lambda: Path("/bin/true")
         controller.comment_once = lambda *args: None
         formatted, merged = [], []
         controller.format_pr = lambda item, branch: formatted.append(item.number) or "f" * 40
-        controller.merge_one = lambda helper, item, validation: merged.append(item.number) or "landed"
+        controller.merge_one = lambda item, validation: merged.append(item.number) or "landed"
         validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="h", included=[red, clean]),
                                    branch="next-batch/x-1")
         reviewed = Path(tempfile.mkdtemp()) / "reviewed"
@@ -831,11 +1044,10 @@ class NotifyOwners(unittest.TestCase):
         controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, land=not notify)
         controller.run_url = "u"
         controller.gh = mock.Mock()
-        controller.merge_green = lambda: Path("/bin/true")
         controller.comments = []
         controller.comment_once = lambda item, kind, body: controller.comments.append((item.number, kind, body))
         controller.merged = []
-        controller.merge_one = lambda helper, item, validation: controller.merged.append(item.number) or "landed"
+        controller.merge_one = lambda item, validation: controller.merged.append(item.number) or "landed"
         return controller
 
     def validation(self, prs, passed=("cmux-next swift test",)) -> nb.Validation:
@@ -927,17 +1139,6 @@ class ReviewGateHoles(NotifyOwners):
         path.chmod(0o600)
         return str(path)
 
-    def test_the_merge_is_pinned_to_the_validated_head(self):
-        controller = self.controller(notify=False)
-        calls = []
-        controller.writer = mock.Mock(env={})
-        def run(command, **kwargs):
-            calls.append(command)
-            return subprocess.CompletedProcess(command, 0, "", "")
-        with mock.patch.object(nb.subprocess, "run", run):
-            nb.Controller.merge_one(controller, Path("/bin/true"), pr(1), self.validation([pr(1)]))
-        self.assertIn(["--match-head-commit", pr(1).sha], [calls[0][i:i + 2] for i in range(len(calls[0]))])
-
     def test_only_reviewed_prs_are_stacked_when_landing(self):
         gh = mock.Mock()
         with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": self.reviewed_file(pr(2))}):
@@ -1017,6 +1218,14 @@ class CoordinatorAndOverrides(unittest.TestCase):
         self.assertIsNone(nb.ineligible_reason(trusted, NOW))
         self.assertEqual(nb.ineligible_reason(by_lane, NOW), "red check lint")
 
+    def test_known_base_red_never_waives_risk_evidence_or_a_freeze(self):
+        label = nb.OVERRIDE_BASE_RED
+        for check in ("risk evidence", "merge freeze"):
+            with self.subTest(check=check):
+                item = pr(1, checks=[(check, "completed", "failure")], labels=[label],
+                          label_actors={label: "lawrencecchen"})
+                self.assertIn(check, nb.ineligible_reason(item, NOW) or "")
+
     def test_land_alone_takes_a_batch_of_its_own(self):
         label = nb.OVERRIDE_ALONE
         prs = [pr(1), pr(2, labels=[label], label_actors={label: "lawrencecchen"}), pr(3)]
@@ -1094,37 +1303,145 @@ class StickyBody(unittest.TestCase):
         self.assertNotIn("batch 7", body)
 
 
-class LandingRetry(unittest.TestCase):
-    def test_red_heavy_check_lands_with_an_override_naming_the_batch(self):
-        controller = nb.Controller.__new__(nb.Controller)
-        controller.args = Namespace(repo="o/r")
-        controller.run_url = "https://example.test/run/1"
-        controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
-        calls = []
+class Landing(unittest.TestCase):
+    """The batch lands through GitHub's merge API pinned to the head it validated; no gh-merge-green."""
 
-        def fake_run(command, **_):
-            calls.append(command)
-            if "--override" not in command:
-                return subprocess.CompletedProcess(command, 1, "", "not green: 'cmux-next swift test' is not successful on abc\n")
-            return subprocess.CompletedProcess(command, 0, "", "")
-
-        with mock.patch.object(nb.subprocess, "run", fake_run):
-            outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
-        self.assertTrue(outcome.startswith("landed"))
-        self.assertIn("https://example.test/run/1", calls[-1][calls[-1].index("--override") + 1])
-
-    def test_github_refusal_is_reported_not_retried(self):
+    def controller(self, api):
         controller = nb.Controller.__new__(nb.Controller)
         controller.args = Namespace(repo="o/r")
         controller.run_url = "u"
-        controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
-        refusal = subprocess.CompletedProcess([], 1, "", "not green: GitHub refused to merge o/r#7\n")
-        with mock.patch.object(nb.subprocess, "run", return_value=refusal):
-            self.assertEqual(controller.merge_one(Path("/bin/true"), pr(7), validation),
-                             "not landed: not green: GitHub refused to merge o/r#7")
+        controller.writer = mock.Mock()
+        controller.gh = mock.Mock(env={})
 
+        def routed(path, method="GET", **kw):
+            if "check-runs" in path and not getattr(api, "reads_checks", False):
+                return {"check_runs": []}
+            return api(path, method=method, **kw) if "method" in api.__code__.co_varnames else api(path, **{"method": method, **kw})
+        controller.writer.api = routed
+        controller.gh.api = routed
+        return controller
+
+    def validation(self):
+        return nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
+
+    def test_merges_the_validated_head_with_a_squash(self):
+        calls = []
+        controller = self.controller(lambda path, **kw: calls.append((path, kw)) or {"sha": "m" * 40, "merged": True})
+        with self.freeze(0):
+            self.assertEqual(controller.merge_one(pr(7), self.validation()), "landed")
+        path, kw = calls[0]
+        self.assertEqual(path, "repos/o/r/pulls/7/merge")
+        self.assertEqual(kw["method"], "PUT")
+        self.assertEqual(kw["body"]["sha"], pr(7).sha)
+        self.assertEqual(kw["body"]["merge_method"], "squash")
+
+    def test_a_refusal_is_reported_not_retried(self):
+        calls = []
+
+        def refuse(path, **kw):
+            calls.append(path)
+            raise RuntimeError("gh api -X PUT failed: Head branch was modified. Review and try the merge again. (HTTP 409)")
+        with self.freeze(0):
+            outcome = self.controller(refuse).merge_one(pr(7), self.validation())
+        self.assertTrue(outcome.startswith("not landed: GitHub refused to merge"), outcome)
+        self.assertEqual(len(calls), 1)
+
+    def freeze(self, code):
+        return mock.patch.object(nb, "freeze_check", lambda repo, number, env: (code, "frozen: CmuxNext/Foo/ (#9)"))
+
+    def test_keeps_githubs_default_squash_body_with_its_trailers(self):
+        calls = []
+        controller = self.controller(lambda path, **kw: calls.append(kw) or {"merged": True})
+        with self.freeze(0):
+            controller.merge_one(pr(7), self.validation())
+        self.assertNotIn("commit_message", calls[0]["body"])
+
+    def test_a_freeze_opened_since_the_last_push_stops_the_merge(self):
+        calls = []
+        controller = self.controller(lambda path, **kw: calls.append(path) or {})
+        with self.freeze(1):
+            outcome = controller.merge_one(pr(7), self.validation())
+        self.assertTrue(outcome.startswith("not landed: frozen"), outcome)
+        self.assertEqual(calls, [])
+        with self.freeze(2):
+            self.assertIn("unreadable", controller.merge_one(pr(7), self.validation()))
+        self.assertEqual(calls, [])
+
+    def test_a_transient_error_is_retried_and_never_marks_the_pr_refused(self):
+        puts = iter([RuntimeError("gh api -X PUT failed: Base branch was modified. Review and try the merge again. (HTTP 405)"),
+                     {"merged": True}])
+
+        def api(path, method="GET", **kw):
+            if method == "PUT":
+                reply = next(puts)
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+            return {"merged": False, "head": {"sha": pr(7).sha}}
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            self.assertEqual(self.controller(api).merge_one(pr(7), self.validation()), "landed")
+
+        def always_502(path, method="GET", **kw):
+            if method == "PUT":
+                raise RuntimeError("gh api -X PUT failed: gh: HTTP 502")
+            return {"merged": False}
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            outcome = self.controller(always_502).merge_one(pr(7), self.validation())
+        self.assertTrue(outcome.startswith("not landed"))
+        self.assertNotIn("GitHub refused to merge", outcome)
+    def test_a_5xx_after_github_merged_counts_as_landed(self):
+        def api(path, method="GET", **kw):
+            if method == "PUT":
+                raise RuntimeError("gh api -X PUT failed: gh: HTTP 504")
+            return {"merged": True, "head": {"sha": pr(7).sha}}
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            self.assertEqual(self.controller(api).merge_one(pr(7), self.validation()), "landed")
+
+    def test_a_network_error_is_transient_not_a_refusal(self):
+        def api(path, method="GET", **kw):
+            if method == "PUT":
+                raise RuntimeError("gh api -X PUT failed: Post https://api.github.com: read: connection reset by peer")
+            return {"merged": False, "head": {"sha": pr(7).sha}}
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            outcome = self.controller(api).merge_one(pr(7), self.validation())
+        self.assertNotIn("GitHub refused to merge", outcome)
+
+    def test_pending_risk_evidence_holds_the_merge(self):
+        calls = []
+
+        def api(path, method="GET", **kw):
+            calls.append((method, path))
+            if "check-runs" in path:
+                return {"check_runs": [{"name": "risk evidence", "status": "in_progress", "conclusion": None}]}
+            return {"merged": True}
+        api.reads_checks = True
+        with self.freeze(0):
+            outcome = self.controller(api).merge_one(pr(7), self.validation())
+        self.assertIn("risk evidence", outcome)
+        self.assertNotIn("GitHub refused to merge", outcome)
+        self.assertFalse(any(method == "PUT" for method, _ in calls))
+
+    def test_freeze_check_maps_the_checkers_exit_and_uses_the_given_token(self):
+        root = Path(tempfile.mkdtemp())
+        (root / "scripts/ci").mkdir(parents=True)
+        script = root / "scripts/ci/merge_freeze.py"
+        for code, expected in ((0, 0), (1, 1), (3, 2)):
+            script.write_text(f"import os, sys\nprint(os.environ.get('GH_TOKEN'))\nsys.exit({code})\n")
+            with mock.patch.object(nb, "TOOLS_ROOT", root):
+                got, detail = nb.freeze_check("o/r", 7, {**os.environ, "GH_TOKEN": "job-token"})
+            self.assertEqual(got, expected)
+            self.assertIn("job-token", detail)
+
+    def test_frozen_prs_never_enter_a_stack(self):
+        verdicts = {1: (0, ""), 2: (1, "frozen: x/"), 3: (2, "HTTP 502")}
+        kept, skipped = nb.drop_frozen([pr(1), pr(2), pr(3)], lambda number: verdicts[number])
+        self.assertEqual([item.number for item in kept], [1])
+        self.assertIn("frozen", skipped[2])
+        self.assertIn("unreadable", skipped[3])
+
+    def test_gh_merge_green_is_gone_from_the_queue(self):
+        source = (ROOT / "scripts/ci/next_batch.py").read_text()
+        self.assertNotIn("gh-merge-green", source)
 
 class WorkflowShape(unittest.TestCase):
     def setUp(self):

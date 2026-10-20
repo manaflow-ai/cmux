@@ -28,8 +28,9 @@ def status(**sections):
 
 
 class FakeGitHub:
-    def __init__(self, check_runs, comments):
+    def __init__(self, check_runs, comments, base_runs=None, steps=None, annotations=None):
         self.check_runs, self.writes = check_runs, []
+        self.base_runs, self.steps, self.annotations = base_runs, steps or {}, annotations or {}
         self.comments = {c["id"]: dict(c, user=c.get("user", BOT)) for c in comments}
         fake = self
 
@@ -46,8 +47,15 @@ class FakeGitHub:
                 self.wfile.write(body)
 
             def do_GET(self):
+                if "/annotations" in self.path:
+                    rid = int(self.path.split("/check-runs/")[1].split("/")[0])
+                    return self.reply(fake.annotations.get(rid, []))
+                if "/actions/jobs/" in self.path:
+                    jid = int(self.path.rsplit("/", 1)[1].split("?")[0])
+                    return self.reply({"id": jid, "steps": fake.steps.get(jid, [])})
                 if "/check-runs" in self.path:
-                    return self.reply({"total_count": len(fake.check_runs), "check_runs": fake.check_runs})
+                    runs = fake.base_runs if f"/commits/{'b' * 40}/" in self.path else fake.check_runs
+                    return self.reply({"total_count": len(runs), "check_runs": runs})
                 if self.path.startswith("/repos/o/r/issues/7/comments"):
                     return self.reply(sorted(fake.comments.values(), key=lambda c: c["id"]))
                 self.send_error(404)
@@ -80,6 +88,9 @@ class FakeGitHub:
     def run(self):
         env = dict(os.environ, GITHUB_API_URL=f"http://127.0.0.1:{self.server.server_port}", GITHUB_REPOSITORY="o/r",
                    GITHUB_TOKEN="t", PR_NUMBER="7", HEAD_SHA="a" * 40, PR_STATUS_SETTLE_SECONDS="0.01")
+        env.pop("BASE_SHA", None)
+        if self.base_runs is not None:
+            env["BASE_SHA"] = "b" * 40
         out = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
         self.server.shutdown()
         assert out.returncode == 0, out.stderr
@@ -125,3 +136,94 @@ def test_the_old_red_checks_comment_becomes_the_status_comment():
 
 def test_clean_or_pending_pr_gets_no_comment():
     assert FakeGitHub([run("web / react-apps-check", "success"), run("web / web-tests", None, status="in_progress", id_=2)], []).run() == []
+
+
+# Base comparison (BASE_SHA set): #20633 merged with react-apps-check red because its budget red was a
+# known base red; the job's lint step had also failed, on the PR's own new test, and only the base had
+# it green. Each red check is compared step by step with the base commit's run of the same check.
+def failed(name):
+    return {"name": name, "conclusion": "failure"}
+
+
+def ok(name):
+    return {"name": name, "conclusion": "success"}
+
+
+RAC = "web / react-apps-check (1)"
+
+
+def checks_line(fake):
+    writes = fake.run()
+    assert len(writes) == 1, writes
+    return pr_status.parse(writes[0][2])["checks"]
+
+
+def test_a_red_step_the_base_passes_is_new_and_blocks():
+    line = checks_line(FakeGitHub(
+        [run(RAC, "failure", id_=11)], [],
+        base_runs=[run(RAC, "failure", id_=21)],
+        steps={11: [ok("Build"), failed("Check webviews (Oxlint, Oxfmt, type check)"), failed("Fail on the eager JS budget")],
+               21: [ok("Build"), ok("Check webviews (Oxlint, Oxfmt, type check)"), failed("Fail on the eager JS budget")]}))
+    assert line.startswith(f"red: {RAC}; NEW: step `Check webviews (Oxlint, Oxfmt, type check)` passes on the base bbbbbbbbbb;"), line
+    assert "do not merge until green" in line, line
+
+
+def test_the_same_failed_steps_as_the_base_are_a_base_red():
+    line = checks_line(FakeGitHub(
+        [run(RAC, "failure", id_=11)], [],
+        base_runs=[run(RAC, "failure", id_=21)],
+        steps={11: [failed("Fail on the eager JS budget")], 21: [failed("Fail on the eager JS budget")]}))
+    assert line == f"red: {RAC}; base red: the same failure on the base bbbbbbbbbb; does not block", line
+
+
+def test_a_new_failure_annotation_inside_a_shared_step_is_new():
+    # The cmux-next checks job fails one summary step for any red sub-check; the sub-checks differ.
+    name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+    line = checks_line(FakeGitHub(
+        [run(name, "failure", id_=11)], [],
+        base_runs=[run(name, "failure", id_=21)],
+        steps={11: [failed("Fail on any red check")], 21: [failed("Fail on any red check")]},
+        annotations={11: [{"annotation_level": "failure", "message": "red check: Motion tokens"},
+                          {"annotation_level": "failure", "message": "red check: String tables (21 languages)"},
+                          {"annotation_level": "failure", "message": "Process completed with exit code 1."}],
+                     21: [{"annotation_level": "failure", "message": "red check: String tables (21 languages)"},
+                          {"annotation_level": "failure", "message": "Process completed with exit code 1."}]}))
+    assert line.startswith(f"red: {name}; NEW: `red check: Motion tokens` is not red on the base bbbbbbbbbb;"), line
+
+
+def test_a_base_that_is_green_makes_every_red_new():
+    line = checks_line(FakeGitHub([run(RAC, "failure", id_=11)], [], base_runs=[run(RAC, "success", id_=21)],
+                                  steps={11: [failed("Test webviews")]}))
+    assert line.startswith(f"red: {RAC}; NEW: green on the base bbbbbbbbbb;"), line
+
+
+def test_no_base_run_to_compare_still_blocks():
+    line = checks_line(FakeGitHub([run(RAC, "failure", id_=11)], [], base_runs=[], steps={11: [failed("Test webviews")]}))
+    assert line == f"red: {RAC}; no finished base run on bbbbbbbbbb to compare; do not merge until green; see lane-rules", line
+
+
+def test_a_cancelled_base_run_cannot_excuse_a_red():
+    line = checks_line(FakeGitHub([run(RAC, "failure", id_=11)], [], base_runs=[run(RAC, "cancelled", id_=21)],
+                                  steps={11: [failed("Test webviews")]}))
+    assert line == f"red: {RAC}; no finished base run on bbbbbbbbbb to compare; {'do not merge until green; see lane-rules'}", line
+
+
+def test_the_cmux_next_checks_job_is_tracked():
+    name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+    writes = FakeGitHub([run(name, "failure")], []).run()
+    assert writes and f"red: {name};" in pr_status.parse(writes[0][2])["checks"], writes
+
+
+if __name__ == "__main__":
+    import traceback
+    bad = 0
+    for _name, _fn in sorted(globals().items()):
+        if _name.startswith("test_") and callable(_fn):
+            try:
+                _fn()
+                print("PASS", _name)
+            except Exception:  # noqa: BLE001 - report every failure
+                bad += 1
+                print("FAIL", _name)
+                traceback.print_exc(limit=1)
+    sys.exit(1 if bad else 0)
