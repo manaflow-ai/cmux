@@ -15,6 +15,7 @@ import { flushSync } from "react-dom";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
+import { isAgentMotionOff } from "../shared/motion";
 import {
   layoutConversation,
   type ConversationLayout,
@@ -852,7 +853,7 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
 /// before one paint move the text by their sum. None under Reduce Motion.
 function glide(node: HTMLElement | null, step: number): void {
-  if (!node || typeof node.animate !== "function") return;
+  if (isAgentMotionOff() || !node || typeof node.animate !== "function") return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
   node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
     duration: GLIDE_MS,
@@ -1515,6 +1516,34 @@ export function VirtualTranscript({
   const [seeking, setSeeking] = useState(false);
   const [seekExpired, setSeekExpired] = useState(false);
   const seekTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Older pages can be requested from several render paths: the open-at seek and the top
+  // prefetch both run while the transcript is settling. Keep one request per loaded first row so
+  // streaming renders cannot repeatedly enqueue the same page. A new first row is the host's
+  // pagination/version signal and permits the next page.
+  const olderLoad = useRef<{ key: string; promise?: Promise<void> } | undefined>(undefined);
+  const requestOlder = useCallback(
+    (key: string) => {
+      if (!canLoadOlder || !onLoadOlder) return;
+      const current = olderLoad.current;
+      if (current?.promise || current?.key === key) return;
+      const promise = Promise.resolve().then(() => onLoadOlder());
+      olderLoad.current = { key, promise };
+      void promise
+        .catch(() => {
+          // A transient transport failure should remain retryable for this page.
+          if (olderLoad.current?.promise === promise) olderLoad.current = undefined;
+        })
+        .finally(() => {
+          if (olderLoad.current?.promise === promise) olderLoad.current = { key };
+        });
+    },
+    [canLoadOlder, onLoadOlder],
+  );
+  useLayoutEffect(() => {
+    // A pending page belongs to the previous chat. Do not let it block the new chat's first page;
+    // its completion also cannot overwrite this ref because the promise identity changed.
+    olderLoad.current = undefined;
+  }, [sessionId]);
   /// When the walk began, and the first row it had then: a new first row is a page landed.
   const seekStart = useRef<number | undefined>(undefined);
   const seekFirstRow = useRef<string | undefined>(undefined);
@@ -1692,6 +1721,9 @@ export function VirtualTranscript({
   // Find highlights only need repainting when the query/target, row content, or mounted DOM
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
+  // Markers live on the mounted DOM rows, so a scroll that swaps a virtualized range must repaint
+  // them without bringing back the old every-render effect. The compact key changes only when the
+  // mounted ranges change; registry updates can replace a row renderer while preserving the range.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
   if (lastPlaced.current) {
     lastPlaced.current.first = mountedRanges[0]?.first ?? 0;
@@ -1934,7 +1966,7 @@ export function VirtualTranscript({
           seekTimer.current = setTimeout(() => setSeekExpired(true), Math.max(0, left));
         }
         setSeeking(true);
-        onLoadOlder().catch(() => {});
+        requestOlder(`${sessionId ?? ""}:${rows[0]?.id ?? ""}`);
       } else if (layout.totalHeight <= node.clientHeight) {
         // A tail that fits shows from the top, as before; it opens once it overflows.
         endSeek();
@@ -1959,7 +1991,7 @@ export function VirtualTranscript({
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height, width, sessionId, seekExpired, canLoadOlder]);
+  }, [layout, rows, range.first, height, width, sessionId, seekExpired, canLoadOlder, requestOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -2274,7 +2306,9 @@ export function VirtualTranscript({
   // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
   // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
-  useLayoutEffect(markTurns, [markTurns, rows, range.first, range.last]);
+  // A scroll that swaps a virtualized range, or a registry update that replaces a row renderer,
+  // remounts rows without their markers, so both repaint them too.
+  useLayoutEffect(markTurns, [markTurns, rows, range.first, range.last, mountedRangeKey, registry]);
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
@@ -3048,8 +3082,8 @@ function AcpmuxPane() {
             if (!tool) return false;
             if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
             if (tool.kind !== "execute") return false;
-            const command = `${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
-            return /run_in_background\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)|(?:ScheduleWakeup|CronCreate)\b/.test(
+            const command = `${tool.title} ${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
+            return /["']?run_in_background["']?\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)|(?:ScheduleWakeup|CronCreate)\b/.test(
               command,
             );
           })),
