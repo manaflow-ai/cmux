@@ -11,6 +11,7 @@ import WebKit
 /// Swipe navigation and link previews are off in ``PageWebView``. Third-party pages in browser tabs
 /// use their own views and are not affected.
 @MainActor
+// webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
 final class PageWKWebView: WKWebView {
     var onUserEvent: (() -> Void)?
     /// Whether the page now shown accepts the first mouse (``PageDescriptor/acceptsFirstMouse``);

@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextErrorJournal
+import CmuxNextSettings
 import Foundation
 
 // Chromium mode (`browser.defaultEngine` is `chromium`, ``PageEnginePolicy``): the page shows in a
@@ -52,7 +53,7 @@ extension PageWebView {
     }
 
     /// Reloads the document in whichever engine shows it.
-    func reloadDocument() {
+    func reloadPage() {
         if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }
 
