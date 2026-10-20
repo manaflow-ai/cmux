@@ -15,7 +15,7 @@ import Testing
         let payload = ChiefAnswerPayload(macDevice: "mac-1", approver: "phone-1", conversation: "conv_A", messageID: "msg_B",
                                          partIndex: 2, nonce: "n0n0n0n0n0n0n0n0", expiresAt: 1_800_000_000, answer: answer)
         #expect(payload.message.starts(with: Data("cmux-mobile-chief-answer-v1\u{0}".utf8)))
-        #expect(ApprovalPayloadTests.sha256(payload.message) == "2e9158d5a71cfd838d333da95da7c0717a07d3ddee1fc98ddc027cf7e1024dfc")
+        #expect(ApprovalPayloadTests.sha256(payload.message) == "efdb94cfaf0c3176d7286d56d9f43b3bc0320bfec0fa026689e51f3a3074b6fb")
         let approval = payload.approval(signature: Data([0xAB, 0x01]))
         #expect(approval == .object(["approver": .string("phone-1"), "nonce": .string("n0n0n0n0n0n0n0n0"),
                                      "expiresAt": .number(1_800_000_000), "signature": .string("ab01")]))

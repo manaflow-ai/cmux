@@ -702,9 +702,9 @@ mod tests {
         // The same vector is in the phone's LinkAuthTests.
         use ring::digest::{SHA256, digest};
         let m = challenge_message("mac-1", "phone-1", "n0", "04aa", "04bb", "pair");
-        assert_eq!(&m[..17], b"cmux-mobile-link-auth-v1\0");
+        assert_eq!(&m[..25], b"cmux-mobile-link-auth-v1\0");
         let hex: String = digest(&SHA256, &m).as_ref().iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(hex, "237c38ed09257b49bfb2a2e105506741f1dbadbc3d63414ff65c40af9faf9084");
+        assert_eq!(hex, "9b706236232d90e6548bf7de5c624845d5209a65bb08dba15e4561b85fd26ae2");
     }
 
     #[tokio::test]

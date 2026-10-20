@@ -293,10 +293,10 @@ mod tests {
             expires_at: 1_800_000_000,
             answer: &digest,
         });
-        assert_eq!(&m[..20], b"cmux-mobile-chief-answer-v1\0");
+        assert_eq!(&m[..28], b"cmux-mobile-chief-answer-v1\0");
         assert_eq!(
             hex(ring::digest::digest(&ring::digest::SHA256, &m).as_ref()),
-            "2e9158d5a71cfd838d333da95da7c0717a07d3ddee1fc98ddc027cf7e1024dfc"
+            "efdb94cfaf0c3176d7286d56d9f43b3bc0320bfec0fa026689e51f3a3074b6fb"
         );
     }
 

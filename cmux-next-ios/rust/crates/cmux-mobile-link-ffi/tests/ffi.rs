@@ -189,7 +189,7 @@ async fn wireguard_relay_only_without_turn_fails_fast() {
     .await;
     match result {
         Err(cmux_mobile_link_ffi::CmuxMobileError::Transport { message }) => {
-            assert!(message.contains("TURN"), "{message}")
+            assert!(message.contains("TURN"), "{message}");
         }
         Err(other) => panic!("unexpected error {other:?}"),
         Ok(_) => panic!("UDP-blocked WireGuard connected without TURN"),
@@ -224,7 +224,7 @@ async fn webrtc_relay_only_without_turn_fails_fast() {
     .await;
     match result {
         Err(cmux_mobile_link_ffi::CmuxMobileError::Transport { message }) => {
-            assert!(message.contains("TURN"), "{message}")
+            assert!(message.contains("TURN"), "{message}");
         }
         Err(other) => panic!("unexpected error {other:?}"),
         Ok(_) => panic!("relay-only WebRTC connected without TURN"),

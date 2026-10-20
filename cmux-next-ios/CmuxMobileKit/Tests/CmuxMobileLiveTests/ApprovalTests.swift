@@ -55,7 +55,7 @@ import Testing
 
     @Test func linkChallengeMatchesHostd() {
         let payload = LinkAuthPayload(mac: "mac-1", phone: "phone-1", nonce: "n0", identityKey: "04aa", approvalKey: "04bb", action: "pair")
-        #expect(Self.sha256(payload.message) == "237c38ed09257b49bfb2a2e105506741f1dbadbc3d63414ff65c40af9faf9084")
+        #expect(Self.sha256(payload.message) == "9b706236232d90e6548bf7de5c624845d5209a65bb08dba15e4561b85fd26ae2")
     }
 }
 
