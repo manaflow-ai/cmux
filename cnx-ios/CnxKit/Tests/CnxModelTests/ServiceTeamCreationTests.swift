@@ -1,12 +1,14 @@
 import Foundation
 import Testing
-@testable import CnxAuth
+@testable import CnxModel
 
 /// Full verify D1 (2026-10-19): Stack refuses team creation from the
 /// client, so the phone creates teams through the cmux service.
-@Suite struct CreateTeamRequestTests {
+@Suite struct ServiceTeamCreationTests {
+    let creation = ServiceTeamCreation(apiBase: URL(string: "https://api.example")!)
+
     @Test func theRequestGoesToTheServiceWithTheName() throws {
-        let request = CnxAuthModel.createTeamRequest(apiBase: URL(string: "https://api.example")!, accessToken: "tok", name: "fv team")
+        let request = creation.request(accessToken: "tok", name: "fv team")
         #expect(request.url?.absoluteString == "https://api.example/v1/teams")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer tok")
@@ -15,16 +17,15 @@ import Testing
     }
 
     @Test func theAnswerIsTheNewTeam() throws {
-        let data = Data(#"{"team":{"id":"t-1","name":"fv team"}}"#.utf8)
-        let team = try CnxAuthModel.createdTeam(data: data, status: 200)
+        let team = try creation.team(from: Data(#"{"team":{"id":"t-1","name":"fv team"}}"#.utf8), status: 200)
         #expect(team.id == "t-1")
         #expect(team.name == "fv team")
     }
 
     @Test func aRefusalIsAnErrorNeverASilentSuccess() {
         let unavailable = Data(#"{"error":{"code":"team_creation_unavailable","message":"x"}}"#.utf8)
-        #expect(throws: CnxAuthModel.TeamCreationError.unavailable) { try CnxAuthModel.createdTeam(data: unavailable, status: 503) }
-        #expect(throws: CnxAuthModel.TeamCreationError.failed) { try CnxAuthModel.createdTeam(data: Data("{}".utf8), status: 200) }
-        #expect(throws: CnxAuthModel.TeamCreationError.failed) { try CnxAuthModel.createdTeam(data: Data(), status: 502) }
+        #expect(throws: ServiceTeamCreation.Failure.unavailable) { try creation.team(from: unavailable, status: 503) }
+        #expect(throws: ServiceTeamCreation.Failure.failed) { try creation.team(from: Data("{}".utf8), status: 200) }
+        #expect(throws: ServiceTeamCreation.Failure.failed) { try creation.team(from: Data(), status: 502) }
     }
 }

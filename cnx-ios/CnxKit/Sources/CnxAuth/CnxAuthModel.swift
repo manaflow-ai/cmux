@@ -322,13 +322,6 @@ public final class CnxAuthModel {
         try? await coordinator?.selectTeam(id: id)
     }
 
-    /// Why a team could not be created.
-    public enum TeamCreationError: Error, Equatable, Sendable {
-        /// The cmux service can't create teams for this account (no server key for its project).
-        case unavailable
-        case failed
-    }
-
     /// Creates a team and selects it. Stack refuses team creation from the
     /// client (`client_team_creation_enabled` is off in both projects), so it
     /// goes through the cmux service (`POST /v1/teams`), which creates it with
@@ -336,38 +329,15 @@ public final class CnxAuthModel {
     public func createTeam(named name: String) async throws -> AppStore.AccountTeam {
         if isMock { return AppStore.AccountTeam(id: "team-\(UUID().uuidString.prefix(8))", name: name) }
         guard let coordinator else { throw AuthError.unauthorized }
-        guard let apiBase else { throw TeamCreationError.unavailable }
+        guard let apiBase else { throw ServiceTeamCreation.Failure.unavailable }
+        let creation = ServiceTeamCreation(apiBase: apiBase)
         let tokens = try await coordinator.currentTokens()
-        let (data, response) = try await URLSession.shared.data(
-            for: Self.createTeamRequest(apiBase: apiBase, accessToken: tokens.accessToken, name: name))
-        let team = try Self.createdTeam(data: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
+        let (data, response) = try await URLSession.shared.data(for: creation.request(accessToken: tokens.accessToken, name: name))
+        let team = try creation.team(from: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
         // The new membership, then the selection (best effort, as in Stack's own flow).
         await coordinator.refreshTeams()
         try? await coordinator.selectTeam(id: team.id)
         return team
-    }
-
-    /// `POST /v1/teams {name}` on the cmux service.
-    static func createTeamRequest(apiBase: URL, accessToken: String, name: String) -> URLRequest {
-        var request = URLRequest(url: apiBase.appending(path: "v1/teams"))
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["name": name])
-        return request
-    }
-
-    /// The created team from the service's answer; any other answer is an error, never a silent success.
-    static func createdTeam(data: Data, status: Int) throws -> AppStore.AccountTeam {
-        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        guard status == 200 else {
-            let code = (object?["error"] as? [String: Any])?["code"] as? String
-            throw code == "team_creation_unavailable" ? TeamCreationError.unavailable : TeamCreationError.failed
-        }
-        guard let team = object?["team"] as? [String: Any], let id = team["id"] as? String, !id.isEmpty else {
-            throw TeamCreationError.failed
-        }
-        return AppStore.AccountTeam(id: id, name: team["name"] as? String ?? "")
     }
 
     /// Joins a team from a Stack invitation link (`...?code=...`) and refreshes
