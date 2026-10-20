@@ -57,7 +57,7 @@ CARD_SECONDS = 1.5
 CLIP_SECONDS = 60
 TITLE_MAX = 60
 # capture_paths.py's TOUR_FILES order: the first tour a pull request has is its clip.
-TOUR_ORDER = ("new-tab", "agent-pane", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "chief-settings", "glass", "core")
 TOUR_AFTER = re.compile(r"(?P<pr>[0-9]+)/(?P<sha8>[0-9a-f]{8})/next-(?P<tour>[a-z0-9][a-z0-9-]*?)-after/tour\.mp4")
 TOUR_PLAIN = re.compile(r"(?P<pr>[0-9]+)/(?P<sha8>[0-9a-f]{8})/next-(?P<tour>[a-z0-9][a-z0-9-]*)/tour\.mp4")
 MANUAL = re.compile(r"(?P<pr>[0-9]+)/(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\.mp4")

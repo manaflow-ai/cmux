@@ -2,8 +2,10 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextFocus
 
 /// Leo 2026-10-14: "after splitting there's some weird focus-ish rings, not the colored ones,
 /// just some gray stuff that kinda straggles behind". The split's daemon tree mounted the new
@@ -16,7 +18,7 @@ import Testing
         let first = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
         let second = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "~")])
         let layout: LayoutNode = split
-            ? .split(id: nil, direction: .right, ratio: 0.5, a: .leaf(first.id), b: .leaf(second.id))
+            ? .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(first.id), b: .leaf(second.id))
             : .leaf(first.id)
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: split ? [first, second] : [first])
         return DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "w1", screens: [screen])])
@@ -42,6 +44,10 @@ import Testing
     @Test func theRingMovesToTheSplitsNewPaneInTheApplyThatMountsIt() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
+        // The ring marks focus only with `appearance.focusIndicator` border or both (the default is tabs).
+        let indicator = DesignSettings.shared.focusIndicator
+        DesignSettings.shared.focusIndicator = .both
+        defer { DesignSettings.shared.focusIndicator = indicator }
         let store = services.daemon.store
         store.connectionState = .connected(try Self.connected())
         store.apply(snapshot: Self.tree(split: false))

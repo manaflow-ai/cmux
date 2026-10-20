@@ -4,14 +4,23 @@
 //! the queue waited (cosmic-gray, 2026-10-14). After [`CANCEL_GRACE`] acpmux
 //! ends the turn itself, as cancelled, and its `turn_result` says
 //! `cancelForced`; the prompt's answer, if it ever comes, finds no turn.
+//!
+//! The grace is long enough for an agent that is only slow to stop: the next
+//! queued prompt goes out when the turn ends, and an agent still inside the
+//! stopped turn mishandles it (codex-acp folds it into that turn and answers
+//! it cancelled, cx-he737). The pane stops showing the turn as working 5 s
+//! after Stop on its own.
 
 use super::*;
 
 /// How long a cancelled turn waits for its agent's answer before acpmux ends it.
-const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Hub {
     pub async fn cancel(&self, session: &Arc<Session>) -> Result<(), RpcError> {
+        // Stop also stops an automatic continuation that has not fired yet, and the running
+        // turn gets none (`auto_resume.rs`).
+        self.stop_auto_resume(session);
         let child = session
             .child
             .lock()

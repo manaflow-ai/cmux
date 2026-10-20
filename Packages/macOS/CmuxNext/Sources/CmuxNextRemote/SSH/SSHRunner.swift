@@ -82,7 +82,11 @@ public struct SSHProcessRunner {
         let status: Int32
         do {
             status = try await withTaskCancellationHandler {
-                try await withDeadline(deadline, label: label) { await exit.awaitValue() }
+                // withDeadline waits for its operation after the deadline cancels it, and the
+                // exit only comes once the process is stopped: terminate it on that cancel.
+                try await withDeadline(deadline, label: label) {
+                    await withTaskCancellationHandler { await exit.awaitValue() } onCancel: { process.terminate() }
+                }
             } onCancel: {
                 process.terminate()
             }

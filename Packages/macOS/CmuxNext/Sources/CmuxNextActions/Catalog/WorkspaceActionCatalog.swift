@@ -51,14 +51,14 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "nextSidebarTab",
                 title: String(localized: "action.nextSidebarTab", defaultValue: "Next Sidebar Item", bundle: .module),
-                keywords: ["switch", "workspace", "sidebar", "item", "section", "next", "tab"], defaultShortcut: Shortcut("]", modifiers: [.command, .shift]),
+                keywords: ["switch", "workspace", "sidebar", "item", "section", "next", "tab"], defaultShortcut: Shortcut("]", modifiers: [.control, .command]),
                 category: .workspace, symbol: "chevron.down.square", surfaces: [.palette, .keyboard, .menu],
                 targets: [.workspace], cliName: "workspace next", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "prevSidebarTab",
                 title: String(localized: "action.prevSidebarTab", defaultValue: "Previous Sidebar Item", bundle: .module),
-                keywords: ["switch", "workspace", "sidebar", "item", "section", "previous", "tab"], defaultShortcut: Shortcut("[", modifiers: [.command, .shift]),
+                keywords: ["switch", "workspace", "sidebar", "item", "section", "previous", "tab"], defaultShortcut: Shortcut("[", modifiers: [.control, .command]),
                 category: .workspace, symbol: "chevron.up.square", surfaces: [.palette, .keyboard, .menu],
                 targets: [.workspace], cliName: "workspace previous", mainMenu: .file
             ),
@@ -91,8 +91,8 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.moveWorkspaceToTop",
                 title: String(localized: "action.palette.moveWorkspaceToTop", defaultValue: "Move Workspace to Top", bundle: .module),
-                keywords: ["reorder"], category: .workspace, symbol: "arrow.up.to.line",
-                surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace move-to-top",
+                keywords: ["reorder", "first", "top", "group"], category: .workspace, symbol: "arrow.up.to.line",
+                surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.workspace], cliName: "workspace move-to-top",
                 mainMenu: .file
             ),
             ActionDescriptor(
@@ -252,6 +252,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 keywords: ["unread", "notifications"], category: .workspace, symbol: "envelope.badge",
                 surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace mark-as-unread",
                 mainMenu: .file
+            ),
+            ActionDescriptor(
+                id: "workspace.toggleAudioMute",
+                title: String(localized: "action.workspace.toggleAudioMute", defaultValue: "Mute/Unmute Workspace Tabs", bundle: .module),
+                keywords: ["workspace", "audio", "sound", "mute", "unmute"], category: .workspace, symbol: "speaker.slash",
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace mute-unmute"
             ),
             ActionDescriptor(
                 id: "palette.workspaceColor",

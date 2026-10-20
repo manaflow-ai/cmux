@@ -1,5 +1,6 @@
 import AppKit
 import os
+import CmuxNextWakeups
 
 /// Checks, once layout and presentation settle after a change, that every
 /// visible pane's selected tab shows an installed, drawing surface with a
@@ -7,18 +8,18 @@ import os
 /// builds) and counted for `debug.surfaces`; nothing is repaired here, so a
 /// lifecycle bug stays visible instead of being papered over.
 ///
-/// Event-driven: runs only for `settleFrames` display frames after a
-/// presentation change, so an idle app keeps no display link. A window's
-/// occlusion change is such a change: panes in an occluded window are not
-/// judged (they draw nothing by design), so the check after the window is
-/// visible again is the one that proves every surface drew.
+/// Event-driven: one deadline `settleDelay` after the last presentation change
+/// (no display link). A window's occlusion change is such a change: panes in an
+/// occluded window are not judged (they draw nothing by design), so the check
+/// after the window is visible again proves every surface drew. It walks every
+/// pane, so it runs by itself only in debug builds (no release scan per switch);
+/// `debug.surfaces` reports blank panes on demand in any build.
 @MainActor
 final class SurfaceInvariantMonitor {
-    /// Frames to wait after the last change (layout springs settle in ~250 ms).
-    static let settleFrames = 30
+    /// Time after the last change before the check (layout springs settle in ~250 ms).
+    static let settleDelay: Duration = .milliseconds(500)
     weak var services: AppServices?
-    private let frames = FrameBatcher(owner: "SurfaceInvariantMonitor")
-    private var remaining = 0
+    private let settle = DemandTimer(owner: "SurfaceInvariantMonitor.settle")
     private(set) var violations = 0
     private(set) var checks = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.surfaces")
@@ -47,20 +48,9 @@ final class SurfaceInvariantMonitor {
 
     /// A pane showed, hid, moved or released content.
     func noteChange() {
-        let idle = remaining == 0
-        remaining = Self.settleFrames
-        if idle { scheduleStep() }
-    }
-
-    private func scheduleStep() {
-        frames.scheduleFrame { [weak self] in self?.step() }
-    }
-
-    private func step() {
-        remaining -= 1
-        guard remaining <= 0 else { return scheduleStep() }
-        remaining = 0
-        check()
+        #if DEBUG
+        settle.schedule(after: Self.settleDelay) { @MainActor [weak self] in self?.check() }
+        #endif
     }
 
     /// Blank panes right now. Public for `debug.surfaces`.

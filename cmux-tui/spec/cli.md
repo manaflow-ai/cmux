@@ -468,10 +468,12 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list
+agent list [--needs-me] [--state <state>] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+agent <agent_id|term_id> focus
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
+agent message unsend <message-id> [--recipient <agent>]
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
 agent report --terminal <selector> --state <state> --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
@@ -521,9 +523,9 @@ terminal <selector> viewport scroll
 browser open <url> | --url <url> [OPTIONS]
 browser list
 browser profile list
-browser profile create --name <name> [--profile <id>] [--color <value>] [--icon <value>] [--index <n>]
+browser profile create --name <name> [--color <value>] [--icon <value>] [--index <n>]
 browser profile move --profile <id-or-name> --index <n>
-browser profile open <url> --engine webkit|cef --profile <id-or-name> [--pane <numeric-pane-id>] [--title <value>] [--background true|false]
+browser profile open <url> | --url <url> --profile <id-or-name> [--engine webkit|cef] [--pane <selector>] [--title <value>] [--background true|false]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
@@ -838,6 +840,39 @@ started; once the folder is gone, a request naming it finds no repository.
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
 
+## Agent list
+
+`agent list` is one `agent.list` read; the CLI ranks, limits and counts its
+rows, so the wire value is unchanged. `--state` and `--terminal` are the
+read's own filters. `--needs-me` lists the blocked agents (`state: blocked`)
+and is refused with any other `--state`.
+
+`--sort needs-me`, the default, puts blocked agents first, then working, then
+idle and done together, then unknown; `recent` ignores state; `none` keeps the
+daemon's order. Within a group the most recently updated agent comes first,
+and equal times fall back to the agent id. `--limit <n>` (at least 1) keeps
+the first `n` ranked rows.
+
+The command also reads `terminal.list` on the same connection, so each row
+can show its terminal's title and folder. A refused or failed terminal read
+leaves those out. AGE is the time since the agent's `updated_at_ms`, its
+last report.
+
+Human output starts with the counts by state over every listed agent, before
+`--limit` (`2 blocked · 1 working · 3 idle · 0 done`, plus `unknown` when
+there is one, and `(showing n of m)` when the limit hid rows), then one row per
+agent: STATE, AGE, AGENT (`extra.agent`), TITLE, FOLDER (with `~` for the
+home folder) and TERMINAL, with SESSION first under `--all-sessions`. With no
+agents it prints `No agents.`
+
+`--json` prints the ranked agents as a bare array, as it always has; only the
+default order changed (it was the daemon's order). Each agent is the
+`AgentSnapshot` plus `age_ms` and, when its terminal was listed, its `title`
+and `cwd`. `--json --counts` prints `{"agents": [...], "counts": {...}}`
+instead: `counts` has `blocked`, `working`, `idle`, `done`, `unknown` and
+`total`, counted before `--limit`. `--jsonl` prints one agent per line with
+or without `--counts`.
+
 ## Agent messages
 
 `agent message` stores a message with `agent.message.send` and then delivers
@@ -851,11 +886,11 @@ workspace, or one whose workspace is unknown, may be held for the person
 A lone `-` reads the body from standard input. `--reply-to` answers a message:
 the reply goes to its sender and stays in its thread.
 
-For an acpmux recipient the command then prompts the session with the message,
-using the message id as the acpmux prompt id, and marks the receipt
-`delivered` (or `failed`, with the error). It first sends that recipient's
-older queued messages, oldest first; the prompt id keeps any of them from
-running twice. A `failed` message is not retried. It never starts the acpmux
+For an acpmux recipient the daemon's delivery pump prompts the session with
+the message, using the message id as the acpmux prompt id, and marks the
+receipt `delivered` (or `failed`, with acpmux's error); the command waits up
+to 15 seconds for it and reports a delivery still `queued` (acpmux is down or
+the session has not started; the pump retries). Neither starts the acpmux
 daemon. For a Codex terminal agent whose thread the shared Codex app-server
 daemon has loaded, it hands the agent's queued messages to Codex as one input
 (`turn/start` when the thread is idle, `turn/steer` when a turn is running)
@@ -868,6 +903,23 @@ stored either way, and problems with older messages are reported on stderr.
 it (one `agent.message.release`). Only the verified cmux app may decide, so
 from a terminal the command is refused with reason `release_needs_app`; the
 app's Approve and Decline controls make the same request.
+
+`agent message unsend` takes `<message-id>` back, from every recipient or
+only `--recipient` (one `agent.message.unsend`), and prints each delivery's
+outcome: `unsent` (it never reached the agent), `retracted` (acpmux told the
+agent in its turn that it was withdrawn), `too_late` (its turn ended, or the
+delivery path cannot take it back) or `failed` (acpmux refused, did not
+answer or may still take it; try again). `failed` exits 1, after the result
+is printed. Only the message's sender, from its own terminal or ACP session
+(its launch credential), or the person in the cmux app may take it back;
+there is no time limit. From a plain terminal the command is refused
+with reason `unsend_needs_app`.
+
+The daemon delivers messages to acpmux recipients (its delivery pump), and
+retries while acpmux is down or the session has not started, so a message that
+waited for acpmux, or for the person's approval, goes out without another
+`agent message`. `agent message` waits for the pump's hand-over to each acpmux
+recipient and reports one that failed or still waits.
 
 `agent inbox` lists messages newest first for `<agent>`, or for the caller's
 own address when it has one, else every message. `--state` is any delivery

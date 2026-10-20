@@ -217,6 +217,42 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subsession/get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/limits",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/send",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/stop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/set_tools",
       "params": true,
       "result": true
@@ -259,6 +295,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/process/tail",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/kill",
       "params": true,
       "result": true
@@ -288,6 +330,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/btw",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tag",
       "params": true,
       "result": true
@@ -306,7 +354,59 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/attachment",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mail/send",
+      "params": {
+        "$ref": "#/types/MailSendParams"
+      },
+      "result": {
+        "$ref": "#/types/MailSendResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mail/read",
+      "params": {
+        "$ref": "#/types/MailReadParams"
+      },
+      "result": {
+        "$ref": "#/types/MailPageResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mail/wait",
+      "params": {
+        "$ref": "#/types/MailWaitParams"
+      },
+      "result": {
+        "$ref": "#/types/MailPageResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mail/ack",
+      "params": {
+        "$ref": "#/types/MailAckParams"
+      },
+      "result": {
+        "$ref": "#/types/MailAckResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/history",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/complete",
       "params": true,
       "result": true
     },
@@ -644,7 +744,57 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/secret/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/inventory/watch",
+      "params": {
+        "$ref": "#/types/InventoryWatchParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/inventory/refresh",
+      "params": {
+        "$ref": "#/types/InventoryRefreshParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/update/plan",
+      "params": {
+        "$ref": "#/types/HarnessUpdatePlanParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/update/prepare",
+      "params": {
+        "$ref": "#/types/HarnessUpdatePlanParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/update",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/sessions/restart_harness",
       "params": true,
       "result": true
     },
@@ -812,6 +962,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/harness_inventory",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/start_mode_changed",
       "params": true
     },
@@ -921,6 +1076,38 @@
       ],
       "type": "string"
     },
+    "DeliveryReceipt": {
+      "properties": {
+        "messageId": {
+          "type": "string"
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/types/DeliveryState"
+        },
+        "updatedAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "messageId",
+        "recipient",
+        "state",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "DeliveryState": {
+      "enum": [
+        "queued",
+        "acknowledged"
+      ],
+      "type": "string"
+    },
     "Enforcement": {
       "description": "What limits the session's agent as far as acpmux can tell.",
       "properties": {
@@ -947,6 +1134,18 @@
       ],
       "type": "object"
     },
+    "HarnessUpdatePlanParams": {
+      "additionalProperties": false,
+      "properties": {
+        "cli": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cli"
+      ],
+      "type": "object"
+    },
     "Indicator": {
       "enum": [
         "input",
@@ -956,6 +1155,22 @@
         "done"
       ],
       "type": "string"
+    },
+    "InventoryRefreshParams": {
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "InventoryWatchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
     },
     "Isolation": {
       "description": "acpmux never claims host isolation.",
@@ -968,7 +1183,7 @@
       "description": "The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`).",
       "properties": {
         "error": {
-          "description": "The failed or lost turn's error text.",
+          "description": "The failed or lost turn's error text, secrets masked (`secret_scan`).",
           "type": [
             "string",
             "null"
@@ -985,12 +1200,28 @@
         },
         "state": {
           "$ref": "#/types/LaneState"
+        },
+        "step": {
+          "description": "What the session is doing now, one line: the running turn's prompt,\nelse the agent's last reply line, secrets masked (`secret_scan`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "The session's title, else its latest prompt, one line, secrets masked\n(`secret_scan`).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "error",
         "since",
-        "state"
+        "state",
+        "step",
+        "title"
       ],
       "type": "object"
     },
@@ -1074,6 +1305,285 @@
       },
       "required": [
         "endedAt"
+      ],
+      "type": "object"
+    },
+    "LifecycleReceipt": {
+      "description": "A durable lifecycle fact supplied by an explicit producer. This contract\nis intentionally optional and opaque to the session sidebar until a\nproducer wires it to a real controller receipt.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "source": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sequence",
+        "source",
+        "state"
+      ],
+      "type": "object"
+    },
+    "MailAckParams": {
+      "additionalProperties": false,
+      "properties": {
+        "messageId": {
+          "type": "string"
+        },
+        "recipient": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipient",
+        "messageId"
+      ],
+      "type": "object"
+    },
+    "MailAckResult": {
+      "properties": {
+        "delivery": {
+          "$ref": "#/types/DeliveryReceipt"
+        }
+      },
+      "required": [
+        "delivery"
+      ],
+      "type": "object"
+    },
+    "MailMessage": {
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "default": {},
+          "type": "object"
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "sender": {
+          "type": "string"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "seq",
+        "sender",
+        "recipient",
+        "body",
+        "createdAt"
+      ],
+      "type": "object"
+    },
+    "MailPageResult": {
+      "properties": {
+        "cursor": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/types/MailRow"
+          },
+          "type": "array"
+        },
+        "nextCursor": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cursor",
+        "messages"
+      ],
+      "type": "object"
+    },
+    "MailReadParams": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "recipient": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipient"
+      ],
+      "type": "object"
+    },
+    "MailRow": {
+      "properties": {
+        "delivery": {
+          "$ref": "#/types/DeliveryReceipt"
+        },
+        "message": {
+          "$ref": "#/types/MailMessage"
+        }
+      },
+      "required": [
+        "message",
+        "delivery"
+      ],
+      "type": "object"
+    },
+    "MailSendParams": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "sender": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sender",
+        "recipient",
+        "body"
+      ],
+      "type": "object"
+    },
+    "MailSendResult": {
+      "properties": {
+        "created": {
+          "type": "boolean"
+        },
+        "delivery": {
+          "$ref": "#/types/DeliveryReceipt"
+        },
+        "duplicate": {
+          "type": "boolean"
+        },
+        "message": {
+          "$ref": "#/types/MailMessage"
+        }
+      },
+      "required": [
+        "message",
+        "delivery",
+        "created",
+        "duplicate"
+      ],
+      "type": "object"
+    },
+    "MailWaitParams": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "recipient"
+      ],
+      "type": "object"
+    },
+    "McpServerStatus": {
+      "description": "`failed` also for one that waits on a sign-in (Claude Code `needs-auth`).",
+      "enum": [
+        "connected",
+        "failed",
+        "pending"
+      ],
+      "type": "string"
+    },
+    "McpServerSummary": {
+      "description": "One MCP server a harness loaded (`SessionSummary::mcp_servers`).",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/types/McpServerStatus"
+        }
+      },
+      "required": [
+        "name",
+        "status"
       ],
       "type": "object"
     },
@@ -1586,6 +2096,12 @@
           "minimum": 0,
           "type": "integer"
         },
+        "children": {
+          "description": "Its sub-sessions that are not closed.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
         "createdAt": {
           "format": "uint64",
           "minimum": 0,
@@ -1600,6 +2116,12 @@
         "cwd": {
           "description": "Lossy when the path is not UTF-8.",
           "type": "string"
+        },
+        "depth": {
+          "description": "0 for a root session, 1 for its sub-sessions, and so on.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
         },
         "enforcement": {
           "$ref": "#/types/Enforcement"
@@ -1690,6 +2212,27 @@
             }
           ]
         },
+        "lifecycleReceipt": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LifecycleReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
+        },
+        "mcpServers": {
+          "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
+          "items": {
+            "$ref": "#/types/McpServerSummary"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "model": {
           "type": [
             "string",
@@ -1755,9 +2298,30 @@
         "sessionId": {
           "type": "string"
         },
+        "shortName": {
+          "description": "Its name among its parent's sub-sessions; null for a root.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "shown": {
           "description": "Some attached client shows the chat.",
           "type": "boolean"
+        },
+        "spawnedBy": {
+          "description": "The session whose agent started this one (its `spawnedBy` tag), kept\nonly while that parent is listed; one level.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "startedBy": {
+          "description": "The session whose agent started this one with its `start_session`\ntool (`hub/subsessions.rs`); null for a session a person or client\nstarted. Kept when the parent is closed or gone, so a client draws\nthe tree from these links at any depth.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "stateSeq": {
           "format": "uint64",
@@ -1831,6 +2395,8 @@
         "lastSeq",
         "eventCount",
         "turnCount",
+        "depth",
+        "children",
         "queued",
         "queuePaused",
         "moving",

@@ -98,6 +98,18 @@ nonisolated enum NotificationSettingsSchema {
                 kind: .toggle, default: .bool(defaults.dockBadge)
             ),
             SettingDescriptor(
+                ["notifications", "dockBounce"], section: .notifications, group: banners,
+                title: SettingsText.keyed("settings.notifications.dockBounce", "Bounce Dock Icon"),
+                help: SettingsText.keyed("settings.notifications.dockBounce.help",
+                                        "When a notification alerts while cmux isn't the active app."),
+                kind: .choice([
+                    SettingChoice(DockBounceMode.off.rawValue, SettingsText.keyed("settings.choice.dockBounceOff", "Off")),
+                    SettingChoice(DockBounceMode.once.rawValue, SettingsText.keyed("settings.choice.dockBounceOnce", "Once")),
+                    SettingChoice(DockBounceMode.untilActive.rawValue, SettingsText.keyed("settings.choice.dockBounceUntilActive", "Until You Switch to cmux")),
+                ]),
+                default: .string(defaults.dockBounce.rawValue), keywords: ["dock", "bounce", "attention", "badge"]
+            ),
+            SettingDescriptor(
                 ["feed", "mirrorNotifications", "agents"], section: .notifications, group: feed,
                 title: SettingsText.keyed("settings.feed.mirrorAgents", "Copy Agent Notifications to the Feed"),
                 help: SettingsText.keyed("settings.feed.mirrorAgents.help",
@@ -139,7 +151,7 @@ nonisolated enum NotificationSettingsSchema {
             SettingDescriptor(
                 ["notifications", "attention", "color"], section: .notifications, group: ring,
                 title: SettingsText.keyed("settings.attention.color", "Color"),
-                kind: .color, default: nil, defaultLabel: SettingsText.keyed("settings.default.theme", "Theme")
+                kind: .color, default: nil, defaultLabel: SettingsText.keyed("settings.default.notificationBlue", "Notification Blue")
             ),
             SettingDescriptor(
                 ["notifications", "attention", "width"], section: .notifications, group: ring,

@@ -55,7 +55,7 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     /// instant card, so content passing under it flashes none.
     public var stillPointerDelay: Duration
 
-    public init(reshowWindow: Duration = .milliseconds(700), pinLifetime: Duration = .seconds(10),
+    public init(reshowWindow: Duration = HoverCardTiming.reshowWindow, pinLifetime: Duration = .seconds(10),
                 leaveWindow: Duration = HoverIntentTiming.standard.cardGrace, aimWindow: Duration = HoverIntentTiming.standard.cardAim,
                 stillPointerDelay: Duration = .milliseconds(300)) {
         self.reshowWindow = reshowWindow
@@ -91,8 +91,8 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
 
     public mutating func reduce(_ event: HoverCardEvent) -> [HoverCardEffect] {
         switch event {
-        case .hit(let target, let moved, let aiming):
-            return hit(target, moved: moved, aiming: aiming)
+        case .hit(let target, let moved, let aiming, let bridging):
+            return hit(target, moved: moved, aiming: aiming, bridging: bridging)
         case .pointerOnCard(let on):
             pointerOnCard = on
             return []
@@ -106,12 +106,17 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
                 return []
             case .leaving(let shown, let armed) where armed == token:
                 // The pointer rests on the card: it stays, and looks again
-                // after the grace. Just off it: the full grace starts now.
-                if pointerOnCard || wasOnCard {
+                // after the grace. Just off it: the full grace starts now. A
+                // card that hides on leave stays only while the pointer is on
+                // it (it touches its tab, Lawrence 2026-10-19), and looks again
+                // after its reshow window.
+                let hides = shown.leave.hidesAtOnce
+                if pointerOnCard || (!hides && wasOnCard) {
                     wasOnCard = pointerOnCard
                     let again = takeToken()
                     phase = .leaving(shown, token: again)
-                    return [.schedule(token: again, after: leaveWindow)]
+                    let after = if case .hides(let reshow) = shown.leave { reshow } else { leaveWindow }
+                    return [.schedule(token: again, after: after)]
                 }
                 // The pointer stopped aiming on another target: it takes the card over.
                 if suppressions.isEmpty, let target = lastHit, target.id != shown.id {
@@ -122,7 +127,8 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
                 // return still shows at once.
                 let grace = takeToken()
                 phase = .grace(token: grace)
-                return [.hide, .schedule(token: grace, after: reshowWindow)]
+                let reshow = if case .hides(let reshow) = shown.leave { reshow } else { reshowWindow }
+                return [.hide, .schedule(token: grace, after: reshow)]
             case .pinned(let target, let armed) where armed == token:
                 // The pinned card's lifetime ended (its timer is spent). With
                 // the pointer still on its target it stays as a hover card.
@@ -162,19 +168,21 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         }
     }
 
-    private mutating func hit(_ target: HoverTarget?, moved: Bool, aiming: Bool) -> [HoverCardEffect] {
+    private mutating func hit(_ target: HoverTarget?, moved: Bool, aiming: Bool, bridging: Bool = false) -> [HoverCardEffect] {
         let previous = lastHit
         lastHit = target
         if target != nil { wasOnCard = false }
-        // Quiet covers only the target the pointer already rested on: a
-        // pointer move, or another target arriving under it, ends it.
-        if moved || target?.id != previous?.id { quiet = false }
+        // Quiet covers only the target the pointer already rested on: another
+        // target arriving under it ends it, and so does a pointer move, except
+        // on a target whose card hides on leave (a browser's tab preview: a
+        // click or Esc lasts until the pointer leaves the tab).
+        if target?.id != previous?.id || (moved && target?.leave.hidesAtOnce != true) { quiet = false }
         if !suppressions.isEmpty {
             return phase == .idle ? [] : end()
         }
         // A still pointer after a dismissal starts nothing on the target it
         // was already on; a different target moving under it may.
-        if quiet, !moved, target?.id == previous?.id {
+        if quiet, target?.id == previous?.id {
             if let shown = shownTarget, shown.id == target?.id { return [] }
             return phase == .idle ? [] : end()
         }
@@ -191,6 +199,23 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
             phase = .shown(target)
             return [.cancelTimer, .show(target, sliding: false)]
         case .shown(let shown):
+            if case .hides(let reshow) = shown.leave, target?.id != shown.id {
+                guard let target else {
+                    if bridging {
+                        // Between targets: the card stays for the reshow window, and the
+                        // next target slides it over (no hide and show crossing a gap).
+                        let token = takeToken()
+                        phase = .leaving(shown, token: token)
+                        return [.schedule(token: token, after: reshow)]
+                    }
+                    let grace = takeToken()
+                    phase = .grace(token: grace)
+                    return [.hide, .schedule(token: grace, after: reshow)]
+                }
+                // Swaps at once, never held by a pointer heading for the card.
+                phase = .shown(target)
+                return [.show(target, sliding: true)]
+            }
             guard let target else {
                 let token = takeToken()
                 phase = .leaving(shown, token: token)
@@ -211,6 +236,18 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
             phase = .shown(target)
             return [.show(target, sliding: true)]
         case .leaving(let shown, _):
+            if case .hides(let reshow) = shown.leave {
+                guard let target else {
+                    // Still between targets or on the card: the window runs on.
+                    // Off them and off the card: it hides now.
+                    if bridging { return [] }
+                    let grace = takeToken()
+                    phase = .grace(token: grace)
+                    return [.hide, .schedule(token: grace, after: reshow)]
+                }
+                phase = .shown(target)
+                return target.id == shown.id ? [.cancelTimer] : [.cancelTimer, .show(target, sliding: true)]
+            }
             if aiming, target?.id != shown.id {
                 // Still heading for the card: the aim restarts.
                 let token = takeToken()
@@ -246,7 +283,7 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     private mutating func arm(_ target: HoverTarget, moved: Bool) -> [HoverCardEffect] {
         // A target with no delay: a moving pointer's card shows on this
         // hit; content moving under a still pointer waits a moment. Targets
-        // with a delay (the workspace card's `motion.hoverCard.dwell`) wait it.
+        // with a delay (`sidebar.hoverCards.delay`, `HoverCardTiming.showDelay` by default) wait it.
         if target.delay <= .zero, moved {
             let hadTimer = armedToken != nil
             phase = .shown(target)

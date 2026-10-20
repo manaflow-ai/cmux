@@ -27,6 +27,7 @@ nonisolated enum TabSettingsSchema {
             help: SettingsText.keyed("settings.tabs.newTabTemplate.help",
                                      "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."),
             kind: .choice([
+                SettingChoice(NewTabTemplate.cards.rawValue, SettingsText.keyed("settings.choice.newTabTemplateCards", "Cards")),
                 SettingChoice(NewTabTemplate.default.rawValue, SettingsText.keyed("settings.choice.newTabTemplateDefault", "Default")),
                 SettingChoice(NewTabTemplate.composer.rawValue, SettingsText.keyed("settings.choice.newTabTemplateComposer", "Composer")),
                 SettingChoice(NewTabTemplate.threads.rawValue, SettingsText.keyed("settings.choice.newTabTemplateThreads", "Threads")),
@@ -35,7 +36,7 @@ nonisolated enum TabSettingsSchema {
                 SettingChoice(NewTabTemplate.terminal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateTerminal", "Terminal")),
             ]),
             default: .string(NewTabTemplate.fallback.rawValue),
-            keywords: ["new tab", "template", "layout", "page", "terminal", "classic", "composer", "threads", "console"]
+            keywords: ["new tab", "template", "layout", "page", "terminal", "classic", "composer", "threads", "console", "cards", "search", "ask"]
         )
     }
 
@@ -77,32 +78,6 @@ nonisolated enum TabSettingsSchema {
             default: .bool(SwapCmdTAndCmdNSetting.fallback),
             keywords: ["cmd-t", "cmd-n", "swap", "new tab", "new workspace", "shortcut", "keyboard"]
         )
-    }
-
-    /// `tabs.tabBar.<kind>`: whether a pane of that kind shows its tab bar.
-    static func paneTabBars(group: SettingText) -> [SettingDescriptor] {
-        func title(_ kind: PaneTabBarKind) -> SettingText {
-            switch kind {
-            case .terminal: SettingsText.keyed("settings.tabs.tabBar.terminal", "Tab Bar in Terminal Panes")
-            case .browser: SettingsText.keyed("settings.tabs.tabBar.browser", "Tab Bar in Browser Panes")
-            case .agent: SettingsText.keyed("settings.tabs.tabBar.agent", "Tab Bar in Agent Chats")
-            }
-        }
-        return PaneTabBarKind.allCases.map { kind in
-            SettingDescriptor(
-                kind.settingsPath, section: .general, group: group,
-                title: title(kind),
-                help: SettingsText.keyed("settings.tabs.tabBar.help",
-                                         "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."),
-                kind: .choice([
-                    SettingChoice(PaneTabBarMode.auto.rawValue, SettingsText.keyed("settings.choice.tabBarAuto", "Automatic")),
-                    SettingChoice(PaneTabBarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
-                    SettingChoice(PaneTabBarMode.never.rawValue, SettingsText.keyed("settings.choice.never", "Never")),
-                ]),
-                default: .string(PaneTabBarMode.auto.rawValue),
-                keywords: ["tab bar", "tabs", "strip", "horizontal", "show", "hide", kind.rawValue, "pane"]
-            )
-        }
     }
 
     /// `app.warnBeforeClosingTab` and `app.warnBeforeClosingAgentSession`,

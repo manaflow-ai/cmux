@@ -10,6 +10,17 @@ import type { CodeToken } from "./editor";
 const LIGHT = "cmux-markdown-light";
 const DARK = "cmux-markdown-dark";
 
+/**
+ * Starts fetching Shiki's core and regex engine without waiting on them. They stay out of the
+ * page's first load (the markdown draws first); the page calls this at boot so they are warm by
+ * the time a code block asks for colors, and code does not stay plain any longer than its grammar
+ * takes to load.
+ */
+export function preloadHighlighter(): void {
+  void import("shiki/core").catch(() => undefined);
+  void import("shiki/engine/javascript").catch(() => undefined);
+}
+
 /** Shiki's language id for a fence info string (`ts`, `shell`, `TypeScript` ...), or null. */
 export async function languageId(language: string): Promise<string | null> {
   const { bundledLanguages, bundledLanguagesAlias } = await import("shiki/langs");

@@ -1,9 +1,10 @@
 /// When a notification's attention clears on its own
 /// (`notifications.dismissal`). The dismiss verbs always clear it.
 public nonisolated enum NotificationDismissal: String, Hashable, Sendable, CaseIterable {
-    /// The pane is focused (in the key window, app active), clicked, typed in, or opened.
+    /// The pane is focused (in the key window, app active), clicked, typed in, or opened
+    /// (default: cmux classic's rule).
     case focus
-    /// The user types into the pane (default), or opens the notification.
+    /// The user types into the pane, or opens the notification.
     case keystroke
     /// The user clicks in the pane or types into it, or opens the notification.
     case click
@@ -33,4 +34,14 @@ public nonisolated enum DesktopNotificationMode: String, Hashable, Sendable, Cas
     /// Only while cmux is not the active app.
     case whenInactive
     case never
+}
+
+/// Whether the Dock icon bounces when a notification alerts while cmux is not
+/// the active app (`notifications.dockBounce`).
+public nonisolated enum DockBounceMode: String, Hashable, Sendable, CaseIterable {
+    case off
+    /// One bounce (default).
+    case once
+    /// Bounces until the user switches to cmux.
+    case untilActive
 }

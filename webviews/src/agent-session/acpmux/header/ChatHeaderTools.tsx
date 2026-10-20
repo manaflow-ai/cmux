@@ -104,6 +104,7 @@ export function ChatHeaderTools({
   statusKey,
   onApplyWorktree,
   onRemoveWorktree,
+  sessionRail,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -149,6 +150,8 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
+  /// The session side rail's toggle (Debug Settings `agent.sessionRail`, summary/SessionRail.tsx), before the summary.
+  sessionRail?: ReactNode;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -247,7 +250,7 @@ export function ChatHeaderTools({
     return folded;
   };
   const rows = () => menuGroups(foldedRows(), menu());
-  const buttons = tabTools && (
+  const buttons = tabTools && actions.length > 0 && (
     <>
       {actions.map(({ id, mode }) =>
         id === "newTab" ? (
@@ -362,35 +365,45 @@ export function ChatHeaderTools({
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
-      {onCustomize && buttons ? (
-        // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
-        // inside them reaches this host through React.
-        <ContextMenu
-          className="acpmux-header-customize"
-          items={customizeItems(actions, menuTarget, onCustomize, t)}
-          onOpen={() => setMenuTarget(target.current)}
-        >
-          <div
-            className="acpmux-header-customize"
-            onContextMenuCapture={(event) => {
-              const button = (event.target as Element).closest?.("[data-quick-action]");
-              target.current = (button?.getAttribute("data-quick-action") ?? undefined) as QuickActionId | undefined;
-            }}
-          >
-            {buttons}
-          </div>
-        </ContextMenu>
-      ) : (
-        buttons
-      )}
-      {summary}
-      <ChatMenu
-        items={rows}
-        disabled={rows().length === 0}
-        onOpen={onMenuOpen}
-        expand={expand}
-        onExpanded={onExpanded}
-      />
+      {buttons ? (
+        <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
+          {onCustomize ? (
+            // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
+            // inside them reaches this host through React.
+            <ContextMenu
+              className="acpmux-header-customize"
+              items={customizeItems(actions, menuTarget, onCustomize, t)}
+              onOpen={() => setMenuTarget(target.current)}
+            >
+              <div
+                className="acpmux-header-customize"
+                onContextMenuCapture={(event) => {
+                  const button = (event.target as Element).closest?.("[data-quick-action]");
+                  target.current = (button?.getAttribute("data-quick-action") ?? undefined) as
+                    | QuickActionId
+                    | undefined;
+                }}
+              >
+                {buttons}
+              </div>
+            </ContextMenu>
+          ) : (
+            buttons
+          )}
+        </div>
+      ) : null}
+      {buttons ? <hr className="acpmux-header-separator" aria-orientation="vertical" /> : null}
+      <div className="acpmux-header-tool-group acpmux-header-tool-group-meta">
+        {sessionRail}
+        {summary}
+        <ChatMenu
+          items={rows}
+          disabled={rows().length === 0}
+          onOpen={onMenuOpen}
+          expand={expand}
+          onExpanded={onExpanded}
+        />
+      </div>
     </div>
   );
 }

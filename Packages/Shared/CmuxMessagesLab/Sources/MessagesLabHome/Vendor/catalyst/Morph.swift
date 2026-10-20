@@ -78,7 +78,7 @@ final class MorphBubble {
         textSize = size
         fieldRect = field
         flyingRect = target
-        let bs = Springs.Bubble(fieldShrinks: fieldShrinks)
+        let bs = Springs.Bubble(fieldShrinks: fieldShrinks, lines: tl.lines.count)
         springs = bs
         let none: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull(),
                                         "transform": NSNull(), "path": NSNull(), "backgroundColor": NSNull()]
@@ -159,10 +159,10 @@ final class MorphBubble {
             for l in [body, underlay] {
                 Animate.scalar(l, "bounds.size.width", from: Double(w0), to: Double(w1), bs.width, begin: begin)
                 Animate.scalar(l, "position.x", from: Double(-w0 / 2), to: Double(-w1 / 2), bs.width, begin: begin)
-                Animate.scalar(l, "bounds.size.height", from: Double(h0), to: Double(h1), bs.width, begin: begin)
-                Animate.scalar(l, "position.y", from: Double(h0 / 2), to: Double(h1 / 2), bs.width, begin: begin)
+                Animate.scalar(l, "bounds.size.height", from: Double(h0), to: Double(h1), bs.height, begin: begin)
+                Animate.scalar(l, "position.y", from: Double(h0 / 2), to: Double(h1 / 2), bs.height, begin: begin)
             }
-            Animate.scalar(tail, "position.y", from: Double(h1 / 2 + (h0 - h1) / 2), to: Double(h1 / 2), bs.width, begin: begin)
+            Animate.scalar(tail, "position.y", from: Double(h1 / 2 + (h0 - h1) / 2), to: Double(h1 / 2), bs.height, begin: begin)
             Animate.pulse(bubble, "transform.scale", bs.scale, begin: begin)
             // The blue fill is translucent at first, the text is not: Messages' text is white
             // (min channel > 215) from 75-92 ms, while its body is still translucent (lossless
@@ -212,6 +212,7 @@ final class MorphBubble {
             (bs.right, Double(field.maxX), Double(target.maxX), 0.1),
             (bs.centerY, Double(y0), Double(target.midY), 0.1),
             (bs.width, Double(w0), Double(w1), 0.1),
+            (bs.height, Double(h0), Double(h1), 0.1),
             (bs.scale, 1, 1, 0.1 / Double(max(w1, h1))),
             (o, o.from, 1, 0.01), (Springs.textUnblur, 0, 1, 0.01)]
         // The first 1/120 s step from 0.3 s with 12 steps in a row inside every
@@ -305,7 +306,7 @@ final class MorphBubble {
         let h1 = Double(flyingRect.height), h0 = max(Double(fieldRect.height), h1)
         let cy = springs.centerY.value(tau, from: Double(fieldRect.minY) + h0 / 2, to: Double(flyingRect.midY))
         let s = springs.scale.value(tau, from: 1, to: 1)
-        let h = springs.width.value(tau, from: h0, to: h1)
+        let h = springs.height.value(tau, from: h0, to: h1)
         return cy + (h - h1 / 2) * s
     }
 
@@ -406,6 +407,21 @@ final class MorphBubble {
     }
 
     func remove() { insideClip.removeFromSuperlayer(); sharpClip.removeFromSuperlayer() }
+
+    /// The landing hand-off (WindowView.landMorphs): the cell shows under the overlay in the same transaction,
+    /// and the overlay fades out over it (group opacity: the two trees blend as one picture). What changes at the
+    /// hand-off is the text raster, not the geometry (every element is within 0.1 pt at landTime): the overlay's
+    /// text image is drawn at `scale * peakScale` and shown scaled down, the cell draws it on the device pixels.
+    /// A one-frame swap moved every glyph edge (live takes, cx-3cb live-motion); the fade spreads that change.
+    func fadeOut(begin: CFTimeInterval) {
+        for l in [insideClip, sharpClip] {
+            l.allowsGroupOpacity = true
+            l.opacity = 0
+            Animate.scalar(l, "opacity", from: 1, to: 0, Springs.landFade, begin: begin)
+        }
+    }
+    /// Seconds after `fadeOut` begins when the overlay is invisible (Springs.landFade under 0.002).
+    static let fadeOutTime = 0.3
 
     /// The largest value of the fitted scale pulse (sampled at 240 Hz).
     static let peakScale: CGFloat = {

@@ -25,6 +25,20 @@ import Testing
         #expect(open.countText == nil, "an open group shows its members, not a count")
     }
 
+    @Test func aCollapsedHeadersCountDrawsWhole() throws {
+        let (sidebar, _) = try Self.sidebar()
+        let header = try #require(sidebar.list.rowViews[.group(Self.closed)] as? GroupHeaderRowView)
+        header.layoutSubtreeIfNeeded()
+        let count = header.countLabel
+        try #require(!count.isHidden && count.frame.width > 0)
+        // The count as laid out, against the same label with room to spare: a frame cut to the
+        // label's bare measured width clips the digit's last pixels (or truncates it).
+        let laidOut = Self.ink(count, width: count.frame.width)
+        let roomy = Self.ink(count, width: count.frame.width + 40)
+        #expect(roomy > 0)
+        #expect(laidOut >= roomy * 0.999, "the count draws \(laidOut) of its \(roomy) ink in a \(count.frame.width) pt frame")
+    }
+
     @Test func theMembersLineStartsUnderTheHeaderBarRounded() throws {
         let (sidebar, _) = try Self.sidebar()
         let header = try #require(sidebar.list.rowViews[.group(Self.open)] as? GroupHeaderRowView)
@@ -78,6 +92,20 @@ import Testing
     }
 
     // MARK: Fixtures
+
+    /// How much a label draws (its pixels' summed alpha) at `width`; the label keeps its frame.
+    static func ink(_ label: NSView, width: CGFloat) -> Double {
+        let frame = label.frame
+        defer { label.frame = frame }
+        label.frame.size.width = width
+        guard let rep = label.bitmapImageRepForCachingDisplay(in: label.bounds) else { return 0 }
+        label.cacheDisplay(in: label.bounds, to: rep)
+        var total = 0.0
+        for x in 0..<rep.pixelsWide {
+            for y in 0..<rep.pixelsHigh { total += Double(rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) }
+        }
+        return total
+    }
 
     /// One ungrouped workspace, then an open group and a collapsed group of two each.
     static func sidebar() throws -> (SidebarView, WorkspaceID) {

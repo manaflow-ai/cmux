@@ -27,6 +27,7 @@ pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;
 mod chief_registry;
 mod conversation_drafts;
+mod conversation_live;
 mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
@@ -52,6 +53,7 @@ pub mod launch_credential;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;
+pub mod net_keepalive;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod program_status;
@@ -60,6 +62,8 @@ pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
 use cmux_tui_remote_access::remote_relay_state;
+mod login_shell;
+pub mod release;
 mod request_origin;
 pub mod resource;
 mod resource_api;
@@ -92,8 +96,9 @@ mod terminal_metadata;
 pub use cmux_tui_util::terminal_respawn_text;
 mod workspace_registry;
 
+/// The executable terminal hosts run from (the cmux-tui-platform crate).
 #[cfg(unix)]
-use cmux_tui_platform::host_exe;
+pub use cmux_tui_platform::host_exe;
 pub mod layout;
 /// OS primitives; the cmux-tui-platform crate, re-exported at the old paths.
 pub use cmux_tui_platform::platform;
@@ -162,6 +167,7 @@ pub use remote_relay_state::{
 };
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
+pub use shell_integration::AGENT_SHIMS_ENV;
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,

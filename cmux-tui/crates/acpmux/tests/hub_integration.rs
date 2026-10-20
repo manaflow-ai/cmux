@@ -1,5 +1,10 @@
 //! End-to-end tests through the real protocol handler with a fake agent.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
@@ -10,6 +15,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[path = "hub_integration/auto_resume.rs"]
+mod auto_resume;
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
@@ -916,16 +923,7 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
     );
     next.presets.insert(
         "flash".into(),
-        acpmux::config::Preset {
-            harness: "deepseek".into(),
-            model: None,
-            effort: None,
-            policy: None,
-            env: BTreeMap::new(),
-            args: Vec::new(),
-            system_prompt_sha256: None,
-            description: None,
-        },
+        serde_json::from_value::<acpmux::config::Preset>(json!({"harness": "deepseek"})).unwrap(),
     );
     std::fs::write(&path, serde_json::to_vec(&next).unwrap()).unwrap();
     let reload = c.request(method::MUX_RELOAD_CONFIG, json!({})).await.unwrap();

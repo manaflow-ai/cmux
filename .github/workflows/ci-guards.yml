@@ -115,6 +115,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Validate scripts keep full clones full
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_shallow_dev_fetch.py
+
       - name: Validate the local and fast guard runner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
@@ -139,6 +143,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green.py
 
+      - name: Validate the bug-fix proof-section warning
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_pr_proof_section.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
@@ -146,6 +154,10 @@ jobs:
       - name: Validate base-red excusal for gh-merge-green
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_base_red_excuse.py
+
+      - name: Validate merge freezes as issues
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_merge_freeze.py
 
       - name: Validate main compile attribution
         if: ${{ matrix.group == 'ci' }}
@@ -189,7 +201,7 @@ jobs:
 
       - name: Validate feature flag linter scope
         if: ${{ matrix.group == 'ci' }}
-        run: python3 -m unittest tests/test_lint_feature_flags_scope.py
+        run: python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py
 
       - name: Validate feature flag review lead-time report
         if: ${{ matrix.group == 'ci' }}
@@ -373,6 +385,20 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_fake_socket_env.py
 
+      # release-notary is the group cmux-next-guards.yml runs on every
+      # feat-cmux-next pull request and push, where these files live.
+      - name: Test What's New highlights and release notes
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 scripts/whats-new/test_digest.py
+          python3 scripts/whats-new/test_validate.py
+          python3 scripts/whats-new/test_community.py
+          python3 tests/test_cmux_next_release_notes.py
+
+      - name: Test the /release changelog line classifier
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_release_changelog_lines.py
+
       - name: Test the PR media uploader
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_pr_media.py
@@ -519,9 +545,12 @@ jobs:
       - name: Lint every workflow
         if: ${{ matrix.group == 'ci' }}
         env:
-          ACTIONLINT_VERSION: "1.7.7"
-          ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
-          ACTIONLINT_ASSET_ID: "221573254"
+          # manaflow-ai/actionlint v1.7.12-manaflow.1: upstream main 011a6d15 with the
+          # shellcheck stdin deadlock fix (rhysd/actionlint#651), built
+          # reproducibly; the release notes hold the build recipe.
+          ACTIONLINT_VERSION: "1.7.12-manaflow.1"
+          ACTIONLINT_SHA256: "9446e75901c9bc4447fa6cc1706b7b1b0c1af77fac1586a7c227170c902ecc25"
+          ACTIONLINT_ASSET_ID: "656977422"
           # Warnings and errors gate; informational shellcheck findings do not.
           SHELLCHECK_OPTS: "-S warning"
         run: |
@@ -546,6 +575,10 @@ jobs:
       - name: Validate bead auto-close on merged pull requests
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_bead_autoclose.py
+
+      - name: Validate the idea ledger joins beads, pull requests and asks
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_idea_ledger.py
 
       - name: Validate fresh-merge on feat-cmux-next pull requests
         if: ${{ matrix.group == 'ci' }}
@@ -611,9 +644,21 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate stale agent PR verdicts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_stale_agent_prs.py
+
+      - name: Validate published-in PR comments
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_published_in_comments.py
+
       - name: Validate merge receipts
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
+
+      - name: Validate the pull request status comment
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_pr_status.py
 
       - name: Validate the feat-cmux-next PR merge-tree publisher
         if: ${{ matrix.group == 'ci' }}
@@ -635,6 +680,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
 
+      - name: Validate the cmux-next macOS cascade onto free Blacksmith slots
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_next_macos_cascade.py
+
       - name: Validate agent pane frame pacing summary
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_summary.py
@@ -648,7 +697,7 @@ jobs:
         run: python3 tests/test_ci_frame_pacing_app_rpc.py
 
       - name: Validate the golden interactions judge
-        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_golden.py
 
       - name: Validate the dispatch runner pool's auto pick
@@ -686,6 +735,10 @@ jobs:
       - name: Validate side-lane placement onto idle owned runners
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_side_lane_placement.py
+
+      - name: Validate session jobs keep the gui label until runners carry the session label
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_session_label_routing.py
 
       - name: Validate owned Mac build state
         if: ${{ matrix.group == 'ci' }}
@@ -783,6 +836,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py
 
+      - name: Validate the signing keychain is deleted before bundle code runs
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py
+
       - name: Validate Release check architectures
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh
@@ -804,6 +861,18 @@ jobs:
       - name: Validate the R2 storage census
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_storage_census.py
+
+      - name: Validate the web test failure census
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_web_test_failure_census.py
+
+      - name: Validate the web test import-graph check
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_test_touches_diff.py
+
+      - name: Validate the web test verdict
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_web_test_verdict.py
 
       - name: Validate the R2 cache pruner
         if: ${{ matrix.group == 'ci' }}
@@ -1068,9 +1137,31 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
 
+      - name: Validate webview-only changes tour on Linux, not a Mac
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_cmux_next_media_path_map.py
+          python3 tests/test_cmux_next_media_runner_scope.py
+
       - name: Validate the cmux-next tour bounds its DerivedData on each Mac
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_prune_media_derived_data.py
+
+      - name: Validate a second cmux-next tour of a tag waits for the tour holding it
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_media_tag_lock.py
+
+      - name: Validate the cmux-next tour drops stale prebuilt modules when a binary pin changes
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_media_module_cache_stamp.py
+
+      - name: Validate the cmux-next tour reuses a base app another tour built for the same commit
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_media_app_cache.py
+
+      - name: Validate the cmux-next tour never waits for an unpublished base cmux-tui tree
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_media_tree_fallback.py
 
       - name: Validate feat-cmux-next publishes its cmux-tui tree before the daemon tests
         if: ${{ matrix.group == 'release-notary' }}
@@ -1081,11 +1172,16 @@ jobs:
         run: |
           python3 tests/test_update_release_tag.py
           python3 tests/test_nightly_next_computer_use_helper.py
+          python3 tests/test_nightly_next_post_publish.py
           python3 tests/test_nightly_publication_marker.py
           python3 tests/test_nightly_republish_delta_guard.py
           python3 tests/test_nightly_resume_tracks.py
           python3 tests/test_nightly_signed_unnotarized_artifact.py
           python3 tests/test_nightly_notices_submodule.py
+
+      - name: Validate the cmux NEXT DEV daily dispatcher
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_dev_daily_dispatch.py
 
       - name: Validate nightly tag permission probe
         if: ${{ matrix.group == 'release-notary' }}
@@ -1121,7 +1217,10 @@ jobs:
 
       - name: Validate universal nightly workflow
         if: ${{ matrix.group == 'release-notary' }}
-        run: bash ./tests/test_nightly_universal_build.sh
+        run: |
+          bash ./tests/test_nightly_universal_build.sh
+          python3 tests/test_nightly_trusted_routing.py
+          python3 tests/test_nightly_build_state.py
 
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ matrix.group == 'release-notary' }}
@@ -1146,6 +1245,10 @@ jobs:
       - name: Validate the nightly-next guard
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
+
+      - name: Validate the nightly-next feed rollback
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_feed_rollback.py
 
       - name: Validate the nightly-next arm64-only track
         if: ${{ matrix.group == 'release-notary' }}
@@ -1179,12 +1282,24 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_identity.py
 
+      - name: Validate nightly signing admission and its shadow mode
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_nightly_sign_admit.py
+          python3 tests/test_nightly_sign_shadow_workflow.py
+
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |
           python3 tests/test_nightly_promotion_admission.py
+          python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_ci_nightly_push_throttle.py
+          python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
+
+      - name: Validate unsigned nightly resume provenance and routing
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_unsigned_resume.py
 
       - name: Validate test compilation cache seeding
         if: ${{ matrix.group == 'quality-sharding' }}
@@ -1294,6 +1409,10 @@ jobs:
       - name: Validate Sparkle appcast generation without previous archives
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_sparkle_generate_appcast_no_deltas.sh
+
+      - name: Validate Sparkle key export permissions
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_sparkle_generate_keys_permissions.sh
 
       - name: Validate Sparkle appcast macOS floor
         if: ${{ matrix.group == 'release-notary' }}

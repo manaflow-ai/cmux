@@ -55,7 +55,7 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         return Ok(());
     }
     let accepted = if is_backdrop_selection(row) {
-        Accepted::Shape("none, a listed painting, or system:<absolute path>")
+        Accepted::Shape("none, a listed painting, system:<absolute path> or file:<absolute path>")
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
         Accepted::Shape(
             "an array of absolute folders outside / , the home folder, other volumes and privacy-protected folders",
@@ -102,8 +102,12 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
     }
     if is_backdrop_selection(row) {
         let Some(text) = value.as_str() else { return false };
-        let system_path = text.strip_prefix("system:").is_some_and(|path| path.starts_with('/'));
-        return system_path || is_accepted(&row.kind, value, domains);
+        // `system:<absolute path>` (a macOS wallpaper) or `file:<absolute
+        // path>` (the person's own image), as Swift `BackdropSelectionSetting`.
+        let path = ["system:", "file:"]
+            .iter()
+            .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
+        return path || is_accepted(&row.kind, value, domains);
     }
     is_accepted(&row.kind, value, domains)
 }
@@ -134,6 +138,7 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
             value.as_str().is_some_and(|text| font_ok(text, domains.font_families.as_ref()))
         }
         Kind::Sound => value.as_str().is_some_and(|text| sound_ok(text, domains.sounds.as_ref())),
+        Kind::Text => value.is_string(),
         Kind::FolderList => value.as_array().is_some_and(|items| {
             items.iter().all(|item| {
                 item.as_str().is_some_and(|path| path.starts_with('/') || path.starts_with("~/"))
@@ -231,6 +236,7 @@ fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
             domain(domain_name(DomainKind::FontFamily), domains.font_families.as_ref())
         }
         Kind::Sound => domain(domain_name(DomainKind::Sound), domains.sounds.as_ref()),
+        Kind::Text => Accepted::Shape("a string"),
         Kind::FolderList => Accepted::Shape("an array of /absolute or ~/ folder paths"),
         Kind::StringList => Accepted::Shape("an array of non-empty strings"),
         Kind::OrderedChoices(choices) => Accepted::Choices(values(choices)),

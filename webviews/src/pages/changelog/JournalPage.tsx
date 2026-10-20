@@ -89,14 +89,15 @@ function DaySection({
   const near = (el: HTMLElement | null) => {
     if (!el || !pending) return;
     const load = () => builds.forEach((b) => void store.ensure(b.build));
-    if (typeof IntersectionObserver === "undefined") return load();
+    // A day already near the viewport loads now: the first frame waits for it (paintGate.ts).
+    if (typeof IntersectionObserver === "undefined" || nearViewport(el)) return load();
     const observer = new IntersectionObserver(
       (records) => {
         if (!records.some((r) => r.isIntersecting)) return;
         observer.disconnect();
         load();
       },
-      { rootMargin: "800px 0px" },
+      { rootMargin: `${NEAR_MARGIN}px 0px` },
     );
     observer.observe(el);
     return () => observer.disconnect();
@@ -118,6 +119,15 @@ function DaySection({
   );
 }
 
+/** How far outside the viewport a day starts loading its notes. */
+const NEAR_MARGIN = 800;
+
+function nearViewport(el: HTMLElement): boolean {
+  const height = el.ownerDocument.defaultView?.innerHeight ?? 0;
+  const rect = el.getBoundingClientRect();
+  return rect.top < height + NEAR_MARGIN && rect.bottom > -NEAR_MARGIN;
+}
+
 function SectionBody({
   view,
   pending,
@@ -137,7 +147,7 @@ function SectionBody({
       {view.count === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
       {unpublished && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
       <Groups view={view} ctx={ctx} />
-      <ChangesFold changes={view.changes} strings={ctx.strings} />
+      <ChangesFold changes={view.changes} internal={view.internalChanges} strings={ctx.strings} />
     </>
   );
 }

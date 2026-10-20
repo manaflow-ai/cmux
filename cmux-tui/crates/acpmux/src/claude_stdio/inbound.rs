@@ -21,8 +21,31 @@ impl Translator {
         };
         let mut out = Vec::new();
         // A local slash command answers with a synthetic assistant line, or
-        // `/clear` with its reset, before its result (Claude Code 2.1.299).
-        if kind == "assistant" || (kind == "system" && sub == "conversation_reset") {
+        // `/clear` with its reset, before its result (Claude Code 2.1.299);
+        // `/compact` with its boundary, and nothing else (2.1.303).
+        // The summary is the line right after the boundary; any other line of
+        // the chat's own (not the summary) means this compaction wrote none.
+        if parent.is_none()
+            && (kind == "assistant"
+                || (kind == "user"
+                    && line.get("isSynthetic").and_then(Value::as_bool) != Some(true)))
+        {
+            self.awaiting_summary.store(false, Ordering::SeqCst);
+        }
+        // A failed compaction writes no boundary: its status line is the
+        // turn's output, so the zero-turn result after it ends the prompt.
+        let compaction_failed = parent.is_none()
+            && kind == "system"
+            && sub == "status"
+            && line.get("status").and_then(Value::as_str).is_none()
+            && line
+                .get("compact_result")
+                .and_then(Value::as_str)
+                .is_some_and(|result| result != "success");
+        if kind == "assistant"
+            || (kind == "system" && (sub == "conversation_reset" || sub == "compact_boundary"))
+            || compaction_failed
+        {
             self.turn_output.store(true, Ordering::SeqCst);
         }
         match kind {
@@ -179,6 +202,7 @@ impl Translator {
                                 launched: input.get("run_in_background")
                                     == Some(&Value::Bool(true)),
                                 announced: false,
+                                output: None,
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
@@ -209,6 +233,8 @@ impl Translator {
                 let mut prompt = self.prompt_echo.lock().await;
                 if !uuid.is_empty() && prompt.as_deref() == Some(uuid) {
                     *prompt = None;
+                    // What follows is this prompt's output, not a stopped turn's tail.
+                    self.turn_output.store(false, Ordering::SeqCst);
                     return out;
                 }
                 drop(prompt);
@@ -226,6 +252,19 @@ impl Translator {
                         let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                         self.stdin_replies.lock().await.push(json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}));
                     }
+                }
+            }
+            // The summary a compaction leaves: the synthetic user line after
+            // its boundary. It is not a prompt; acpmux keeps it as the context
+            // a handoff or fallback carries.
+            "user"
+                if parent.is_none()
+                    && line.get("isSynthetic").and_then(Value::as_bool) == Some(true)
+                    && compaction_summary_text(line).is_some()
+                    && self.awaiting_summary.swap(false, Ordering::SeqCst) =>
+            {
+                if let Some(text) = compaction_summary_text(line) {
+                    out.push(upd(json!({"sessionUpdate": "compaction_summary", "text": text})));
                 }
             }
             "user" => {
@@ -300,6 +339,7 @@ impl Translator {
                         let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                         let acp_id = Value::from(1_000_000 + n);
                         self.control_out.lock().await.insert(rid.clone(), acp_id.clone());
+                        self.inputs.lock().await.insert(rid.clone(), input.clone());
                         // "Allow for this session" is offered only with a
                         // rule Claude can keep (with #20407): without one it
                         // would be Allow once under another name.
@@ -423,6 +463,8 @@ impl Translator {
                 // "int-*" acks need no reply; the result message ends the turn.
             }
             "result" => {
+                // A compaction's summary comes before its turn's result.
+                self.awaiting_summary.store(false, Ordering::SeqCst);
                 // `is_error` with a success subtype is how Claude reports a
                 // usage limit or an API refusal: a failed turn, not a reply.
                 let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
@@ -451,10 +493,17 @@ impl Translator {
                         ));
                     }
                 }
-                // The result of a turn acpmux already ended, before Claude Code
-                // read the next prompt: it ends only the abandoned prompts.
+                // The result of a turn acpmux already ended (a Stop Claude Code
+                // answered late): it ends only the abandoned prompts. It comes
+                // before Claude Code read the next prompt, or after its echo but
+                // before any of its output (cx-he737). A result after the next
+                // prompt's own output is that prompt's: the stopped turn never
+                // had one, and it ends them all.
                 let abandoned = std::mem::take(&mut *self.abandoned.lock().await);
-                if !abandoned.is_empty() && self.prompt_echo.lock().await.is_some() {
+                let next_unread = self.prompt_echo.lock().await.is_some();
+                if !abandoned.is_empty()
+                    && (next_unread || !self.turn_output.load(Ordering::SeqCst))
+                {
                     for k in abandoned {
                         self.pending.lock().await.remove(&k);
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
@@ -540,6 +589,20 @@ impl Translator {
             "system" if sub == "compact_boundary" && parent.is_none() => {
                 let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
+                self.awaiting_summary.store(true, Ordering::SeqCst);
+                out.push(upd(compaction_update("completed", line)));
+            }
+            // Claude Code 2.1.303 says `status: compacting` when a compaction
+            // starts, and clears it with `compact_result` when it ends.
+            "system" if sub == "status" && parent.is_none() => {
+                let result = line.get("compact_result").and_then(Value::as_str);
+                match (line.get("status").and_then(Value::as_str), result) {
+                    (Some("compacting"), _) => out.push(upd(compaction_update("running", line))),
+                    (None, Some(result)) if result != "success" => {
+                        out.push(upd(compaction_update("failed", line)))
+                    }
+                    _ => {}
+                }
             }
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {
@@ -607,14 +670,17 @@ impl Translator {
                     background: false,
                     launched: backgrounded(line.get("is_backgrounded")),
                     announced: false,
+                    output: None,
                 });
                 shell.task = task.map(str::to_owned).or(shell.task.take());
+                shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
                 shell.background |= backgrounded(line.get("is_backgrounded"));
                 return running(&tool, shell);
             }
             "task_updated" => {
                 let shell = shells.get_mut(&tool)?;
                 shell.background |= backgrounded(line.pointer("/patch/is_backgrounded"));
+                shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
                 // Claude Code may send no notification after `stop_task`: a
                 // stopped task ends here. A completed or failed one waits
                 // for its notification, which carries the summary.
@@ -625,7 +691,8 @@ impl Translator {
             "task_notification" => {}
             _ => return None,
         }
-        let shell = shells.remove(&tool).filter(|s| s.background)?;
+        let mut shell = shells.remove(&tool).filter(|s| s.background)?;
+        shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
         let state = match status {
             Some("failed") => "failed",
             Some("killed" | "stopped") => "stopped",
@@ -768,6 +835,49 @@ fn todo_plan(input: &Value) -> Option<Value> {
     Some(json!({"sessionUpdate": "plan", "entries": entries}))
 }
 
+/// A `compaction` update: a compaction of the chat's context `state`
+/// (`running`, `completed`, `failed`), with what Claude's line says about it.
+/// `reason` is set by a wrapper that compacted for its own purpose (the
+/// subrouter relay compacts before moving the chat to another account).
+fn compaction_update(state: &str, line: &Value) -> Value {
+    let meta = line.get("compact_metadata");
+    let field = |key: &str| meta.and_then(|m| m.get(key)).cloned().filter(|v| !v.is_null());
+    let mut update = json!({"sessionUpdate": "compaction", "state": state});
+    for (from, to) in [
+        ("trigger", "trigger"),
+        ("reason", "reason"),
+        ("pre_tokens", "preTokens"),
+        ("post_tokens", "postTokens"),
+    ] {
+        if let Some(v) = field(from) {
+            update[to] = v;
+        }
+    }
+    update
+}
+
+/// The text of a compaction's summary line (string or text-block content).
+fn compaction_summary_text(line: &Value) -> Option<String> {
+    let text = match line.pointer("/message/content")? {
+        Value::String(s) => s.clone(),
+        // A tool result is never a summary; the general user arm reads it.
+        Value::Array(blocks)
+            if blocks
+                .iter()
+                .any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result")) =>
+        {
+            return None;
+        }
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|b| b.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => return None,
+    };
+    (!text.trim().is_empty()).then_some(text)
+}
+
 /// A `background_task_update` for one shell.
 fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> Value {
     json!({
@@ -794,7 +904,14 @@ fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
     Some(shell_update(shell, update))
 }
 
-/// `update` as a session update in the shell's session.
+/// `update` as a session update in the shell's session, with its output
+/// file once Claude named it as `_meta.acpmux.outputFile`, which the hub
+/// takes off before the update is logged (`hub/processes.rs`): the path
+/// stays in the registry.
 fn shell_update(shell: &BackgroundShell, update: Value) -> Message {
-    Message::notification(method::SESSION_UPDATE, json!({"sessionId": shell.sid, "update": update}))
+    let mut params = json!({"sessionId": shell.sid, "update": update});
+    if let Some(output) = &shell.output {
+        params["_meta"] = json!({"acpmux": {"outputFile": output}});
+    }
+    Message::notification(method::SESSION_UPDATE, params)
 }

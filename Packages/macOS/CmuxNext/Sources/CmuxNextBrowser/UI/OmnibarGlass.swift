@@ -2,23 +2,24 @@ import CmuxNextDesign
 import AppKit
 public import Observation
 
-/// How the omnibar's bar draws its material: none at all (the default,
-/// Lawrence 2026-10-13: flat and clear, the toolbar shows through), Liquid
-/// Glass on macOS 26 and later (`GlassPanelView`, which falls back to
-/// `NSVisualEffectView` before it), or the flat theme fill. The glass tint
+/// How the omnibar's bar draws its material: the flat theme fill (the
+/// default, cx-d0d.101: a tonal step of the theme text over the toolbar,
+/// `AddressBarSurface`), none at all (transparent: the toolbar shows
+/// through), or Liquid Glass on macOS 26 and later (`GlassPanelView`, which
+/// falls back to `NSVisualEffectView` before it). The glass tint
 /// comes from the Ghostty theme: its background, or its accent only when the
 /// theme names one (no blue otherwise). Reduce Transparency draws the flat
 /// fill instead of glass.
 ///
 /// The look comes from cmux.json (`browser.omnibar.glass`, `glassTint`,
-/// `glassTintStrength`, `cornerRadius`, `shadow`; the App writes
+/// `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`; the App writes
 /// `OmnibarGlassAppearance.shared`).
 public nonisolated struct OmnibarGlassLook: Sendable, Hashable {
     public enum Material: String, Sendable, CaseIterable {
         /// No fill and no material: what is behind the bar shows through;
         /// only hover, the focus ring and the suggestion card draw.
         case transparent
-        /// The flat theme fill (the look before glass).
+        /// The flat theme fill: a tonal step over the toolbar (the default).
         case off
         case regular
         case clear
@@ -42,17 +43,21 @@ public nonisolated struct OmnibarGlassLook: Sendable, Hashable {
     /// past half the bar height draw a capsule.
     public var cornerRadius: Double?
     public var shadow: Bool
+    /// How much the flat fill covers a see-through window behind it, 0 to 1
+    /// (0: as see-through as the window, down to the text's legibility floor).
+    public var backgroundOpacity: Double
 
-    public init(material: Material = .transparent, tint: Tint = .background, tintStrength: Double = 0.35,
-                cornerRadius: Double? = nil, shadow: Bool = false) {
+    public init(material: Material = .off, tint: Tint = .background, tintStrength: Double = 0.35,
+                cornerRadius: Double? = nil, shadow: Bool = false, backgroundOpacity: Double = 0) {
         self.material = material
         self.tint = tint
         self.tintStrength = min(max(tintStrength, 0), 1)
         self.cornerRadius = cornerRadius
         self.shadow = shadow
+        self.backgroundOpacity = min(max(backgroundOpacity, 0), 1)
     }
 
-    /// Transparent (flat and clear), theme radius, no shadow.
+    /// The flat theme fill, theme radius, no shadow, following the window's opacity.
     public static let standard = OmnibarGlassLook()
 
     /// The look in effect now (cmux.json).
@@ -89,10 +94,11 @@ public final class OmnibarGlassAppearance {
     /// cmux.json's `browser.omnibar` look keys (`BrowserOmnibarSetting`):
     /// an unknown word keeps the default; `cornerRadius` nil is the theme's,
     /// infinite is a capsule.
-    public func apply(glass: String, tint: String, tintStrength: Double, cornerRadius: Double?, shadow: Bool) {
-        let next = OmnibarGlassLook(material: .init(rawValue: glass) ?? .transparent, tint: .init(rawValue: tint) ?? .background,
+    public func apply(glass: String, tint: String, tintStrength: Double, cornerRadius: Double?, shadow: Bool,
+                      backgroundOpacity: Double = 0) {
+        let next = OmnibarGlassLook(material: .init(rawValue: glass) ?? .off, tint: .init(rawValue: tint) ?? .background,
                                     tintStrength: tintStrength, cornerRadius: cornerRadius.map { $0.isFinite ? $0 : 999 },
-                                    shadow: shadow)
+                                    shadow: shadow, backgroundOpacity: backgroundOpacity)
         if look != next { look = next }
     }
 }

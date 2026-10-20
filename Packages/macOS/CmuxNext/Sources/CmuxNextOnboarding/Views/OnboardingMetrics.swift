@@ -13,8 +13,8 @@ enum OnboardingMetrics {
 
 /// Label factory: non-editable, theme colors, wraps when `lines` is not 1.
 enum OnboardingLabel {
-    static func make(_ text: String = "", font: NSFont = OnboardingMetrics.bodyFont, color: NSColor = Palette.textPrimary, lines: Int = 1) -> NSTextField {
-        let label = lines == 1 ? NSTextField(labelWithString: text) : NSTextField(wrappingLabelWithString: text)
+    static func make(_ text: String = "", font: NSFont = OnboardingMetrics.bodyFont, color: NSColor = Palette.textPrimary, lines: Int = 1) -> ChromeLabel {
+        let label = lines == 1 ? ChromeLabel(labelWithString: text) : ChromeLabel(wrappingLabelWithString: text)
         label.font = font
         label.textColor = color
         label.maximumNumberOfLines = lines

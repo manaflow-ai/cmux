@@ -42,6 +42,7 @@ pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
+pub(crate) mod mutation_ledger_retention;
 mod open_guard;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
@@ -62,6 +63,9 @@ pub(crate) use registry_intent::{
 mod terminal_commit_intent;
 pub(crate) use terminal_commit_intent::TerminalCommitIntent;
 mod workspace_commit_intent;
+mod workspace_rows_commit;
+use workspace_rows_commit::commit_workspace_registry_in_transaction;
+pub(crate) mod workspace_name_store;
 pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
@@ -161,6 +165,19 @@ pub(crate) use topology_close_store::TopologyCloseCommit;
 // Version 15 normalizes legacy terminal exits to the exact public receipt shape.
 pub(crate) const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
+/// Every commit flushes the device cache on macOS (F_FULLFSYNC), so a crash or
+/// power loss keeps each acknowledged commit. Unit tests open hundreds of
+/// throwaway registries in one process and never cut power: there, a plain
+/// fsync (synchronous=FULL stays) keeps every commit ordering and restart
+/// result they check, while F_FULLFSYNC serialized the device across all test
+/// threads (notification_reads_survive_restart_and_eviction_prunes_them:
+/// 19.3 s on a fleet Mac, 0.18 s on Linux). Daemon binaries, including every
+/// integration test's daemon, keep F_FULLFSYNC.
+#[cfg(not(test))]
+const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=ON;";
+#[cfg(test)]
+const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=OFF;";
+
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
@@ -323,6 +340,12 @@ pub struct RegistryWorkspace {
     pub public_id: WorkspacePublicId,
     pub key: String,
     pub name: String,
+    /// Who chose `name`; an older registry or intent without it is user-owned.
+    #[serde(default)]
+    pub name_source: crate::resource_name::NameSource,
+    /// Advances on every rename of this workspace (an automatic rename's fence).
+    #[serde(default)]
+    pub name_revision: u64,
     pub group_key: String,
 }
 
@@ -2452,6 +2475,8 @@ impl WorkspaceRegistry {
         database_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        // Before the first write, so every commit of this connection uses it.
+        connection.execute_batch(REGISTRY_FULLFSYNC_PRAGMA)?;
         let fresh_database = connection.query_row(
             "SELECT COUNT(*) = 0 FROM sqlite_master WHERE type = 'table'",
             [],
@@ -2464,7 +2489,6 @@ impl WorkspaceRegistry {
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
              PRAGMA synchronous=FULL;
-             PRAGMA fullfsync=ON;
              PRAGMA wal_autocheckpoint=1000;
              PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
@@ -2723,6 +2747,7 @@ impl WorkspaceRegistry {
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
+            workspace_name_store::migrate_workspace_name_authority(&tx)?;
             tx.commit()?;
         }
         if terminal_hosts_has_workspace_foreign_key(&connection)? {
@@ -2880,7 +2905,8 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
         let db = self.connection.get();
         let mut statement = db.prepare(
-            "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id
+            "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
+                    w.name_source, w.name_revision
              FROM workspaces w
              JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
              WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
@@ -2889,16 +2915,27 @@ impl WorkspaceRegistry {
         let workspaces = statement
             .query_map([], |row| {
                 let id: i64 = row.get(0)?;
-                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+                let provenance: (String, i64) = (row.get(5)?, row.get(6)?);
+                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, provenance))
             })?
             .map(|row| {
-                let (id, key, name, group_key, public_id): (i64, String, String, String, String) =
-                    row?;
+                let (id, key, name, group_key, public_id, (source, revision)): (
+                    i64,
+                    String,
+                    String,
+                    String,
+                    String,
+                    (String, i64),
+                ) = row?;
+                let (name_source, name_revision) =
+                    workspace_name_store::stored_name_provenance(&source, revision)?;
                 Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
                     id: u64::try_from(id).context("stored workspace id is negative")?,
                     public_id: WorkspacePublicId::parse(public_id)?,
                     key,
                     name,
+                    name_source,
+                    name_revision,
                     group_key,
                 })
             })
@@ -2934,7 +2971,8 @@ impl WorkspaceRegistry {
                     json_extract(
                       creation.intent_json,
                       '$.workspace_reservation.workspace_public_id'
-                    )
+                    ),
+                    w.name_source, w.name_revision
              FROM workspaces w
              JOIN resource_creation_receipts creation
                ON json_extract(
@@ -2958,10 +2996,13 @@ impl WorkspaceRegistry {
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, Option<String>>(5)?,
+                    (row.get::<_, String>(6)?, row.get::<_, i64>(7)?),
                 ))
             })?
             .map(|row| {
-                let (position, id, key, name, group_key, public_id) = row?;
+                let (position, id, key, name, group_key, public_id, (source, revision)) = row?;
+                let (name_source, name_revision) =
+                    workspace_name_store::stored_name_provenance(&source, revision)?;
                 let public_id = public_id.with_context(|| {
                     format!("interrupted workspace {key} omitted its reserved public id")
                 })?;
@@ -2972,6 +3013,8 @@ impl WorkspaceRegistry {
                         public_id: WorkspacePublicId::parse(public_id)?,
                         key,
                         name,
+                        name_source,
+                        name_revision,
                         group_key,
                     },
                 ))
@@ -3726,6 +3769,17 @@ const JOURNAL_HISTORY_TABLES: [&str; 7] = [
     "journal_segment_kinds",
 ];
 
+/// Idempotency ledgers: one row per committed mutation, holding its result
+/// for a retry of the same `(origin, mutation_id)`. They are read only by
+/// that key and could reach 1 GB (a nightly's `projection_mutations`), so the
+/// open-time check skips them like journal history and touches their newest
+/// row and key instead; the maintenance worker bounds and scans them
+/// (`mutation_ledger_retention`).
+/// `resource_mutations` is not one of them: it is pruned on open and its
+/// terminal-defaults rows are restored state.
+const MUTATION_LEDGER_TABLES: [&str; 3] =
+    ["mutations", "projection_mutations", "terminal_mutations"];
+
 /// Structural check of the registry state on open. An unscoped quick_check
 /// reads every page of the file, so its cost tracked total journal history;
 /// checking each state table and its indexes keeps startup proportional to
@@ -3739,7 +3793,12 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         )?;
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
-    for table in tables.iter().filter(|table| !JOURNAL_HISTORY_TABLES.contains(&table.as_str())) {
+    let skipped = |table: &str| {
+        JOURNAL_HISTORY_TABLES.contains(&table)
+            || MUTATION_LEDGER_TABLES.contains(&table)
+            || mutation_ledger_retention::is_quarantined_ledger(table)
+    };
+    for table in tables.iter().filter(|table| !skipped(table.as_str())) {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {
@@ -3759,6 +3818,15 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
     ] {
         let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
         let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+    }
+    for table in MUTATION_LEDGER_TABLES {
+        if !tables.iter().any(|name| name.as_str() == table) {
+            continue;
+        }
+        for order in ["rowid DESC", "origin DESC, mutation_id DESC"] {
+            let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
+            let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+        }
     }
     Ok(())
 }
@@ -4209,6 +4277,10 @@ fn normalized_workspace_resource_deltas(
                     "index":u32::try_from(index)
                         .context("workspace index exceeds public uint32 range")?,
                     "focused":active_workspace == Some(workspace.public_id.as_str()),
+                    "extra":crate::resource_name::workspace_name_extra(
+                        workspace.name_source,
+                        workspace.name_revision,
+                    ),
                 },
             }))
         })
@@ -4471,157 +4543,6 @@ fn close_terminals_in_transaction(
         )?;
     }
     Ok(TerminalBatchClose { revision, closed })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn commit_workspace_registry_in_transaction(
-    transaction: &Transaction<'_>,
-    mutation: &WorkspaceMutation,
-    fingerprint: &str,
-    expected_revision: Option<u64>,
-    event_kind: &str,
-    workspace_key: &str,
-    workspaces: &[RegistryWorkspace],
-    result_json: &str,
-) -> anyhow::Result<(u64, TerminalBatchClose)> {
-    validate_identifier("mutation id", &mutation.id)?;
-    validate_identifier("mutation origin", &mutation.origin)?;
-    validate_workspace_key(workspace_key)?;
-    validate_registry(workspaces)?;
-    let current = transaction_revision(transaction)?;
-    if let Some(expected) = expected_revision
-        && expected != current
-    {
-        anyhow::bail!("workspace revision conflict: expected {expected}, current {current}");
-    }
-    let revision =
-        current.checked_add(1).ok_or_else(|| anyhow::anyhow!("workspace revision exhausted"))?;
-    let sqlite_revision =
-        i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
-
-    // Terminals are session-owned. Their workspace_key records their latest
-    // canonical placement but is intentionally allowed to outlive that
-    // workspace, so closing a workspace removes views without terminating the
-    // underlying terminal.
-    let terminal_batch =
-        TerminalBatchClose { revision: transaction_terminal_revision(transaction)?, closed: 0 };
-    // Only rows that change are written. Removed rows are tombstoned and
-    // moved rows first park at a unique negative slot, which releases the
-    // partial unique position index for the desired order below.
-    let desired = workspaces
-        .iter()
-        .enumerate()
-        .map(|(position, workspace)| (workspace.key.as_str(), (position, workspace)))
-        .collect::<HashMap<_, _>>();
-    let stored = {
-        let mut statement = transaction.prepare(
-            "SELECT workspace_key, numeric_id, name, group_key, position
-             FROM workspaces WHERE tombstoned = 0",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    (
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<i64>>(4)?,
-                    ),
-                ))
-            })?
-            .collect::<Result<HashMap<_, _>, _>>()?
-    };
-    // A key with a live row is not tombstoned: only the keys new to the
-    // live set need the check (one query each, not one per workspace).
-    for workspace in workspaces.iter().filter(|workspace| !stored.contains_key(&workspace.key)) {
-        let was_tombstoned = transaction
-            .query_row(
-                "SELECT tombstoned FROM workspaces WHERE workspace_key = ?1",
-                [&workspace.key],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?;
-        anyhow::ensure!(
-            was_tombstoned != Some(1),
-            "tombstoned workspace key cannot be reused: {}",
-            workspace.key
-        );
-    }
-    for (workspace_key, (_, _, _, stored_position)) in &stored {
-        match desired.get(workspace_key.as_str()) {
-            None => {
-                transaction.execute(
-                    "UPDATE workspaces SET tombstoned = 1, position = NULL,
-                     updated_revision = ?1, deleted_revision = ?1
-                     WHERE workspace_key = ?2 AND tombstoned = 0",
-                    params![sqlite_revision, workspace_key],
-                )?;
-            }
-            Some((position, _)) if *stored_position != i64::try_from(*position).ok() => {
-                transaction.execute(
-                    "UPDATE workspaces SET position = -rowid
-                     WHERE workspace_key = ?1 AND tombstoned = 0",
-                    [workspace_key],
-                )?;
-            }
-            Some(_) => {}
-        }
-    }
-    for (position, workspace) in workspaces.iter().enumerate() {
-        let unchanged = stored.get(&workspace.key).is_some_and(
-            |(numeric_id, name, group_key, stored_position)| {
-                i64::try_from(workspace.id).ok() == Some(*numeric_id)
-                    && name == &workspace.name
-                    && group_key == &workspace.group_key
-                    && *stored_position == i64::try_from(position).ok()
-            },
-        );
-        if unchanged {
-            continue;
-        }
-        transaction.execute(
-            "INSERT INTO workspaces(
-               workspace_key, numeric_id, name, group_key, position, tombstoned,
-               created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL)
-             ON CONFLICT(workspace_key) DO UPDATE SET
-               numeric_id=excluded.numeric_id,
-               name=excluded.name,
-               group_key=excluded.group_key,
-               position=excluded.position,
-               tombstoned=0,
-               updated_revision=excluded.updated_revision,
-               deleted_revision=NULL",
-            params![
-                workspace.key,
-                i64::try_from(workspace.id).context("workspace id exceeds SQLite range")?,
-                workspace.name,
-                workspace.group_key,
-                i64::try_from(position).context("workspace position exceeds SQLite range")?,
-                sqlite_revision
-            ],
-        )?;
-    }
-    transaction
-        .execute("UPDATE meta SET value = ?1 WHERE key = 'revision'", [revision.to_string()])?;
-    let ledger = mutation_ledger::KeyedLedger::Workspace;
-    let row = (fingerprint, result_json, sqlite_revision);
-    mutation_ledger::insert_keyed_mutation(transaction, ledger, mutation, row.0, row.1, row.2)?;
-    transaction.execute(
-        "INSERT INTO workspace_events(
-           revision, kind, workspace_key, origin, mutation_id, result_json
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            sqlite_revision,
-            event_kind,
-            workspace_key,
-            mutation.origin,
-            mutation.id,
-            result_json
-        ],
-    )?;
-    Ok((revision, terminal_batch))
 }
 
 fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {
@@ -5896,3 +5817,6 @@ mod personal_tests;
 
 #[cfg(test)]
 mod actor_migration_tests;
+
+#[cfg(test)]
+mod workspace_name_tests;

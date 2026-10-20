@@ -11,6 +11,7 @@ import { formatMegabytes, memoryChoices, plain } from "./model";
 import { PlanNotice } from "./Notices";
 import type { CloudState, CloudStore, CreateDraft } from "./store";
 import { errorText, format, L } from "./strings";
+import { DialogButton } from "../../ui/DialogButton";
 import { Sheet } from "../../ui/Sheet";
 
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
@@ -127,17 +128,22 @@ export function CreateSheet({
         </p>
       )}
       <div className="cloud-sheet-actions">
-        <button type="button" className="cloud-button" disabled={draft.submitting} onClick={() => store.closeCreate()}>
+        <DialogButton
+          dialogKey="escape"
+          className="cloud-button"
+          disabled={draft.submitting}
+          onClick={() => store.closeCreate()}
+        >
           {t(L.cancel)}
-        </button>
-        <button
-          type="button"
+        </DialogButton>
+        <DialogButton
+          dialogKey="return"
           className="cloud-button primary cloud-create-submit"
           aria-disabled={!canSubmit}
           onClick={() => canSubmit && void store.submitCreate()}
         >
           {t(draft.submitting ? L.createSubmitting : L.createSubmit)}
-        </button>
+        </DialogButton>
       </div>
     </Sheet>
   );

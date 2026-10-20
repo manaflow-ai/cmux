@@ -63,6 +63,10 @@ pub struct Peer {
     /// The origin the peer serves this daemon as (its initialize reply):
     /// `peer` when it accepted the peer token, `remote` (Web) otherwise.
     served_as: StdMutex<Option<String>>,
+    /// The daemon run the peer named in its initialize reply
+    /// (`personInstance`): the only run its pending prompts may carry
+    /// (`hub/person.rs` (c)). A claim, not a proof.
+    person_instance: StdMutex<Option<String>>,
     /// Whether the peer advertised the folder-trust gate in initialize.
     trust_gate: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
@@ -102,6 +106,7 @@ impl Peer {
             last_error: StdMutex::new(None),
             remote_version: StdMutex::new(None),
             served_as: StdMutex::new(None),
+            person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
@@ -197,6 +202,11 @@ impl Peer {
 
     pub fn remote_build(&self) -> Option<String> {
         self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone())
+    }
+
+    /// The daemon run the peer named at its last handshake.
+    pub fn person_instance(&self) -> Option<String> {
+        self.person_instance.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn supports_trust_gate(&self) -> bool {
@@ -375,6 +385,10 @@ impl Peer {
             *me.remote_version.lock().unwrap() = Some((v, b));
             *me.served_as.lock().unwrap_or_else(|e| e.into_inner()) =
                 init.pointer("/_meta/acpmux/origin").and_then(Value::as_str).map(str::to_owned);
+            *me.person_instance.lock().unwrap_or_else(|e| e.into_inner()) = init
+                .pointer("/_meta/acpmux/personInstance")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let advertised =
                 init.pointer("/_meta/acpmux/features").and_then(Value::as_array).is_some_and(
                     |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
