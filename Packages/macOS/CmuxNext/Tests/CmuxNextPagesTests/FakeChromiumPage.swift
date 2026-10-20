@@ -18,6 +18,8 @@ final class FakeChromiumPage: PageChromiumPage {
     var senderIsTop = true
     /// Runs after each call (tests wait on it).
     var onCall: (() -> Void)?
+    /// Runs when the host closes the page.
+    var onClose: (() -> Void)?
 
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         calls.append((method, params))
@@ -33,7 +35,10 @@ final class FakeChromiumPage: PageChromiumPage {
     func setZoom(_ zoom: Double) { self.zoom = zoom }
     func setFocused(_ focused: Bool) {}
     func setVisible(_ visible: Bool) {}
-    func close() { closed = true }
+    func close() {
+        closed = true
+        onClose?()
+    }
 
     /// The raw binding call the page script makes for `payload`.
     static func bindingCall(_ payload: [String: Any], context: Int = 9) -> String {

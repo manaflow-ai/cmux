@@ -23,7 +23,7 @@ struct PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        view.chromiumSleep = { _ in try await Task.sleep(for: .seconds(3600)) }
+        view.chromiumClock = PageTestClock.never
         #expect(view.engineDecision == .chromium)
         let start = try #require(view.chromiumStart)
         await start.value
@@ -43,7 +43,7 @@ struct PageWebViewChromiumTests {
             page.onEvent?(.devTools(FakeChromiumPage.bindingCall(["name": PagePaintProbe.handlerName, "body": 5])))
         }
         #expect(painted == true)
-        #expect(view.chromiumSession?.deadline == nil)
+        #expect(view.chromiumSession?.deadline.isScheduled == false)
 
         // Loading ends with the document's load event; the page then gets its theme.
         page.onEvent?(.devTools(#"{"method":"Page.frameNavigated","params":{"frame":{"id":"A","url":"\#(descriptor.url().absoluteString)"}}}"#))
@@ -57,14 +57,13 @@ struct PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        // The deadline's sleep ends when the test says so, after it holds the deadline task.
-        let (elapsed, elapse) = AsyncStream<Void>.makeStream()
-        view.chromiumSleep = { _ in for await _ in elapsed { return } }
-        let start = try #require(view.chromiumStart)
-        await start.value
-        let deadline = try #require(view.chromiumSession?.deadline)
-        elapse.yield()
-        await deadline.value
+        view.chromiumClock = PageTestClock.immediate
+        // The deadline fires on its own; the page closes when the view falls back.
+        let closed: Bool? = await PageTestWait.value("fallback") { done in
+            hosting.onMade = { page in page.onClose = { done(true) } }
+            #expect(view.chromiumStart != nil)
+        }
+        #expect(closed == true)
         #expect(view.engineDecision == .webKit(.chromiumFailed))
         #expect(hosting.made.first?.closed == true)
         #expect(view.chromiumSession == nil)
@@ -98,7 +97,7 @@ struct PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        view.chromiumSleep = { _ in try await Task.sleep(for: .seconds(3600)) }
+        view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         let opened: URL? = await PageTestWait.value("open") { done in
