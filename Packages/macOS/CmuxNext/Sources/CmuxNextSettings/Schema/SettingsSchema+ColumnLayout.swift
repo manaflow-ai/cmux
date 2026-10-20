@@ -66,6 +66,15 @@ nonisolated enum ColumnLayoutSettingsSchema {
                 kind: .toggle, default: .bool(ColumnLayoutSettings.rowsFallback), keywords: ["row", "column", "scroll", "vertical"]
             ),
             SettingDescriptor(
+                ColumnLayoutSettings.focusPaneOnScrollPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.focusPaneOnScroll", "Focus Pane on Scroll"),
+                help: SettingsText.keyed("settings.layout.focusPaneOnScroll.help",
+                                        "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is."),
+                summary: SettingsText.keyed("settings.layout.focusPaneOnScroll.summary", "Scrolling a pane focuses it"),
+                kind: .toggle, default: .bool(ColumnLayoutSettings.focusPaneOnScrollFallback),
+                keywords: ["focus", "scroll", "wheel", "trackpad", "pane", "follows mouse"]
+            ),
+            SettingDescriptor(
                 ColumnLayoutSettings.minimumPaneWidthPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.minimumPaneWidth", "Minimum Pane Width"),
                 kind: .number(SettingNumber(ColumnLayoutSettings.minimumPaneWidthRange, step: 10, unit: .points)),

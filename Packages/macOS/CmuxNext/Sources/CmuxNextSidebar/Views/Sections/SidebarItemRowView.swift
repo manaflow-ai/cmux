@@ -37,8 +37,8 @@ class SidebarItemRowView: NSView {
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
-    /// True: the item acts on mouse-down, as workspace rows do (Home, the App
-    /// Store: `LayoutItemRef.activatesOnPress`); false: on release.
+    /// True: the item acts on mouse-down, as workspace rows do (every item but a new-tab
+    /// launcher: `LayoutItemRef.activatesOnPress`); false: on release.
     var activatesOnPress = false
     /// The current press already ran the action on mouse-down; its release does not run it again.
     private var activatedOnPress = false
@@ -190,9 +190,9 @@ class SidebarItemRowView: NSView {
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: style == .chip ? Metrics.space2 : inset * 2, y: (b.height - side) / 2, width: side, height: side)
-        // Icon-only items keep their selection and hover pill around the glyph.
-        // A full-width fill makes a compact sidebar read like a selected row.
-        let pillFrame = style.isIconOnly ? iconFrame
+        // Icon-only items keep their pill around the glyph (a full-width fill reads
+        // as a selected row); the profile avatar's pill and click fill its square.
+        let pillFrame = style.isIconOnly ? (showsAvatar ? b : iconFrame)
             : style == .chip ? b
             : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
         pill.frame = pillFrame
@@ -374,7 +374,11 @@ class SidebarItemRowView: NSView {
         pressModifiers = event.modifierFlags
         didDrag = false
         activatedOnPress = activatesOnPress
-        if activatesOnPress { activate(with: pressModifiers) }
+        guard activatesOnPress else { return }
+        activate(with: pressModifiers)
+        // The profile control's menu runs its own tracking loop and takes the release: no mouseUp
+        // follows, so the pressed fill must not stay.
+        if NSEvent.pressedMouseButtons & 1 == 0 { isPressed = false }
     }
 
     /// Past the drag threshold the region reorders in place (R77).
@@ -384,10 +388,9 @@ class SidebarItemRowView: NSView {
         isPressed = false
     }
 
-    /// An item that does not switch on press acts on release, like a button:
-    /// a press that became a drag (or left the item first) never opens it.
-    /// Acting on the press opened launchers or a new workspace under a tile
-    /// the user only meant to move.
+    /// An item that does not open on press (a new-tab launcher) acts on release, like a
+    /// button: a press that became a drag (or left the item first) never runs it. Acting
+    /// on the press made a tab under a launcher the user only meant to move.
     override func mouseUp(with event: NSEvent) {
         let dragged = didDrag
         let activated = activatedOnPress

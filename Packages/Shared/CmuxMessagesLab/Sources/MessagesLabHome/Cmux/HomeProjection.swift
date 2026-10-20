@@ -144,7 +144,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // A running Chief run (`chief-live-v1`) owns the Chief's bubble: its typing dots until text comes.
         let live = homeStore.liveRun(in: conversation)
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
-              typing: (homeStore.typing[conversation] ?? []).union(live.map { [$0.participant] } ?? []),
+              typing: homeStore.typists(in: conversation),
               hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])
         // The line closes on the frame after the one that shows the reply in the bubble's place (cx-zz30r, cx-06vn1).
         if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
@@ -157,8 +157,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
                hasOlder newHasOlder: Bool, draft: HomeTurnDraft? = nil) {
         // MessagesLab hides a sender's typing dots while its stream has text (ask 11).
         let typing = wantedTyping
-        // My sends while the Chief's reply streamed stay below the text it showed then (ProjectionCore+Freeze).
-        let items = core.arrange(items)
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
@@ -330,8 +328,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if homeStore.summary(conversation) == nil { _ = noteSend("sent: the store has not listed this conversation") }
         if !store.state.atNewest { _ = noteSend("sent: an older window shows, no local bubble") }
         if store.state.atNewest {
-            // The Chief's reply text already on screen stays where it is, above this send (cmux: send order).
-            for a in core.freezeStream(before: key, in: store.state) { controller.dispatch(a) }
+            // A reply still streaming stays one bubble, the newest row, below this send: the owner posts it
+            // after the send, so it lands in the bubble's place (HomeProjection+Draft, send order).
             controller.dispatch(.send)
             // The local bubble morphs into HomeStore's item; without it the item shows on its own.
             _ = core.recordSend(key, in: store.state)
@@ -679,9 +677,6 @@ struct ProjectionCore {
     var links: HomeMapping.Links = { _ in nil }
     /// The agent's running reply on screen (`stream(_:state:)`, MessagesLab ask 11).
     var shownStream: ShownStream?
-    /// Running replies whose shown text was frozen in place by my send (`freezeStream(before:)`),
-    /// by turn: the frozen text stays above that send, the rest streams below it.
-    var frozen: [IdempotencyKey: FrozenReply] = [:]
 
     init(me: ParticipantID) { self.me = me }
 
@@ -720,7 +715,4 @@ struct ProjectionCore {
     }
 
     mutating func forget(_ key: IdempotencyKey) { aliases[key] = nil }
-
-    /// A frozen piece of the running reply joins the shown snapshot at the newest (ProjectionCore+Freeze).
-    mutating func insertShown(_ item: TranscriptItem) { shown.append(item) }
 }
