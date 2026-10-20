@@ -53,7 +53,7 @@ import Testing
         #expect(panel.glass.materialOverride == nil)
         #expect(panel.glass.material == OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
                                                               reduceTransparency: ReduceTransparency.shared.isEnabled))
-        #expect(panel.glass.cornerRadius == PopupStyle.standard.cornerRadius)
+        #expect(panel.glass.cornerRadius == HoverCardPanel.cornerRadius)
     }
 
     /// On each material the surface takes the scope's own tokens: the overlay glass tint (the
