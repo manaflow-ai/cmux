@@ -1,11 +1,12 @@
 public import Foundation
+import CmuxNextHelperSecurity
 
 /// Picks the binary that serves a VS Code install in the browser and builds its launch.
 ///
-/// A `code-server` that `serve-web` already downloaded wins (most recently used first, from the
-/// cache's `lru.json`, else the newest); without one the app's bundled `code-tunnel` CLI runs
-/// `serve-web`, which downloads it. The server listens on 127.0.0.1 on a free port and accepts only
-/// the token in the connection token file.
+/// A trusted `code-server` that `serve-web` already downloaded wins (most recently used first, from
+/// the cache's `lru.json`, else the newest). The server listens on 127.0.0.1 on a free port and
+/// accepts only the token in the connection token file. The signed `code-tunnel` wrapper is not a
+/// fallback: it delegates to mutable cache scripts without authenticating the full runtime.
 ///
 /// File access goes through the injected closures, so tests describe an install without disk:
 ///
@@ -15,12 +16,14 @@ public import Foundation
 ///     data: { _ in nil }, contents: { _ in [] }, modificationDate: { _ in nil })
 /// ```
 public struct VSCodeServeWebLaunchPlanner: Sendable {
+    static let vscodeTeamIdentifier = "UBF8T346G9"
     private let homeDirectory: URL
     private let environment: [String: String]
     private let isExecutable: @Sendable (String) -> Bool
     private let data: @Sendable (URL) -> Data?
     private let contents: @Sendable (URL) -> [URL]
     private let modificationDate: @Sendable (URL) -> Date?
+    private let executableTrust: @Sendable (URL) -> Bool
 
     /// Creates a planner.
     /// - Parameters:
@@ -30,6 +33,7 @@ public struct VSCodeServeWebLaunchPlanner: Sendable {
     ///   - data: A file's contents, or nil. Defaults to the file system.
     ///   - contents: A directory's visible entries. Defaults to the file system.
     ///   - modificationDate: A file's modification date. Defaults to the file system.
+    ///   - executableTrust: Whether an executable is a direct file signed by Microsoft's VS Code team.
     public init(
         homeDirectory: URL,
         environment: [String: String],
@@ -41,6 +45,9 @@ public struct VSCodeServeWebLaunchPlanner: Sendable {
         },
         modificationDate: @escaping @Sendable (URL) -> Date? = {
             (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        }, executableTrust: @escaping @Sendable (URL) -> Bool = { executable in
+            HelperExecutableTrust(reference: .teamIdentifier(VSCodeServeWebLaunchPlanner.vscodeTeamIdentifier))
+                .accepts(executable)
         }
     ) {
         self.homeDirectory = homeDirectory
@@ -49,12 +56,13 @@ public struct VSCodeServeWebLaunchPlanner: Sendable {
         self.data = data
         self.contents = contents
         self.modificationDate = modificationDate
+        self.executableTrust = executableTrust
     }
 
-    /// Whether `vscode` can serve at all: its bundled CLI exists. A cheap check for menus and the palette.
+    /// Whether `vscode` already has a directly trusted cached server.
     /// - Parameter vscode: The VS Code app bundle.
     public func canServe(vscode: URL) -> Bool {
-        isExecutable(codeTunnel(vscode).path)
+        cachedCodeServer(vscode) != nil
     }
 
     /// The launch that serves `vscode`, or nil when the install has no server binary.
@@ -66,29 +74,11 @@ public struct VSCodeServeWebLaunchPlanner: Sendable {
             "--accept-server-license-terms", "--host", "127.0.0.1", "--port", "0",
             "--connection-token-file", connectionTokenFile.path,
         ]
-        var nodeSafe = nodeSafeEnvironment()
+        let childEnvironment = VSCodeServeWebLaunch.minimalEnvironment(environment)
         if let codeServer = cachedCodeServer(vscode) {
-            nodeSafe.removeValue(forKey: "ELECTRON_RUN_AS_NODE")
-            return VSCodeServeWebLaunch(executableURL: codeServer, arguments: serverArguments, environment: nodeSafe)
+            return VSCodeServeWebLaunch(executableURL: codeServer, arguments: serverArguments, environment: childEnvironment)
         }
-        let tunnel = codeTunnel(vscode)
-        guard isExecutable(tunnel.path) else { return nil }
-        nodeSafe["ELECTRON_RUN_AS_NODE"] = "1"
-        return VSCodeServeWebLaunch(executableURL: tunnel, arguments: ["serve-web"] + serverArguments, environment: nodeSafe)
-    }
-
-    private func codeTunnel(_ vscode: URL) -> URL {
-        vscode.appendingPathComponent("Contents/Resources/app/bin/code-tunnel", isDirectory: false)
-    }
-
-    /// VS Code's Node reads its own options from `VSCODE_NODE_*`; the app's must not reach it.
-    private func nodeSafeEnvironment() -> [String: String] {
-        var result = environment
-        result.removeValue(forKey: "VSCODE_NODE_OPTIONS")
-        result.removeValue(forKey: "VSCODE_NODE_REPL_EXTERNAL_MODULE")
-        if let options = result.removeValue(forKey: "NODE_OPTIONS") { result["VSCODE_NODE_OPTIONS"] = options }
-        if let module = result.removeValue(forKey: "NODE_REPL_EXTERNAL_MODULE") { result["VSCODE_NODE_REPL_EXTERNAL_MODULE"] = module }
-        return result
+        return nil
     }
 
     private func cachedCodeServer(_ vscode: URL) -> URL? {
@@ -99,10 +89,10 @@ public struct VSCodeServeWebLaunchPlanner: Sendable {
            let ids = try? JSONDecoder().decode([String].self, from: raw) {
             for id in ids where isSafeComponent(id) {
                 let candidate = server(in: cache.appendingPathComponent(id, isDirectory: true))
-                if isExecutable(candidate.path) { return candidate }
+                if isExecutable(candidate.path), executableTrust(candidate) { return candidate }
             }
         }
-        return contents(cache).map(server(in:)).filter { isExecutable($0.path) }.max { lhs, rhs in
+        return contents(cache).map(server(in:)).filter { isExecutable($0.path) && executableTrust($0) }.max { lhs, rhs in
             let left = modificationDate(lhs) ?? .distantPast, right = modificationDate(rhs) ?? .distantPast
             return left != right ? left < right : lhs.path < rhs.path
         }
