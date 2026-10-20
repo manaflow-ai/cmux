@@ -11,20 +11,13 @@ import CmuxNextDaemon
 /// command; tab moves to a new window stay in `TabHandlers`.
 enum WindowMembershipHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("moveWorkspaceToWindow", run: { invocation in
-            let ids = try workspaces(invocation, context)
-            try move(ids, toWindow: invocation, context)
-        })
-        registry.bind("moveWorkspaceToNewWindow", run: { invocation in
-            let ids = try workspaces(invocation, context)
-            toNewWindow(ids, context)
-        })
-        registry.bind("workspaceGroup.moveToWindow", run: { invocation in
-            try move(groupMembers(invocation, context), toWindow: invocation, context)
-        })
-        registry.bind("workspaceGroup.moveToNewWindow", run: { invocation in
-            toNewWindow(try groupMembers(invocation, context), context)
-        })
+        // Into a new window beside the window they leave (`WindowManager.openMovedWindow`).
+        let windows = context.services.windows
+        let newWindow = { (ids: [String]) in windows.openMovedWindow(ids, from: windows.moveOrigin(of: ids.first), select: ActionRunScope.viewChangeAllowed()) }
+        registry.bind("moveWorkspaceToWindow", run: { try move(workspaces($0, context), toWindow: $0, context) })
+        registry.bind("moveWorkspaceToNewWindow", run: { try newWindow(workspaces($0, context)) })
+        registry.bind("workspaceGroup.moveToWindow", run: { try move(groupMembers($0, context), toWindow: $0, context) })
+        registry.bind("workspaceGroup.moveToNewWindow", run: { try newWindow(groupMembers($0, context)) })
     }
 
     /// The targeted workspace, widened to its window's sidebar selection
@@ -64,11 +57,5 @@ enum WindowMembershipHandlers {
         }
         target.sidebar.accept(ids.map(SidebarWorkspaceID.init), at: nil)
         context.services.windows.bringToFront(target)
-    }
-
-    /// Into a new window beside the window they leave (`WindowManager.openMovedWindow`).
-    static func toNewWindow(_ ids: [String], _ context: AppActionContext) {
-        let windows = context.services.windows
-        windows.openMovedWindow(ids, from: windows.moveOrigin(of: ids.first), select: ActionRunScope.viewChangeAllowed())
     }
 }
