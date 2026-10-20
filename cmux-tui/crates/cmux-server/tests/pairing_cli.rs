@@ -79,3 +79,14 @@ fn server_pairing_cli_requires_an_idempotency_value_before_a_local_mutation() {
     assert!(result.stdout.is_empty());
     assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
 }
+
+#[test]
+fn host_network_policy_cli_refuses_unconfirmed_identity_without_creating_state() {
+    let home = tempfile::tempdir().unwrap();
+    let result = command(home.path(), &["pair", "policy", "--json"]);
+    assert_eq!(result.status.code(), Some(4), "{}", String::from_utf8_lossy(&result.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(value["error"]["message"], "server.pair.network_unconfirmed");
+    assert!(result.stdout.is_empty());
+    assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
+}
