@@ -78,14 +78,23 @@ extension ProviderDetector {
         }
     }
 
-    /// Claude Code: `$CLAUDE_CODE_OAUTH_TOKEN`, the `.credentials.json`
-    /// file (Linux layout, also used when the Keychain is unavailable),
-    /// or the macOS Keychain item `Claude Code-credentials`; else a key,
-    /// gateway token or cloud switch Claude Code reads
-    /// (``detectClaudeConfigured(configDir:)``). The account label comes
-    /// from `oauthAccount.emailAddress` in `.claude.json`.
+    /// Claude Code: its own sign-in when that works; else a key, gateway
+    /// token or cloud switch Claude Code reads
+    /// (``detectClaudeConfigured(configDir:)``), so an empty or expired
+    /// `.credentials.json` does not hide a working gateway; else the
+    /// sign-in's own result (expired, unknown or missing).
     func detectClaudeCode() -> ProviderDetection {
         let configDir = environment.directory("CLAUDE_CONFIG_DIR", fallback: ".claude")
+        let login = detectClaudeLogin(configDir: configDir)
+        if let login, login.status == .signedIn { return login }
+        return detectClaudeConfigured(configDir: configDir) ?? login ?? .missing(.claude)
+    }
+
+    /// `$CLAUDE_CODE_OAUTH_TOKEN`, the `.credentials.json` file (Linux
+    /// layout, also used when the Keychain is unavailable), or the macOS
+    /// Keychain item `Claude Code-credentials`. The account label comes
+    /// from `oauthAccount.emailAddress` in `.claude.json`.
+    private func detectClaudeLogin(configDir: URL) -> ProviderDetection? {
         let identity = claudeIdentity(configDir: configDir)
         if environment.value("CLAUDE_CODE_OAUTH_TOKEN") != nil {
             return ProviderDetection(provider: .claude, status: .signedIn, account: identity.account, plan: identity.plan,
@@ -107,7 +116,7 @@ extension ProviderDetector {
             return ProviderDetection(provider: .claude, status: .signedIn, account: identity.account, plan: identity.plan,
                                      sources: [.keychain(Self.claudeKeychainService)])
         }
-        return detectClaudeConfigured(configDir: configDir) ?? .missing(.claude)
+        return nil
     }
 
     static let claudeKeychainService = "Claude Code-credentials"
