@@ -238,7 +238,15 @@ final class CEFRuntime {
             readyAfterLaunch = ProcessInfo.processInfo.systemUptime - Self.launchUptime
             logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
-            let reason = "\(Strings.cefUnavailable) (\(error))"
+            // A trust failure names the rejected item in the log, but the
+            // user-facing refusal stays the existing localized summary.
+            let untrusted: Bool
+            if case .untrusted = error {
+                untrusted = true
+            } else {
+                untrusted = false
+            }
+            let reason = untrusted ? Strings.cefUnavailable : "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")
             state = .failed(reason)
             onStartFailed?()
@@ -274,7 +282,13 @@ final class CEFRuntime {
         signatureChecker: (any CEFCodeSignatureChecking)? = nil
     ) -> Result<CEFLoadedLibrary, BootError> {
         guard let layout = candidate else { return .failure(.notEmbedded) }
-        _ = signatureChecker
+        if case .downloaded(let teamID) = layout.trust {
+            guard let teamID else { return .failure(.untrusted("missing Developer ID team")) }
+            let checker = signatureChecker ?? SecCodeCEFCodeSignatureChecker()
+            if let invalid = checker.invalidItem(in: layout, teamID: teamID) {
+                return .failure(.untrusted(invalid))
+            }
+        }
         let clock = ContinuousClock()
         let started = clock.now
         let shim: CEFShimLibrary
