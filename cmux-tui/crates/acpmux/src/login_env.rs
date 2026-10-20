@@ -724,13 +724,10 @@ pub const AGENT_USER_ZDOTDIR_ENV: &str = "CMUX_CLI_AGENT_ZDOTDIR";
 /// `ZDOTDIR`, the user's ZDOTDIR or none); `None` without a bundled CLI or
 /// without the layer next to it (an older app). Other shells ignore ZDOTDIR.
 pub fn agent_shell_env() -> Option<(OsString, Option<OsString>)> {
-    let Some(resources) = std::env::var_os(BUNDLED_CLI_ENV)
+    let resources = std::env::var_os(BUNDLED_CLI_ENV)
         .map(PathBuf::from)
         .filter(|cli| cli.is_absolute())
-        .and_then(|cli| cli.parent()?.parent().map(std::path::Path::to_path_buf))
-    else {
-        return None;
-    };
+        .and_then(|cli| cli.parent()?.parent().map(std::path::Path::to_path_buf))?;
     let layer = resources.join(AGENT_ZSH_LAYER);
     if !layer.join(".zshenv").is_file() {
         return None;
@@ -739,7 +736,9 @@ pub fn agent_shell_env() -> Option<(OsString, Option<OsString>)> {
     // started from an agent's shell already has the layer: keep its saved one.
     let current = std::env::var_os("ZDOTDIR").or_else(|| var("ZDOTDIR").map(OsString::from));
     let user = match current {
-        Some(dir) if PathBuf::from(&dir) == layer => std::env::var_os(AGENT_USER_ZDOTDIR_ENV),
+        Some(dir) if std::path::Path::new(&dir) == layer => {
+            std::env::var_os(AGENT_USER_ZDOTDIR_ENV)
+        }
         other => other,
     }
     .filter(|dir| !dir.is_empty());
