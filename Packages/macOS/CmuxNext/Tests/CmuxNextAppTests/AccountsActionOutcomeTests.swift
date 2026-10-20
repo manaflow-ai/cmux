@@ -37,9 +37,30 @@ import Testing
     @Test func aReauthenticateBeforeTheScreenEverOpenedStartsTheLogin() async {
         let services = MockAccountsServices()
         let model = AccountsModel(services: services)
-        model.reauthenticate(.codex)
-        for _ in 0..<200 where !services.calls.contains("reauth:codex") { await Task.yield() }
+        let failure = await model.performReauthenticate(.codex)
+        #expect(failure == nil)
         #expect(services.calls.contains("reauth:codex"))
+    }
+
+    /// The page's Sign In Again waits for detection and starts the login
+    /// before it answers, so its answer is the real outcome.
+    @Test func aPageReauthenticateBeforeTheScreenEverOpenedStartsTheLoginBeforeAnswering() async {
+        let services = MockAccountsServices()
+        let model = AccountsModel(services: services)
+        let failure = await model.perform(.reauthenticate(.codex))
+        #expect(failure == nil)
+        #expect(services.calls.contains("reauth:codex"))
+    }
+
+    /// While detection runs every row is Checking…; a reauthenticate that
+    /// cannot wait says so instead of answering success and starting a
+    /// login later that nothing owns.
+    @Test func aReauthenticateThatCannotWaitWhileCheckingSaysSo() async {
+        let services = MockAccountsServices()
+        let model = AccountsModel(services: services)
+        #expect(model.reauthenticate(.codex) != nil)
+        await model.settle()
+        #expect(!services.calls.contains("reauth:codex"))
     }
 
     @Test func aConnectWhileTheRowIsBusySaysSo() async {
