@@ -6,6 +6,7 @@
 
 #[cfg(unix)]
 mod action_hint;
+mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
 mod agents;
