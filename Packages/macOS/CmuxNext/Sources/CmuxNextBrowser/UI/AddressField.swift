@@ -50,12 +50,9 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         probe?("field.becomeFirstResponder")
         let accepted = super.becomeFirstResponder()
         probe?("field.becameFirstResponder")
-        if accepted {
-            performWithTheme {
-                (currentEditor() as? NSTextView)?.selectedTextAttributes = [.backgroundColor: OmnibarStyle.selection]
-            }
-            onFocus?()
-        }
+        // ChromeTextField (and its cell, at each field editor set-up) applies
+        // the caret and the gray selection.
+        if accepted { onFocus?() }
         return accepted
     }
 
@@ -68,6 +65,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: nil)
         super.mouseDown(with: event)
         probe?("field.tracked")
+        if event.omnibarDragged(to: NSApp.currentEvent) { sink?.fieldEditorMouseDragged() }
         sink?.fieldEditorMouseUp()
         probe?("field.mouseUpDone")
     }

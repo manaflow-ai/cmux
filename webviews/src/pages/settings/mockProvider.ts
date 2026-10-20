@@ -211,23 +211,45 @@ export class MockSettingsProvider {
         chief: params.chief,
         revisions: this.chiefs
           .filter((chief) => chief.id === params.chief)
-          .map((chief) => ({ rev: chief.rev, at: "2026-10-10T09:00:00Z", actor: "", operation: "chief.profile.create", record: chief })),
+          .map((chief) => ({
+            rev: chief.rev,
+            at: "2026-10-10T09:00:00Z",
+            actor: "",
+            operation: "chief.profile.create",
+            record: chief,
+          })),
       }),
       "cmux.chief.profile.update": (params) => {
         const index = this.chiefs.findIndex((chief) => chief.id === params.chief);
         const { chief: _id, machine: _m, session: _s, idempotency_key: _k, harness, model, effort, ...fields } = params;
         const old = this.chiefs[index]!;
-        const engine = { ...(old.engine as Params), ...(harness !== undefined ? { harness } : {}), ...(model !== undefined ? { model } : {}), ...(effort !== undefined ? { effort } : {}) };
+        const engine = {
+          ...(old.engine as Params),
+          ...(harness !== undefined ? { harness } : {}),
+          ...(model !== undefined ? { model } : {}),
+          ...(effort !== undefined ? { effort } : {}),
+        };
         this.chiefs[index] = { ...old, ...fields, engine, rev: Number(old.rev) + 1 };
         return { value: this.chiefs[index] };
       },
       "cmux.chief.profile.create": (params) => {
-        const made = { ...this.chiefs[0]!, id: `agent_new${this.chiefs.length}`, display_name: params.display_name, role: params.role ?? "", is_default: false, rev: 1, locked: params.locked === true };
+        const made = {
+          ...this.chiefs[0]!,
+          id: `agent_new${this.chiefs.length}`,
+          display_name: params.display_name,
+          role: params.role ?? "",
+          is_default: false,
+          rev: 1,
+          locked: params.locked === true,
+        };
         this.chiefs.push(made);
         return { value: made };
       },
       "cmux.chief.backend.list": () => ({
-        harnesses: { defaultHarness: "claude", harnesses: { claude: { displayName: "Claude Code" }, codex: { displayName: "Codex" } } },
+        harnesses: {
+          defaultHarness: "claude",
+          harnesses: { claude: { displayName: "Claude Code" }, codex: { displayName: "Codex" } },
+        },
         models: { harnesses: [] },
       }),
       "cmux.chief.backend.doctor": () => ({ ok: true, steps: [{ name: "prompt", ok: true }] }),

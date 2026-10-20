@@ -25,7 +25,7 @@ use events::stream_events;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
 use open::{is_web_url, parse_open_with};
-use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot};
+use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod agent_open;
@@ -962,7 +962,7 @@ fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
         object.remove("caller");
         return (params, false);
     }
-    if !CALLER_METHODS.contains(&method) {
+    if !takes_caller(method) {
         return (params, false);
     }
     let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };

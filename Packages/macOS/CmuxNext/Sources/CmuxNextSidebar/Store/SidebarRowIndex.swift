@@ -100,9 +100,10 @@ extension SidebarListView {
         // Rows still held after the hold ended (its card went without a landing): they apply with these.
         if !rowHold.isEmpty { return releaseRowHold(adding: patched) }
         SidebarPerfCounters.add(.rowPatches, patched.count)
-        // A height change lays the list out again (outside the timed patch: `reload` times itself);
+        // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
+        // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).
-        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { reload(animated: !model.sections.contains(where: \.hasProvisionalRows)) }
+        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { showModelChange(animates: !model.sections.contains(where: \.hasProvisionalRows)) }
     }
 
     /// Patches each row in place; true when one row's height changed.
@@ -112,7 +113,12 @@ extension SidebarListView {
         let shownCard = hoverCard.shownID
         for ws in patched {
             workspaces[ws.id] = ws
-            for tab in ws.tabs { tabs[tab.id] = tab }
+            // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again.
+            var changedTabs: [TabID] = []
+            for tab in ws.tabs where tabs[tab.id] != tab {
+                tabs[tab.id] = tab
+                changedTabs.append(tab.id)
+            }
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]
                 sections[section.id] = section
@@ -135,7 +141,7 @@ extension SidebarListView {
             }
             displayed.setContent(content, for: row.key)
             reconfigure(row.key)
-            for tab in ws.tabs { reconfigure(.tab(ws.id, tab.id)) }
+            for tab in changedTabs { reconfigure(.tab(ws.id, tab)) }
         }
         return heightChanged
     }

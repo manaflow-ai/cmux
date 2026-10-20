@@ -193,15 +193,16 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>end</string>
+			<string>afterCurrent</string>
 			<key>pfm_description</key>
 			<string>Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabPosition</string>
 			<key>pfm_range_list</key>
 			<array>
-				<string>end</string>
 				<string>afterCurrent</string>
+				<string>end</string>
+				<string>start</string>
 			</array>
 			<key>pfm_title</key>
 			<string>New Tab Position</string>
@@ -809,6 +810,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.</string>
+			<key>pfm_name</key>
+			<string>mobile.allowIPhoneConnections</string>
+			<key>pfm_title</key>
+			<string>Allow iPhone Connections</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>even</string>
 			<key>pfm_description</key>
 			<string>Even gives every pane in the column the same size after a split.</string>
@@ -902,13 +915,13 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
-			<string>Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is.</string>
+			<string>Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus.</string>
 			<key>pfm_name</key>
-			<string>layout.focusPaneOnScroll</string>
+			<string>layout.focusFollowsMouse</string>
 			<key>pfm_title</key>
-			<string>Focus Pane on Scroll</string>
+			<string>Focus Follows Mouse</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1791,6 +1804,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>shared</string>
+			<key>pfm_description</key>
+			<string>One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way.</string>
+			<key>pfm_name</key>
+			<string>appearance.paneBackgrounds</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>shared</string>
+				<string>perPane</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Pane Backgrounds</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Show the wallpaper grid and live appearance tuner while they are being integrated.</string>
@@ -1883,15 +1913,38 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>compact</string>
+			<key>pfm_description</key>
+			<string>Row height, padding, corners, icons and text size together. Compact is the default.</string>
 			<key>pfm_name</key>
 			<string>appearance.density</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>ultraCompact</string>
 				<string>compact</string>
+				<string>cozy</string>
 				<string>comfortable</string>
+				<string>spacious</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Density</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.customDensity</string>
+			<key>pfm_title</key>
+			<string>Custom Density</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_name</key>
+			<string>appearance.customDensities</string>
+			<key>pfm_title</key>
+			<string>Custom Densities</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -2784,6 +2837,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Web image sites can see your address and when you open a document. When off, each document asks before loading its web images.</string>
+			<key>pfm_name</key>
+			<string>markdown.remoteImages</string>
+			<key>pfm_title</key>
+			<string>Load Web Images Automatically</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>72</integer>
 			<key>pfm_description</key>
 			<string>The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box.</string>
@@ -2889,6 +2954,16 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own.</string>
+			<key>pfm_name</key>
+			<string>markdown.code.family</string>
+			<key>pfm_title</key>
+			<string>Code Font</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
 			<key>pfm_name</key>
 			<string>markdown.code.blockSize</string>
 			<key>pfm_range_max</key>
@@ -2930,6 +3005,103 @@
 			<string>Page Theme</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>800</integer>
+			<key>pfm_description</key>
+			<string>The widest the chat's column gets. On a wider pane the chat stays centered.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.width</string>
+			<key>pfm_range_max</key>
+			<real>4000</real>
+			<key>pfm_range_min</key>
+			<real>480</real>
+			<key>pfm_title</key>
+			<string>Chat Text Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>The chat fills the whole pane instead of the text width.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.fullWidth</string>
+			<key>pfm_title</key>
+			<string>Chat Full Width</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>markdown</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.font.preset</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>markdown</string>
+				<string>system</string>
+				<string>serif</string>
+				<string>mono</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Chat Font</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>14</integer>
+			<key>pfm_name</key>
+			<string>agentPane.display.font.size</string>
+			<key>pfm_range_max</key>
+			<real>28</real>
+			<key>pfm_range_min</key>
+			<real>10</real>
+			<key>pfm_title</key>
+			<string>Chat Font Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>1.625</real>
+			<key>pfm_name</key>
+			<string>agentPane.display.font.lineHeight</string>
+			<key>pfm_range_max</key>
+			<real>2.3999999999999999</real>
+			<key>pfm_range_min</key>
+			<real>1.2</real>
+			<key>pfm_title</key>
+			<string>Chat Line Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.code.family</string>
+			<key>pfm_title</key>
+			<string>Chat Code Font</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Code as a share of the chat's text size. Empty uses the Markdown viewer's.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.code.scale</string>
+			<key>pfm_range_max</key>
+			<real>1.25</real>
+			<key>pfm_range_min</key>
+			<real>0.59999999999999998</real>
+			<key>pfm_title</key>
+			<string>Chat Code Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -3732,6 +3904,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette.</string>
+			<key>pfm_name</key>
+			<string>sidebar.showSearchButton</string>
+			<key>pfm_title</key>
+			<string>Show Search Button</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Workspace rows show only their icon, name and unread mark, and section titles become thin lines.</string>
@@ -3781,6 +3965,30 @@
 			<string>sidebar.showTimestamps</string>
 			<key>pfm_title</key>
 			<string>Show Timestamps</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner.</string>
+			<key>pfm_name</key>
+			<string>sidebar.groupHeader.memberCount</string>
+			<key>pfm_title</key>
+			<string>Show Group Member Count</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner.</string>
+			<key>pfm_name</key>
+			<string>sidebar.groupHeader.unreadCount</string>
+			<key>pfm_title</key>
+			<string>Show Group Unread Count</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -5007,7 +5215,7 @@
 			<key>pfm_default</key>
 			<string>chromium</string>
 			<key>pfm_description</key>
-			<string>New browser tabs open in this engine.</string>
+			<string>Browser tabs and cmux pages, such as History and Apps, open in this engine.</string>
 			<key>pfm_name</key>
 			<string>browser.defaultEngine</string>
 			<key>pfm_range_list</key>
@@ -5016,9 +5224,40 @@
 				<string>webkit</string>
 			</array>
 			<key>pfm_title</key>
-			<string>Default Engine</string>
+			<string>Browser Engine</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<dict>
+				<key>amazon.com/gp/video</key>
+				<string>webkit</string>
+				<key>disneyplus.com</key>
+				<string>webkit</string>
+				<key>hulu.com</key>
+				<string>webkit</string>
+				<key>max.com</key>
+				<string>webkit</string>
+				<key>music.apple.com</key>
+				<string>webkit</string>
+				<key>netflix.com</key>
+				<string>webkit</string>
+				<key>primevideo.com</key>
+				<string>webkit</string>
+				<key>spotify.com</key>
+				<string>webkit</string>
+				<key>tv.apple.com</key>
+				<string>webkit</string>
+			</dict>
+			<key>pfm_description</key>
+			<string>Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium.</string>
+			<key>pfm_name</key>
+			<string>browser.siteEngines</string>
+			<key>pfm_title</key>
+			<string>Site Engines</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5055,6 +5294,39 @@
 			<string>Show Agent Cursor</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>human</string>
+			<key>pfm_description</key>
+			<string>How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once.</string>
+			<key>pfm_name</key>
+			<string>browser.agentMouse.motion</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>human</string>
+				<string>instant</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Agent Pointer Motion</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>350</integer>
+			<key>pfm_description</key>
+			<string>The longest time one agent pointer move takes with human motion. Short moves take less.</string>
+			<key>pfm_name</key>
+			<string>browser.agentMouse.maxMoveMs</string>
+			<key>pfm_range_max</key>
+			<real>1000</real>
+			<key>pfm_range_min</key>
+			<real>60</real>
+			<key>pfm_title</key>
+			<string>Longest Agent Pointer Move</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5132,6 +5404,22 @@
 			<string>Freeze Hidden Tabs</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off.</string>
+			<key>pfm_name</key>
+			<string>browser.keepNeighborTabsAwake</string>
+			<key>pfm_range_max</key>
+			<real>3</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Keep Neighbor Tabs Awake</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5348,13 +5636,14 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>backgroundTab</string>
+			<string>linkPlacement</string>
 			<key>pfm_description</key>
 			<string>In Chromium tabs, Download keeps Chrome's default.</string>
 			<key>pfm_name</key>
 			<string>browser.links.cmdClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5375,6 +5664,7 @@
 			<string>browser.links.cmdShiftClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5395,6 +5685,7 @@
 			<string>browser.links.shiftClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5415,6 +5706,7 @@
 			<string>browser.links.optionClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5435,6 +5727,7 @@
 			<string>browser.links.middleClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>

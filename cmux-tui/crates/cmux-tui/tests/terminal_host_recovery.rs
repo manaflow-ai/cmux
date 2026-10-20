@@ -5273,6 +5273,9 @@ mod close_path;
 #[path = "terminal_host_recovery/reopen_closed_kinds.rs"]
 mod reopen_closed_kinds;
 
+#[path = "terminal_host_recovery/durable_tab_links.rs"]
+mod durable_tab_links;
+
 #[path = "terminal_host_recovery/host_orphan.rs"]
 mod host_orphan;
 

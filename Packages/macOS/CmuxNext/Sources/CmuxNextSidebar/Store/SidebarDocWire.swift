@@ -154,7 +154,8 @@ nonisolated enum SidebarDocWire {
             default: .other(self.body.tag)
             }
             return SidebarDocItem(id: id, section: section, parent: parent, body: body, showsLabel: showsLabel ?? true, span: span,
-                                  label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url") ?? (extra?.value as? [String: Any])?["icon_url"] as? String)
+                                  label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url") ?? (extra?.value as? [String: Any])?["icon_url"] as? String,
+                                  pinnedInGroup: (extra?.value as? [String: Any])?["pinned"] as? Bool == true)
         }
     }
 

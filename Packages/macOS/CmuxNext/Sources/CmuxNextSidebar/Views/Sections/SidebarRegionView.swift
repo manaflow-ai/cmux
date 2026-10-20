@@ -135,6 +135,14 @@ final class SidebarRegionView: NSView {
         apply(shown)
     }
 
+    /// Lays the shown content out again at `width` when that differs from the width it was
+    /// laid out at: a list block's row is resized with the list (a sidebar resize), and its
+    /// rows must take the new width, not keep the one they were first laid out at.
+    func fit(width: CGFloat) {
+        guard width != self.width, let content else { return }
+        update(content, width: width)
+    }
+
     /// Shows `content` (a list block, `SidebarBlockRowView`): animated, the
     /// items spring to their new frames, as the list's rows do for a gap.
     func show(_ content: Content, width: CGFloat, animated: Bool) {

@@ -13,7 +13,7 @@ extension WindowOverlayHost {
             return
         }
         let regions = interactiveRegions()
-        guard !regions.isEmpty else {
+        guard !regions.isEmpty || showsAgentCursorTags else {
             panel.ignoresMouseEvents = true
             removeMouseMonitor()
             return
@@ -37,6 +37,7 @@ extension WindowOverlayHost {
         let point = panel.frame.isEmpty ? screenPoint : panel.convertPoint(fromScreen: screenPoint)
         let accepts = acceptsMouse(at: point)
         if panel.ignoresMouseEvents == accepts { panel.ignoresMouseEvents = !accepts }
+        hoverAgentCursorTag(at: point)
     }
 
     /// A tab dialog takes the keyboard when a click lands on it; a click

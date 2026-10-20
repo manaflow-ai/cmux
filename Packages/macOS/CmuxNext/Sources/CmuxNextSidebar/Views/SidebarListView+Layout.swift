@@ -6,8 +6,12 @@ import QuartzCore
 extension SidebarListViewComponents {
     // MARK: - Reload
     /// Recomputes layout from the model and animates rows to their frames.
-    func reload(animated: Bool, adopt: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
+    /// `fromModel`: the model changed under the list (`showModelChange`); any other animated reload
+    /// is a user's gesture here, so the model change that follows it may animate too.
+    func reload(animated: Bool, adopt: Bool = false, fromModel: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
         SidebarPerfCounters.add(.listReloads, from: file, line: line)
+        if animated, !fromModel { model.noteUserIntent() }
+        holdsModelChange = false // this reload shows the model as it is now
         // No drag holds the rows: this reload shows every held patch (the model has them).
         if !holdsRowPatches { rowHold = SidebarRowHold() }
         workspaces = [:]
@@ -236,7 +240,9 @@ extension SidebarListViewComponents {
             view.configure(tab, row: row)
         case let (.group(id), view as GroupHeaderRowView):
             guard let group = groups[id] else { return }
-            view.configure(group, row: row, animated: animated)
+            var details = model.groupHeaderDetails
+            details.otherStates = model.detailedStatus
+            view.configure(group, row: row, details: details, animated: animated)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
@@ -257,6 +263,8 @@ extension SidebarListViewComponents {
     func fitToClip() {
         guard let clip = enclosingScrollView?.contentView else { return }
         if frame.width != clip.bounds.width { setFrameSize(NSSize(width: clip.bounds.width, height: frame.height)) }
+        // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
+        rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
         updateDocumentHeight()
         realizeVisibleRows()
     }
@@ -301,7 +309,7 @@ extension SidebarListViewComponents {
         updateHover()
     }
     func pruneOffscreen() {
-        let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.overscan)
+        let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.pruneMargin)
         // Only realized rows can be pruned: visit those, not every row.
         for (key, view) in rowViews {
             guard let row = displayed.row(for: key), !frame(for: row).intersects(keepRect),

@@ -55,9 +55,6 @@ final class AccountsService: AccountsServices {
     /// The detection inputs. The login env is captured once per launch
     /// (keys exported in shell rc files count); only presence is used.
     func detectionEnvironment() async -> DetectionEnvironment {
-        if showcaseMock != nil {
-            return DetectionEnvironment(home: FileManager.default.homeDirectoryForCurrentUser, environment: [:], files: LiveFileReader(), keychain: NoKeychain(), servers: HTTPServerProbe(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32)), savedKeys: [])
-        }
         let keys = keys
         let saved = await Task.detached { keys.savedProviders() }.value
         let labeler = await labeler()
@@ -91,6 +88,8 @@ final class AccountsService: AccountsServices {
     // MARK: AccountsServices
 
     func detect() async -> [ProviderDetection] {
+        // The showcase shows its fixture, never this Mac's own sign-ins.
+        if let showcaseMock { return await showcaseMock.detect() }
         let environment = await detectionEnvironment()
         return await Task.detached { await ProviderDetector(environment: environment).detectAll() }.value
     }
