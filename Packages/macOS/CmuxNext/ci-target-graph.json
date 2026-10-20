@@ -134,6 +134,7 @@
       "packages": [],
       "reads": [
         "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
+        "cmux-tui/spec/",
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
     },
@@ -937,9 +938,12 @@
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
+        "CmuxNextDesign",
         "CmuxNextKeepAwake",
         "CmuxNextMobile",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextSettingsWindow",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -947,6 +951,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPhoneAccessTests",
       "targets": [
+        "CmuxNextMobile",
         "CmuxNextPhoneAccess"
       ],
       "packages": [],

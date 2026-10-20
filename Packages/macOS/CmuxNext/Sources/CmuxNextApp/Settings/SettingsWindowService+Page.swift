@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextPhoneAccess
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 
@@ -16,6 +17,7 @@ extension SettingsWindowService {
         return [
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map(Self.listRow)),
+            "phones": .array((services.mobile.admission?.rows ?? []).map(Self.listRow)),
             "browser_profiles": .array(browserProfiles.map { profile in
                 [
                     "id": .string(profile.id), "name": .string(profile.name),

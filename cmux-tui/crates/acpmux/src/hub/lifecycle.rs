@@ -493,6 +493,13 @@ impl Hub {
             } else {
                 mode
             };
+            // Nor does any chat saved in full access while sessions.allowFullAccess is off.
+            let saved_mode = mode.clone();
+            let mode = super::start_mode::resumable_mode(mode, "default");
+            if mode != saved_mode {
+                tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
+                self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
+            }
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -737,8 +744,15 @@ impl Hub {
         saved: &SessionMeta,
     ) {
         let Some(sid) = session.meta().agent_session_id else { return };
-        if let Some(mode) =
-            saved.modes.as_ref().and_then(|m| m.get("currentModeId")).and_then(Value::as_str)
+        // A resumed chat saved in a full-access mode does not get it back while the setting is off.
+        if let Some(mode) = saved
+            .modes
+            .as_ref()
+            .and_then(|m| m.get("currentModeId"))
+            .and_then(Value::as_str)
+            .filter(|mode| {
+                !super::start_mode::is_full_access(mode) || super::start_mode::full_access_allowed()
+            })
         {
             if let Err(e) = child
                 .request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": mode}))
@@ -770,6 +784,12 @@ impl Hub {
             .collect();
         for (id, value) in ordered {
             if value.is_null() {
+                continue;
+            }
+            if value.as_str().is_some_and(super::start_mode::is_full_access)
+                && !super::start_mode::full_access_allowed()
+            {
+                tracing::info!(session = %session.id, "replay {id}: full access is off; kept the harness's own mode");
                 continue;
             }
             match child

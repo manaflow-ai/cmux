@@ -39,6 +39,8 @@ public final class MobileHostService {
     /// The signed-in account the listener registers under, while there is one.
     private var account: (auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService)?
     private var follower: PhoneAccessFollower?
+    /// The allowed phones and the question for new ones (`phone.newDevices`); set by `follow`.
+    public private(set) var admission: PhoneAdmission?
     /// Phones can reach this Mac: signed in and allowed (the phone keep-awake reason).
     var isServing: Bool { allowed && account != nil }
 
@@ -76,9 +78,23 @@ public final class MobileHostService {
     /// Follows Settings > Accounts > Phone Access from now on (once).
     public func follow(_ settings: SettingsController, launch: LaunchIdentity) {
         guard follower == nil else { return }
-        follower = PhoneAccessFollower(mobile: self, settings: settings,
-                                       history: MobileHostHistory(stateDirectory: Self.stateDirectory(namespace: Self.namespace(launch))))
+        let directory = Self.stateDirectory(namespace: Self.namespace(launch))
+        let admission = PhoneAdmission(store: PhoneDeviceStore(directory: directory))
+        self.admission = admission
+        let store = admission.store
+        access.setAdmission({ device in await admission.decide(device) }, stillAllowed: { store.contains($0) })
+        follower = PhoneAccessFollower(mobile: self, settings: settings, history: MobileHostHistory(stateDirectory: directory))
         follower?.start()
+    }
+
+    /// Settings > Accounts > Phone Access: Remove. The phone leaves the allowed list and its open
+    /// sessions close now; its next connection asks again. Throws, keeping the phone allowed and
+    /// connected, when the list cannot be saved.
+    public func removePhone(_ id: String) throws {
+        try admission?.remove(id)
+        let host = host
+        // task-owner: one hop to the host actor; disconnect is idempotent
+        Task { await host?.disconnect(phone: id) }
     }
 
     private func servingChanged() {

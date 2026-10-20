@@ -33,9 +33,7 @@ extension SettingsPageProvider {
     @discardableResult
     func useBackdropImage(_ url: URL) async throws -> String {
         guard let backdropImages else { throw PageError(code: "cmux.page.unavailable", message: "no backgrounds folder") }
-        guard let descriptor = SettingsSchema.descriptor(for: BackdropSelectionSetting().configPath) else {
-            throw PageError(code: "cmux.page.unavailable", message: "no background setting")
-        }
+        let descriptor = try Self.available(SettingsSchema.descriptor(for: BackdropSelectionSetting().configPath), "no background setting")
         let selection: BackdropSelection
         do {
             // Checked to decode or play, then copied off the main actor.

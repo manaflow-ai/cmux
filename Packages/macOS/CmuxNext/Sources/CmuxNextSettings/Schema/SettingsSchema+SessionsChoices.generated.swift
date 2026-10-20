@@ -11,6 +11,14 @@ public nonisolated enum SessionKeepAwakeSetting: String, Sendable, Hashable, Cas
     case always
 }
 
+/// How a phone on the account that is not on this Mac's allowed list (PhoneDeviceStore) gets in: the person allows it on the Mac once (PhoneAdmission), or the account check alone admits it, the behavior before this setting. Code pairing from the phone comes later.
+public nonisolated enum PhoneNewDevicesSetting: String, Sendable, Hashable, CaseIterable {
+    /// One question per new phone; the answer is remembered.
+    case ask
+    /// No question: every phone signed in to the same account and team gets in.
+    case account
+}
+
 /// Idle system sleep stays off while phone access is on and the listener runs (KeepAwakeService). A sleeping Mac is unreachable until it wakes.
 public nonisolated enum PhoneKeepAwakeSetting: String, Sendable, Hashable, CaseIterable {
     /// The Mac sleeps on its usual schedule.
