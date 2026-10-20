@@ -213,7 +213,7 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 id: "taskManager.killProcess",
                 title: String(localized: "action.taskManager.killProcess", defaultValue: "Kill Process…", bundle: .module),
                 keywords: ["terminate", "signal"], category: .window, symbol: "xmark.octagon", surfaces: [.contextMenu],
-                arguments: [CatalogArgument.processString], cliName: "app kill-process"
+                arguments: [CatalogArgument.processString], cliName: "app kill-process", destructive: true
             ),
         ]
     }
