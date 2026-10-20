@@ -362,13 +362,13 @@ button.cv-subagent > :last-child {
 }
 /* An agent another one spawned sits under it, moved in a step per level (AgentsPill.tsx). */
 .acpmux-agents-list__row[data-depth="1"] {
-  padding-left: 24px;
+  padding-inline-start: 24px;
 }
 .acpmux-agents-list__row[data-depth="2"] {
-  padding-left: 40px;
+  padding-inline-start: 40px;
 }
 .acpmux-agents-list__row[data-depth="3"] {
-  padding-left: 56px;
+  padding-inline-start: 56px;
 }
 .acpmux-agents-list__row:hover {
   background: var(--agent-control-hover);
