@@ -1,14 +1,15 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import Foundation
 
 /// `window.screenshot`, `pane.screenshot` and `tab.screenshot`: a PNG of one
-/// of this app's windows, a pane, or a tab's content, for agents that cannot
-/// see the screen (`cmux window screenshot [--target win_…] [--out PATH|-]`,
-/// the same verbs over MCP, the palette and the Copy menus).
+/// of this app's windows, a pane, or a tab's content. Raw captures are
+/// person-only until automation can use the guarded browser capture path;
+/// the palette and Copy menus reach these handlers.
 ///
 /// The image is the app's own window as on screen (``AppWindowImage``): no
 /// Screen Recording grant, no focus or selection change, no activation, and
@@ -197,8 +198,7 @@ enum ScreenshotHandlers {
 
     @concurrent
     nonisolated private static func write(_ png: Data, to url: URL) async throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try png.write(to: url, options: .atomic)
+        try await ExclusiveFileWriter().write(png, to: url)
     }
 
     /// Writes to `$TMPDIR/cmux-screenshots/`, pruned as browser screenshots are.

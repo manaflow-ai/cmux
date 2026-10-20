@@ -2,7 +2,8 @@
 // simulator, an Android emulator or a real phone in a pane tab, with live
 // input, screenshots, recordings, logs and one-click feedback to Chief.
 // Titles live in PhoneActions.xcstrings. Every action is a `cmux phone ...`
-// verb and an MCP tool, so agents drive the phone the way a person does.
+// verb and an MCP tool, so agents drive the phone the way a person does;
+// raw views and screenshots stay person-only until callers have device-scoped identity.
 // `device` takes a phone id (`sim:<udid>`, `dev:<udid>`, `avd:<name>`,
 // `adb:<serial>`) or a name; without it the recorded phone, else the first
 // booted simulator. Points are the phone's own (iOS points, Android dp), the
@@ -23,12 +24,23 @@ nonisolated enum PhoneActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject))
         }
         return [
-            phone("phone.show", "action.phone.show", "Open Phone", symbol: "iphone",
-                  keywords: ["open", "device", "mirror", "screen"], cliName: "phone open", arguments: [device]),
+            {
+                var show = phone("phone.show", "action.phone.show", "Open Phone", symbol: "iphone",
+                                 keywords: ["open", "device", "mirror", "screen"], cliName: "phone open", arguments: [device])
+                // Opening starts the phone view's raw frame stream or still-frame refresh.
+                show.isPersonOnly = true
+                return show
+            }(),
             phone("phone.boot", "action.phone.boot", "Boot Phone", symbol: "power",
                   keywords: ["boot", "start"], cliName: "phone boot", arguments: [device]),
-            phone("phone.screenshot", "action.phone.screenshot", "Take Phone Screenshot", symbol: "camera",
-                  keywords: ["screenshot", "capture", "png"], cliName: "phone screenshot", arguments: [device, path]),
+            {
+                var screenshot = phone("phone.screenshot", "action.phone.screenshot", "Take Phone Screenshot", symbol: "camera",
+                                       keywords: ["screenshot", "capture", "png"], cliName: "phone screenshot", arguments: [device, path])
+                // A phone screen can contain credentials and private conversations. Raw capture
+                // stays in the app until automation has an authenticated, device-scoped principal.
+                screenshot.isPersonOnly = true
+                return screenshot
+            }(),
             phone("phone.recordStart", "action.phone.recordStart", "Record Phone", symbol: "record.circle",
                   keywords: ["record", "video", "feedback", "bug"], cliName: "phone record", arguments: [device]),
             phone("phone.recordStop", "action.phone.recordStop", "Stop Phone Recording", symbol: "stop.circle",
