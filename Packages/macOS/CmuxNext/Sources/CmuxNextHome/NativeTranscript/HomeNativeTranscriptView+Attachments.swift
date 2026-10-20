@@ -153,7 +153,7 @@ extension HomeNativeTranscriptView {
     // MARK: Drag and drop
 
     public override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        // Types only: the bytes are read once, on drop.
+        // Types and the plain string only: the picture bytes are read once, on drop.
         guard attachmentPreparer != nil, HomeAttachmentIntake.offers(sender.draggingPasteboard) else { return [] }
         return .copy
     }
