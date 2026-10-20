@@ -31,6 +31,7 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
   const CANCELLED = "0190a000-0000-7000-8000-0000000000d2";
   const DECLINED = "0190a000-0000-7000-8000-0000000000d3";
   const LIVE = "0190a000-0000-7000-8000-0000000000d4";
+  const LAG = "0190a000-0000-7000-8000-0000000000d5";
   const START = Date.now() - 90_000;
   const PROMPT = "Which auth method should the API use?";
   const update = (update: Record<string, unknown>) => ({
@@ -113,14 +114,22 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
       ...ended("I'll pick one myself.", "completed"),
     ]),
     [LIVE]: log(LIVE, asked),
+    // The ask, its answer and the reply's first words reach the pane only through a resync.
+    [LAG]: log(LAG, asked.slice(0, 3)),
   };
+  const chunk = (text: string): Step => [
+    "in",
+    "agent_message_chunk",
+    update({ sessionUpdate: "agent_message_chunk", messageId: "reply-1", content: { type: "text", text } }),
+  ];
+  const missed = [asked[3]!, answer, chunk("Going with")].map((step, index) => record(LAG, step, 4 + index));
   const session = (sessionId: string) => ({
     sessionId,
     cwd: "/home/dev/uploader",
     title: "Auth",
     harness: "claude",
     family: "claude",
-    status: sessionId === LIVE ? "waiting" : "idle",
+    status: sessionId === LIVE || sessionId === LAG ? "waiting" : "idle",
     turnCount: 1,
     updatedAt: START,
   });
@@ -136,6 +145,8 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
         return { session: session(id), lastSeq: chats[id]!.length, events: chats[id] };
       }
       case "_acpmux/events":
+        if (params.sessionId === LAG && Number(params.afterSeq) < 4)
+          return { events: missed, hasMore: false, lastSeq: missed.length + 3 };
         return { events: [], hasMore: false, lastSeq: 0 };
       default:
         return null;
@@ -264,6 +275,20 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
       after.boundingBox(),
     ]);
     expect(read!.y).toBeGreaterThan(record!.y);
+    await page.close();
+  });
+
+  test("a resync that brings the answer keeps one record and the reply that streams after it whole", async () => {
+    const page = await open(LAG, "Add auth to the API");
+    const send = (message: Record<string, unknown>) => {
+      for (const ws of sockets) ws.send(JSON.stringify({ jsonrpc: "2.0", ...message }));
+    };
+    // acpmux dropped events for this client: the pane fetches them and replays them.
+    send({ method: "_acpmux/lagged", params: { sessionIds: [LAG], dropped: 3 } });
+    await page.getByText("Going with").first().waitFor({ timeout: 5_000 });
+    send({ method: "_acpmux/event", params: record(LAG, chunk(" OAuth 2.0."), 7) });
+    await page.getByText("Going with OAuth 2.0.").waitFor({ timeout: 5_000 });
+    expect(await records(page)).toEqual(["Answered Auth method: OAuth 2.0"]);
     await page.close();
   });
 });
