@@ -29,27 +29,6 @@ extension GhosttyNSView {
         )
     }
 
-    /// Copies the current selection with terminal wrapping removed.
-    @IBAction func copyUnwrapped(_ sender: Any?) {
-        guard let surface,
-              let snapshot = readSelectionSnapshot(surface: surface),
-              !snapshot.string.isEmpty else { return }
-        let columns = Int(ghostty_surface_size(surface).columns)
-        let rectangular = !isKeyboardCopyModeActive && copySelectionMayBeRectangular
-        let copy = TerminalSoftWrapCopy(hardWrapReflow: false)
-        let joined = rectangular ? snapshot.string : copy.joiningSoftWraps(in: snapshot.string,
-            wrapFlags: ghosttySelectionRowWrapFlags(
-                surface: surface,
-                matchingLineCount: copy.physicalLineCount(in: snapshot.string)
-            )
-        )
-        let unwrapped = TerminalUnwrappedCopy(
-            terminalColumns: columns, rectangular: rectangular,
-            firstLineStartColumn: snapshot.topLeft.x >= 0 && columns > 0 ? snapshot.range.location % columns : nil
-        ).unwrappedText(joined)
-        GhosttyApp.terminalPasteboard.writeString(unwrapped, to: GHOSTTY_CLIPBOARD_STANDARD)
-    }
-
     func addCopyUnwrappedMenuItem(to menu: NSMenu) {
         let item = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.copyUnwrapped", defaultValue: "Copy Unwrapped"),

@@ -264,7 +264,7 @@ extension KeyboardShortcutSettings.Action {
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow, .clearScreenKeepScrollback:
             return .nonBrowserPanel
-        case .focusHistoryBack, .focusHistoryForward:
+        case .copyUnwrapped, .focusHistoryBack, .focusHistoryForward:
             return .outsideBrowserPanel
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,

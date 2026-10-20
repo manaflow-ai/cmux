@@ -5848,7 +5848,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return performBindingActionImmediately(action)
     }
 
-    private func performBindingActionImmediately(_ action: String) -> Bool {
+    func performBindingActionImmediately(_ action: String) -> Bool {
         guard let surface = surface else { return false }
         return withPotentialClipboardPasteIntent {
             action.withCString { cString in
@@ -6317,7 +6317,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    private func isPlainTextClipboardRepresentation(
+    func isPlainTextClipboardRepresentation(
         _ representation: TerminalClipboardRepresentation
     ) -> Bool {
         let mimeType = representation.mimeType.split(separator: ";", maxSplits: 1).first

@@ -2304,6 +2304,7 @@
 		B88357000000000000000001 /* GhosttyNSView+ClipboardActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */; };
 		B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */; };
 		3436831626068CC556129EB3 /* GhosttyNSView+CodexActionCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9FA91EF89C03A74979E6EF7 /* GhosttyNSView+CodexActionCommand.swift */; };
+		FA72C26C881A51444F115A0D /* GhosttyNSView+CopyUnwrapped.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35583982FC1AFD30AE3F3C63 /* GhosttyNSView+CopyUnwrapped.swift */; };
 		972DEB57D4E5CE93A044F413 /* GhosttyNSView+ForeignCommandChord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50E4257EE224618460A48C8B /* GhosttyNSView+ForeignCommandChord.swift */; };
 		F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */; };
 		D3571000A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */; };
@@ -6922,6 +6923,7 @@
 		B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ClipboardActions.swift"; sourceTree = "<group>"; };
 		B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ClipboardInputSequencing.swift"; sourceTree = "<group>"; };
 		A9FA91EF89C03A74979E6EF7 /* GhosttyNSView+CodexActionCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+CodexActionCommand.swift"; sourceTree = "<group>"; };
+		35583982FC1AFD30AE3F3C63 /* GhosttyNSView+CopyUnwrapped.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+CopyUnwrapped.swift"; sourceTree = "<group>"; };
 		50E4257EE224618460A48C8B /* GhosttyNSView+ForeignCommandChord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ForeignCommandChord.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ForkConversationContextMenu.swift"; sourceTree = "<group>"; };
 		D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+IMEComposition.swift"; sourceTree = "<group>"; };
@@ -12446,6 +12448,7 @@
 				34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */,
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
 				8C3D18CE3BE14E89439CD6B3 /* AppDelegate+CopyUnwrapped.swift */,
+				35583982FC1AFD30AE3F3C63 /* GhosttyNSView+CopyUnwrapped.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16023,6 +16026,7 @@
 				B88357000000000000000001 /* GhosttyNSView+ClipboardActions.swift in Sources */,
 				B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */,
 				3436831626068CC556129EB3 /* GhosttyNSView+CodexActionCommand.swift in Sources */,
+				FA72C26C881A51444F115A0D /* GhosttyNSView+CopyUnwrapped.swift in Sources */,
 				972DEB57D4E5CE93A044F413 /* GhosttyNSView+ForeignCommandChord.swift in Sources */,
 				F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */,
 				D3571000A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift in Sources */,

@@ -332,7 +332,7 @@ extension ShortcutAction {
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .focusHistoryBack, .focusHistoryForward:
+        case .copyUnwrapped, .focusHistoryBack, .focusHistoryForward:
             return .not(.atom(.browserFocus))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,

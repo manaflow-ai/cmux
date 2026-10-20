@@ -2,6 +2,9 @@
 ///
 /// Apply ``TerminalSoftWrapCopy`` first for a nonrectangular selection.
 public struct TerminalUnwrappedCopy: Equatable, Sendable {
+    /// The shared clipboard byte budget, above which text is copied unchanged.
+    public static let maximumUnwrapBytes = TerminalClipboardRepresentationDecoder.defaultMaximumRichTextBytes
+
     /// The terminal grid width used to recognize hard-wrapped output.
     public var terminalColumns: Int
 
@@ -26,8 +29,9 @@ public struct TerminalUnwrappedCopy: Equatable, Sendable {
     /// Trims, dedents, and reflows selected plain text.
     ///
     /// - Parameter text: Selection text with soft wraps already joined.
-    /// - Returns: Unwrapped plain text, with code indentation preserved.
+    /// - Returns: Unwrapped plain text, or the unchanged input above ``maximumUnwrapBytes``.
     public func unwrappedText(_ text: String) -> String {
+        guard text.utf8.count <= Self.maximumUnwrapBytes else { return text }
         var fence: Substring = ""
         var protected: [Bool] = []
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { raw in
@@ -90,8 +94,10 @@ public struct TerminalUnwrappedCopy: Equatable, Sendable {
                 && !isColumnar(line) && !isColumnar(dedented[index - 1])
                 && ((firstLineStartColumn == nil && partialFirst && index - 1 == nonblank.first)
                     || widths[index - 1] + 1 + width(String(content.prefix(while: { !$0.isWhitespace }))) > widest)
-            if joins, let previous = result.popLast() {
-                result.append(previous + (separator ?? " ") + content)
+            if joins, var previous = result.popLast() {
+                previous.append(contentsOf: separator ?? " ")
+                previous.append(contentsOf: content)
+                result.append(previous)
             } else {
                 result.append(line)
                 continuationIndent = indent(line) + listPrefixLength(content)
@@ -119,6 +125,7 @@ public struct TerminalUnwrappedCopy: Equatable, Sendable {
         if listPrefixLength(content) > 0 || !fenceDelimiter(content).isEmpty { return true }
         if let first = content.first, "#>|".contains(first) { return true }
         if content.hasPrefix("$ ") { return true }
+        if content.first == "-", let next = content.dropFirst().first, !next.isWhitespace { return true }
         let compact = content.filter { !$0.isWhitespace }
         return compact.count >= 3 && "-*_".contains(compact.first ?? " ")
             && compact.allSatisfy { $0 == compact.first }
