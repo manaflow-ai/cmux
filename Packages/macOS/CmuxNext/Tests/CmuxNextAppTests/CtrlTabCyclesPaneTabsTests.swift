@@ -28,7 +28,7 @@ import Testing
 
     static let registry = makeRegistry()
 
-    static func winner(_ keys: String, in surface: String, registry: ActionRegistry = registry) -> String? {
+    static func winner(_ keys: String, in surface: String, registry: ActionRegistry = Self.registry) -> String? {
         let context = KeyContext([KeyContext.surfaceKind: .string(surface)])
         guard case .object(let report)? = KeybindingReports.resolve(keys, context: context, registry: registry, window: nil),
               report["outcome"]?.stringValue == "run", case .object(let winner)? = report["winner"] else { return nil }
