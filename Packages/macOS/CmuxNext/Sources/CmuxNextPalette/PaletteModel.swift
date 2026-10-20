@@ -140,9 +140,10 @@ public final class PaletteModel {
     @ObservationIgnored let searcher = PaletteSearcher()
     @ObservationIgnored var searchGeneration = 0
     @ObservationIgnored var searchTask: Task<Void, Never>?
-    /// A query's rank is still running off the main actor, so `rows` are stand-ins (automation
-    /// reads this before trusting `rows`). Not observable: views must not bind to it.
-    public var isRanking: Bool { searchTask != nil }
+    /// A query's rank is still running off the main actor, or an open's deferred providers have
+    /// not loaded, so `rows` are stand-ins (automation reads this before trusting `rows`). Not
+    /// observable: views must not bind to it.
+    public var isRanking: Bool { searchTask != nil || !deferredLoads.isEmpty }
     /// Cmd-W pressed while a search was in flight; runs when it lands.
     @ObservationIgnored var pendingClose = false
     /// Which command a held or immediate `run` effect runs (Return or
@@ -153,6 +154,20 @@ public final class PaletteModel {
     @ObservationIgnored var isMirroring = false
     /// The level whose page chrome and rows are on screen.
     @ObservationIgnored var shownLevelID: Int?
+    /// Providers a page's open left for after its first frame (`load`): the
+    /// command page's workspaces and tabs, which its empty query does not list.
+    @ObservationIgnored var deferredLoads: [PaletteDeferredLoad] = []
+    /// Runs `work` once the frame being built is on screen. ``PaletteController``
+    /// passes the main run loop's pass after the Core Animation commit; the
+    /// default (a model without a panel: tests, scripted pages) runs it on the
+    /// next main-actor turn.
+    @ObservationIgnored public var afterFrame: (@escaping @MainActor () -> Void) -> Void = { work in
+        Task { @MainActor in work() }
+    }
+    /// The deferred providers' items a page's empty query last showed (its
+    /// Recent rows), by page id then provider id: the next open's first frame
+    /// shows them while those providers load again after it.
+    @ObservationIgnored var shownDeferredItems: [String: [String: [PaletteItem]]] = [:]
 
     public convenience init(frecency: FrecencyStore? = nil, persistence: (any FrecencyPersisting)? = nil) {
         self.init(usage: LocalPaletteUsageStore(history: frecency, persistence: persistence))
@@ -203,8 +218,16 @@ public final class PaletteModel {
     /// Titles of the levels above the root (the chips).
     public var breadcrumbs: [String] { scopeChips.map(\.title) }
 
-    /// Waits for the in-flight search, if any (tests, scripted checks).
+    /// Loads the providers an open left for after its first frame now, then
+    /// waits for the in-flight search (tests, scripted checks).
+    func settleDeferredLoads() async {
+        await settle()
+    }
+
+    /// Waits for the in-flight search, if any (tests, scripted checks). The
+    /// providers an open left for after its first frame load first.
     public func settle() async {
+        flushDeferredLoads()
         while let task = searchTask {
             await task.value
             if searchTask == task { searchTask = nil }

@@ -26,15 +26,20 @@ nonisolated enum ServerActionCatalog: ActionCatalogGroup {
                 id: "server.addServer", title: t("action.server.addServer", "Add Server…"),
                 keywords: ["server", "pair", "code", "approve", "add", "chief", "always on"],
                 category: .settings, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .menu],
-                // With a code it approves without a window: `cmux servers add --code CODE [--chief] [--name N]`.
+                // With a code it approves without a window, only when the server's four words match:
+                // `cmux servers add --code CODE --words "W1 W2 W3 W4" [--chief] [--name N]`.
                 arguments: [
                     ActionArgument(name: "code", title: t("argument.server.code", "Pairing Code"), kind: .string, isRequired: false),
+                    ActionArgument(name: "words", title: t("argument.server.words", "Fingerprint Words"), kind: .string, isRequired: false),
                     ActionArgument(name: "name", title: t("argument.server.name", "Server Name"), kind: .string, isRequired: false),
                     ActionArgument(name: "chief", title: t("argument.server.chief", "Run My Chief There"), kind: .bool, isRequired: false),
                 ],
                 cliName: "servers add", mainMenu: .server,
-                // Approving a server gives it access to the account: a person does it, never an MCP agent.
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject, mcpExemption: .credentials)
+                // Approving a server gives it access to the account. A headless approval needs the code and the
+                // four words the server printed (the swap check a person makes in the sheet), so an agent the user
+                // hands both to (their Chief, over its local socket) may approve; the cloud admits only the
+                // signed-in user's own app (`server.pair.approve` is origin user only).
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "server.showPanel", title: t("action.server.showPanel", "Server Status"),

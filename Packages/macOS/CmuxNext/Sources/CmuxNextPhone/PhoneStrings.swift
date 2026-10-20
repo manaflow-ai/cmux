@@ -2,7 +2,9 @@ import Foundation
 
 /// The phone tab's user-facing strings (Localizable.xcstrings in this module).
 struct PhoneStrings {
-    static var noPhones: String { t("phone.noPhones", "No phones. Add an iOS Simulator in Xcode.") }
+    static var noPhones: String {
+        t("phone.noPhones", "No phones. Add an iOS simulator in Xcode or an Android emulator in Android Studio.")
+    }
     static var realDevice: String { t("phone.realDevice", "Device") }
     static var boot: String { t("phone.boot", "Boot") }
     static var booting: String { t("phone.booting", "Booting…") }
@@ -15,9 +17,7 @@ struct PhoneStrings {
     static var screenLabel: String { t("phone.screenLabel", "Phone screen") }
     static var recordingHint: String { t("phone.recordingHint", "Recording the screen, your inputs and the device log.") }
     static var shutDownHint: String { t("phone.shutDownHint", "This phone is shut down. Boot it to see its screen.") }
-    static var stillFrameHint: String {
-        t("phone.stillFrameHint", "The screen updates after each action. Touch and typing from this tab come next.")
-    }
+    static var stillFrameHint: String { t("phone.stillFrame", "The screen updates after each action.") }
 
     static func saved(_ path: String) -> String {
         String(format: t("phone.saved", "Saved to %@"), path)

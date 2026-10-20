@@ -59,6 +59,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/lint_swift_namespaces.py",
             "scripts/swift_source_mask.py",
             "scripts/web_lint_prepush.py",
+            "scripts/cmux-next/prepush-gate.py",
         ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)

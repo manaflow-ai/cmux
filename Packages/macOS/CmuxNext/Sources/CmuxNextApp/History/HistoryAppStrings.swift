@@ -14,6 +14,9 @@ enum HistoryAppStrings {
     static var machineOffline: String { t("history.refusal.machineOffline", "That machine is not connected") }
     static var noPane: String { t("history.refusal.noPane", "Open a window on that machine first") }
     static var entryGone: String { t("history.refusal.entryGone", "That history entry is gone") }
+    static var nothingFromPreviousLaunch: String {
+        t("history.refusal.nothingFromPreviousLaunch", "Nothing from the previous app launch to restore")
+    }
 
     static var deleteCommandsTitle: String { t("history.commands.deleteTitle", "Delete recorded terminal commands?") }
     static var deleteCommandsButton: String { t("history.commands.deleteButton", "Delete Existing History") }
@@ -38,6 +41,8 @@ enum HistoryAppStrings {
     static var locationsTitle: String { t("history.page.locations", "Location History") }
     static var closedTitle: String { t("history.page.closed", "Recently Closed") }
     static var searchTitle: String { t("history.page.search", "Search History") }
+    /// Search's section for browser page visits (the sidebar's Search button).
+    static var browserHistoryTitle: String { t("history.section.browser", "Browser History") }
     static var commandsTitle: String { t("history.page.commands", "Command History") }
     static var commandsPlaceholder: String { t("history.page.commandsPlaceholder", "Search commands…") }
     static var agentsTitle: String { t("history.page.agents", "Agent Sessions") }

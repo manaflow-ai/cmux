@@ -39,7 +39,8 @@ extension TabStripView {
             availableWidth: viewportWidth,
             style: model.style,
             metrics: metrics,
-            closingModeWidth: closingModeWidth
+            closingModeWidth: closingModeWidth,
+            fullWidthTab: model.showsSelectedFullWidth ? model.selectedID : nil
         )
         // A new tab (Cmd-T, +, a script's tab) with `ui.animations.newTab` off is there at once, at its
         // slot and full width, and the tabs make room for it in the same frame. A drag or a torn-out
@@ -122,14 +123,15 @@ extension TabStripView {
     /// The motion of a strip change on `token`, or nil when it applies at once (the token does not
     /// animate, or the window has no screen, where Core Animation would never end it).
     func stripMove(_ token: MotionTween) -> TabStripMove? {
-        guard let motion = MotionMove.tween(token), Motion.canAnimate(in: self) else { return nil }
+        guard let motion = MotionMove.tween(token, in: Motion.tabs), Motion.canAnimate(in: self) else { return nil }
         moveGeneration += 1
-        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose))
+        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs))
     }
 
     /// Every move of `generation` ended: a closing tab or chip it carried goes, and the masks and
     /// clips that only that motion needed come off.
     func moveEnded(_ generation: Int) {
+        movesInFlight.remove(generation)
         let now = CACurrentMediaTime()
         // The move that ends last carries it; a little slack for the completion's own frame.
         for id in dying where (goesAt[id] ?? .infinity) <= now + 0.02 { removeTab(id) }
@@ -142,12 +144,21 @@ extension TabStripView {
     /// Masks the tabs the selected pill covers now and along every move in flight (`TabOcclusion`).
     /// `settle`: a path that ends within it counts as ended.
     func updateOcclusion(settle: CFTimeInterval = 0.001) {
+        rowPasses.occlusion &+= 1
         let selected = model.selectedID.flatMap { dying.contains($0) ? nil : $0 }
         occlusionEnds = TabOcclusion.update(cells: cells, selected: selected, band: scrollMapping.band, settle: settle)
     }
 
+    /// `result` by tab, built once per layout.
+    var slotIndex: TabSlotIndex {
+        if let slotIndexCache { return slotIndexCache }
+        let index = TabSlotIndex(result)
+        slotIndexCache = index
+        return index
+    }
+
     func reveal(_ id: TabID, animated: Bool) {
-        guard let slot = result.slot(id) else { return }
+        guard let slot = slotIndex.slots[id] else { return }
         let target = TabScrollMath.offset(
             revealing: slot,
             current: scrollOffset,
@@ -161,7 +172,7 @@ extension TabStripView {
         let from = scrollMapping
         scrollOffset = target
         var move: TabStripMove?
-        if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll) {
+        if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs) {
             moveGeneration += 1
             move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
         }
@@ -258,10 +269,12 @@ extension TabStripView {
     /// `scrollFrom`: the mapping the layers showed before (its offset); with `move`, the scroll's share
     /// of each move runs under its own key (`TabStripMove.addScroll`), so a wheel ends it alone.
     func applyFrames(move: TabStripMove? = nil, scrollFrom: TabScrollMapping? = nil) {
+        rowPasses.frames &+= 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let move {
             let generation = move.generation
+            movesInFlight.insert(generation)
             CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.moveEnded(generation) } } // main-proof: CATransaction.h: the completion block is called on the main thread
         }
         defer { CATransaction.commit() }
