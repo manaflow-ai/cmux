@@ -12,8 +12,10 @@ public enum AgentCursorLeaseState: Sendable, Equatable {
 /// call `leaseDidChange`.
 @MainActor
 public final class AgentCursorOverlayModel: AgentCursorRendering {
-    /// The resting heading of a cmux-cua cursor (tip up-left).
-    public static let restingHeading = Double.pi / 4
+    /// The resting heading of the arrow (tip up-left): the direction from its
+    /// tip to its body's center, 63° below the x axis for the leaning arrow
+    /// (``AgentCursorLayer/arrowPath``), so a glide turns it along travel.
+    public static let restingHeading = 63 * Double.pi / 180
 
     /// A move this soon (ms) after the session's previous move is a sample
     /// of a streamed human path (plans/cmux-next/human-mouse-DESIGN.md): the

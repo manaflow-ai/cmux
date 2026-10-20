@@ -342,7 +342,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // The passkey hand-off: an agent's request waits for the person's banner click.
                     let passkeys = BrowserPasskeyRequests(host: AppBrowserPasskeyHost(services: services))
                     services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
-                    BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys).install(on: router)
+                    BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
+                                       agentMouse: { [weak settings] in
+                                           await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
+                                       }).install(on: router)
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
