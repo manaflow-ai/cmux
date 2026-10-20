@@ -5,11 +5,13 @@ public nonisolated enum BrowserURLDisplay {
     /// Compact text shown when the field is not being edited: no `https://`,
     /// no `www.`, no trailing slash on a bare host, percent escapes decoded.
     /// `http://` is kept so insecure pages stay recognizable; `chrome://`
-    /// and `chrome-extension://` are kept as Chromium keeps them.
+    /// and `chrome-extension://` are kept as Chromium keeps them. A file
+    /// shows its path, `~/…` under `home` (the user's home folder; tests
+    /// pass their own), as a shell and the Markdown tab's mock show it.
     public static func displayText(for url: URL?, home: String = NSHomeDirectory()) -> String {
         guard let url else { return "" }
         if BrowserNewTabPage.isNewTabPage(url) { return "" }
-        if url.isFileURL { return url.path(percentEncoded: false) }
+        if url.isFileURL { return tildePath(url.path(percentEncoded: false), home: home) }
 
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let host = components.host, !host.isEmpty else {
@@ -34,6 +36,19 @@ public nonisolated enum BrowserURLDisplay {
             return scheme + "://" + text
         }
         return text
+    }
+
+    /// `path` with `home` (and only home, never a sibling such as
+    /// `/Users/me2`) replaced by `~`.
+    static func tildePath(_ path: String, home: String) -> String {
+        var home = home
+        while home.count > 1, home.hasSuffix("/") { home.removeLast() }
+        guard home.count > 1 else { return path }
+        var trimmed = path
+        while trimmed.count > 1, trimmed.hasSuffix("/") { trimmed.removeLast() }
+        if trimmed == home { return "~" }
+        guard path.hasPrefix(home + "/") else { return path }
+        return "~" + path.dropFirst(home.count)
     }
 
     /// The host's UTF-16 range inside `displayText(for:)`, which the
