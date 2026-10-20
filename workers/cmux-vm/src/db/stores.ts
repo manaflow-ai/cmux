@@ -25,6 +25,8 @@ export interface PagePosition {
 }
 
 export interface ListPageOptions {
+  /** Exact persisted actor reference, derived from the authenticated principal. */
+  readonly createdBy?: string;
   readonly limit: number;
   readonly after: PagePosition | null;
   /** When set, only these public ids (a key's resource allowlist). */
@@ -57,6 +59,8 @@ export interface ApiKeyRecord {
 }
 
 export interface OwnershipStoreService {
+  /** Recovery must distinguish a tombstone from an allocation never recorded. No private IDs leave this read. */
+  readonly allocationStatus: (tenantId: TenantId, cmuxId: string) => Effect.Effect<"absent" | "live" | "deleted", StoreError>;
   /** The caller's own resource of this kind, or none. */
   readonly find: (tenantId: TenantId, kind: ResourceKind, cmuxId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
   readonly record: (resource: OwnedResource) => Effect.Effect<void, StoreError>;
@@ -66,6 +70,8 @@ export interface OwnershipStoreService {
   readonly countLive: (tenantId: TenantId, kind: ResourceKind) => Effect.Effect<number, StoreError>;
   /** Marks the tenant's resource deleted; later reads do not find it. */
   readonly markDeleted: (tenantId: TenantId, kind: ResourceKind, cmuxId: string, at: Date) => Effect.Effect<void, StoreError>;
+  /** The tenant's own resource of this kind that was marked deleted, or none (an idempotent delete's tombstone). */
+  readonly findDeleted: (tenantId: TenantId, kind: ResourceKind, cmuxId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
 }
 
 export interface AuditStoreService {
@@ -137,6 +143,10 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
     const sql = yield* SqlClient;
 
     const ownership: OwnershipStoreService = {
+      allocationStatus: (tenantId, cmuxId) => sql.query("ownership.allocationStatus", `SELECT deleted_at IS NOT NULL AS deleted FROM cmux_vm.resources WHERE tenant_id = $1 AND cmux_id = $2 AND kind = 'vm' LIMIT 1`, [tenantId, cmuxId]).pipe(
+        Effect.flatMap(decodeRows(Schema.Struct({ deleted: Schema.Boolean }), "ownership.allocationStatus")),
+        Effect.map((rows) => rows[0] === undefined ? "absent" as const : rows[0].deleted ? "deleted" as const : "live" as const),
+      ),
       find: (tenantId, kind, cmuxId) =>
         sql
           .query(
@@ -166,10 +176,16 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           .query(
             "ownership.record",
             `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels)
-             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::text::jsonb)`,
+             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::text::jsonb)
+             ON CONFLICT (cmux_id) DO UPDATE SET cmux_id = EXCLUDED.cmux_id
+             WHERE resources.tenant_id = EXCLUDED.tenant_id AND resources.kind = EXCLUDED.kind
+               AND resources.upstream_id = EXCLUDED.upstream_id AND resources.created_by = EXCLUDED.created_by
+               AND resources.display_name IS NOT DISTINCT FROM EXCLUDED.display_name AND resources.labels = EXCLUDED.labels
+               AND resources.deleted_at IS NULL
+             RETURNING cmux_id`,
             params,
           )
-          .pipe(Effect.asVoid);
+          .pipe(Effect.flatMap((rows) => rows.length === 1 ? Effect.void : Effect.fail(new StoreError({ operation: "ownership.record", cause: "allocation identity conflict" }))));
       },
       listPage: (tenantId, kind, options) => {
         const params: ReadonlyArray<SqlParam> = [
@@ -180,6 +196,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           options.only === null ? null : [...options.only].join(" "),
           options.limit,
           options.labels === null ? null : JSON.stringify(options.labels),
+          options.createdBy ?? null,
         ];
         return sql
           .query(
@@ -190,6 +207,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
                 AND ($3::timestamptz IS NULL OR (created_at, cmux_id) < ($3::timestamptz, $4::text))
                 AND ($5::text IS NULL OR cmux_id = ANY (string_to_array($5::text, ' ')))
                 AND ($7::text::jsonb IS NULL OR labels @> $7::text::jsonb)
+                AND ($8::text IS NULL OR created_by = $8::text)
               ORDER BY created_at DESC, cmux_id DESC
               LIMIT $6`,
             params,
@@ -216,6 +234,20 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
             [tenantId, kind, cmuxId, at.toISOString()],
           )
           .pipe(Effect.asVoid),
+      findDeleted: (tenantId, kind, cmuxId) =>
+        sql
+          .query(
+            "ownership.findDeleted",
+            `SELECT ${RESOURCE_COLUMNS}
+               FROM cmux_vm.resources
+              WHERE cmux_id = $1 AND tenant_id = $2 AND kind = $3 AND deleted_at IS NOT NULL
+              LIMIT 1`,
+            [cmuxId, tenantId, kind],
+          )
+          .pipe(
+            Effect.flatMap(decodeRows(ResourceRow, "ownership.findDeleted")),
+            Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), toOwned)),
+          ),
     };
 
     const audit: AuditStoreService = {
