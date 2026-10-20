@@ -31,7 +31,7 @@ struct SidebarAttentionResortTests {
     }
 
     private static func order(_ model: SidebarModel) -> [String] {
-        model.sections.flatMap(\.workspaces).map(\.name)
+        model.sections.flatMap(\.workspaces).map(\.title)
     }
 
     /// The workspace rows not yet at their slots (on a spring), other than `except`.
