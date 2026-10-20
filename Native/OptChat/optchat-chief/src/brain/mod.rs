@@ -586,6 +586,13 @@ pub struct Brain {
     reacted: std::collections::HashSet<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
+    /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
+    /// `turns::MAX_CUTS` the next one fails as before, never a loop.
+    cuts: u32,
+    /// When a turn an upstream error cut may run again (None: now).
+    resume_at: Option<Instant>,
+    /// The waits before such a turn runs again (`turns::UPSTREAM_RESUME_BACKOFF`).
+    upstream_backoff: Vec<std::time::Duration>,
 }
 
 impl Brain {
@@ -683,6 +690,9 @@ impl Brain {
             newest_seq: 0,
             reacted: std::collections::HashSet::new(),
             previewer: None,
+            cuts: 0,
+            resume_at: None,
+            upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -808,7 +818,10 @@ impl Brain {
 
     /// When the outbox timer fires, if armed.
     pub fn next_timer(&self) -> Option<Instant> {
-        self.outbox_timer
+        match (self.outbox_timer, self.resume_at) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// Runs until a fatal error; returns it.
@@ -817,7 +830,7 @@ impl Brain {
             if let Some(fatal) = &self.fatal {
                 return fatal.clone();
             }
-            let input = match self.outbox_timer {
+            let input = match self.next_timer() {
                 Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                     Ok(input) => input,
                     Err(RecvTimeoutError::Timeout) => {
@@ -1039,8 +1052,12 @@ impl Brain {
     }
 
     pub fn on_timer(&mut self) {
-        self.outbox_timer = None;
-        self.flush_outbox();
+        let now = Instant::now();
+        if self.outbox_timer.is_some_and(|at| at <= now) {
+            self.outbox_timer = None;
+            self.flush_outbox();
+        }
+        self.on_resume_timer();
     }
 
     fn save(&self) {
