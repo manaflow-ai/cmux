@@ -373,7 +373,8 @@ impl HostShared {
     pub(crate) fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
         let delivered = {
             let mut writer = self.writer.lock().unwrap();
-            writer.write_all(payload).and_then(|()| writer.flush()).is_ok()
+            let master = self.master.lock().unwrap();
+            crate::pty_input_room::write_input(Some(&**master), writer.as_mut(), payload).is_ok()
         };
         // Interactive input has always been best-effort. Only a nonzero
         // request id asks the authoritative host to certify delivery.
