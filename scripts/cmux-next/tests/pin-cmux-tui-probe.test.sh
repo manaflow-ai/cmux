@@ -267,10 +267,10 @@ unset CMUX_TUI_TREE_BASE_FALLBACK
 
 # A scheduled DEV snapshot owns its exact SHA after the source branch moves.
 # Since e93faa5f1fb0 path routing is read-only (CMUX_TUI_TREE_DISPATCH=""), so
-# the probe never writes a pin ref or a dispatch. Current behavior: a cold tree
-# reads failed, and ready once published. Failed is not the intended result
-# while a trusted publisher for the exact SHA is running; the probe skips that
-# read-only lookup too. Follow-up: ci-green/dev-tree-readonly-lookup.
+# the probe never writes a pin ref or a dispatch. It still looks, read-only,
+# for an artifacts run that publishes the tree: a cold tree with none reads
+# failed, one with a running trusted publisher defers to it, and a published
+# tree reads ready.
 sha=$(git -C "$TMP/src" rev-parse HEAD)
 set_head "$newer"
 set_runs "$none"
@@ -300,6 +300,17 @@ expect "scheduled dev, cold exact tree" workflow_dispatch failed "no cmux-tui ar
 eval "$(dev_probe_environment tree-final)"
 expect "scheduled dev, second probe" workflow_dispatch failed "no cmux-tui artifacts run can publish tree $key"
 [[ ! -s "$TMP/posts.log" ]] || fail "dev second probe must not write: $(cat "$TMP/posts.log")"
+# The branch's own trusted artifacts run for the exact SHA is still running:
+# the read-only lookup finds it and defers (dev-daily-tree-wait then waits),
+# still without a single write.
+set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":5,\"status\":\"in_progress\",\"conclusion\":null,\"html_url\":\"u5\",\"head_sha\":\"$sha\",\"pull_requests\":[]}]}"
+eval "$(dev_probe_environment tree)"
+expect "scheduled dev, cold tree, trusted publisher running" workflow_dispatch deferred "$sha"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev probe with a running publisher must not write: $(cat "$TMP/posts.log")"
+eval "$(dev_probe_environment tree-final)"
+expect "scheduled dev, second probe, trusted publisher running" workflow_dispatch deferred "$sha"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev second probe with a running publisher must not write: $(cat "$TMP/posts.log")"
+set_runs "$none"
 mkdir -p "$TMP/cdn/cmux-tui/tree/$key"
 printf '%064d  cmux-tui-aarch64-apple-darwin\n' 0 > "$TMP/cdn/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"
 expect "scheduled dev, published by a trusted publisher" workflow_dispatch ready
