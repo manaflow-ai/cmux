@@ -32,7 +32,7 @@ pub const TAG_PREFIX: &str = "trust.pending:";
 
 /// What the hub remembers about trust waits.
 #[derive(Default)]
-pub(super) struct Waits {
+pub(crate) struct Waits {
     /// Not now, by folder: refused again without a card until it expires.
     declined: StdMutex<HashMap<String, Instant>>,
     /// Fired when a folder's trust may have changed (`acp.trust.set`, a Trust on a card).
@@ -203,23 +203,29 @@ impl Hub {
         let deadline = tokio::time::sleep(WAIT);
         tokio::pin!(deadline);
         loop {
-            // Registered before the folder is read again, so a change in between is not missed.
+            // Registered before the folder is read, so a change after the read is not missed.
             let changed = self.trust_waits.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
+            if self.trusted_now(&paths, &key, &family).await {
+                // Trusted elsewhere (the pane's question, another card): this card is moot.
+                self.cancel_trust_cards(parent, &key);
+                return Ok(());
+            }
             tokio::select! {
                 outcome = &mut answer => {
                     let outcome = outcome.unwrap_or_else(|_| json!({"outcome": {"outcome": "cancelled"}}));
-                    return self.trust_card_answered(&paths, &key, &outcome).await;
-                }
-                () = &mut changed => {
-                    let now = self.trust_level_of(&paths, &key, &family).await;
-                    if matches!(now, Ok((_, Level::Trusted))) {
-                        // Trusted elsewhere (the pane's question): the card is moot.
-                        self.cancel_trust_cards(parent, &key);
+                    // A card withdrawn because another start trusted the folder still lets this
+                    // one go on; one withdrawn after Not now is declined too.
+                    if self.trusted_now(&paths, &key, &family).await {
                         return Ok(());
                     }
+                    if self.trust_waits.declined_recently(&key) {
+                        return Err(declined(&key));
+                    }
+                    return self.trust_card_answered(&paths, &key, &outcome).await;
                 }
+                () = &mut changed => {}
                 () = &mut deadline => {
                     return Err(refused(
                         "subsessions.trust_timed_out",
@@ -229,6 +235,11 @@ impl Hub {
                 }
             }
         }
+    }
+
+    /// Whether the folder reads as trusted for `family` now.
+    async fn trusted_now(&self, paths: &crate::trust::Paths, key: &str, family: &str) -> bool {
+        matches!(self.trust_level_of(paths, key, family).await, Ok((_, Level::Trusted)))
     }
 
     /// Records a worktree made from a trusted folder as trusted, so opening its chat in the pane

@@ -541,6 +541,8 @@ impl Hub {
             ));
         }
         if let Some(kept) = worktree {
+            // The folder it was made from is trusted, so its worktree is too.
+            self.trust_made_worktree(&kept.made.cwd).await;
             kept.keep();
         }
         let link = child.meta().subsession.clone();
@@ -581,8 +583,6 @@ impl Hub {
         let worktree = if req.worktree {
             let kept = self.subsession_worktree(pm, &cwd, &short).await?;
             cwd = kept.made.cwd.clone();
-            // The folder it was made from is trusted, so its worktree is too.
-            self.trust_made_worktree(&cwd).await;
             Some(kept)
         } else {
             None

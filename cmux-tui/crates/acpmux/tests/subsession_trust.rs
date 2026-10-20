@@ -133,7 +133,7 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
     .unwrap();
     let mine = root.join("mine");
     let elsewhere = root.join("elsewhere");
-    for folder in ["parent", "mine/app", "elsewhere/a", "elsewhere/b", "elsewhere/c"] {
+    for folder in ["parent", "mine/app", "elsewhere/a", "elsewhere/b", "elsewhere/c", "elsewhere/d"] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
     }
     std::fs::create_dir_all(root.join("home")).unwrap();
@@ -289,6 +289,34 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
         .call(START, json!({"prompt": "echo hi", "name": "retry", "cwd": elsewhere.join("c")}))
         .await;
     assert_eq!(retry["error"]["data"]["reason"], "subsessions.trust_declined", "{retry}");
+    assert_eq!(app.summary(&parent).await["pendingPermissions"], 0);
+
+    // 5. Two starts in one untrusted folder raise two cards; Trust on one lets both go on.
+    let first = start_in_background(&hub, &parent, &elsewhere.join("d"), "fourth");
+    let second = start_in_background(&hub, &parent, &elsewhere.join("d"), "fifth");
+    let mut cards = Vec::new();
+    for _ in 0..200 {
+        cards = session.pending_permissions();
+        if cards.len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(cards.len(), 2, "two cards: {cards:?}");
+    hub.respond_permission(
+        &session,
+        &cards[0].0,
+        Some("trust".into()),
+        None,
+        None,
+        Answerer { person: true, ..Answerer::default() },
+        Control::Local,
+    )
+    .await
+    .unwrap();
+    for started in [first.await.unwrap(), second.await.unwrap()] {
+        assert!(started.get("error").is_none(), "{started}");
+    }
     assert_eq!(app.summary(&parent).await["pendingPermissions"], 0);
     let _ = std::fs::remove_dir_all(&root);
 }
