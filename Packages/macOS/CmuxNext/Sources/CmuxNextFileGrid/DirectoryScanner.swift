@@ -66,6 +66,9 @@ public nonisolated struct DirectoryScanner: Sendable {
     ///   - sourceID: stamped on the item.
     ///   - rule: which files are listed.
     public func itemNow(at url: URL, sourceID: String, rule: FileGridScanRule) -> FileGridItem? {
+        // A URL caches its resource values: a fresh one reads the disk now (a deleted file is nil).
+        var url = URL(fileURLWithPath: url.path)
+        url.removeAllCachedResourceValues()
         guard let kind = rule.kind(ofFileNamed: url.lastPathComponent),
               let values = try? url.resourceValues(forKeys: Set(Self.keys)) else { return nil }
         return Self.item(url, kind: kind, values: values, sourceID: sourceID)
