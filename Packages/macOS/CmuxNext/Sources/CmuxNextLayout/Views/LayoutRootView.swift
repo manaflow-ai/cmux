@@ -52,6 +52,10 @@ public final class LayoutRootView: NSView {
     /// The pane a terminal tab is dragged from: the facing edge of the pane next to it joins
     /// (`DropZoneGeometry.joiningSharedEdge`).
     var tabDragJoinsFrom: PaneID?
+    #if DEBUG
+    /// The last overlay state `probeTabDrop` logged (#22287 dogfood probe).
+    var tabDropProbeLast = ""
+    #endif
     /// The pane edge the drag is over and since when; it splits once held for the dwell.
     var tabDragEdge: (hit: DropTarget, since: CFTimeInterval)?
     /// When the edge under a held pointer arms (a new split); nil when none is pending. The

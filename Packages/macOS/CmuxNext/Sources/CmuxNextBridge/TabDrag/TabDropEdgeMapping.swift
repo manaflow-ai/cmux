@@ -1,0 +1,40 @@
+public import CmuxNextDaemon
+public import CmuxNextDesign
+public import CmuxNextLayout
+
+// The one edge of a pane drop, in each layer's terms: the layout's zone,
+// the drag's edge, the daemon's split edge.
+
+nonisolated extension PaneDropZone {
+    /// The drag's edge for this zone; nil for the center (a join).
+    public var edge: TabDropEdge? {
+        switch self {
+        case .left: .left
+        case .right: .right
+        case .top: .top
+        case .bottom: .bottom
+        case .center: nil
+        }
+    }
+}
+
+nonisolated extension TabDropEdge {
+    public var paneEdge: PaneEdge {
+        switch self {
+        case .left: .left
+        case .right: .right
+        case .top: .top
+        case .bottom: .bottom
+        }
+    }
+}
+
+nonisolated extension PaneEdge {
+    /// The axis a split at this edge divides.
+    public var splitAxis: SplitAxis {
+        switch self {
+        case .left, .right: .horizontal
+        case .top, .bottom: .vertical
+        }
+    }
+}

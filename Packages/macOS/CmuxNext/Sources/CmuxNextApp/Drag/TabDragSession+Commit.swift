@@ -125,7 +125,8 @@ extension TabDragSession {
             }
         case .newSplit(let paneID, let edge):
             guard let pane = paneModel(id: paneID) else { return gone(settle) }
-            TabGroupMoves.toNewSplit(group, pane: pane, edge: edge.paneEdge, services: services, roomDecided: true, transaction: transaction,
+            TabGroupMoves.toNewSplit(group, pane: pane, edge: edge.paneEdge, services: services, roomDecided: true,
+                                     emptying: liveContext(drag).emptiesSourcePane ? drag.source.pane?.pane : nil, transaction: transaction,
                                      completion: settle)
         case .newColumn(let screenID, let after):
             guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return gone(settle) }

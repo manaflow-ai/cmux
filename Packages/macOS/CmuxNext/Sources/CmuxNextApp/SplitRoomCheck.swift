@@ -22,11 +22,20 @@ extension AppServices {
     /// The decision for splitting `pane` on `edge`. `source` is the pane a moved tab leaves; when that
     /// was its only tab the pane disappears in the same step, which frees room. The chat dock never
     /// splits. A pane no window shows (a background workspace driven from the CLI) always splits.
+    /// Applies `layout.splitSizing` once a move that splits `pane` at `edge` landed, as a keyboard split
+    /// does (#22287). The changes are computed now, without `emptied` (the pane the move closes).
+    func splitSizing(for pane: PaneModel, edge: PaneEdge, emptying emptied: PaneModel?) -> @MainActor () -> Void {
+        guard let controller = paneController(for: pane), let content = controller.workspace else { return {} }
+        let changes = content.layoutModel.splitSizingChanges(splitting: controller.layoutPaneID, axis: edge.splitAxis,
+                                                             removing: emptied.flatMap { $0 === pane ? nil : content.handles.paneIDs[$0.handle] })
+        return { [weak content] in content?.layoutModel.applySplitSizing(changes) }
+    }
+
     func splitRoom(for pane: PaneModel, edge: PaneEdge, movingFrom source: PaneModel? = nil) -> SplitRoomDecision {
         guard let controller = paneController(for: pane), let content = controller.workspace else { return .split }
         let layoutPane = controller.layoutPaneID
         if ChatDockRules.isChatDock(pane, services: self) { return .refused(RefusalStrings.chatDockCannotSplit) }
-        let axis: SplitAxis = edge == .left || edge == .right ? .horizontal : .vertical
+        let axis = edge.splitAxis
         let removing = source.flatMap { source -> LayoutPaneID? in
             guard source !== pane, source.tabs.count == 1 else { return nil }
             return content.handles.paneIDs[source.handle]

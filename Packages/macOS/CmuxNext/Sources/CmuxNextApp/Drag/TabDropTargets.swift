@@ -210,18 +210,6 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
     }
 }
 
-extension PaneDropZone {
-    var edge: TabDropEdge? {
-        switch self {
-        case .left: .left
-        case .right: .right
-        case .top: .top
-        case .bottom: .bottom
-        case .center: nil
-        }
-    }
-}
-
 extension TabDragPayload {
     /// Tab or group id, for surfaces that key a drag by one string.
     var dragID: String {

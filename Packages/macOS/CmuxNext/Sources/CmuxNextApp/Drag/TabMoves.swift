@@ -86,7 +86,8 @@ enum TabMoves {
             return completion(false)
         }
         let surface = tab.surface, paneHandle = pane.handle
-        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
+        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag), emptied = respawn == nil ? services.locateTab(tab.id)?.1 : nil
+        let sizing = services.splitSizing(for: pane, edge: edge, emptying: emptied?.tabs.count == 1 ? emptied : nil)
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {
@@ -100,6 +101,7 @@ enum TabMoves {
                     try await fallbackSplit(surface, target: paneHandle, edge: edge, connection: connection)
                 }
             } != nil
+            if ok { sizing() }
             completion(ok)
             return ok ? nil : "move-tab-to-split failed (see the app log)"
         })

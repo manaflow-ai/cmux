@@ -42,6 +42,9 @@ extension LayoutRootView {
             tabDragEdge = nil
         }
         tabDropHit = hit.hit
+        #if DEBUG
+        probeTabDrop("target \(hit.target) hit \(hit.hit)", at: local)
+        #endif
         let rect = convert(hit.highlight, from: view)
         let region = convert(hit.region, from: view)
         tabDragHighlightOnScreen = window.map { $0.convertToScreen(convert(rect, to: nil)) }
@@ -70,6 +73,9 @@ extension LayoutRootView {
     public func showTabDragOutline(screenRect: CGRect) {
         guard let window else { return }
         let slot = convert(window.convertFromScreen(screenRect), from: nil)
+        #if DEBUG
+        probeTabDrop("strip slot \(Int(slot.minX)),\(Int(slot.minY))")
+        #endif
         tabDragHighlightOnScreen = screenRect
         tabDropHit = nil
         let height = min(20, slot.height)
@@ -82,6 +88,9 @@ extension LayoutRootView {
     /// refuses: it draws nothing. The drag goes on, and the zone held near
     /// its line stays for the next hit test.
     public func hideTabDragHighlight() {
+        #if DEBUG
+        probeTabDrop("hidden (refused zone)")
+        #endif
         tabDragHighlightOnScreen = nil
         if highlight.hide(animated: false) { driver.start() }
     }
@@ -115,6 +124,9 @@ extension LayoutRootView {
     }
 
     func hideHighlight() {
+        #if DEBUG
+        probeTabDrop("none")
+        #endif
         tabDragHighlightOnScreen = nil
         tabDropHit = nil
         tabDragEdge = nil
