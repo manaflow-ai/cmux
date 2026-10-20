@@ -47,7 +47,8 @@ enum AgentCursorWiring {
                     sessionID: session,
                     unnamed: String(localized: "agentCursor.tag.unnamed", defaultValue: "Agent", bundle: .module)
                 ).text
-            }
+            },
+            glassLayer: { [weak controller] in (controller?.window as? ShellWindow)?.overlayLayer.agentCursorGlassLayer }
         ) { [weak controller] in (controller?.window as? ShellWindow)?.overlayLayer.agentCursorLayer ?? CALayer()
         }
         slot.onUntrack = { [weak services] target in services?.agentCursorVisibility.untrack(target) }
