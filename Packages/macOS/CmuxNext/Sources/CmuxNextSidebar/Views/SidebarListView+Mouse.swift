@@ -67,7 +67,7 @@ extension SidebarListViewComponents {
                 press.activatedOnPress = true
                 model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
             }
-        case .section, .emptySection, .folder, .block:
+        case .section, .emptySection, .folder, .block, .status:
             break
         }
         self.press = press
@@ -120,6 +120,8 @@ extension SidebarListViewComponents {
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
+        case let .status(bucket):
+            model.toggleStatusBucket(bucket)
         case let .item(item):
             // A link opens its page, a tab shows, an app opens, as in the band.
             guard !press.activatedOnPress else { break }

@@ -243,8 +243,8 @@ extension SidebarListViewComponents {
             view.configure(section, row: row)
         case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
-        default:
-            break
+        case (.status, let view as StatusHeaderRowView): view.configure(row)
+        default: break
         }
     }
     func updateDocumentHeight() {

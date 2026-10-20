@@ -36,6 +36,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var detailedStatus = false
     /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
     public var expanded = false
+    /// A child agent session's row under its parent (Group by Status with elbows): it leads with
+    /// the CLI connector `⎿` (`SidebarElbowView`).
+    public var elbow = false
     /// Expanded rows: the time since the last change, on the title's line.
     public var time: String?
     /// Expanded rows: a third line (the computer, the pull request).

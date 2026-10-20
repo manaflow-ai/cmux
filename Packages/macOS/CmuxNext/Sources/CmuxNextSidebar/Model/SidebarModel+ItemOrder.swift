@@ -27,7 +27,7 @@ extension SidebarModel {
         }
         var options = SidebarLayoutOptions()
         options.filterMatches = filterMatches
-        options.groupsByFolder = groupsByFolder
+        options.grouping = settledGrouping()
         // The sidebar document draws its sections in the list: a block's items are stops where the block draws.
         let listed = Set(sections.compactMap { section -> String? in if case let .custom(custom) = section.kind { custom.id } else { nil } })
         let inBlock = Dictionary(grouping: top, by: { item in layout.sections.first { $0.items.contains(item) }?.id.rawValue ?? "" })

@@ -83,6 +83,19 @@ public nonisolated enum SidebarTunables {
         help: "Adds sample rows with 1 to 7 pending items to the sidebar, to compare the row badges without real sessions.",
         default: false, code: "SidebarTunables.rowBadgePreview")
 
+    /// Group by Status (Leo 2026-10-14): rows under Needs you, Working, Done and No agent
+    /// (`SidebarLayout+Status`). Off by default; it wins over Group Projects By while on.
+    public static let groupByStatus = Tunable<Bool>.toggle(
+        "sidebar.groupByStatus", .sidebar, "Group by status",
+        help: "Lists every computer's rows under Needs you, Working, Done and No agent, with counts. Rows move as their status changes; the active row stays put until another row is active.",
+        default: false, code: "SidebarTunables.groupByStatus")
+
+    /// Group by Status's elbow children: a child agent session's row hangs off its parent's with `⎿`.
+    public static let statusElbow = Tunable<Bool>.toggle(
+        "sidebar.statusElbow", .sidebar, "Group by status: nest child sessions",
+        help: "With Group by status on, a session another agent started sits under that agent's row with the CLI connector ⎿.",
+        default: false, code: "SidebarTunables.statusElbow")
+
     /// The width transition used when the sidebar is collapsed or expanded.
     /// `.slide` is the shipped behavior; `.slideFade` is a DEV/NIGHTLY
     /// prototype for comparing a fast opacity fade against the same geometry.
@@ -104,6 +117,7 @@ public nonisolated enum SidebarTunables {
         [
             agentMark.descriptor,
             collapseMotion.descriptor,
+            groupByStatus.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             NotificationBadgeLook.tunable.descriptor,
@@ -114,6 +128,7 @@ public nonisolated enum SidebarTunables {
             SidebarChatsDesign.tunable.descriptor,
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
+            statusElbow.descriptor,
             updateCardButton.descriptor,
             workspaceOntoEnd.descriptor,
             workspaceOntoStart.descriptor,

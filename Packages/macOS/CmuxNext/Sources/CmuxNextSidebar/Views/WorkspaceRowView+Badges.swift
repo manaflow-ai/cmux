@@ -11,8 +11,9 @@ import Foundation
 extension WorkspaceRowView {
     /// Applies `style` after the rest of `configure`: the row badge and the trailing time. `trailing` leaves the row as it was.
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,
-                         stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
-        let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit,
+                         stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit, marks: WorkspaceRowStatusMarks? = nil) {
+        configureStatusMarks(marks) // Group by Status: the marks draw the state, the badges leave it out
+        let badges = WorkspaceRowBadges(unread: ws.unread, activity: statusMarksActivity(marks, shown.activity), stackLimit: stackLimit,
                                         detailed: shown.detailedStatus)
         guard style != .trailing, !isShowingPlaceholder else {
             rowBadge.configure([], look: .corner)

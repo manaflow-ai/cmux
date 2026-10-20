@@ -133,7 +133,7 @@ extension SidebarListView {
                 heightChanged = true
                 continue
             }
-            displayed.setContent(content, for: row.key)
+            displayed.setContent(content, activity: ws.activity, for: row.key)
             reconfigure(row.key)
             for tab in ws.tabs { reconfigure(.tab(ws.id, tab.id)) }
         }

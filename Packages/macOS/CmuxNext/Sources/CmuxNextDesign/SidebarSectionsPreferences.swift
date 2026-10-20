@@ -53,6 +53,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showProjects = true
     /// The Projects menu's Group By (`sidebar.groupBy`).
     public var groupBy: SidebarGroupBy = .none
+    /// Group by Status and its nested child sessions: Debug toggles (`sidebar.groupByStatus`,
+    /// `sidebar.statusElbow`) the sidebar lays over these preferences, not `cmux.json` keys.
+    public var groupsByStatus = false
+    public var statusElbow = false
     /// Whether the device-wide All chats section is shown at the bottom of the
     /// sidebar (Lawrence 2026-10-09: on by default); its header's Hide Section turns it off.
     public var showChats = true

@@ -81,7 +81,7 @@ extension WorkspaceRowView {
 
         // Members indent under their group header; the members' line is
         // one layer per group under the rows (SidebarListView+GroupLines).
-        let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
+        let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : layoutElbow(head: b)
         let (th, sh, top, cy) = textMetrics(head: b)
         // A custom workspace icon takes the leading slot; without one the
         // title starts at the leading inset (no default kind glyph).
@@ -147,7 +147,7 @@ extension WorkspaceRowView {
         let pinStart = layoutPin(showMore: showMore, control: control, fades: fades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
-        trailing = layoutRowBadge(trailing: trailing, cy: cy)
+        trailing = layoutStatusMarks(trailing: layoutRowBadge(trailing: trailing, cy: cy), cy: cy, overlay: overlayStart, fades: fades)
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {

@@ -30,7 +30,7 @@ extension SidebarListViewComponents {
             target = .layoutItem(LayoutItemID(item))
         case .block?:
             target = .background
-        case nil:
+        case .status?, nil:
             target = .background
         }
         return contextMenuProvider(target)

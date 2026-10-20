@@ -13,6 +13,8 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case emptySection(SectionID)
     /// Group by Folder's header over one folder's loose rows ("" = none).
     case folder(SectionID, String)
+    /// Group by Status's header over one status bucket's rows.
+    case status(SidebarStatusBucket)
     /// A document item listed as a row (`SidebarNode.item`): its item id.
     case item(String)
     /// A document section's items in its own arrangement (tiles, a grid, a
@@ -57,6 +59,9 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var tabDisclosure: SidebarTabDisclosure? = nil
     /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
     public var content: WorkspaceRowContent? = nil
+    /// Group by Status's marks on a workspace row; nil in every other mode.
+    public var statusMarks: WorkspaceRowStatusMarks? = nil
+
     /// A workspace row's tab count, when `sidebar.workspaceRow.tabCount` is on.
     public var tabCount: Int? { content?.tabCount }
     /// A workspace row's second line.
