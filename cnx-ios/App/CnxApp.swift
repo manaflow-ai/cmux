@@ -1,6 +1,7 @@
 import CnxAuth
 import CnxModel
 import CnxShell
+import CnxVoice
 #if DEBUG
 import CnxLive
 import CnxTerminal
@@ -12,6 +13,7 @@ struct CnxApp: App {
     /// Push registration and notification taps (CnxShell).
     @UIApplicationDelegateAdaptor(CnxAppDelegate.self) private var appDelegate
     @State private var auth: CnxAuthModel
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         #if !DEBUG
@@ -28,6 +30,7 @@ struct CnxApp: App {
 
     var body: some Scene {
         WindowGroup {
+            Group {
             #if DEBUG
             if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
@@ -40,7 +43,29 @@ struct CnxApp: App {
             // Release and Production: no sample data; live data fills it once signed in.
             RootView(auth: auth, store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []))
             #endif
+            }
+            .modifier(ChiefCallCover(controller: ChiefVoice.controller, scenePhase: scenePhase))
         }
+    }
+}
+
+/// The Action Button / Shortcuts Chief call over every root (ChiefVoiceIntents.swift).
+private struct ChiefCallCover: ViewModifier {
+    let controller: ChiefVoiceController
+    let scenePhase: ScenePhase
+
+    func body(content: Content) -> some View {
+        content
+            .fullScreenCover(isPresented: Binding(
+                get: { controller.presented != nil },
+                set: { if !$0 { controller.dismiss() } }
+            )) {
+                ChiefCallScreen(controller: controller)
+            }
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                // Notes an earlier call saved go out when the app comes back.
+                if phase == .active { Task { await controller.drainOutbox() } }
+            }
     }
 }
 

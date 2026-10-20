@@ -25,6 +25,7 @@ let package = Package(
         .library(name: "CnxLive", targets: ["CnxLive"]),
         .library(name: "CnxArtifacts", targets: ["CnxArtifacts"]),
         .library(name: "CnxBrowserStream", targets: ["CnxBrowserStream"]),
+        .library(name: "CnxVoice", targets: ["CnxVoice"]),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
@@ -38,6 +39,8 @@ let package = Package(
         .package(path: "../../Packages/iOS/CmuxConversation"),
         // The agents' brand marks (Claude, Codex), shared with the Mac app.
         .package(path: "../../Packages/Shared/CmuxAgentBrands"),
+        // The Action Button call flow (plans/cmux-next/ios-action-button-DESIGN.md).
+        .package(path: "../../Packages/Shared/CmuxChiefVoiceCore"),
     ],
     targets: [
         .target(name: "CnxDesign"),
@@ -113,6 +116,16 @@ let package = Package(
             // libghostty ships for iOS only here; macOS `swift test` builds the
             // portable parts (session, detector, extractor, input) without it.
             dependencies: ["CnxDesign", "CnxArtifacts", "CnxTransport", .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS]))]
+        ),
+        // The Action Button Chief call: recorder, on-device transcriber, call screen, delivery to Chief.
+        .target(
+            name: "CnxVoice",
+            dependencies: [
+                "CnxChief",
+                .product(name: "CmuxChiefVoiceCore", package: "CmuxChiefVoiceCore"),
+                .product(name: "CmuxConversationCore", package: "CmuxConversation"),
+            ],
+            resources: [.process("Resources")]
         ),
         .target(
             name: "CnxShell",

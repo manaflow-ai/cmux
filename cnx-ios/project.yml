@@ -104,6 +104,8 @@ settings:
 packages:
   CnxKit:
     path: CnxKit
+  CmuxChiefVoiceCore:
+    path: ../Packages/Shared/CmuxChiefVoiceCore
 targets:
   CnxApp:
     type: application
@@ -121,6 +123,11 @@ targets:
         product: CnxModel
       - package: CnxKit
         product: CnxTerminal
+      - package: CnxKit
+        product: CnxVoice
+      - package: CnxKit
+        product: CnxChief
+      - package: CmuxChiefVoiceCore
     # UI tests run with `xcodebuild test -scheme CnxApp` on one simulator (verify/parity/pq_tabs.py).
     scheme:
       testTargets:
@@ -209,6 +216,9 @@ targets:
         NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
         NSPhotoLibraryUsageDescription: Attach photos to messages for Chief and your agents.
         NSMicrophoneUsageDescription: Record audio messages for Chief and your agents.
+        NSSpeechRecognitionUsageDescription: Turn your voice notes for Chief into text on this iPhone. Audio is not sent for recognition.
+        # The Action Button Chief call keeps recording while the phone is locked.
+        UIBackgroundModes: [audio]
         NSFaceIDUsageDescription: Approve agent actions and unlock cmux with Face ID.
         CADisableMinimumFrameDurationOnPhone: true
         UILaunchScreen:
