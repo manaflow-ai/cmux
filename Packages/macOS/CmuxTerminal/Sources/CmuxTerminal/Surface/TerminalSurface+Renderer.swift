@@ -25,6 +25,12 @@ extension TerminalSurface {
         surfaceView.applyWindowBackgroundIfActive()
     }
 
+    /// Requests a redraw after the Mac or display wakes.
+    @MainActor
+    public func recoverRendererAfterWake(reason: String) {
+        forceRefresh(reason: reason)
+    }
+
     /// Keep `desiredFocusState` in sync when the hosted view's responder chain
     /// calls `ghostty_surface_set_focus` directly (bypassing `setFocus`).
     /// Without this, `createSurface` would replay a stale state on recreation.

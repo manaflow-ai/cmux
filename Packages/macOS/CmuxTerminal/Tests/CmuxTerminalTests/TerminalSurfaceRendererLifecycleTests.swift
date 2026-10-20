@@ -4,9 +4,22 @@ import CmuxTerminalGhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
+@_silgen_name("cmux_test_ghostty_renderer_rebuild_call_count")
+private func rendererRebuildCallCount() -> UInt32
+
 /// Visibility transitions begin a fresh bounded recovery episode.
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererLifecycleTests {
+    @Test func wakeRecoveryRebuildsAStalePresentedRenderer() {
+        let fixture = PresentedSurfaceFixture()
+        defer { fixture.tearDown() }
+        let initialRebuildCount = rendererRebuildCallCount()
+
+        fixture.surface.recoverRendererAfterWake(reason: "test.displayWake")
+
+        #expect(rendererRebuildCallCount() == initialRebuildCount + 1)
+    }
+
     @Test func windowShowCanRecoverAfterAnEarlierEpisodeWasExhausted() {
         let fixture = PresentedSurfaceFixture()
         defer { fixture.tearDown() }
