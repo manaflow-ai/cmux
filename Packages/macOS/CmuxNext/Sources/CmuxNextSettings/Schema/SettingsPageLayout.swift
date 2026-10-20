@@ -13,6 +13,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
         case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
+        /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
+        case density
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -112,7 +114,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             ],
             // Change Background… lands here: the art picker draws appearance.background and
             // appearance.backgroundOpacity (search still shows them as rows).
-            lead: [.backdrops], actions: [.appearance], aliases: [.appearance]),
+            // The density card draws appearance.density, .customDensity and .customDensities.
+            lead: [.backdrops, .density], actions: [.appearance], aliases: [.appearance]),
         CategorySpec(
             id: "terminal", title: section(.terminal), symbol: "terminal",
             groups: [

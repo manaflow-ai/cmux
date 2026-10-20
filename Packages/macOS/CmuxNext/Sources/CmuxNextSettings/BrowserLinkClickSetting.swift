@@ -1,10 +1,13 @@
 /// `browser.links` in cmux.json: what modified link clicks do in browser
-/// tabs of both engines. Chrome's defaults:
+/// tabs of both engines. Chrome's defaults, except Command-click, which opens
+/// the link where `layout.linkPlacement` puts every link (`linkPlacement`:
+/// by default the pane right of the page, else a new split there; user
+/// 2026-10-20: "cmd click on links needs to always open in the right"):
 ///
 /// ```jsonc
 /// "browser": {
 ///   "links": {
-///     "cmdClick": "backgroundTab",
+///     "cmdClick": "linkPlacement",
 ///     "cmdShiftClick": "foregroundTab",
 ///     "shiftClick": "newWindow",
 ///     "optionClick": "download",
@@ -20,11 +23,14 @@ public nonisolated struct BrowserLinkClickSetting: Sendable, Hashable {
         case currentTab
         case backgroundTab
         case foregroundTab
+        /// Where `layout.linkPlacement` puts every link (default: the pane
+        /// right of the page's pane, or a new split there).
+        case linkPlacement
         case newWindow
         case download
     }
 
-    public var cmdClick: Action = .backgroundTab
+    public var cmdClick: Action = .linkPlacement
     public var cmdShiftClick: Action = .foregroundTab
     public var shiftClick: Action = .newWindow
     public var optionClick: Action = .download
