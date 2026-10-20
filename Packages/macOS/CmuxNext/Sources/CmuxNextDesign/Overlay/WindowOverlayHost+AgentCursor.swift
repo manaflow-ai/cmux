@@ -263,6 +263,16 @@ extension WindowOverlayHost {
         carrier.hover(agentCursorTag(atPanelPoint: point))
     }
 
+    /// Where a click on the tag of cursor `id` lands: the window that draws
+    /// the cursor (the overlay panel or the main window) and the tag's
+    /// center in its coordinates; nil when the tag is not shown (debug input).
+    public func agentCursorTagClickPoint(_ id: String) -> (window: NSWindow, point: NSPoint)? {
+        guard let carrier = agentCursorCarrier, let window = carrier.window,
+              let tag = agentCursorTags?.agentCursorTags().first(where: { $0.id == id }) else { return nil }
+        let local = carrier.localRect(tag.frame)
+        return (window, carrier.convert(NSPoint(x: local.midX, y: local.midY), to: nil))
+    }
+
     func removeAgentCursor() {
         agentCursorCarrier?.removeFromSuperview()
     }
