@@ -13,7 +13,9 @@
 //!   in the Keychain (`cmux harness secret set`).
 //!
 //! Claude Code (acpmux's own adapter) has no ACP sign-in: its login runs
-//! `claude auth login` in this terminal.
+//! `claude auth login` in this terminal. Neither has Codex through `codex
+//! app-server` (the in-process bridge, which speaks app-server, not ACP):
+//! its login runs `codex login` here, and `--status` asks `codex login status`.
 //!
 //! Sign-in types and the terminal hand-off follow the ACP auth methods that
 //! t3code's ACP Registry auth uses (apps/server/src/provider/acp/
@@ -199,11 +201,37 @@ fn not_acp(id: &str, profile: &HarnessProfile) -> Option<String> {
     }
 }
 
+/// The codex binary of a profile that runs `codex app-server` through the
+/// in-process bridge: `session/new` and `authenticate` are not app-server
+/// methods, so its sign-in goes through the codex CLI.
+fn codex_bridge(profile: &HarnessProfile) -> Option<&str> {
+    let bridged = matches!(profile.kind, HarnessKind::Acp)
+        && crate::codex_app_server::is_profile_launch(&profile.argv);
+    bridged.then(|| profile.argv[0].as_str())
+}
+
 /// Whether harness `id` is signed in.
 pub async fn auth_state(cfg: &Config, id: &str, timeout: Duration) -> Result<AuthState> {
     let profile = profile(cfg, id)?;
     if let Some(hint) = not_acp(id, profile) {
         return Ok(AuthState::NotAcp { hint });
+    }
+    if let Some(codex) = codex_bridge(profile) {
+        let argv = vec![codex.to_owned(), "login".into(), "status".into()];
+        let env = resolved(profile)?.env;
+        let signed_in = tokio::task::spawn_blocking(move || {
+            crate::harness_health::probe::auth_check(&argv, &env, "codex")
+        })
+        .await?
+        .map_err(|e| anyhow!("`codex login status`: {e}"))?;
+        return Ok(if signed_in {
+            AuthState::SignedIn { methods: vec![] }
+        } else {
+            AuthState::Required {
+                methods: vec![],
+                message: "`codex login status` did not pass".into(),
+            }
+        });
     }
     let mut started = start(id, profile, timeout).await?;
     let methods = auth_methods(&started.init);
@@ -284,6 +312,15 @@ pub async fn login(
             };
         }
         _ => bail!("{}", not_acp(id, profile).unwrap_or_default()),
+    }
+    if let Some(codex) = codex_bridge(profile) {
+        let argv = vec![codex.to_owned(), "login".into()];
+        let code = terminal(&argv, &resolved(profile)?.env)?;
+        return if code == 0 {
+            Ok(format!("{id}: signed in"))
+        } else {
+            Err(anyhow!("`codex login` exited {code}"))
+        };
     }
     let mut started = start(id, profile, timeout).await?;
     let methods = auth_methods(&started.init);
@@ -386,4 +423,48 @@ pub async fn run_cmd(
         println!("{outcome}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn acp(argv: &[&str]) -> HarnessProfile {
+        HarnessProfile {
+            kind: HarnessKind::Acp,
+            argv: argv.iter().map(|s| s.to_string()).collect(),
+            env: BTreeMap::new(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        }
+    }
+
+    #[test]
+    fn codex_bridge_is_the_app_server_launch_only() {
+        assert_eq!(codex_bridge(&acp(&["/opt/bin/codex", "app-server"])), Some("/opt/bin/codex"));
+        assert_eq!(codex_bridge(&acp(&["codex-acp"])), None);
+        assert_eq!(codex_bridge(&acp(&["npx", "@zed-industries/codex-acp"])), None);
+    }
+
+    #[tokio::test]
+    async fn codex_bridge_login_runs_codex_login_in_this_terminal() {
+        let mut cfg = Config::default();
+        cfg.harnesses.insert("codex".into(), acp(&["/opt/bin/codex", "app-server"]));
+        let ran = std::sync::Mutex::new(Vec::new());
+        let terminal = |argv: &[String], _: &BTreeMap<String, String>| {
+            ran.lock().unwrap().push(argv.to_vec());
+            Ok(0)
+        };
+        let outcome = login(&cfg, "codex", None, Duration::from_secs(1), &terminal).await.unwrap();
+        assert_eq!(outcome, "codex: signed in");
+        assert_eq!(
+            *ran.lock().unwrap(),
+            vec![vec!["/opt/bin/codex".to_owned(), "login".to_owned()]]
+        );
+    }
 }
