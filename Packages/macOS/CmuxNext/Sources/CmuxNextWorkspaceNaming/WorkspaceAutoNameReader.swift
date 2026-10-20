@@ -47,6 +47,13 @@ public struct WorkspaceAutoNameReader {
         WorkspaceAutoName(enabled: enabled(), variant: WorkspaceAutoNameTunables.variant.value)
     }
 
+    /// The name the sidebar row of `workspace` shows while `tab` fronts it
+    /// (`WorkspaceAutoName.label`). `work` is the tab a browser front tab
+    /// yields its name to (`SidebarMapping.workTab`).
+    public func label(_ workspace: WorkspaceModel, front tab: TabModel, work: TabModel?) -> String? {
+        rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) })
+    }
+
     /// What `tab` gives a workspace it fronts: an agent chat its chat's
     /// title (none for a New Tab page), a browser its page's, a terminal
     /// what a workspace made from it would take. A page, app or Home

@@ -257,6 +257,7 @@ let package = Package(
                 "CmuxNextServerHelper",
                 "CmuxNextFeed",
                 "CmuxNextNowPlaying",
+                "CmuxNextFloating",
                 // The window focus rules (cmux-focus-core) run in-process over the app FFI.
                 "CCmuxAppFFI",
             ],
@@ -265,11 +266,26 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // The sidebar's Now Playing card source (cx-ouoxo): the playing browser tab,
-        // the pick it shares with macOS Now Playing, and the card's feed. Wiring stays in the App.
+        // Surfaces that float over every app and Space: the Chief pet (its panel, notice bubble
+        // and feed) and the floating chat's per-display frames. Wiring stays in the App.
+        .target(
+            name: "CmuxNextFloating",
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextFloatingTests",
+            dependencies: ["CmuxNextFloating"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The Now Playing sources (cx-ouoxo): the playing browser tab, cmux's player, other apps
+        // through macOS Now Playing, the card's feed, and the New Tab page's player (AgentPane).
         .target(
             name: "CmuxNextNowPlaying",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSidebar", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSidebar", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
@@ -1024,6 +1040,11 @@ let package = Package(
             dependencies: ["CmuxNextBrowser", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextBrowserAutomationTests",
+            dependencies: ["CmuxNextBrowserAutomation"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The app's provider bridge to the browser host (plans/cmux-next/browser-host.md, step c3).
         .target(
             name: "CmuxNextBrowserHost",
@@ -1084,7 +1105,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextTerminalGeometry", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextCookieImport", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextCompat", "CmuxNextTerminalGeometry", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextFloating", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextCookieImport", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            // ReduceMotionLoopTests builds the vendored Home typing indicators.

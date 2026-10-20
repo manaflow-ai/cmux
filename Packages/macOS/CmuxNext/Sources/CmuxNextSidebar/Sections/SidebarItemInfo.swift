@@ -37,7 +37,7 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var unreadDot = false
     /// The current profile's avatar (SIDEBAR-FOOTER-AND-SPACE-MENU
     /// amendment 2): an icon-only item with an avatar draws its initial in
-    /// a circle with a small chevron, and a click opens the profile menu.
+    /// a circle, and a click opens the profile menu.
     public var avatar: SidebarAvatar?
     /// A workspace item's merged status (its row's `activity`), drawn by the shared indicator.
     public var activity: StatusIndicatorState = .idle

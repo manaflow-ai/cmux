@@ -203,6 +203,23 @@ impl ReadOnly {
             })
             .map_err(sql)
     }
+
+    /// Kind, stored ISO date and text of message `id`, if it exists.
+    pub fn message_row(&self, id: u64) -> io::Result<Option<MessageRow>> {
+        self.0
+            .prepare_cached("SELECT kind, date, text FROM messages WHERE id = ?1")
+            .and_then(|mut s| {
+                s.query_row([id as i64], |r| {
+                    Ok(MessageRow {
+                        kind: r.get(0)?,
+                        date: r.get(1)?,
+                        text: r.get(2)?,
+                    })
+                })
+                .optional()
+            })
+            .map_err(sql)
+    }
 }
 
 fn open_read_only(path: &Path) -> io::Result<Connection> {
@@ -561,6 +578,15 @@ pub fn counts(conn: &Connection) -> io::Result<Counts> {
         messages: messages as u64,
         nodes: nodes as u64,
     })
+}
+
+/// One message as stored: what `ReadOnly::message_row` returns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageRow {
+    pub kind: String,
+    /// The stored ISO date (RFC 3339).
+    pub date: String,
+    pub text: String,
 }
 
 /// One full-text match.
