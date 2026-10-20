@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextPages
@@ -30,6 +31,8 @@ final class FilePageService: InternalPageProvider {
         var recoveredText: String?
         /// Ends this tab's flush registration on its quit document.
         var stopFlush: (() -> Void)?
+        /// The Markdown omnibar above the page (markdown tabs only).
+        var bar: MarkdownOmnibarBar?
     }
 
     let kind: FilePageKind
@@ -45,6 +48,8 @@ final class FilePageService: InternalPageProvider {
     private var warnedTooLarge: Set<String> = []
     /// Tabs whose pages are saving their last edits after the tab closed.
     private(set) var flushing: [Task<Void, Never>] = []
+    /// The local live links of the Markdown Share menu, started on the first link.
+    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
@@ -151,6 +156,8 @@ final class FilePageService: InternalPageProvider {
 
     fileprivate func saved(_ url: URL, hash: String) {
         documents.existing(url)?.saved(hash: hash)
+        // A save can change the file's git state (clean to modified).
+        for tab in tabs.values where tab.provider?.file == url { tab.bar?.refresh() }
     }
 
     /// Tab `key` stops showing `url`: the tab's flush goes; the document goes with the last tab.
@@ -214,6 +221,7 @@ final class FilePageService: InternalPageProvider {
     fileprivate func opened(_ url: URL, in key: String) {
         if let previous = tabs[key]?.file, previous != url { left(previous, tab: key) }
         tabs[key]?.file = url
+        tabs[key]?.bar?.show(url)
         if let pane = services.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
     }
 
@@ -302,6 +310,41 @@ final class FilePageService: InternalPageProvider {
         tab.host = host
         tabs[key] = tab
         return page
+    }
+
+    /// The Markdown omnibar above a markdown tab's page (plans/cmux-next/markdown-omnibar-DESIGN.md):
+    /// the browser's omnibar row showing the file's path, its git state and the Share menu.
+    func makeTopBar(for key: String) -> NSView? {
+        guard kind == .markdown, let tab = tabs[key], let page = tab.page else { return nil }
+        let actions = MarkdownOmnibarActions(
+            open: { [weak self] url, disposition in self?.omnibarOpen(url, disposition: disposition, from: key) },
+            returnFocus: { [weak page] in
+                guard let page, let window = page.window else { return }
+                window.makeFirstResponder(page.webKitView)
+            },
+            liveLink: { [weak self] url in try? await self?.liveShare.link(for: url) },
+            openInBrowser: { [weak self] url in self?.openExternal(url, from: key) })
+        let bar = MarkdownOmnibarBar(suggestionEngine: services.cache.suggestionEngine, actions: actions)
+        bar.toolbar.cardClip = page
+        bar.show(tab.provider?.file ?? tab.file)
+        tabs[key]?.bar = bar
+        return bar
+    }
+
+    /// A URL committed in the Markdown omnibar: a Markdown file opens in this tab (the user typed
+    /// it, so it is theirs), another file through the file routing, a web URL in a browser tab
+    /// beside the page. A modified commit (`disposition`) always opens a new tab.
+    private func omnibarOpen(_ url: URL, disposition: OmnibarDisposition?, from key: String) {
+        guard url.isFileURL else { return openExternal(url, from: key) }
+        guard disposition == nil, FilePageKind.isMarkdown(url), let provider = tabs[key]?.provider, let page = tabs[key]?.page else {
+            return openFile(url, from: key)
+        }
+        provider.userChose(url.standardizedFileURL.resolvingSymlinksInPath())
+        // task-owner: one open of the typed file; ends when the tab shows it or refuses it
+        Task {
+            guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
+            page.reload()
+        }
     }
 
     /// Finder drops (WebKit hides their paths from the page): the empty tab opens the dropped file
@@ -394,6 +437,7 @@ final class FilePageTabHost: FilePageHosting {
         service?.edited(url, text: text, baseHash: baseHash, writable: writable, from: key) ?? .kept
     }
     func saved(_ url: URL, hash: String) { service?.saved(url, hash: hash) }
+    var showsOmnibar: Bool { service?.kind == .markdown }
     func isRecent(_ path: String) -> Bool { service?.isRecent(path) ?? false }
     func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool { await service?.confirmOpen(url, userGesture: userGesture, from: key) ?? false }
 }

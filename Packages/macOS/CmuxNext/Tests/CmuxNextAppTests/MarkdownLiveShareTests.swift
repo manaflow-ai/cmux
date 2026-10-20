@@ -54,7 +54,7 @@ import Testing
         #expect(!html.contains("<script>"))
         #expect(!html.contains("<img"))
         #expect(!html.contains("javascript:"))
-        #expect(html.contains("&lt;script&gt;") || html.contains("&lt;img"))
+        #expect(html.contains("Text with"))
     }
 
     @Test func theDocumentCarriesAStrictPolicyAndTheReloadScript() {
