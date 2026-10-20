@@ -154,7 +154,7 @@ impl NativeReceiver {
         }));
     }
 
-    async fn reconcile(&mut self, policy: Option<&NativePolicy>) -> anyhow::Result<()> {
+    pub(super) async fn reconcile(&mut self, policy: Option<&NativePolicy>) -> anyhow::Result<()> {
         let mut desired = BTreeMap::new();
         let mut addresses = BTreeSet::new();
         let mut expires = None;

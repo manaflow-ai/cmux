@@ -1,6 +1,5 @@
 //! The receiving child has one mode, fixed by its private daemon startup.
 //! It reads no user link state and never receives an account credential.
-use std::io;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::net::UnixStream as StdStream;
 use std::path::PathBuf;
@@ -90,10 +89,12 @@ async fn initialize(
         AgentReceiver::new(binding.clone(), keys).map_err(|error| anyhow!(error))?,
     ));
     let snapshot = refresh(&authority.0).await?;
+    // Native VM routes use the original IPv4 VPC endpoint. The host's inner
+    // IPv6 overlay belongs to the userspace mesh, not the kernel interface.
     let socket =
-        UdpSocket::bind((std::net::Ipv6Addr::UNSPECIFIED, super::mesh_cloud::CLOUD_UDP_PORT))
+        UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, super::mesh_cloud::CLOUD_UDP_PORT))
             .await?;
-    let receiver = NativeReceiver::start(
+    let mut receiver = NativeReceiver::start(
         binding,
         private,
         socket,
@@ -102,6 +103,8 @@ async fn initialize(
         authority.0.verifier(),
     )
     .await?;
+    receiver.reconcile(Some(&snapshot.native_policy())).await?;
+    snapshot.time(Instant::now()).ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
     Ok((authority, receiver, snapshot))
 }
 
@@ -141,10 +144,12 @@ async fn renew(
 async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> anyhow::Result<()> {
     let mut parent = UnixStream::from_std(parent)?;
     let mut control = UnixStream::from_std(control)?;
+    let shutdown = super::shutdown_signal();
+    tokio::pin!(shutdown);
     let bootstrap = tokio::select! {
         biased;
         result = closed(&mut parent) => return result,
-        result = super::shutdown_signal() => return result,
+        result = &mut shutdown => return result,
         result = tokio::time::timeout(REQUEST_BUDGET, read_bootstrap(&mut control)) => result??,
     };
     // No service futures exist during startup; dropping this future still
@@ -153,11 +158,10 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
         biased;
         result = closed(&mut parent) => return result,
         result = closed(&mut control) => return result,
-        result = super::shutdown_signal() => return result,
+        result = &mut shutdown => return result,
         result = initialize(bootstrap, session) => result?,
     };
     let (send, updates) = mpsc::channel(1);
-    send.send(Some(snapshot.native_policy())).await.map_err(|_| io::ErrorKind::BrokenPipe)?;
     let next = renewal_at(snapshot.expires());
     let (stop, stopped) = oneshot::channel();
     let serving = receiver.serve(updates, async {
@@ -170,7 +174,7 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
         biased;
         result = closed(&mut parent) => result,
         result = closed(&mut control) => result,
-        result = super::shutdown_signal() => result,
+        result = &mut shutdown => result,
         result = &mut serving => { finished = true; result },
         result = renew(authority.0.clone(), send, next) => result,
     };
