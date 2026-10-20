@@ -8,6 +8,13 @@ import CmuxNextSettings
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
         var sources = makeBase(services: services)
+        // Search (the sidebar's Search button, plans/cmux-next/sidebar-search.md): history by kind and
+        // the agent chats join the palette's own sources.
+        sources.searchContributions = HistoryPalettePages.searchContributions(services) + [
+            PaletteSearchContribution(id: "agentChats", title: AgentChatsPaletteStrings.title, order: 30) { [weak services] in
+                services.map { AgentChatsPalettePage(services: $0).page() }
+            },
+        ]
         // A typed path or web address: Open it, or Ask Agent about it (Cmd-P and Cmd-Shift-P).
         sources.goTo = AppPaletteGoToSource(services: services)
         // cmux.json `palette.scopes.<id>.prefix`, read on every open.
