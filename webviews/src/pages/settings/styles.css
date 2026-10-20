@@ -453,7 +453,7 @@ mark {
   top: calc(100% + 1px);
   right: 0;
   color: var(--muted-text);
-  font-size: 10px;
+  font-size: var(--text-caption);
   line-height: 12px;
   white-space: nowrap;
   pointer-events: none;
@@ -1133,7 +1133,7 @@ mark {
 .appearance-bar {
   position: sticky;
   bottom: 16px;
-  z-index: 5;
+  z-index: var(--layer-sticky);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1165,6 +1165,6 @@ mark {
 }
 
 .appearance-bar-question {
-  font-size: 12px;
+  font-size: var(--text-detail);
   white-space: nowrap;
 }

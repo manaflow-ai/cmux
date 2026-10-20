@@ -8,12 +8,34 @@
 
 use std::path::{Component, Path};
 
-/// The npm/PyPI release that contains this binary; the crate version in an
-/// unstamped (local or test) build.
+/// The npm/PyPI release that contains this binary. Anything else (a local or
+/// test build, or a raw R2 tree artifact stamped `0.0.0-r2.sha-…` that the
+/// app bundles) reports the one cmux-next version, the workspace crate
+/// version, which `scripts/cmux-next/check-version-surfaces.sh` requires.
 pub(crate) const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_VERSION") {
-    Some(version) if !version.is_empty() => version,
+    Some(version) if is_release(version) => version,
     _ => env!("CARGO_PKG_VERSION"),
 };
+
+/// A release version: not empty and not a `0.0.0-…` placeholder stamp.
+const fn is_release(version: &str) -> bool {
+    let bytes = version.as_bytes();
+    let placeholder = b"0.0.0-";
+    if bytes.is_empty() {
+        return false;
+    }
+    if bytes.len() < placeholder.len() {
+        return true;
+    }
+    let mut index = 0;
+    while index < placeholder.len() {
+        if bytes[index] != placeholder[index] {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
 
 /// How this binary reached the machine, read from its own path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +90,14 @@ impl InstallChannel {
     }
 }
 
+/// The release `cmux --version` names. An unpublished commit artifact (the R2
+/// tree builds the cmux-next app bundles, stamped `0.0.0-r2.sha-<commit>`)
+/// names the cmux-next version, the crate version from cmux-tui/Cargo.toml
+/// [workspace.package], so the app's CLI says what the app says (1.0.0).
+pub(crate) fn release_version<'a>(distribution: &'a str, crate_version: &'a str) -> &'a str {
+    if distribution.starts_with("0.0.0-") { crate_version } else { distribution }
+}
+
 /// `cmux --version`'s line after `cmux `.
 pub(crate) fn version_text(
     distribution: &str,
@@ -114,10 +144,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn placeholder_stamps_are_not_releases() {
+        assert!(is_release("0.13.5"));
+        assert!(is_release("1.0.0-rc.1"));
+        assert!(is_release("0.0.1"));
+        assert!(!is_release(""));
+        assert!(!is_release("0.0.0-r2.sha-abc"));
+    }
+
+    #[test]
     fn the_text_leads_with_the_distribution_release() {
         assert_eq!(version_text("0.13.5", Some("abc"), Some("def")), "0.13.5 (abc; ghostty def)");
         assert_eq!(version_text("0.13.5", Some("abc"), None), "0.13.5 (abc)");
         assert_eq!(version_text("0.13.5", None, Some("def")), "0.13.5");
+    }
+
+    #[test]
+    fn an_unpublished_artifact_names_the_cmux_next_version() {
+        assert_eq!(release_version("0.0.0-r2.sha-0123abc", "1.0.0"), "1.0.0");
+        assert_eq!(release_version("0.13.5", "1.0.0"), "0.13.5");
+        assert_eq!(release_version("1.0.0", "1.0.0"), "1.0.0");
     }
 
     #[test]

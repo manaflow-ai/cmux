@@ -166,6 +166,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: launchSettle)
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
+        // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
+        services.palette.openingEventTimestamp = { [weak router = services.keyRouter] in
+            let event = router?.syntheticKeyEvent ?? NSApp.currentEvent
+            return event?.type == .keyDown ? event?.timestamp : nil
+        }
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)

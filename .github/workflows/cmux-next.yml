@@ -1062,6 +1062,11 @@ jobs:
         continue-on-error: true
         run: bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
 
+      - name: Dialog buttons show their keys (u2647)
+        id: dialog-key-hints
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-dialog-key-hints.py "$GITHUB_WORKSPACE"
+
       - name: Main-thread concurrency
         id: concurrency
         continue-on-error: true
@@ -1226,6 +1231,7 @@ jobs:
             bash scripts/cmux-next/tests/check-scrollbars.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
+            bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
             bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
             python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
             bash scripts/cmux-next/tests/check-app-size.test.sh
@@ -1419,6 +1425,7 @@ jobs:
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
+            ${{ steps.dialog-key-hints.outcome }}|Dialog buttons show their keys (u2647)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
