@@ -99,6 +99,41 @@ pub fn read_images(port: &mut dyn ConversationPort, message: &Message) -> Vec<Tu
         .collect()
 }
 
+/// Non-owner images are named in the turn without downloading or decoding
+/// their bytes on the owner's Mac.
+pub fn unread_images(message: &Message) -> Vec<TurnImage> {
+    message
+        .parts
+        .iter()
+        .filter_map(|part| {
+            let Part::Attachment {
+                hash,
+                name,
+                mime_type,
+                width,
+                height,
+                ..
+            } = part
+            else {
+                return None;
+            };
+            mime_type.starts_with("image/").then(|| TurnImage {
+                source: ImageRef {
+                    conversation: message.conversation.clone(),
+                    part: part.clone(),
+                },
+                hash: hash.clone(),
+                name: name.clone(),
+                mime_type: mime_type.clone(),
+                width: *width,
+                height: *height,
+                data: None,
+                note: Some("not downloaded: the owner did not send it".into()),
+            })
+        })
+        .collect()
+}
+
 /// One image part read from the owner (None when it is not an image part),
 /// best first: the original when the model takes its type, bytes and size;
 /// else a copy made here from the original (at most 2000 px, a JPEG under

@@ -261,14 +261,12 @@ impl Brain {
                 |id| self.mux_messages.contains(id),
             )
         {
+            let by_owner = self.settings.membership.is_owner_message(summary, &message);
             // An answer to a pending approval of the running turn: it
             // answers, is logged, and is not a new message (it neither
             // queues nor interrupts the turn).
             match crate::approval::Answer::parse(&text) {
-                Some(answer)
-                    if self.settings.membership.is_owner_message(summary, &message)
-                        && self.has_approval(None) =>
-                {
+                Some(answer) if by_owner && self.has_approval(None) => {
                     self.answer_approval(answer, &message, None);
                     if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
                         (self.log)(&format!("logging an approval failed: {e}"));
@@ -281,6 +279,7 @@ impl Brain {
                         .map(|cmux_conversation::Origin::Remote { install }| install.clone());
                     // The turn sees the images; the log keeps their references.
                     let images = match self.daemon.as_mut() {
+                        _ if has_images && !by_owner => super::images::unread_images(&message),
                         Some(daemon) if has_images => {
                             super::images::read_images(daemon.as_mut(), &message)
                         }
@@ -288,6 +287,7 @@ impl Brain {
                     };
                     // The turn opens other files from this Mac; the line names where.
                     let files = match self.daemon.as_mut() {
+                        _ if has_files && !by_owner => super::files::unread_files(&message),
                         Some(daemon) if has_files => {
                             let root = self.file.attachments_dir();
                             super::files::read_files(daemon.as_mut(), &message, &root)
@@ -305,10 +305,7 @@ impl Brain {
                             seq: message.seq,
                             id: message.id.clone(),
                             remote,
-                            requires_approval: !self
-                                .settings
-                                .membership
-                                .is_owner_message(summary, &message),
+                            requires_approval: !by_owner,
                         },
                     );
                     return;
