@@ -1139,8 +1139,10 @@ jobs:
         continue-on-error: true
         run: |
           # Independent scripts, run a few at a time: one after another they took 203 s,
-          # most of it two scripts (scripts/ci/run-checks-concurrently.sh).
-          scripts/ci/run-checks-concurrently.sh <<'CHECKS'
+          # most of it two scripts (scripts/ci/run-checks-concurrently.sh). Those two assert
+          # wall-clock limits, so they run after the pool, beside each other only.
+          status=0
+          scripts/ci/run-checks-concurrently.sh <<'CHECKS' || status=$?
             python3 tests/test_intent_familiar_warning.py
             python3 tests/test_ci_launch_budget_gate.py
             python3 tests/test_strings_output_encoding.py
@@ -1150,8 +1152,6 @@ jobs:
             bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-acpmux-only.test.sh
             bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-linux-fetch.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
@@ -1219,6 +1219,11 @@ jobs:
             python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py
             bash scripts/cef/tests/test-embedder-step.test.sh
           CHECKS
+          scripts/ci/run-checks-concurrently.sh --jobs 2 <<'CHECKS' || status=$?
+            bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
+            bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
+          CHECKS
+          exit "$status"
 
       # The app's Ghostty shell integration comes from ghostty-next (the
       # Ghostty of GhosttyNextKit and libghostty-vt): the bundle phase output

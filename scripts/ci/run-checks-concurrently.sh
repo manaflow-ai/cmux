@@ -47,7 +47,8 @@ run_one() {
   printf '%s %s\n' "$status" "$(( $(date +%s) - start ))" > "$work/$index.rc"
 }
 export -f run_one
-seq 1 "$count" | xargs -P "$jobs" -I{} bash -c 'run_one "$1" "$2"' _ "$work" {}
+# A killed xargs still leaves the logs it has to print; a missing result counts as failed.
+seq 1 "$count" | xargs -P "$jobs" -I{} bash -c 'run_one "$1" "$2"' _ "$work" {} || true
 
 failed=()
 for index in $(seq 1 "$count"); do
