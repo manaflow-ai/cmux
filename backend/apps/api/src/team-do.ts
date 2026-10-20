@@ -302,11 +302,17 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (state?.team) await recheckDue({ state, team: state.team.id, http: this.http, domainStub: (d) => this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(d)), current: () => this.boundEngine!.currentState, commit: (op, params, key) => this.requireCommitted(this.submitSystem(op, params, key)) }, now)
   }
 
-  /** A member removal settles their SSH certificates and hosts in the same turn (the alarm retries; team-member-cleanup.ts). */
+  /** Membership changes retire affected sockets; removal also settles SSH certificates and hosts. */
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
     if (op === "team.member.remove") this.cleanupMembers()
     // A member who left (or a team Stack deleted) loses its sockets here now; CloudDO closes its own from the outbox (review P1-2).
-    const v = (frames.find((f) => f.t === "result") as { value?: { user?: string; removed?: boolean; deleted?: boolean } } | undefined)?.value
+    const result = frames.find((f) => f.t === "result")
+    const v = result?.t === "result" ? result.value as { user?: string; removed?: boolean; deleted?: boolean; role?: string; previous_role?: string } : undefined
+    // Replayed or same-role syncs must not close a connection admitted under the current role.
+    if (op === "team.member.provision" && result?.t === "result" && !result.replayed
+      && typeof v?.user === "string" && typeof v.role === "string" && typeof v.previous_role === "string" && v.role !== v.previous_role) {
+      this.closeSockets((p) => p.user === v.user, "team role changed")
+    }
     if (op === "team.member.remove" && v?.removed && v.user) this.closeSockets((p) => p.user === v.user, "left the team")
     if (op === "team.stack_mirror" && v?.deleted) this.closeSockets((p) => p.kind !== "system", "team deleted")
   }
