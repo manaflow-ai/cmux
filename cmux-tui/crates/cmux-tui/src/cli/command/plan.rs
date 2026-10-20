@@ -83,6 +83,10 @@ pub(in crate::cli) enum Resolve {
     /// The request is a terminal's font zoom (`tab.update`). A browser tab's
     /// page zoom goes to the app instead (cli/resolve.rs).
     TabZoom { step: ZoomStep },
+    /// `tab` becomes the tab that shows an agent's terminal (`agent <agent>
+    /// focus`): an `agent_...` id from `agent.list`, or the `term_...` id of
+    /// a terminal that has an agent.
+    AgentTab { agent: String },
 }
 
 /// What `tab … zoom` asks for.

@@ -86,7 +86,9 @@ final class WindowRecordSaver {
             saves.requested = false
             let tickets = saves.tickets
             saves.tickets = []
+            let requested = CACurrentMediaTime()
             let failure = await saveNow()
+            if failure == nil { DebugTabSwitch.confirmed(requestedAt: requested) }
             for ticket in tickets { await services.daemon.closeTicket(ticket, label: "save window records", error: failure) }
         }
         saves.inFlight = false

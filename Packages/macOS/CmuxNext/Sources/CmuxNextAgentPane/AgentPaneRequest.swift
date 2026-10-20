@@ -52,6 +52,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page's style switch (`newTab.setTemplate`): the template to
     /// save as `tabs.newTabTemplate` (the App checks the value).
     case setNewTabTemplate(String)
+    /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
+    case nowPlaying(AgentPaneNowPlaying.Command)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -61,6 +63,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case newTabContext
     /// The identified New Tab field mounted and took DOM focus.
     case newTabInputReady(String)
+    /// A local page's newest chats as JSON text (`newTab.warm {warm}`): the next New Tab page's
+    /// context carries it (``AgentPaneNewTab/warm``), so its first frame lists them.
+    case newTabWarm(String)
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.

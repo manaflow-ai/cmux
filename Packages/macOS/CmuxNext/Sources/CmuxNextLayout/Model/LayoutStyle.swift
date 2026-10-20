@@ -25,6 +25,11 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// only the buttons). Split geometry, divider drags, column widths and
     /// the split room check all honor it.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
+    /// Smallest content width of a docked agent chat column (``DockRole/agentChat``): the Home
+    /// list at its avatar-only minimum (76 pt), its divider and a transcript of about 30
+    /// characters (280 pt, `HomeSidebarWidth.transcriptMinimum`). The generic pane minimum let
+    /// that column shrink to 216 pt and its bubbles wrap one word per line (dogfood 2026-10-19).
+    public var minimumAgentChatContentWidth: CGFloat = 360
     /// Inset between a pane's cell and its rounded content rect (tab strip
     /// plus content). Token: `Metrics.panePadding`. 0 is edge to edge.
     public var panePadding: CGFloat = 0

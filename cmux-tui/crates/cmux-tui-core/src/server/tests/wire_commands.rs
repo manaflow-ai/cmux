@@ -732,6 +732,7 @@ fn client_info_is_sanitized_recallable_and_clamped_to_64_characters() {
             device_kind: None,
             device_name: None,
             device_id: None,
+            api_revision: None,
         },
         &writer,
     )
@@ -751,6 +752,7 @@ fn client_info_is_sanitized_recallable_and_clamped_to_64_characters() {
             device_kind: None,
             device_name: None,
             device_id: None,
+            api_revision: None,
         },
         &writer,
     )
@@ -767,6 +769,7 @@ fn client_info_is_sanitized_recallable_and_clamped_to_64_characters() {
             device_kind: None,
             device_name: None,
             device_id: None,
+            api_revision: None,
         },
         &writer,
     )

@@ -59,39 +59,3 @@ public final class HomeInviteSheet: HomeSheetController, NSTextFieldDelegate {
 
     public func controlTextDidChange(_ notification: Notification) { refreshPrimary() }
 }
-
-/// "New Chief…": a name for another Chief, which gets its own conversation.
-public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
-    public var onCreate: (String) async -> HomeComposeOutcome = { _ in .offline }
-    let name = HomeSheetController.field(placeholder: HomeConversationStrings.chiefName, identifier: "cmux.home.chief.name")
-    static let maxLength = 100
-
-    public init() {
-        super.init(title: HomeConversationStrings.chiefTitle, primary: HomeConversationStrings.chiefCreate)
-    }
-
-    override func addContent(to stack: NSStackView) {
-        let body = ThemedLabel(wrappingLabelWithString: HomeConversationStrings.chiefBody)
-        body.font = Typography.body
-        body.preferredMaxLayoutWidth = 420 - 2 * Metrics.space6
-        stack.addArrangedSubview(body)
-        name.delegate = self
-        stack.addArrangedSubview(Self.boxed(name))
-    }
-
-    public override func viewDidAppear() {
-        super.viewDidAppear()
-        view.window?.makeFirstResponder(name)
-    }
-
-    var trimmed: String { name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
-    override var canSubmit: Bool { !trimmed.isEmpty && trimmed.count <= Self.maxLength }
-
-    override func submit() {
-        let chosen = trimmed
-        let create = onCreate
-        run { await create(chosen) }
-    }
-
-    public func controlTextDidChange(_ notification: Notification) { refreshPrimary() }
-}

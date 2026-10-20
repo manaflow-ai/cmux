@@ -29,6 +29,11 @@ name: cmux-next media
 #     replaces the waiting one, and a running tour is never cancelled.
 #   - on a pull request labeled `media-tour` (add the label to get a tour;
 #     every later push of that pull request tours again).
+# Either way a change with nothing for a Mac to tour takes no Mac: no UI
+# paths, or only webview code, whose look the gallery advisory run checks in
+# Linux Chromium on the pull request (a webview-only merge gets no capture of
+# its own). Native-bridge, glass and theme webview files still tour. Add the
+# `media-tour-mac` label (with `media-tour`) to tour a webview change on a Mac.
 # A pull request without the label starts no job. Classic main has no
 # cmux-next UI, and a nightly schedule would run only from main's copy of
 # this file, so neither has a tour.
@@ -73,6 +78,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      pull-requests: read
     outputs:
       runs_on: ${{ steps.pick.outputs.runs_on }}
       reason: ${{ steps.pick.outputs.reason }}
@@ -83,7 +89,37 @@ jobs:
           sparse-checkout: |
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
+            scripts/cmux-next/media/path_map.py
           sparse-checkout-cone-mode: false
+
+      # The changed paths, read here on Linux so a change the Mac tour would
+      # not capture (no UI, or only webview code, which the gallery advisory
+      # run captures in Linux Chromium) never queues for a Mac. The file is
+      # written only when the listing is complete; without it the picker
+      # picks a Mac as before and the tour maps the paths itself.
+      - name: List the changed paths
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The same diff the tour maps: the pull request's base and head at
+          # the event, or the push's before and after.
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          listing="$RUNNER_TEMP/changed-files.json"
+          gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$HEAD" --jq '[.files[] | {filename, previous_filename}]' > "$listing"
+          python3 - "$listing" "$RUNNER_TEMP/changed-paths.txt" <<'PY'
+          import json, pathlib, sys
+          rows = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          # The compare API lists at most 300 files; past that the Mac maps the paths itself.
+          if len(rows) >= 300:
+              print(f"{len(rows)} changed files listed, the compare API's cap; the Mac maps the paths itself")
+              sys.exit(0)
+          paths = sorted({p for row in rows for p in (row.get("filename"), row.get("previous_filename")) if p})
+          pathlib.Path(sys.argv[2]).write_text("\n".join(paths) + "\n")
+          print(f"{len(paths)} changed path(s)")
+          PY
 
       - name: Pick an owned gui runner
         id: pick
@@ -92,7 +128,12 @@ jobs:
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
           SAME_REPO: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
-        run: python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO"
+          FORCE_MAC: ${{ contains(github.event.pull_request.labels.*.name, 'media-tour-mac') }}
+        run: |
+          force=()
+          if [ "$FORCE_MAC" = true ]; then force=(--force-mac); fi
+          python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO" \
+            --paths-file "$RUNNER_TEMP/changed-paths.txt" "${force[@]}"
 
   tour:
     name: Tour the app
@@ -208,6 +249,35 @@ jobs:
         with:
           node-version: "24.11.1"
 
+      # Tours run side by side on a Mac's session runners, each capturing only
+      # its own app's window. One tag's DerivedData, sockets and daemon session
+      # take one tour at a time: a cancelled run still stopping, a dispatch, or
+      # a merge tour beside a dispatch could otherwise build into the same
+      # DerivedData at once. Other tags never wait.
+      # A pull request branched before the lock existed checks out a head
+      # without the lock script, and with a prune that ignores held tags; this
+      # step comes from the merge ref, so it takes both from that commit and
+      # hands the prune step their dir (MEDIA_CI_SCRIPTS).
+      # A tour waits an hour for its tag: longer than a warm merge tour holds
+      # feat-cmux-next (54 min seen), and short enough that the waiter keeps
+      # 45+ min of its own job timeout for a cold build and the tour. A
+      # longer wait would end in a job-timeout cancel, not the "held" error.
+      - name: Hold this tour's tag
+        if: steps.scope.outputs.is_ui == 'true'
+        run: |
+          set -euo pipefail
+          ci=scripts/ci
+          if [ ! -f "$ci/media_tag_lock.py" ] || ! grep -q -- '--lock-dir' "$ci/prune_media_derived_data.py"; then
+            git fetch --no-tags origin "$GITHUB_SHA"
+            ci="$RUNNER_TEMP/media-ci"
+            mkdir -p "$ci"
+            for script in media_tag_lock.py prune_media_derived_data.py; do
+              git show "$GITHUB_SHA:scripts/ci/$script" > "$ci/$script"
+            done
+          fi
+          echo "MEDIA_CI_SCRIPTS=$ci" >> "$GITHUB_ENV"
+          python3 "$ci/media_tag_lock.py" hold --tag "$TOUR_TAG" --wait 3600
+
       # Each tag's DerivedData is about 9 GiB and nothing else removes it: a
       # mini holding 8 failed reload.sh's 40 GiB floor (run 38614931315).
       # Keep this run's pair and the most recently used other pair; a dir
@@ -216,11 +286,15 @@ jobs:
         if: steps.scope.outputs.is_ui == 'true'
         continue-on-error: true
         run: |
-          python3 scripts/ci/prune_media_derived_data.py \
+          python3 "${MEDIA_CI_SCRIPTS:-scripts/ci}/prune_media_derived_data.py" \
             --keep-tag "${TOUR_TAG}-base" --keep-tag "${TOUR_TAG}-head" --keep-others 2
 
+      # The archive cache is the one glaeda CI jobs on these Macs already share
+      # (ci-macos.yml): the two downloads took 2-7 min a tour without it.
       - name: Download pre-built GhosttyKit.xcframework for both revisions
         if: steps.scope.outputs.is_ui == 'true'
+        env:
+          GHOSTTYKIT_ARCHIVE_CACHE_DIR: /Users/Shared/cmux-build-fleet/ci/ghosttykit-archives
         run: |
           set -euo pipefail
           GHOSTTY_SHA="$(git rev-parse "$HEAD_SHA:ghostty")" ./scripts/download-prebuilt-ghosttykit.sh
@@ -240,10 +314,17 @@ jobs:
         # A warm tag's DerivedData keeps the explicit module Xcode precompiled
         # from GhosttyNextKit's ghostty.h and does not rebuild it for a new pin
         # ("ghostty.h has been modified since the module file", job
-        # 117892119256). The stamp clears those modules only when a binary
-        # pin changed since the tag's last good build.
+        # 117892119256). The stamp clears the dir's build state (the whole
+        # Build dir: clearing only the modules left a build description
+        # pointing at them, job 118285853270) only when a binary pin changed.
         run: |
           set -euo pipefail
+          # The checkout is cleaned and the base worktree recreated every run,
+          # so optchat-chief built cold (~100 s) for each app; keep its Cargo
+          # target dir on the Mac instead. One per runner: Cargo's lock ends
+          # before build-optchat-chief.sh copies the binary out, so two tours
+          # sharing a dir could ship each other's build.
+          export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}"
           stamp="$GITHUB_WORKSPACE/scripts/ci/media_module_cache_stamp.py"
           build_one() {
             local dir="$1" tag="$2" log="$3" output="$4" app
@@ -413,6 +494,8 @@ jobs:
                   failed.add(path.parent.name)
           if status == "recorder-failed":
               print(f"The path-selected recorder failed for {', '.join(sorted(failed)) or tours}; see the run artifact and failed manifests.")
+          elif status == "no-ui-paths" and data.get("gallery"):
+              print("Only webview code changed; the gallery advisory run checks it in Linux Chromium.")
           elif status == "no-ui-paths":
               print("No UI paths changed; no interaction tour was needed.")
           PY

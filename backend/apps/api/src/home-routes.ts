@@ -6,6 +6,7 @@ import type { SubmitResult } from "./owner-do.ts"
 import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
 export { avatarGetRoute, avatarSetRoute } from "./home-avatar-routes.ts"
 import { HOME_RATE_LIMITED, HOME_USER_NOT_READY, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
+import { acceptRequest, dismissRequest, linkedUserOf, listRequests, withSameDomainReach } from "./home-requests.ts"
 
 /**
  * Worker side of the Home ops (home-messaging.md section 4.1). Clients name a conversation in
@@ -14,8 +15,10 @@ import { HOME_RATE_LIMITED, HOME_USER_NOT_READY, isHomeRateOp, takeHomeRate } fr
  *
  * - conversation.create: `conv_` + sha256(actor, idempotency key), so a retry reaches the same object.
  * - dm.open: the caller's existing DM with a user peer (inbox `peer` index), else the pair's
- *   deterministic id; an email or phone peer becomes an address participant (HMAC id with
- *   HOME_ADDRESS_KEY) and is invited in the same request.
+ *   deterministic id. An email or phone peer whose address is linked to an account the caller can
+ *   reach opens that user DM (home-requests.ts); any other one becomes an address participant
+ *   (HMAC id with HOME_ADDRESS_KEY) and is invited in the same request, which its verified owner
+ *   sees as a message request.
  * - Ops that add humans carry the reach facts the Worker resolved (home-reach.ts). conversation.create
  *   and participants.add first take one attempt from the caller's hourly budget (home-rate.ts);
  *   a spent budget refuses before any reach RPC or member check.
@@ -247,6 +250,20 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
       }
       const resolved = addressFor(env, (peer ?? {}) as { email?: string; phone?: string })
       if ("ok" in resolved) return reject(key, resolved.code, resolved.message)
+      // The address of an account (its verified email, linked at sign-in): that person, when the caller
+      // can reach them, gets the real DM at once. A stranger falls through to the invite, the same
+      // answer an unknown address gets (16.4), and sees it as a message request.
+      const linked = principal.agent ? null : await linkedUserOf(env, resolved.id)
+      if (linked === me) return reject(key, "invalid_participant", "that is your own address")
+      if (linked) {
+        const reach = await resolveHumanReach(env, principal, humanTargets(me, [linked]))
+        const existing = reach.dms.get(linked)
+        if (existing) return conversationStub(env, existing).submit(existing, principal, dmReopenFrame(frame, existing))
+        const created = dmCreateFrame(principal, frame, linked)
+        const trusted = await withSameDomainReach(env, reach.principal, linked)
+        const direct = await conversationStub(env, created.id).submit(created.id, trusted, created.frame)
+        if (resultOf(direct)?.t === "result") return direct
+      }
       const id = homeConversation.dmConversationId(me, resolved.id)
       const shown = invites.maskAddress(resolved.address)
       const opened = await conversationStub(env, id).submit(id, principal, { ...frame, params: { id, participants: [self, { id: resolved.id, kind: "address", display_name: shown }] } })
@@ -286,6 +303,10 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
       if (typeof params.id !== "string" || !CONVERSATION_ID.test(params.id)) return reject(key, "validation.invalid", "commit names its id")
       return conversationStub(env, params.id).submit(params.id, principal, frame)
     }
+    case "invite.accept_verified":
+      return acceptRequest(env, principal, params, key)
+    case "request.dismiss":
+      return dismissRequest(env, principal, params, key)
     case "invite.accept": {
       const id = conversationForCode(String(params.code ?? ""))
       const secret = String(params.secret ?? "")
@@ -307,6 +328,8 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
 
 /** A Home ConversationDO read: routed by `conversation`, which is stripped. */
 export const conversationRead = async (env: Env, principal: Principal, op: string, params: unknown) => {
+  // Message requests are the caller's own, across conversations (home-requests.ts).
+  if (op === "home.requests.list") return listRequests(env, principal)
   const { conversation, ...rest } = (params ?? {}) as { conversation?: unknown }
   if (typeof conversation !== "string" || !CONVERSATION_ID.test(conversation)) return { ok: false as const, code: "validation.invalid", message: `${op} needs a conversation id` }
   return conversationStub(env, conversation).readOp(conversation, principal, op, rest)
