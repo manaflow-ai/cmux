@@ -45,24 +45,47 @@ sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
 sudo xcodebuild -license accept
 
 # Ghostty のビルドには Zig 0.16 系が必要（brew の zig は 0.17 なので不可）
-brew install zig@0.16 bun rustup
+# Go は Release ビルドに含まれるトンネル拡張のビルドに必要（拡張自体は lawmux では動きません）
+brew install zig@0.16 bun rustup go
 brew link --force zig@0.16
-rustup default stable
+rustup default stable   # 1.88 以上が必要。古い場合は rustup update stable
 ```
 
-### ビルドと起動
+Xcode 26 以降では Metal コンパイラが別配布なので、初回に一度だけ入れます。
+
+```sh
+xcodebuild -downloadComponent MetalToolchain
+```
+
+### Release ビルド（通常はこちら）
 
 ```sh
 git clone --recursive https://github.com/LawrenceTurnerW/lawmux.git
 cd lawmux
 ./scripts/setup.sh
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag lawmux --launch
+./scripts/lawmux-build-release.sh --install --open
 ```
 
-`reload.sh` は開発用（Debug）ビルドを作ります。Apple Developer の登録は不要です。
-自分でビルドしたアプリなので、Gatekeeper の警告は出ません。
+`lawmux-build-release.sh` は Release 構成をビルドし、`cmux.app` を `lawmux.app` に改名して
+署名を検証したうえで、`--install` なら `/Applications/lawmux.app` に置き、`--open` なら起動します。
+署名はアドホック（Apple Developer 登録なし）です。自分でビルドしたアプリなので Gatekeeper の
+警告は出ません。本家 cmux が起動したままでも実行できます。
 
-> Release 構成でのビルドと、`lawmux.app` という名前でのインストール手順は検証中です。
+更新するときは `git pull`（または `scripts/lawmux-sync-upstream.sh`）のあと、同じコマンドを
+もう一度実行してください。起動中の lawmux があれば先に終了します。
+
+### 開発用（Debug）ビルド
+
+本家の開発フローをそのまま使えます。タグ付きビルドは Bundle ID が
+`com.cmuxterm.app.debug.lawmux`、名前が「cmux DEV lawmux」になります。
+
+```sh
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag lawmux
+open "$HOME/Library/Developer/Xcode/DerivedData/cmux-lawmux/Build/Products/Debug/cmux DEV lawmux.app"
+```
+
+`reload.sh --launch` は本家チーム向けのログイン情報（`~/.secrets/cmuxterm-dev.env`）がないと
+起動を拒否するので、`--launch` を付けずにビルドし、出力された `.app` を `open` で開きます。
 
 ### 使えない機能
 
