@@ -51,6 +51,7 @@ enum AgentPaneTheme {
             "accentText": css(opaquePage),
             "danger": css(tokens.danger),
             "warning": css(tokens.attention),
+            "success": css(tokens.success),
             "highlight": css(tokens.highlight),
             "highlightText": css(tokens.highlightText),
             "shadow": css(tokens.shadow),
@@ -67,6 +68,9 @@ enum AgentPaneTheme {
                 "fadeOut": motion.duration(MotionFade.fadeOut),
                 "move": motion.duration(MotionSpring.move),
             ],
+            // Static status indicators, or Reduce Motion (cx-sya4n): the page stops its status
+            // loops and draws a shape per state (`data-status-indicators`).
+            "statusIndicators": motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
         ]
     }
 

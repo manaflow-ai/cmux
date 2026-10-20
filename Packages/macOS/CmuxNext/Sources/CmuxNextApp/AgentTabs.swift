@@ -59,8 +59,9 @@ final class AgentTabStore {
     /// Tab `key`'s daemon: where its workspace's agent folder is saved and where the store answers
     /// where its new chats start (cx-9aps). Nil while the tab is not found.
     var daemonForTab: @MainActor (_ key: String) -> DaemonService? = { _ in nil }
-    /// Tabs closed while the store was still creating them: closed when it answers.
-    var pendingCloses: [String: @MainActor (String) -> Void] = [:]
+    /// The daemon whose tree lists `tab`, by the record's identity (MachineRegistry.daemon(forTab:)):
+    /// it reads no tab list, so a pane snapshot that asks hears no other pane's tabs. Nil in tests.
+    var daemonListing: @MainActor (TabModel) -> DaemonService? = { _ in nil }
     /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): ≤255 bytes, no control characters.
     var localHostName: String? {
         didSet { localHostName = localHostName.flatMap(Self.displayName) }
@@ -454,10 +455,6 @@ final class AgentTabStore {
 
     /// The tab still shows the new tab page (it has not become a chat).
     func isNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)] != nil }
-
-    /// A New Tab page whose selected kind is an agent chat: it becomes that chat in place, so it
-    /// takes the chat's chrome from its first frame (cx-ncc.58).
-    func isAgentNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)]?.page.kind == .agent }
 
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.

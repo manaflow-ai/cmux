@@ -14,6 +14,8 @@ export type StageContext = {
   agentTheme: Record<string, unknown>;
   /** The appearance the diff and markdown pages get. */
   appearance: DiffViewerAppearance;
+  /** The entry options the URL changed (options.ts); the component host applies them. */
+  options: Record<string, string>;
   /** Records a host call (the stage's log, for debugging a fixture). */
   log(method: string, params?: unknown): void;
 };

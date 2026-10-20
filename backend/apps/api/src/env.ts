@@ -55,6 +55,8 @@ export interface Env {
   readonly HOST_DO: DurableObjectNamespace<HostDO>
   /** Chief hands (hand-do.ts): one object per installed hand (`h:<hand>`) and one index per owner (`owner:<user>`). */
   readonly HAND_DO: DurableObjectNamespace<HandDO>
+  /** "1": Chief hands are on (the /hand and /v1/hands routes, and the brain's hands tools). Off by default; production keeps it off until hands are ready (decision 2026-10-19). */
+  readonly HANDS_ENABLED?: string
   /** "1": Cloud requests may reach a `mac` profile hand. Off until the Mac hand trust post (#13742) is confirmed. */
   readonly HANDS_MAC_ENABLED?: string
   /** Comma list of user ids: with HANDS_MAC_ENABLED, only their mac hands take Cloud requests (a scoped test). */
@@ -270,6 +272,12 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_MODELS?: string
   /** "1": send effort + thinking display in the Claude route's Bedrock body ("0" off; default on only for a bearer route). */
   readonly CHIEF_BRAIN_CLAUDE_EFFORT_BODY?: string
+  /** The most a turn waits for the compactor before it runs (ms; default 5000, "0": never waits). Staging A/B knob. */
+  readonly CHIEF_BRAIN_SETTLE_MS?: string
+  /** The most a compaction waits for another call writing its prefix (ms; default 20000, "0": never waits). Staging A/B knob. */
+  readonly CHIEF_BRAIN_PREFIX_WAIT_MS?: string
+  /** The Claude compactor's effort: "low" or "medium" (default "high"). Staging A/B knob. */
+  readonly CHIEF_BRAIN_COMPACT_EFFORT?: string
   /** Prompt cache TTL on the Claude route (default "1h"; "5m" keeps the short default). */
   readonly CHIEF_BRAIN_CACHE_TTL?: string
   /** Secret: OpenRouter key for `openrouter:<id>` Chief models; OPENROUTER_BASE_URL overrides the endpoint. */
@@ -305,6 +313,8 @@ export interface Env {
   readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
   /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */
   readonly HOME_ADDRESS_KEY?: string
+  /** Secret: the Sentry project DSN for the Cloud Home health check-ins (home-health.ts); absent = log only. */
+  readonly SENTRY_DSN?: string
   /** Private R2 bucket of Home attachments (objects `home/v1/<conversation>/<sha256>/<upload id>`); no public access. */
   readonly HOME_ATTACHMENTS?: R2Bucket
   /** Secret: HMAC key of attachment upload slots and download URLs (at least 32 characters); unset = attachments off. */

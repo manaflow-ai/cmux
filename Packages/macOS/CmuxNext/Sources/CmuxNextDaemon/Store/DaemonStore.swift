@@ -116,8 +116,6 @@ public final class DaemonStore: StateResourceQueries {
     /// The one model of each pending split's provisional pane, by public pane id: every overlay
     /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
     @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
-    /// This app's own live divider and column drags and their held echoes (DaemonStore+LayoutEchoes.swift).
-    @ObservationIgnored var layoutEchoes = LayoutEchoes()
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false
@@ -285,7 +283,7 @@ public final class DaemonStore: StateResourceQueries {
             savedTabGroups = reordered
         }
         savedOpenGroups = Set(savedTabGroups.compactMap(\.openGroup))
-        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: WorkspaceModel.init,
+        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: confirmedWorkspace,
                                      update: { $0.update($1) }) {
             workspaces = reordered
         }
@@ -383,7 +381,7 @@ public final class DaemonStore: StateResourceQueries {
         guard applyDepth == 0, isLoaded, let hook = onWorkspaceListChanged else { return }
         guard checkedListGeneration != listGeneration else { return }
         checkedListGeneration = listGeneration
-        let list = sidebarSections.flatMap(\.workspaces).map(\.id) + ["|"] + workspaces.map(\.id)
+        let list = sidebarSections.flatMap(\.workspaces).map(\.listID) + ["|"] + workspaces.map(\.listID)
         guard list != notifiedWorkspaceList else { return }
         notifiedWorkspaceList = list
         hook()

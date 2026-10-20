@@ -190,6 +190,23 @@ pub(crate) fn delete_kept_tabs(
 }
 
 impl WorkspaceRegistry {
+    /// The kept rows of `tab_ids` (a restart of a kept tab reads them under
+    /// the registry lock, `terminal_respawn/manual.rs`).
+    pub(crate) fn kept_tabs_of(&self, tab_ids: &[String]) -> anyhow::Result<Vec<KeptTab>> {
+        let db = self.connection.get();
+        let mut statement = db.prepare("SELECT cwd, title FROM kept_tabs WHERE tab_id = ?1")?;
+        let mut rows = Vec::new();
+        for tab_id in tab_ids {
+            let row = statement
+                .query_row([tab_id], |row| {
+                    Ok(KeptTab { tab_id: tab_id.clone(), cwd: row.get(0)?, title: row.get(1)? })
+                })
+                .optional()?;
+            rows.extend(row);
+        }
+        Ok(rows)
+    }
+
     /// Whether any of `tab_ids` is a kept tab.
     pub fn any_kept_tab(&self, tab_ids: &[String]) -> anyhow::Result<bool> {
         let db = self.connection.get();

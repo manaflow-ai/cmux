@@ -460,69 +460,6 @@ fn call(server: &mut Server<Fake>, name: &str, arguments: Value) -> Value {
 }
 
 #[test]
-fn every_catalog_operation_is_a_tool_or_excluded_with_a_reason() {
-    let operations = v2_tools::catalog()["operations"].as_object().expect("operations");
-    let tools = v2_tools::tools().iter().map(|tool| tool.wire).collect::<BTreeSet<_>>();
-    let excluded = v2_tools::exclusions()
-        .into_iter()
-        .map(|exclusion| (exclusion.name, exclusion.reason))
-        .collect::<BTreeMap<_, _>>();
-    for name in operations.keys() {
-        assert!(
-            tools.contains(name.as_str()) != excluded.contains_key(name),
-            "{name} must be exactly one of a tool or an exclusion"
-        );
-    }
-    assert_eq!(tools.len() + excluded.len(), operations.len());
-    assert!(excluded.values().all(|reason| reason.len() > 10), "every exclusion has a reason");
-    for tool in v2_tools::tools() {
-        assert!(matches!(tool.operation.class(), OperationClass::Read | OperationClass::Mutation));
-        assert_eq!(tool.mutation, tool.operation.class() == OperationClass::Mutation);
-    }
-    for (name, _) in v2_tools::EXCLUDED {
-        assert!(operations.contains_key(*name), "stale exclusion {name}");
-    }
-}
-
-#[test]
-fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
-    let cases = super::super::command::cases::safe_operation_cases();
-    let sends =
-        |args: &[&str]| match super::super::parse(&strings(args), super::super::Surface::Cmux) {
-            Ok(ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. }) => {
-                request.operation.name().ok()
-            }
-            _ => None,
-        };
-    for tool in v2_tools::tools() {
-        if super::super::command::cases::MULTI_REQUEST_OPERATIONS.contains(&tool.wire) {
-            continue;
-        }
-        let (args, _) = cases
-            .iter()
-            .find(|(_, operation)| *operation == tool.wire)
-            .unwrap_or_else(|| panic!("the CLI has no command for {}", tool.wire));
-        assert_eq!(
-            sends(args.as_slice()).as_deref(),
-            Some(tool.wire),
-            "`cmux {}` must send {}",
-            args.join(" "),
-            tool.wire
-        );
-    }
-    for (wire, _) in v2_tools::EXCLUDED {
-        if let Some((args, _)) = cases.iter().find(|(_, operation)| operation == wire) {
-            assert_eq!(
-                sends(args.as_slice()),
-                None,
-                "`cmux {}` offers excluded {wire}",
-                args.join(" ")
-            );
-        }
-    }
-}
-
-#[test]
 fn cli_actions_become_tools_with_the_cli_request_and_an_mcp_origin() {
     let (tools, excluded) = action_tools::from_list(&fixture_actions());
     let names = tools.iter().map(|tool| tool.name.as_str()).collect::<Vec<_>>();
@@ -752,6 +689,8 @@ fn json_rpc_lifecycle_and_errors() {
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<BTreeSet<_>>();
     for expected in [
         "workspace_list",
+        "machine_list",
+        "machine_get",
         "terminal_input_write",
         "window_list",
         "agents_snapshot",
@@ -759,7 +698,7 @@ fn json_rpc_lifecycle_and_errors() {
     ] {
         assert!(names.contains(expected), "missing {expected}");
     }
-    for absent in ["machine_list", "session_shutdown", "terminal_attach", "app_accounts_connect"] {
+    for absent in ["session_list", "session_shutdown", "terminal_attach", "app_accounts_connect"] {
         assert!(!names.contains(absent), "{absent} must not be a tool");
     }
     assert_eq!(names.len(), tools.len(), "tool names are unique");
@@ -836,65 +775,6 @@ fn notifications_wait_for_initialization_and_the_capability_says_so() {
     output.tools_changed().unwrap();
     let last: Value = serde_json::from_str(buffer.text().lines().last().unwrap()).unwrap();
     assert_eq!(last, json!({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}));
-}
-
-#[test]
-fn tool_schemas_follow_the_catalog() {
-    let name_ok = |name: &str| {
-        !name.is_empty()
-            && name.len() <= 64
-            && name
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-    };
-    for tool in v2_tools::tools() {
-        assert!(name_ok(&tool.name), "{}", tool.name);
-        let schema = tool.input_schema();
-        let properties = schema["properties"].as_object().expect("properties");
-        assert_eq!(schema["additionalProperties"], false);
-        assert!(!properties.contains_key("machine"), "{} exposes the machine", tool.name);
-        // `git.checkpoint.get` looks a create up by the key it ran under.
-        let lookup = tool.wire == "git.checkpoint.get";
-        let keyed = properties.contains_key("idempotency_key");
-        assert_eq!(keyed, tool.mutation || lookup, "{}", tool.name);
-        assert_eq!(properties.contains_key("offset"), tool.paginated, "{}", tool.name);
-        for required in schema["required"].as_array().unwrap() {
-            assert!(properties.contains_key(required.as_str().unwrap()), "{}", tool.name);
-        }
-        let annotations = &tool.descriptor_json()["annotations"];
-        assert_eq!(annotations["readOnlyHint"], !tool.mutation);
-        assert_eq!(annotations["openWorldHint"], tool.wire == "git.push", "{}", tool.name);
-    }
-    let create = v2_tools::find("workspace_create").expect("workspace_create").input_schema();
-    assert_eq!(create["properties"]["initial_content"]["enum"], json!(["terminal", "empty"]));
-    assert!(create["required"].as_array().unwrap().contains(&json!("initial_content")));
-    assert_eq!(create["properties"]["ephemeral"]["type"], "boolean");
-    assert!(v2_tools::find("workspace_list").unwrap().paginated);
-    assert!(!v2_tools::find("notification_list").unwrap().paginated, "owner's own limit");
-}
-
-#[test]
-fn ids_take_a_unique_prefix_and_a_session_qualifier() {
-    let tool = v2_tools::find("workspace_get").expect("workspace_get");
-    let call = tool.plan(&object(json!({"workspace": "build-box:ws_1a2b"}))).expect("plan");
-    assert_eq!(call.session.as_deref(), Some("build-box"));
-    assert_eq!(call.plan.params["workspace"], "ws_1a2b");
-    assert_eq!(
-        call.prefixes,
-        [Prefix { field: "workspace".into(), list: ResourceOperation::WorkspaceList }]
-    );
-    assert_eq!(call.plan.params["machine"], "current");
-    assert_eq!(call.plan.params["session"], "current");
-
-    for whole in [WORKSPACE, "current", "name:ws_1", "workspace:ws_1a"] {
-        let call = tool.plan(&object(json!({"workspace": whole}))).expect("plan");
-        assert!(call.prefixes.is_empty(), "{whole}");
-        assert_eq!(call.session, None, "{whole}");
-        assert_eq!(call.plan.params["workspace"], whole);
-    }
-    let two = tool.plan(&object(json!({"workspace": "a:ws_1", "session": "b"})));
-    assert!(two.is_err(), "one call reaches one session");
-    assert!(tool.plan(&object(json!({"bogus": "x"}))).is_err());
 }
 
 #[test]
@@ -1404,3 +1284,199 @@ fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
 
 mod agent_events;
 mod agent_wait;
+
+mod catalog;
+mod machine_catalog;
+
+fn code_mode_server(fake: Fake) -> Server<Fake> {
+    let mut server = Server::new(fake, None);
+    server.code_mode = true;
+    server
+}
+
+#[test]
+fn code_mode_lists_two_tools_and_a_script_reaches_every_tool() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let initialize =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"})).unwrap();
+    assert!(initialize["result"]["instructions"].as_str().unwrap().contains("cmux_exec"));
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>();
+    assert_eq!(names, ["cmux_docs", "cmux_exec"]);
+    let bytes = serde_json::to_vec(&tools).unwrap().len();
+    assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
+    let all = server.list();
+    assert!(all.len() > 100, "the full list stays the API");
+    assert!(tools[0]["description"].as_str().unwrap().contains("app (3)"));
+
+    // Docs returns a matching tool's schema, best match first.
+    let found = call(&mut server, "cmux_docs", json!({"query": "workspace rename"}));
+    let first = &found["structuredContent"]["tools"][0];
+    assert_eq!(first["name"], "app_workspace_rename", "{found}");
+    assert_eq!(first["inputSchema"]["required"], json!(["name"]));
+    let index = call(&mut server, "cmux_docs", json!({}));
+    assert!(index["structuredContent"]["families"]["workspace"].is_array(), "{index}");
+    let exact = call(&mut server, "cmux_docs", json!({"names": ["window_list", "nope"]}));
+    assert_eq!(exact["structuredContent"]["unknown"], json!(["nope"]));
+
+    // One script calls a daemon tool and an app action through `call`: the
+    // app sees the same MCP-origin action run as a direct tool call.
+    let script = r#"
+        const workspaces = await cmux.workspace_list({});
+        console.log("workspaces", workspaces.items.length);
+        const run = await cmux.call("app_workspace_rename", {target: "ws_1a", name: "Build"});
+        return {run, found: cmux.docs("new window").tools[0].name};
+    "#;
+    let ran = call(&mut server, "cmux_exec", json!({"script": script}));
+    assert_eq!(ran["isError"], false, "{ran}");
+    let content = &ran["structuredContent"];
+    assert_eq!(content["calls"], 2);
+    assert_eq!(content["logs"], json!(["workspaces 0"]));
+    assert_eq!(content["result"]["run"]["ran"], true);
+    assert_eq!(content["result"]["found"], "app_new_window");
+    // `cmux.docs` reads `action.list` after the run, so find the run itself.
+    let runs = sent_of(&server, "app");
+    let sent = runs.iter().rev().find(|sent| sent["method"] == "action.run").expect("a run");
+    assert_eq!(sent["params"]["origin"], "mcp");
+    assert_eq!(sent["params"]["action"], "workspace rename");
+}
+
+#[test]
+fn code_mode_scripts_see_failed_calls_and_report_partial_runs() {
+    let mut server = code_mode_server(Fake { fail_resources: true, ..Fake::with_actions() });
+    // A failed call throws with the owner's error, state and key.
+    let caught = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "try { await cmux.workspace_list({}); } catch (e) { return e.cmux.state; }"}),
+    );
+    assert_eq!(caught["structuredContent"]["result"], "in_progress", "{caught}");
+
+    // An uncaught one fails the script and says calls already ran.
+    let failed = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "await cmux.app_new_window({}); await cmux.workspace_list({});"}),
+    );
+    assert_eq!(failed["isError"], true);
+    let content = &failed["structuredContent"];
+    assert_eq!(content["state"], "partial");
+    assert_eq!(content["calls"], 2);
+    assert_eq!(content["error"]["cmux"]["state"], "in_progress", "{failed}");
+
+    // No nested scripts, unknown tools throw, syntax errors run nothing.
+    let nested = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "return await cmux.cmux_exec({script: 'return 1'});"}),
+    );
+    assert_eq!(nested["isError"], true);
+    let unknown = call(&mut server, "cmux_exec", json!({"script": "await cmux.no_such_tool({});"}));
+    assert!(
+        unknown["structuredContent"]["error"]["message"].as_str().unwrap().contains("unknown tool"),
+        "{unknown}"
+    );
+    let syntax = call(&mut server, "cmux_exec", json!({"script": "return (;"}));
+    assert_eq!(syntax["structuredContent"]["state"], "not_run");
+    // The engine has no file, network or process access.
+    let sandboxed = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "return [typeof require, typeof fetch, typeof process, typeof setTimeout];"}),
+    );
+    assert_eq!(
+        sandboxed["structuredContent"]["result"],
+        json!(["undefined", "undefined", "undefined", "undefined"])
+    );
+}
+
+#[test]
+fn code_mode_stops_a_script_that_loops_or_allocates_without_end() {
+    let mut server = code_mode_server(Fake::with_actions());
+    server.script_limits = code_mode::Limits {
+        memory: 16 << 20,
+        compute: Duration::from_millis(300),
+        ..code_mode::Limits::default()
+    };
+    let started = Instant::now();
+    let looped = call(&mut server, "cmux_exec", json!({"script": "while (true) {}"}));
+    assert_eq!(looped["isError"], true);
+    assert_eq!(looped["structuredContent"]["error"]["code"], "script.timeout", "{looped}");
+    assert!(started.elapsed() < Duration::from_secs(10), "the loop was stopped");
+
+    let grew = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "const kept = []; while (true) kept.push('x'.repeat(1 << 20) + kept.length);"}),
+    );
+    assert_eq!(grew["isError"], true);
+    let code = grew["structuredContent"]["error"]["code"].as_str().unwrap_or_default().to_owned();
+    assert!(matches!(code.as_str(), "script.memory" | "script.timeout"), "{grew}");
+    assert_eq!(grew["structuredContent"]["state"], "not_run");
+
+    // The server still answers after both.
+    let after = call(&mut server, "cmux_exec", json!({"script": "return 2 + 2;"}));
+    assert_eq!(after["structuredContent"]["result"], 4, "{after}");
+}
+
+#[test]
+fn an_allowlist_lists_only_its_tools_and_refuses_every_other_call() {
+    let mut server = code_mode_server(Fake::with_actions());
+    server.allowed = allowed_tools(Some("agents_snapshot, window_list,app_new_window".into()));
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let names = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        names,
+        BTreeSet::from(["agents_snapshot", "window_list", "app_new_window"].map(str::to_owned))
+    );
+    let allowed = call(&mut server, "window_list", json!({}));
+    assert_eq!(allowed["isError"], false, "{allowed}");
+    for refused in ["cmux_exec", "cmux_docs", "workspace_list", "app_workspace_rename"] {
+        let arguments =
+            if refused == "cmux_exec" { json!({"script": "return 1"}) } else { json!({}) };
+        let result = call(&mut server, refused, arguments);
+        assert_eq!(result["structuredContent"]["error"]["code"], "tool.not_allowed", "{refused}");
+    }
+    // Inside a script too (`cmux_exec` is refused before a script starts;
+    // the check is in `call`, which every script call goes through).
+    server.allowed.as_mut().unwrap().insert("cmux_exec".into());
+    let script =
+        call(&mut server, "cmux_exec", json!({"script": "await cmux.workspace_list({});"}));
+    assert_eq!(
+        script["structuredContent"]["error"]["cmux"]["error"]["code"], "tool.not_allowed",
+        "{script}"
+    );
+
+    // Fail closed: an empty value allows nothing; no env is code mode.
+    let mut empty = code_mode_server(Fake::with_actions());
+    empty.allowed = allowed_tools(Some(" , ".into()));
+    let listed =
+        empty.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    assert_eq!(listed["result"]["tools"], json!([]));
+    assert_eq!(allowed_tools(None), None);
+}
+
+/// The tools the acpmux sub-session server's instructions point agents at
+/// (`acpmux::subsession_mcp::CMUX_TOOLS`) stay tools of this server, and the
+/// instructions reach them the way an agent's `cmux mcp serve` does: in
+/// code mode, through a `cmux_exec` script, with `cmux_docs` for arguments.
+#[test]
+fn the_subsession_servers_instructions_name_real_cmux_tools() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let rules = acpmux::subsession_mcp::instructions();
+    assert!(rules.contains("cmux_exec") && rules.contains("cmux_docs"), "{rules}");
+    let names = acpmux::subsession_mcp::CMUX_TOOLS;
+    let found = call(&mut server, "cmux_docs", json!({"names": names}));
+    assert_eq!(found["structuredContent"]["unknown"], json!([]), "{found}");
+    for name in names {
+        assert!(rules.contains(&format!("cmux.{name}(")), "the instructions no longer call {name}");
+    }
+}

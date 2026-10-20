@@ -3,6 +3,7 @@ import CmuxNextAgentCursor
 import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemonRecovery
 import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -41,6 +42,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// it (with the color transition).
     let themeScope = ThemeScope(level: .room)
     private var roomObservation: Task<Void, Never>?
+    private var roomBrowserProfileObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
@@ -53,7 +55,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
-        SidebarProfileControl(services: services).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
+        SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
         root = WindowRootView(sidebar: sidebar.container)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -106,6 +108,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation?.cancel()
         startupObservation?.cancel()
         roomObservation?.cancel()
+        roomBrowserProfileObservation?.cancel()
+        state.roomBrowserProfileOf = nil
         content?.teardown()
         content = nil
         parked.values.forEach { $0.teardown() }
@@ -124,6 +128,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
                 guard let self else { return }
                 services.themes.windowDidChange(self)
             }
+        }
+        // The room's browser profile for tab badges: set in the switch's own turn (`WindowState.profileID`),
+        // and again when the room's record changes.
+        let home = services.machines.local.store
+        state.roomBrowserProfileOf = { [weak home] room in home?.profile(room)?.browserProfileID?.rawValue }
+        roomBrowserProfileObservation = Task {
+            for await _ in ObservationStream({ home.profile(state.profileID)?.browserProfileID }) { state.refreshRoomBrowserProfile() }
         }
     }
 
@@ -194,10 +205,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if content == nil { showConnecting() }
     }
 
-    /// The connecting (or unavailable) state of the local daemon's first
-    /// connection, until a workspace can be shown.
+    /// The local daemon's first connection, connecting or unavailable, until a workspace shows.
     private func showConnecting() {
-        let view = connectingView ?? DaemonConnectingView(frame: .zero)
+        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery)
         if connectingView == nil { DebugTimings.markLaunch("connecting_view_shown") }
         connectingView = view
         root.show(view)
@@ -352,6 +362,15 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
+    }
+
+    /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
+    private var standardButtons = StandardWindowButtons()
+    override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? {
+        if let button = standardButtons.cached(b, in: self) { return button }
+        let button = super.standardWindowButton(b)
+        standardButtons.store(button, for: b, in: self)
+        return button
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

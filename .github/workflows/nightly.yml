@@ -1,4 +1,8 @@
 name: Nightly macOS build
+# A promotion request's title names its commit, so the promote guard can find
+# requests GitHub cancelled in its queue (REQUEST_TITLE in
+# scripts/ci/promote-nightly-next.mjs). Every other run keeps the default title.
+run-name: ${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha) || '' }}
 
 # One workflow, two publish channels. A push to `main` publishes cmux NIGHTLY
 # (bundle id com.cmuxterm.app.nightly, GitHub release `nightly`, feed
@@ -173,9 +177,9 @@ env:
   # Build numbers stay above it.
   NIGHTLY_NEXT_LEGACY_FEED_BASE: https://files-next.cmux.com/nightly-next
   # cmux-next's own version line (CFBundleShortVersionString
-  # <this>-nightly.<build>); main's nightly and RC keep the project version.
-  # scripts/ci/nightly_version.py owns the rule.
-  NIGHTLY_NEXT_MARKETING_VERSION: "1.0.0"
+  # <V>-nightly.<build>) comes from cmux-tui/Cargo.toml [workspace.package]
+  # (`scripts/ci/nightly_version.py next-base`), the version the bundled CLIs
+  # print too; main's nightly and RC keep the project version.
   NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
   NIGHTLY_NEXT_R2_PREFIX: nightly-next/next/
   # SUPublicEDKey of the cmux-next track. The build refuses a
@@ -203,7 +207,7 @@ jobs:
     # Keep its default on the hosted runner so a busy paid Linux pool cannot
     # delay every nightly before the macOS work is admitted; retain the normal
     # Linux runner fallback for repositories that do not set the override.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_DECIDE_RUNNER || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -799,15 +803,22 @@ jobs:
   # give it. The newest request wins: guard.decideNewest() decides the newest
   # commit among this request and the requests still waiting for that approval,
   # and await-release-surface-ack cancels the older waiters.
+  #
+  # One shared concurrency group keeps a single writer. GitHub keeps only one
+  # waiting job in it and cancels that job when another request arrives, so
+  # decideNewest() also decides the newest request GitHub evicted from this
+  # queue (found by run title and the eviction annotation, hence checks: read)
+  # whose commit contains this request's, through the same guard.
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
       actions: read
+      checks: read
     concurrency:
       group: nightly-next-promote
       cancel-in-progress: false
@@ -891,7 +902,9 @@ jobs:
             const writer = getOctokit(process.env.APP_TOKEN);
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
-  # A release surface change waits here for one approval in the
+  # Legacy approval waiter retained for contract compatibility; validated moves
+  # now happen in promote-nightly-next without an environment approval.
+  # A release surface change previously waited here for one approval in the
   # release-surface-ack environment (required reviewers: release-approvers,
   # prevent self-review). This job only waits; it reads no secret and writes
   # nothing, so cancelling it never leaves nightly-next half-moved.
@@ -916,7 +929,7 @@ jobs:
     # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
     if: false
     environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     concurrency:
@@ -940,7 +953,7 @@ jobs:
     # Holds only the release App credentials (CMUX_RELEASE_APP_*). The approval
     # was given to release-surface-ack on this run; guard.approvedBy() reads it.
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -1037,14 +1050,15 @@ jobs:
       attestations: write
       id-token: write
     needs: decide
-    # The schedule skips this Blacksmith warmer while owned pools serve pull
+    # The schedule skips this cloud warmer while owned pools serve pull
     # requests (CI_PR_POOL_OWNED is 1). build-nightly-app saves the same key on
-    # every published main push, so the remaining Blacksmith readers (main's
-    # full-suite dispatch, nightly's Blacksmith fallback) restore at worst an
-    # older entry by prefix. A seed_only dispatch still warms it on demand.
+    # every published main push, so the remaining cloud readers (main's
+    # full-suite dispatch, nightly's hosted fallback) restore at worst an
+    # older entry by prefix. It runs on GitHub-hosted macos-26: nightly
+    # workflows never name a Blacksmith label (tests/test_ci_nightly_off_blacksmith.py). A seed_only dispatch still warms it on demand.
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # This job rebuilds the cache after the store drops it, so it runs cold
     # by design; scheduled run 35134963192 was cancelled at 45 minutes.
@@ -1210,7 +1224,9 @@ jobs:
       attestations: write
       id-token: write
     needs: decide
-    # The schedule skips this Blacksmith seeder while owned pools serve pull
+    # Nightly workflows never name a Blacksmith label, so this seeder runs on
+    # GitHub-hosted macos-26 and macos-15 (same Xcode pins as the cloud pools).
+    # The schedule skips this seeder while owned pools serve pull
     # requests (CI_PR_POOL_OWNED is 1): admission then runs on owned minis that
     # keep their own DerivedData, and seed-derived-data.yml still seeds the
     # Blacksmith admission pools on main pushes that change app-host build
@@ -1238,14 +1254,14 @@ jobs:
       fail-fast: false
       matrix:
         pool:
-          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
-          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+          - macos-26
+          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'macos-15' }}
     runs-on: ${{ matrix.pool }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 75
     env:
       # As seed-derived-data.yml: the macOS 15 pool's own Xcode, else the lane's.
-      CMUX_CI_XCODE_APP: ${{ endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_XCODE_APP: ${{ matrix.pool == 'macos-15' && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
     steps:
@@ -1455,10 +1471,11 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: ${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    # The SDK 15 Xcode (26.3) helper build takes the hosted macos-15 image.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || 'macos-15' }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -1583,21 +1600,41 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client]
+    # Build slot. Attempt 1 of a nightly-next push that takes the dedicated
+    # warm runner (the same condition as its runs-on below) shares one slot:
+    # one build runs, at most one waits, and a newer push replaces the waiting
+    # build, so the newest promoted head builds next and older heads are skipped
+    # instead of queuing. Per-run slots (de5912c9fe41) queued every push FIFO
+    # on the one runner; at a push every ~10 min, a waiting build passed the
+    # owned-pool rescue's 930 s stuck limit, was cancelled and re-run on
+    # Blacksmith, and waited there over an hour (2026-10-19: runs 39318999424,
+    # 39320477722 and 39329116254). A slot-held job is "pending", never
+    # "queued", so the rescue does not see it; it watches only the running
+    # holder. The first shared slot (#21917) failed because its holder sat
+    # queued on Blacksmith before the warm runner existed: every other route
+    # (Blacksmith, retries, dispatch, fast, main, a missing variable) keeps a
+    # slot per run, so a rescued re-run on Blacksmith never holds this slot.
+    # report-nightly-failure drops a build replaced here before it started.
+    concurrency:
+      group: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL != '' && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER != '' && 'nightly-next-build-app-warm' || format('nightly-build-app-{0}', github.run_id) }}
+      cancel-in-progress: false
     outputs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.resume.outputs.version || steps.remote_daemon.outputs.version }}
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # Attempt 1 of main's push/schedule uses its existing trusted runner.
     # NEXT's own push uses a separately configured trusted runner whose hook
     # admits only nightly.yml/build-nightly-app on nightly-next. Both labels
     # are required, keeping the shipped app off PR and dev-build workers.
     # Main's ci-cache-writer environment never follows NEXT onto that worker:
     # NEXT retains only its own local Release state, without shared restores.
-    # Rescue on main watches both refs; retries and dispatches take Blacksmith.
-    # Fast dogfood keeps the dedicated Blacksmith image. Signing stays hosted.
-    runs-on: ${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && (github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL != '' && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}", "glaeda-trusted-next-nightly"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
+    # Rescue on main watches both refs. Nightlies never use Blacksmith (user
+    # decision 2026-10-19): retries, dispatches, rc and fast dogfood, which the
+    # trusted hooks refuse, take ephemeral GitHub-hosted macos-26 instead.
+    # Signing stays on ephemeral hosted runners.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && (github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL != '' && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}", "glaeda-trusted-next-nightly"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))) || 'macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
-    # The Blacksmith cache is scoped per branch and also drops main's own
+    # The cloud cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
     # cancelled at 45 minutes mid-compile), so the budget must fit a cold
     # build, not only a warm one.
@@ -1708,40 +1745,53 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       # A persistent owned mini keeps the workspace between jobs. Checkout's
-      # clean drops untracked output; remove only the daemon handoff here so
-      # the persistent DerivedData symlink below survives until it is reused.
+      # clean drops untracked output; remove the daemon handoff here too.
       - name: Clear build outputs a persistent runner kept
         if: inputs.nightly_next_unsigned_run == ''
         run: scripts/ci/clear-dirs.sh remote-daemon-assets
 
-      - name: Prepare persistent Release DerivedData
-        if: inputs.nightly_next_unsigned_run == '' 
+      - name: Start Release DerivedData empty
+        if: inputs.nightly_next_unsigned_run == ''
         run: |
           set -euo pipefail
-          # Owned Glaeda runners keep their checkout between jobs. Keep one
-          # DerivedData tree per channel and pinned Xcode/SDK so the next
-          # classic Release build can be incremental. Blacksmith remains on
-          # the workspace-local path and the normal compilation cache.
+          # The shipped app never builds on warm DerivedData. An incremental
+          # build can keep stale autolink and force-load data in objects it
+          # did not recompile after an import set changed, and those objects
+          # then link into the app. Every runner starts from an empty tree.
+          # Warm state that stays: the compilation cache restored into it
+          # below (content-keyed, with explicit module dependencies in each
+          # key) and the Swift package checkouts in .spm-cache.
+          scripts/ci/clear-dirs.sh build-universal
+          mkdir -p build-universal
           if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then
+            # A trusted worker keeps only its package checkouts and its
+            # content-keyed compilation cache on disk, and deletes the build
+            # state that earlier revisions kept. Elsewhere NEXT restores no
+            # compilation cache, so its build is fully cold.
             python3 scripts/ci/nightly_build_state.py prepare nightly-next
             exit 0
           fi
           case "${RUNNER_NAME:-}" in
             *-glaeda|*-glaeda-[0-9]*)
-              toolchain_key="$({ xcodebuild -version; xcrun --sdk macosx --show-sdk-build-version; } | shasum -a 256 | awk '{print $1}')"
-              derived_data="$HOME/Library/Developer/Xcode/DerivedData/cmux-nightly-${{ needs.decide.outputs.channel }}-${toolchain_key}"
-              if [ -e build-universal ] || [ -L build-universal ]; then
-                if [ ! -L build-universal ] || [ "$(readlink build-universal)" != "$derived_data" ]; then
-                  scripts/ci/clear-dirs.sh build-universal
+              # Earlier jobs linked build-universal to a tree kept per channel
+              # and toolchain. Delete this channel's trees, so no later change
+              # can link one back and they stop using disk. Another channel's
+              # trees (for example cmux-nightly-rc-*) are not touched.
+              # The name ends in the 64-digit toolchain hash (plus the suffix
+              # clear-dirs.sh adds when a delete did not finish), so the match
+              # never reaches another name with the same prefix. The
+              # nightly-next track keeps its state under
+              # ~/Library/Caches/cmux-nightly-next, which this never touches.
+              shopt -s nullglob
+              stale=()
+              for tree in "$HOME"/Library/Developer/Xcode/DerivedData/cmux-nightly-${{ needs.decide.outputs.channel }}-*; do
+                if [[ "${tree##*/}" =~ ^cmux-nightly-${{ needs.decide.outputs.channel }}-[0-9a-f]{64}(\.stale\..+)?$ ]]; then
+                  stale+=("$tree")
                 fi
+              done
+              if [ "${#stale[@]}" -gt 0 ]; then
+                scripts/ci/clear-dirs.sh "${stale[@]}"
               fi
-              mkdir -p "$derived_data"
-              [ -L build-universal ] || ln -s "$derived_data" build-universal
-              [ "$(readlink build-universal)" = "$derived_data" ]
-              echo "Using persistent DerivedData: $derived_data"
-              ;;
-            *)
-              mkdir -p build-universal
               ;;
           esac
 
@@ -1751,11 +1801,11 @@ jobs:
         run: |
           set -euo pipefail
           # The key is OS, arch and toolchain. An owned mini (runner
-          # <member>-glaeda[-K]) runs the same Xcode build as Blacksmith but
-          # compiles in another workspace path, so its cache entries would
-          # mostly miss there and push Blacksmith's own entry out of the
-          # prefix restore. Fold its workspace path into the toolchain hash:
-          # each lineage restores only its own, and Blacksmith's key is
+          # <member>-glaeda[-K]) runs the same Xcode build as an ephemeral
+          # runner but compiles in another workspace path, so its cache
+          # entries would mostly miss there and push the ephemeral entry out
+          # of the prefix restore. Fold its workspace path into the toolchain
+          # hash: each lineage restores only its own, and the ephemeral key is
           # unchanged.
           identity="$(xcodebuild -version)"
           case "${RUNNER_NAME:-}" in
@@ -1899,7 +1949,7 @@ jobs:
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
-          cargo build -p cmux-tui --bin cmux-tui --release --locked --target aarch64-apple-darwin
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked --target aarch64-apple-darwin
           cargo build -p acpmux --bin acpmux --release --locked --target aarch64-apple-darwin
           binary="target/aarch64-apple-darwin/release/cmux-tui"
           test -x "$binary"
@@ -1936,7 +1986,9 @@ jobs:
         if: inputs.nightly_next_unsigned_run == ''
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.x'
+          # The exact Go of the shipped cmuxd-remote (its go.mod `toolchain` line);
+          # build_remote_daemon_release_assets.sh refuses any other.
+          go-version-file: daemon/remote/go.mod
           cache: false
 
       # The Embed CEF phase embeds the pinned Chromium engine
@@ -2018,10 +2070,6 @@ jobs:
           # phases find the local-source helpers fresh instead of building them after
           # the compile. A failed or late prebuild only leaves that work to the
           # phases, so its status never fails this step.
-          # Replay only identical tracked/generated inputs after the forced web
-          # build and browser-import rewrite, then record what Xcode consumes.
-          python3 scripts/ci/nightly_build_state.py replay
-          python3 scripts/ci/nightly_build_state.py record
           python3 scripts/ci/run-with-helper-prebuild.py \
             --derived-data build-universal --configuration Release --archs "$archs" \
             --log "$RUNNER_TEMP/helper-prebuild.log" -- \
@@ -2058,6 +2106,9 @@ jobs:
         run: |
           set -euo pipefail
           cache_path="build-universal/CompilationCache.noindex"
+          # A trusted NEXT worker links it to the cache it keeps on disk
+          # (nightly_build_state.py); measure and bound the cache itself.
+          if [ -L "$cache_path" ]; then cache_path="$(readlink "$cache_path")"; fi
           max_cache_kib=$((5 * 1024 * 1024))
           if [ -d "$cache_path" ]; then
             # Xcode's CAS chains v1.N generations: the newest is the primary,
@@ -2165,7 +2216,7 @@ jobs:
           build="${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
           track="${{ needs.decide.outputs.track }}"
           version="$(python3 scripts/ci/nightly_version.py marketing --track "$track" \
-            --project-version "$base_version" --build "$build" --next-base "$NIGHTLY_NEXT_MARKETING_VERSION")"
+            --project-version "$base_version" --build "$build" --next-base "$(python3 scripts/ci/nightly_version.py next-base)")"
           if [[ "$track" == "nightly-next" && "${{ needs.decide.outputs.should_publish }}" == "true" ]]; then
             # cmux-next and main's NIGHTLY install as the same app, so a published
             # cmux-next build must be above every build on both feeds: no feed
@@ -2274,7 +2325,7 @@ jobs:
     # Runs for every app build (build_only and fast included): it picks the
     # commit every app job checks out (build_sha).
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       actions: read
@@ -2296,6 +2347,11 @@ jobs:
       # resolved build commit, so a run whose tip moved but whose resolved
       # commit is already published builds nothing.
       already_published: ${{ steps.build.outputs.already_published }}
+      # A nightly-next push whose ref has already moved on builds nothing: the
+      # newer push's run builds the tip. Checked here, the last thing before
+      # build-nightly-app enters its shared slot, so an older run can never
+      # take the slot from a newer one.
+      superseded: ${{ steps.superseded.outputs.superseded }}
     steps:
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2389,6 +2445,22 @@ jobs:
             echo "- tip: \`$TIP_SHA\` (${BEHIND:-0} commits and ${BEHIND_HOURS:-0} h behind)"
             echo "- already published: $already_published"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Leave the build slot to a newer nightly-next push
+        id: superseded
+        if: github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TIP_SHA: ${{ needs.decide.outputs.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$REPOSITORY/git/ref/heads/nightly-next" --jq .object.sha)"
+          if [[ "$current" =~ ^[0-9a-f]{40}$ && "$current" != "$TIP_SHA" ]]; then
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Superseded::nightly-next moved from $TIP_SHA to $current; the newer push's run builds it"
+          else
+            echo "superseded=false" >> "$GITHUB_OUTPUT"
+          fi
 
   prepare-nightly-variant:
     # No environment and no secrets: this job runs code from the bundle (the
@@ -2396,12 +2468,12 @@ jobs:
     # sidecar handshake) before signing. build-sign-notarize-nightly signs
     # exactly the app it uploads and runs no bundle code itself (#21024).
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -2732,7 +2804,7 @@ jobs:
     # track uses `release-next`, whose policy allows only branch nightly-next.
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     outputs:
       # nightly-next is arm64 only, so its one matrix leg sets this; publish
       # waits for a later run when Apple had not accepted the build in time.
@@ -2747,11 +2819,11 @@ jobs:
     # A literal ephemeral label (guard rule 7): a repository variable must not
     # move a signing job onto a machine that is reused between jobs.
     # Not vars.MACOS_RUNNER_26: that is the pull request macOS pool
-    # (blacksmith-12vcpu-macos-26, same as MACOS_RUNNER_PR), and a signing or
+    # (the same cloud pool as MACOS_RUNNER_PR), and a signing or
     # notarization job queued behind PR CI held nightly-next for hours on
     # 2026-10-14. recover-nightly-next-notarization, publish-nightly-identity-legacy
     # and generate-nightly-deltas use this pool too.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     # Start the standalone Computer Use helper submission before Codesign apps
     # so Apple's first wait overlaps useful work; finish it before the final
     # DMG. The job budget covers both waits (see the notarize step).
@@ -2931,7 +3003,14 @@ jobs:
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
-          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+          DERIVED_PUBLIC_KEY=$(
+            printf '%s' "$SPARKLE_PRIVATE_KEY" |
+              env -u SPARKLE_PRIVATE_KEY \
+                -u SHARED_SPARKLE_PRIVATE_KEY \
+                -u NIGHTLY_SPARKLE_PRIVATE_KEY \
+                -u NEXT_SPARKLE_PRIVATE_KEY \
+                swift scripts/derive_sparkle_public_key.swift --stdin
+          )
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           if [ "$TRACK" = "nightly-next" ] && [ "$DERIVED_PUBLIC_KEY" != "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" ]; then
             echo "SPARKLE_NEXT_PRIVATE_KEY does not derive the pinned NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" >&2
@@ -3628,7 +3707,7 @@ jobs:
     if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -3685,6 +3764,13 @@ jobs:
           tar -C signed -xzf signed-app-handoff/cmux-signed-app.tar.gz
           test -d "$CHANNEL_APP_PATH"
           /usr/bin/codesign --verify --deep --strict --verbose=2 "$CHANNEL_APP_PATH"
+
+      # cmux-next: the app's CFBundleShortVersionString and every bundled
+      # CLI's `--version` say the cmux-next version (cmux-tui/Cargo.toml
+      # [workspace.package]); a 0.1.0 `cmux` inside a 1.0.0 app fails here.
+      - name: Verify version surfaces
+        if: env.TRACK == 'nightly-next'
+        run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
 
 
 
@@ -3753,6 +3839,24 @@ jobs:
           ./scripts/smoke-signed-app-cli.sh \
             "$CHANNEL_APP_PATH"
 
+      # The nightly canary (docs/ci/nightly-next-canary.md): a visible window,
+      # a New Tab, an agent session that answers a prompt (acpmux's test
+      # agent), and no crash in the first minute. Repository variable
+      # NIGHTLY_NEXT_CANARY: unset or `report` runs it and only reports a
+      # failure; `enforce` fails this job, so publish-nightly publishes
+      # nothing; `off` skips it.
+      - name: Canary the signed app
+        if: env.TRACK == 'nightly-next' && vars.NIGHTLY_NEXT_CANARY != 'off'
+        continue-on-error: ${{ vars.NIGHTLY_NEXT_CANARY != 'enforce' }}
+        run: |
+          set -euo pipefail
+          if ! ./scripts/smoke-signed-app-cli.sh "$CHANNEL_APP_PATH" --canary; then
+            echo "::error title=nightly-next canary::the signed app failed the canary (NIGHTLY_NEXT_CANARY=${NIGHTLY_NEXT_CANARY:-report})"
+            exit 1
+          fi
+        env:
+          NIGHTLY_NEXT_CANARY: ${{ vars.NIGHTLY_NEXT_CANARY }}
+
       # The notarize step stapled the final DMG with its launch smokes
       # deferred. Smoke the app inside that exact DMG and record what was
       # tested; publish-nightly publishes only these bytes. A build still in
@@ -3810,7 +3914,7 @@ jobs:
   find-nightly-next-recovery:
     needs: [decide]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       actions: read
@@ -3867,7 +3971,7 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, find-nightly-next-recovery]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.find-nightly-next-recovery.outputs.found == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     # An accepted continuation builds, signs and notarizes the DMG around the
     # stapled app (notarize-nightly-dmg.sh, CMUX_STAPLE_APP_IN_DMG): a 20m wait
     # and packaging per candidate; a failed one moves on to the next of 3.
@@ -4089,7 +4193,7 @@ jobs:
     if: "!cancelled() && needs.recover-nightly-next-notarization.outputs.accepted == 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     timeout-minutes: 30
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
@@ -4182,7 +4286,7 @@ jobs:
       refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # A literal ephemeral label: this job holds the release App key (guard rule 7).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
@@ -4435,6 +4539,10 @@ jobs:
             ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
             python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
               --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
+            # The GitHub release body lists the same span's PRs (the two release
+            # metadata steps below append it), so a nightly names what it contains.
+            python3 scripts/cmux-next/release-notes.py prs --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
+              --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/nightly-prs.md"
           fi
 
       - name: Upload branch nightly artifacts
@@ -4691,6 +4799,11 @@ jobs:
             printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
             printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
             printf '%s\n' "$DOWNLOADS"
+            # nightly-next only: the PRs since the previous published build (notes step).
+            if [ -s "$RUNNER_TEMP/nightly-prs.md" ]; then
+              printf '\n'
+              cat "$RUNNER_TEMP/nightly-prs.md"
+            fi
           } > "$RUNNER_TEMP/nightly-release-body.md"
           expect=()
           names=()
@@ -4781,6 +4894,11 @@ jobs:
             printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
             printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
             printf '%s\n' "$DOWNLOADS"
+            # nightly-next only: the PRs since the previous published build (notes step).
+            if [ -s "$RUNNER_TEMP/nightly-prs.md" ]; then
+              printf '\n'
+              cat "$RUNNER_TEMP/nightly-prs.md"
+            fi
           } > "$RUNNER_TEMP/nightly-release-body.md"
           expect=()
           names=()
@@ -4845,9 +4963,9 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # Post-publication lane (cx-x7hwx): the build publish-nightly-identity-legacy
-  # copies, if any: the
-  # newest build on the cmux NEXT feed when it is newer than the old feed's.
+  # Post-publication lane (cx-x7hwx): picks the build publish-nightly-identity-legacy
+  # copies, if any: the newest build on the cmux NEXT feed when it is newer than
+  # the old feed's.
   # Linux, seconds; the macOS job starts only when there is work.
   legacy-identity-target:
     needs: [decide, publish-nightly, publish-release-notes]
@@ -4855,7 +4973,7 @@ jobs:
     # A feed read error must not turn a run that published cmux NEXT red; the
     # macOS job then does not start (it needs this job's success and a build).
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -5051,7 +5169,7 @@ jobs:
       dmg_sha256: ${{ steps.handoff.outputs.dmg_sha256 }}
       minimum_system_version: ${{ steps.handoff.outputs.minimum_system_version }}
       stapled_app_fallback_id: ${{ steps.notarize.outputs.stapled_app_fallback == 'true' && steps.notarize.outputs.stapled_app_pending_id || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
     # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
     # -bundle) and a later run continues that exact submission
@@ -5426,7 +5544,7 @@ jobs:
     continue-on-error: true
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     timeout-minutes: 30
     outputs:
       tested_sha256: ${{ steps.smoke.outputs.tested_sha256 }}
@@ -5502,7 +5620,7 @@ jobs:
     # Publishes only a DMG whose sha256 verify-nightly-identity-legacy tested,
     # then resolves the attempt (retire, keep or mark the submission; count a
     # failure) for the whole sign, verify and publish chain. Runs no bundle code.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     timeout-minutes: 30
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -5812,7 +5930,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
@@ -5880,7 +5998,14 @@ jobs:
           fi
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
           export SPARKLE_PRIVATE_KEY
-          SPARKLE_PUBLIC_KEY="$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")"
+          SPARKLE_PUBLIC_KEY="$(
+            printf '%s' "$SPARKLE_PRIVATE_KEY" |
+              env -u SPARKLE_PRIVATE_KEY \
+                -u SHARED_SPARKLE_PRIVATE_KEY \
+                -u NIGHTLY_SPARKLE_PRIVATE_KEY \
+                -u NEXT_SPARKLE_PRIVATE_KEY \
+                swift scripts/derive_sparkle_public_key.swift --stdin
+          )"
           export SPARKLE_PUBLIC_KEY
           ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh \
             nightly-delta/previous "$SPARKLE_PUBLIC_KEY"
@@ -5927,7 +6052,7 @@ jobs:
     concurrency:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: read
@@ -5974,8 +6099,10 @@ jobs:
             live_feed="$(mktemp)"
             curl -fsSL --retry 3 -A "cmux-delta-publisher/1" -o "$live_feed" "$CHANNEL_FEED_BASE/appcast-arm64.xml"
             live_build="$(python3 -c 'import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); print(next(c.text or "" for i in r.iter() if i.tag.rsplit("}", 1)[-1] == "item" for c in i if c.tag.rsplit("}", 1)[-1] == "version"))' "$live_feed")"
-            if [[ "$live_build" =~ ^[0-9]+$ && "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] && (( live_build > NIGHTLY_BUILD )); then
-              echo "Skipping stale delta result: NEXT feed already serves build $live_build"
+            # Above: a newer build published. Below: nightly-next-rollback.yml
+            # pulled this one, and the revised appcast would put it back.
+            if [[ "$live_build" =~ ^[0-9]+$ && "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] && (( live_build != NIGHTLY_BUILD )); then
+              echo "Skipping stale delta result: NEXT feed serves build $live_build, not $NIGHTLY_BUILD"
               echo "publish=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -6048,6 +6175,46 @@ jobs:
               --cache-control "no-cache, no-store, must-revalidate"
           done
 
+  # Each PR in this nightly-next build gets a "Shipped in" line, in one comment
+  # that release.yml also writes for stable releases
+  # (scripts/ci/published_in_comments.py). The span is the one the release
+  # body's "PRs in this build" list uses (the previous published commit to
+  # this build's), first-parent, so main's PRs arriving through a sync merge
+  # are not claimed. No secrets; a comment failure never fails the nightly.
+  published-in:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
+    if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.published_sha != '' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
+    runs-on: ubuntu-24.04 # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    # Writes are paced at 7.5 s under GitHub's hourly content limit.
+    timeout-minutes: 60
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      NIGHTLY_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
+      HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+      PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - name: Fetch the published span
+        run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
+      - name: Comment the build on its PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISHED_SHA" = "$HEAD_SHA" ]; then echo "Empty span."; exit 0; fi
+          python3 scripts/ci/published_in_comments.py --repo "$GITHUB_REPOSITORY" \
+            --since "$PUBLISHED_SHA" --head "$HEAD_SHA" \
+            --name "cmux NEXT nightly $NIGHTLY_VERSION" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/tag/nightly-next"
+
   # Keep one open issue per failed publication boundary. A stale channel tag
   # leaves the assets, release metadata, and feeds available, so the incident
   # must say that explicitly instead of claiming installs stopped updating.
@@ -6063,12 +6230,13 @@ jobs:
     if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
     environment: content-signing
     # A literal ephemeral label: this job holds the content-signing key (guard rule 7).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
     env:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      NIGHTLY_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
       HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
       # The commit published before this run (decide reads it from the release
       # body before publish-nightly moves the nightly-next tag to HEAD_SHA).
@@ -6117,7 +6285,7 @@ jobs:
           fi
           if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
           python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
-            --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
+            --short "$NIGHTLY_VERSION" --date "$(date -u +%Y-%m-%d)" \
             --head "$HEAD_SHA" --since "$since" --out notes
           # Extend the published index only when its signature verifies.
           previous=""
@@ -6178,7 +6346,7 @@ jobs:
       cancel-in-progress: false
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -6259,7 +6427,7 @@ jobs:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-release-notes]
     if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.decide.outputs.track == 'nightly-next' && needs.publish-release-notes.result == 'success'"
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # contents: write reaches the pr-media branch through scripts/pr-media.py.
     permissions:
@@ -6321,7 +6489,7 @@ jobs:
   nightly-next-macos15-launch:
     needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client]
     if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: macos-15
     timeout-minutes: 30
     # Advisory until its first green run: the runner's Screen Recording grant
     # for screencapture is not proven yet. The macOS 14/15/26 Tart smoke and
@@ -6359,8 +6527,11 @@ jobs:
       - name: Launch on macOS 15 and open each tab kind
         run: |
           set -euo pipefail
-          home="$RUNNER_TEMP/scratch-home"; mkdir -p "$home"
-          HOME="$home" OS_SMOKE_LAUNCH_DEADLINE=180 OS_SMOKE_TAB_DEADLINE=120 \
+          # The runner's own HOME, as on the Tart VMs: a release build keeps
+          # Chromium's cookie key in the login keychain, and an empty HOME has
+          # none (the key's first write waits on a dialog; no page loads).
+          # The probe gives the app a scratch config of its own.
+          OS_SMOKE_LAUNCH_DEADLINE=180 OS_SMOKE_TAB_DEADLINE=120 \
             /usr/bin/python3 -I scripts/cmux-next/os-smoke/guest-probe.py "$APP" "$OUT/probe"
       - name: Upload screenshots, crash reports and logs
         if: always()
@@ -6378,15 +6549,19 @@ jobs:
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       issues: write
+      # The replaced-build check lists this run's jobs.
+      actions: read
     steps:
       - name: Open or update the nightly failure issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha || needs.decide.outputs.head_sha }}
+          # The pushed nightly-next head (HEAD_SHA can be an older resolved build commit).
+          TIP_SHA: ${{ needs.decide.outputs.head_sha }}
           RESULTS: ${{ toJSON(needs) }}
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
@@ -6405,9 +6580,34 @@ jobs:
             const label = `${process.env.CHANNEL_RELEASE_TAG}-failure`;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const results = JSON.parse(process.env.RESULTS);
+            // A nightly-next build that a newer push replaced while it waited for
+            // the shared build slot ends cancelled without ever getting a runner;
+            // the newer run builds and reports. Only that case is dropped: a build
+            // that started and was cancelled (timeout, by hand) still reports, and
+            // so does every other failed job of this run.
+            let replaced = false;
+            if (refName === 'nightly-next' && results['build-nightly-app']?.result === 'cancelled') {
+              try {
+                // Latest attempt of each job (the endpoint's default filter).
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
+                  { owner, repo, run_id: context.runId, per_page: 100 });
+                const build = jobs.find((job) => job.name === 'build-nightly-app');
+                const neverStarted = Boolean(build) && !build.runner_name && !(build.steps || []).length;
+                // A build cancelled while queued for a runner never started either;
+                // only a newer push (the ref moved past this tip) replaces it.
+                const { data: ref } = await github.rest.git.getRef({ owner, repo, ref: 'heads/nightly-next' });
+                replaced = neverStarted && ref.object.sha !== process.env.TIP_SHA;
+              } catch (error) {
+                core.warning(`Could not read this run's jobs (${error.message}); reporting the cancelled build.`);
+              }
+            }
             const failed = Object.entries(results)
-              .filter(([, v]) => v.result === 'failure' || v.result === 'cancelled')
+              .filter(([k, v]) => (v.result === 'failure' || v.result === 'cancelled') && !(replaced && k === 'build-nightly-app'))
               .map(([k, v]) => `${k} (${v.result})`);
+            if (replaced && failed.length === 0 && !process.env.REFUSAL_REASON && process.env.TAG_STATUS !== 'stale') {
+              core.info('build-nightly-app was replaced in its slot by a newer nightly-next push before it started; nothing else failed.');
+              return;
+            }
             // A refused publication succeeds as a job but published nothing.
             if (process.env.REFUSAL_REASON) failed.push(`publish-nightly (refused: ${process.env.REFUSAL_REASON})`);
             // nightly-next: notes jobs that were skipped after a publication
@@ -6448,7 +6648,7 @@ jobs:
     # unless it published a recovered build, which has none (cx-urd.69). A
     # recovered build can follow this run's own failed build, which reports.
     if: always() && needs.decide.outputs.should_publish == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.decide.outputs.track != 'nightly-next' || needs.publish-nightly.outputs.source == 'recovered' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       issues: write
