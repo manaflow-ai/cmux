@@ -2,7 +2,7 @@
 // Snapshots are built in the shape the cmux CLI prints (--json), so the
 // normalizer is covered too. No daemon is needed.
 import { describe, expect, test } from "bun:test";
-import { normalize } from "./snapshot.mjs";
+import { columnsOf, normalize } from "./snapshot.mjs";
 import { CATEGORIES, CHECKS, gradeTask } from "./grade.mjs";
 import { TASKS } from "./tasks.mjs";
 
@@ -18,7 +18,9 @@ function world({ ws, screens, tabs, tabGroups = [], groups = [], texts = {} }) {
       root:
         c.panes.length === 1
           ? leaf(c.panes[0], tabs)
-          : { kind: "split", direction: "down", children: c.panes.map((p) => leaf(p, tabs)) },
+          : c.panes
+              .slice(1)
+              .reduce((acc, p) => ({ kind: "split", direction: "vertical", ratio: 0.5, first: acc, second: leaf(p, tabs) }), leaf(c.panes[0], tabs)),
       width: i === 0 ? 1 : 0.5,
     }));
     layouts[s.id] = {
@@ -91,6 +93,18 @@ describe("normalize", () => {
     expect(pane("p_d").docked).toBe(true);
     expect(pane("p_r").docked).toBe(false);
     expect(m.screens[0].column_count).toBe(3);
+  });
+  test("a horizontal split is two columns; a vertical split stacks", () => {
+    const layout = {
+      root: {
+        kind: "split",
+        direction: "horizontal",
+        first: { kind: "leaf", pane_id: "a" },
+        second: { kind: "split", direction: "vertical", first: { kind: "leaf", pane_id: "b" }, second: { kind: "leaf", pane_id: "c" } },
+      },
+    };
+    const cols = columnsOf(layout);
+    expect(cols.map((c) => c.pane_ids)).toEqual([["a"], ["b", "c"]]);
   });
   test("a single leaf screen has one column", () => {
     const m = normalize(world(base()));
