@@ -28,7 +28,8 @@ extension ChatController {
             // The app is still activating: ask once the window is key (one ask, then the observer goes).
             let once = OneShotObserver()
             once.token = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self, once] _ in
-                MainActor.assumeIsolated {
+                Task { @MainActor in
+                    guard once.token != nil else { return }
                     once.remove()
                     self?.openEmojiPalette()
                 }

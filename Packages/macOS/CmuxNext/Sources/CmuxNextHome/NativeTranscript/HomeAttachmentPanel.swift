@@ -57,14 +57,12 @@ enum HomeAttachmentPanel {
             // In front, the time since the last input event (kCGAnyInputEventType, ~0).
             let anyInput = CGEventType(rawValue: ~0) ?? .null
             let idle = NSApp.isActive ? CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput) : .infinity
-            guard idle >= 1 else {
+            // Never inside a tracking loop (a drag, a menu, a resize): those count as busy.
+            guard idle >= 1, RunLoop.current.currentMode == .default else {
                 if triesLeft > 1 { check(after: .seconds(1), triesLeft: triesLeft - 1) }
                 return
             }
-            // Default mode only: never inside a tracking loop (a drag or a menu).
-            RunLoop.main.perform(inModes: [.default]) {
-                MainActor.assumeIsolated { if made == nil { made = NSOpenPanel() } }
-            }
+            made = NSOpenPanel()
         }
     }
 }
