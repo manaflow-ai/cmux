@@ -2498,8 +2498,11 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
 
+      # Bot-only (scripts/cmux-next/generated_outputs.py, #21946): a pull request
+      # never carries the graph, so only the base, a batch and a dispatch check it.
       - name: Check the CI target graph
         id: graph
+        if: github.event_name != 'pull_request'
         continue-on-error: true
         run: python3 scripts/cmux-next/ci-target-graph.py --check
 
