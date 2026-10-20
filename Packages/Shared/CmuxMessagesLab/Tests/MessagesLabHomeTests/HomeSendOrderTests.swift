@@ -51,6 +51,7 @@ import Testing
     /// The Chief streams, I send twice mid-word, it streams on and posts its reply.
     @Test func aSendMidStreamNeverSplitsTheReply() throws {
         var core = ProjectionCore(me: Self.me)
+        core.replies = .streaming // the older stream bubble (HomeReplyDisplay)
         let base = [Self.item("h1", 1, Self.me, "Find Cmd+P")]
         let (conv, w) = core.install(Self.id, items: base, summary: Self.summary)
         let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
@@ -113,6 +114,7 @@ import Testing
     /// Chunks only grow the bubble in order: a late, older `.streamSet` never takes text back.
     @Test func streamChunksApplyInOrder() {
         var core = ProjectionCore(me: Self.me)
+        core.replies = .streaming // the older stream bubble (HomeReplyDisplay)
         let (conv, w) = core.install(Self.id, items: [], summary: Self.summary)
         let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
         store.responder = nil

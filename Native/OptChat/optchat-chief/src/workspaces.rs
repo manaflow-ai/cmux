@@ -250,7 +250,9 @@ fn clip(s: &str) -> String {
 
 /// Topic groups for subagent workspaces and the words that pick them; the
 /// first match wins (Lawrence 2026-10-19: "you need to group it better as
-/// well").
+/// well"). The words cover the groups a137 still moved spawns into by hand
+/// on 2026-10-20 (acp-chief-issues.md #9): lag is Performance, iOS, UI and
+/// migrations are the cmux-next app.
 pub const TOPICS: &[(&str, &[&str])] = &[
     (
         "Crashes & QA",
@@ -270,6 +272,14 @@ pub const TOPICS: &[(&str, &[&str])] = &[
             "wakeups",
             "memory",
             "cpu",
+            "lag",
+            "laggy",
+            "slow",
+            "fast",
+            "faster",
+            "speed",
+            "10x",
+            "100x",
         ],
     ),
     (
@@ -320,7 +330,31 @@ pub const TOPICS: &[(&str, &[&str])] = &[
     ),
     (
         "Nightly & CI",
-        &["nightly", "nightlies", "ci", "release", "landing"],
+        &[
+            "nightly",
+            "nightlies",
+            "ci",
+            "release",
+            "landing",
+            "push",
+            "lint",
+            "quality",
+            "gate",
+        ],
+    ),
+    (
+        "cmux-next app",
+        &[
+            "ui",
+            "ios",
+            "iphone",
+            "mobile",
+            "migration",
+            "onboarding",
+            "dialog",
+            "dialogs",
+            "settings",
+        ],
     ),
     (
         "Agents & routing",
@@ -336,6 +370,7 @@ pub const TOPICS: &[(&str, &[&str])] = &[
             "claude",
             "codex",
             "acp",
+            "pairing",
         ],
     ),
     (

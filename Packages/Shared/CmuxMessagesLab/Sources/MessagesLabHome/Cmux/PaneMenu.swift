@@ -9,7 +9,7 @@ import AppKit
 extension ChatController {
     // MARK: Context menu
 
-    func menu(at p: CGPoint) -> NSMenu? {
+    @MainActor func menu(at p: CGPoint) -> NSMenu? {
         guard let hit = demo?.hit(p) else { return nil }
         let ref = hit.row.ref
         let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
@@ -25,6 +25,13 @@ extension ChatController {
         menu.delegate = hl
         menuHighlight = hl
         hl.start()
+        // cmux: a path link (an agent's `file:///…`) leads with the host's file menu (Open in Right
+        // Pane, Open With, Reveal, Copy Path, Quick Look, Share).
+        if let fileHost, let link = linkURL(at: p), link.isFileURL, link.path.hasPrefix("/") {
+            let file = URL(fileURLWithPath: link.path)
+            fileHost.menuItems(forFileNamed: file.lastPathComponent) { file }.forEach(menu.addItem)
+            menu.addItem(.separator())
+        }
         // cmux: tapbacks only while the owner takes them (`canReact`, false offline).
         let canReact = intents?.canReact == true
         if canReact {
@@ -37,6 +44,11 @@ extension ChatController {
         menu.addItem(MenuAction(title: Strings.menuTapbackDetails, symbol: "plus.magnifyingglass") { [weak self] in self?.showTapbackDetails(hit) })
         // cmux: Reply… only when the owner can take a reply (HomeOp has none yet, as SwipeReply).
         if intents?.canReply == true {
+            // cmux: Reply to Selection (plans/cmux-next/reply-to-selection-DESIGN.md): text selected in this
+            // message is the reply's quote; Reply… still answers the whole message.
+            if let quote = selectionQuote(at: hit) {
+                menu.addItem(MenuAction(title: CmuxStrings.replyToSelection, symbol: "text.quote") { [weak self] in self?.replyToSelection(quote) })
+            }
             menu.addItem(MenuAction(title: Strings.menuReplyEllipsis, symbol: "arrowshape.turn.up.left") { [weak self] in self?.dispatch(.reply(ref)); self?.focusCompose() })
         }
         // Attach Sticker…: opens the tapback picker with its emoji (no image stickers).
@@ -52,6 +64,10 @@ extension ChatController {
         if let link = intents?.messageLink(ref.messageId) {
             menu.addItem(MenuAction(title: CmuxStrings.copyLink, symbol: "link") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(link, forType: .string) })
         }
+        // cmux: Forward… (u5402): the text goes to another chat or agent the host asks for.
+        if case let .text(text, _) = hit.row.part, intents?.canForward == true {
+            menu.addItem(MenuAction(title: CmuxStrings.forward, symbol: "arrowshape.turn.up.right") { [weak self] in self?.intents?.forward(text) })
+        }
         if menu.items.last.map({ !$0.isSeparatorItem }) == true { menu.addItem(.separator()) }
         // cmux: a video plays in place; opening it in an app is only here.
         if case let .attachment(a) = hit.row.part {
@@ -60,9 +76,12 @@ extension ChatController {
                 menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
                                         symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
             }
-            menu.addItem(MenuAction(title: CmuxStrings.openInDefaultApp, symbol: "arrow.up.forward.app") { [weak self] in
+            // cmux: the host's file menu (Open in Right Pane, Open With, Reveal, Copy Path, Quick
+            // Look, Share); without a host, Open in Default App.
+            let resolve: @MainActor @Sendable () async -> URL? = { [weak self] in await self?.intents?.attachmentFile(ref.messageId, a.id) }
+            HomeAttachmentOpen.menuItems(name: a.fileName, host: fileHost, resolve: resolve) { [weak self] in
                 self?.intents?.openAttachment(ref.messageId, a.id)
-            })
+            }.forEach(menu.addItem)
             menu.addItem(.separator())
         }
         // cmux: my "Not Delivered" message: Try Again and Delete (Messages' pair); else lane 16's

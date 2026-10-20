@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextFocus
@@ -118,6 +120,10 @@ extension PaneController {
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         // The PTY starts at the grid this pane's view will fit, so the first frame is final (NewTerminalGrid).
         let size = newTerminalSize
+        let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
+        if text == nil, page == nil, command.isOptimistic(on: daemon) {
+            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, then: then)
+        }
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
@@ -134,6 +140,42 @@ extension PaneController {
                 landed = true
                 then?(created.surface)
                 return nil
+            } catch {
+                daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
+                return ActionWorkFailure("new-tab", error)
+            }
+        })
+    }
+
+    /// ``newTerminalTab(cwd:typing:typingAhead:keep:fromSelectedTab:daemonResolvesCwd:then:)`` that
+    /// waits for nothing (Ctrl-`, ctrl-backtick-instant): the stand-in tab is in the store, selected
+    /// and shown in this turn, so it draws in the key's frame; `new-tab` runs behind it, and the
+    /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
+    /// the daemon's terminal, as before.
+    private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?,
+                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, then: (@MainActor (SurfaceID) -> Void)?) {
+        // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
+        let agentCwd = agent.map { agent in
+            Task { @MainActor () -> String? in
+                guard let cwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(cwd) else { return nil }
+                return cwd
+            }
+        }
+        let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
+        selectWhenReported(surface: pending.surface)
+        services.registry.track(Task { [services] in
+            var landed = false
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            do {
+                let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
+                // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
+                if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
+                self.workspace?.expectFocus(on: created.surface, generation: intent)
+                landed = true
+                then?(created.surface)
+                return nil
+            } catch is NewTerminalTabCancelled {
+                return nil // the person closed the stand-in first
             } catch {
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
