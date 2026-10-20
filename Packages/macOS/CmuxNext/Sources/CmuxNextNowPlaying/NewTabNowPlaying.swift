@@ -6,10 +6,10 @@ import CmuxNextSidebar
 import Foundation
 import os
 
-/// The New Tab page's Now Playing player: what the sidebar card shows, pushed to every agent page
-/// (`AgentPaneNowPlaying`) as the card's follow sees it change (`followNowPlaying`), nil while the
-/// card is off, the New Tab player is off (`tabs.newTabNowPlaying`) or nothing plays; the page's
-/// controls run on the card's sources, and its menu's page items through ``page``. The artwork is
+/// The New Tab page's Now Playing player: what plays on the card's sources, pushed to every agent
+/// page (`AgentPaneNowPlaying`) as the follow sees it change (`followNowPlaying`), nil while the New
+/// Tab player is off (`tabs.newTabNowPlaying`, apart from the sidebar card's own setting) or nothing
+/// plays; the page's controls run on the card's sources, and its menu's page items through ``page``. The artwork is
 /// redrawn as a small PNG data URL once per image: cmux's own player hands over the file's embedded
 /// art as is, and every track change goes to every agent page.
 @MainActor

@@ -117,6 +117,34 @@ import UniformTypeIdentifiers
         #expect(model.nowPlaying != nil, "hiding the New Tab player hid the sidebar card")
     }
 
+    /// The sidebar card off (its default) and the New Tab player on (its default): the page gets
+    /// the track and the source runs; both off, the source stops and nothing is read.
+    @Test func theNewTabPlayerShowsWithTheSidebarCardOff() async throws {
+        let player = AgentPaneNowPlaying.shared
+        let saved = (player.track, player.onCommand)
+        defer { (player.track, player.onCommand) = saved }
+        player.track = nil
+        let source = RunningSource()
+        source.nowPlaying = Self.shown()
+        let newTab = Flag(true)
+        let model = SidebarModel()
+        let feed = model.followNowPlaying(source, enabled: { false }, onNewTab: { newTab.on })
+        defer { feed.cancel() }
+        try await Self.until { player.track != nil }
+        #expect(player.track?.title == "Weightless")
+        #expect(model.nowPlaying == nil, "the sidebar card showed while sidebar.nowPlaying.enabled is off")
+        #expect(source.running, "the source does not run for the New Tab player")
+        newTab.on = false
+        try await Self.until { player.track == nil && !source.running }
+    }
+
+    @Observable final class RunningSource: NowPlayingSource {
+        var nowPlaying: SidebarNowPlaying?
+        @ObservationIgnored var running = false
+        func perform(_ command: SidebarNowPlayingCommand) {}
+        func run(_ on: Bool) { running = on }
+    }
+
     static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(5)) async throws {
         let deadline = ContinuousClock.now + timeout
         while !condition() {

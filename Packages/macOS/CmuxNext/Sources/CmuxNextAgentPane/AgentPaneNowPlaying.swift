@@ -10,8 +10,7 @@ public import Foundation
 public final class AgentPaneNowPlaying {
     public static let shared = AgentPaneNowPlaying()
 
-    /// What plays, nil while nothing does or the player is hidden (`sidebar.nowPlaying.enabled`, or
-    /// `tabs.newTabNowPlaying` for the New Tab page only).
+    /// What plays, nil while nothing does or the player is hidden (`tabs.newTabNowPlaying`).
     public var track: Track? {
         didSet {
             guard track != oldValue else { return }

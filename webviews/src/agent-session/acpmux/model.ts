@@ -287,6 +287,9 @@ export type AcpmuxSnapshot = {
   /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
   /// so a remote browser still cannot answer.
   answersTrust?: boolean;
+  /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
+  /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
+  listedSessions?: true;
   sessionId?: string;
   isWorking: boolean;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose

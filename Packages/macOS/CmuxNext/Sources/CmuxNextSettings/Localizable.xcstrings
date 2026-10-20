@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.markdown.codeBlockSize": {
+      "comment": "Settings title for the hidden fixed code block size (markdown.code.blockSize)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Block Size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم كتلة التعليمات البرمجية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina bloka koda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Størrelse på kodeblok"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größe von Codeblöcken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño de bloque de código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille des blocs de code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione blocchi di codice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードブロックのサイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំប្លុកកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코드 블록 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Størrelse på kodeblokk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar bloków kodu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho do bloco de código"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер блоков кода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดบล็อกโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod bloğu boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір блоків коду"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cỡ khối mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码块大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式碼區塊大小"
+          }
+        }
+      }
+    },
+    "settings.markdown.codeScale.help": {
+      "comment": "Settings help for Code Font Size (markdown.code.scale)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم التعليمات البرمجية كنسبة من حجم النص. يبدو الخط أحادي المسافة أكبر من خط النص بالحجم نفسه، لذا تكون التعليمات البرمجية أصغر قليلًا افتراضيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod kao udio veličine teksta. Font fiksne širine izgleda veći od fonta teksta iste veličine, pa je kod po zadanom malo manji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kode som en andel af tekststørrelsen. En skrift med fast bredde ser større ud end tekstskriften i samme størrelse, så kode er som standard lidt mindre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code als Anteil der Textgröße. Eine Festbreitenschrift wirkt bei gleicher Größe größer als die Textschrift, daher ist Code standardmäßig etwas kleiner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El código como proporción del tamaño del texto. Una fuente monoespaciada parece más grande que la del texto al mismo tamaño, así que el código es algo más pequeño por omisión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le code en proportion de la taille du texte. Une police à chasse fixe paraît plus grande que celle du texte à taille égale, donc le code est un peu plus petit par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il codice come quota della dimensione del testo. Un font a spaziatura fissa sembra più grande del font del testo alla stessa dimensione, quindi il codice è un po’ più piccolo per impostazione predefinita."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本文サイズに対するコードの比率。等幅フォントは同じサイズでも本文フォントより大きく見えるため、デフォルトではコードを少し小さくします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូដជាសមាមាត្រនៃទំហំអត្ថបទ។ ពុម្ពអក្សរទទឹងថេរមើលទៅធំជាងពុម្ពអក្សរអត្ថបទក្នុងទំហំដូចគ្នា ដូច្នេះកូដតូចជាងបន្តិចតាមលំនាំដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "본문 크기에 대한 코드 크기의 비율입니다. 고정폭 글꼴은 같은 크기에서도 본문 글꼴보다 커 보이므로 기본적으로 코드가 조금 더 작습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kode som en andel av tekststørrelsen. En skrift med fast bredde ser større ut enn tekstskriften i samme størrelse, så kode er litt mindre som standard."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod jako część rozmiaru tekstu. Czcionka o stałej szerokości wygląda na większą niż czcionka tekstu w tym samym rozmiarze, więc kod jest domyślnie nieco mniejszy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O código como proporção do tamanho do texto. Uma fonte monoespaçada parece maior que a do texto no mesmo tamanho, então o código fica um pouco menor por padrão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код как доля размера текста. Моноширинный шрифт выглядит крупнее шрифта текста того же размера, поэтому по умолчанию код немного меньше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โค้ดเป็นสัดส่วนของขนาดข้อความ ฟอนต์ความกว้างคงที่ดูใหญ่กว่าฟอนต์ข้อความที่ขนาดเดียวกัน โค้ดจึงเล็กกว่าเล็กน้อยตามค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin boyutunun bir oranı olarak kod. Eş aralıklı yazı tipi aynı boyutta metin yazı tipinden büyük görünür, bu yüzden kod varsayılan olarak biraz daha küçüktür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код як частка розміру тексту. Моноширинний шрифт виглядає більшим за шрифт тексту того самого розміру, тому типово код трохи менший."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mã theo tỷ lệ với cỡ chữ văn bản. Phông chữ đơn cách trông to hơn phông văn bản ở cùng cỡ, nên mặc định mã nhỏ hơn một chút."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码相对正文大小的比例。等宽字体在同样大小下看起来比正文字体大，所以代码默认稍小一些。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式碼相對內文大小的比例。等寬字體在相同大小下看起來比內文字體大，所以程式碼預設會稍小一些。"
+          }
+        }
+      }
+    },
     "settings.tabs.newTabNowPlaying": {
       "comment": "Settings: toggle that shows the Now Playing player (the music playing on this Mac) on the New Tab page.",
       "extractionState": "manual",
@@ -134,133 +398,133 @@
       }
     },
     "settings.tabs.newTabNowPlaying.help": {
-      "comment": "Settings: help under Show Now Playing on New Tab. 'Show Now Playing' is the Sidebar setting's title.",
+      "comment": "Settings: help under Show Now Playing on New Tab.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مشغّل لما يتم تشغيله، في صفحة علامة التبويب الجديدة. إيقاف «إظهار قيد التشغيل الآن» يخفيه أيضًا."
+            "value": "مشغّل لما يتم تشغيله، في صفحة علامة التبويب الجديدة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plejer za ono što se reproducira, na stranici nove kartice. Isključivanje opcije Prikaži Sada se reproducira sakriva i njega."
+            "value": "Plejer za ono što se reproducira, na stranici nove kartice."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En afspiller til det, der spiller, på siden for ny fane. Slås Vis Afspilles nu fra, skjules den også."
+            "value": "En afspiller til det, der afspilles, på siden for ny fane."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Player für die aktuelle Wiedergabe auf der Seite „Neuer Tab“. Ist „Aktuelle Wiedergabe“ in der Seitenleiste aus, ist er ebenfalls ausgeblendet."
+            "value": "Ein Player für die aktuelle Wiedergabe auf der Seite „Neuer Tab“."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A player for what is playing, on the New Tab page. Turning off Show Now Playing hides it too."
+            "value": "A player for what is playing, on the New Tab page."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un reproductor de lo que suena, en la página de nueva pestaña. Desactivar Mostrar Reproduciendo ahora también lo oculta."
+            "value": "Un reproductor de lo que está sonando, en la página de nueva pestaña."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un lecteur pour ce qui est en cours de lecture, sur la page du nouvel onglet. Désactiver Afficher À l’écoute le masque aussi."
+            "value": "Un lecteur pour ce qui est en cours de lecture, sur la page du nouvel onglet."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un lettore per ciò che è in riproduzione, nella pagina della nuova scheda. Disattivando Mostra In riproduzione viene nascosto anche questo."
+            "value": "Un player per ciò che è in riproduzione, nella pagina della nuova scheda."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規タブのページに、再生中の項目のプレーヤーを表示します。「再生中を表示」をオフにすると、これも非表示になります。"
+            "value": "再生中のメディアのプレーヤー。新規タブのページに表示されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​លើ​ទំព័រ​ផ្ទាំង​ថ្មី។ ការ​បិទ​បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់ ក៏​លាក់​វា​ដែរ។"
+            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​លើ​ទំព័រ​ផ្ទាំង​ថ្មី។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 탭 페이지에 지금 재생 중인 항목의 플레이어를 보여 줍니다. 지금 재생 중 보기를 끄면 이것도 가려집니다."
+            "value": "재생 중인 항목의 플레이어로, 새 탭 페이지에 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En spiller for det som spilles, på siden for ny fane. Slås Vis Spilles nå av, skjules den også."
+            "value": "En spiller for det som spilles, på siden for ny fane."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odtwarzacz tego, co gra, na stronie nowej karty. Wyłączenie opcji Pokaż Teraz odtwarzane też go ukrywa."
+            "value": "Odtwarzacz tego, co gra, na stronie nowej karty."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um player do que está tocando, na página da nova aba. Desativar Mostrar Tocando Agora também o oculta."
+            "value": "Um player do que está tocando, na página da nova aba."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Плеер того, что сейчас играет, на странице новой вкладки. Если выключить «Показывать „Сейчас играет“», он тоже скрывается."
+            "value": "Плеер для того, что сейчас играет, на странице новой вкладки."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น บนหน้าแท็บใหม่ การปิดแสดงกำลังเล่นจะซ่อนส่วนนี้ด้วย"
+            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น บนหน้าแท็บใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yeni sekme sayfasında çalan içerik için bir oynatıcı. Şimdi Çalıyor’u Göster kapatılınca bu da gizlenir."
+            "value": "Çalan içerik için bir oynatıcı; yeni sekme sayfasında."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Плеєр того, що зараз грає, на сторінці нової вкладки. Якщо вимкнути «Показувати „Зараз грає“», він теж ховається."
+            "value": "Плеєр для того, що зараз грає, на сторінці нової вкладки."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trình phát cho nội dung đang phát, trên trang thẻ mới. Tắt Hiện Đang phát cũng ẩn trình phát này."
+            "value": "Trình phát cho nội dung đang phát, trên trang thẻ mới."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在新标签页上显示正在播放内容的播放器。关闭“显示正在播放”也会隐藏它。"
+            "value": "正在播放内容的播放器，位于新标签页。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在新分頁頁面上顯示正在播放內容的播放器。關閉「顯示正在播放」也會隱藏它。"
+            "value": "正在播放內容的播放器，位於新分頁。"
           }
         }
       }
@@ -402,127 +666,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+            "value": "A player for what is playing, at the bottom of the sidebar."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مشغّل لما يتم تشغيله الآن، أسفل الشريط الجانبي وفي صفحة الدردشة الجديدة."
+            "value": "مشغّل لما يتم تشغيله الآن، أسفل الشريط الجانبي."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plejer za ono što se reproducira, na dnu bočne trake i na stranici novog chata."
+            "value": "Plejer za ono što se reproducira, na dnu bočne trake."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En afspiller til det, der afspilles, nederst i sidepanelet og på siden til ny chat."
+            "value": "En afspiller til det, der afspilles, nederst i sidepanelet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Player für die aktuelle Wiedergabe, unten in der Seitenleiste und auf der Seite für einen neuen Chat."
+            "value": "Ein Player für die aktuelle Wiedergabe, unten in der Seitenleiste."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un reproductor de lo que está sonando, en la parte inferior de la barra lateral y en la página de chat nuevo."
+            "value": "Un reproductor de lo que está sonando, en la parte inferior de la barra lateral."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un lecteur pour ce qui est en cours de lecture, en bas de la barre latérale et sur la page de nouvelle discussion."
+            "value": "Un lecteur pour ce qui est en cours de lecture, en bas de la barre latérale."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un player per ciò che è in riproduzione, in fondo alla barra laterale e nella pagina della nuova chat."
+            "value": "Un player per ciò che è in riproduzione, in fondo alla barra laterale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再生中のメディアのプレーヤー。サイドバーの下部と新しいチャットのページに表示されます。"
+            "value": "再生中のメディアのプレーヤー。サイドバーの下部に表示されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​ផ្នែក​ខាង​ក្រោម​របារ​ចំហៀង និង​នៅ​លើ​ទំព័រ​ជជែក​ថ្មី។"
+            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​ផ្នែក​ខាង​ក្រោម​របារ​ចំហៀង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "재생 중인 항목의 플레이어로, 사이드바 하단과 새 채팅 페이지에 표시됩니다."
+            "value": "재생 중인 항목의 플레이어로, 사이드바 하단에 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En spiller for det som spilles, nederst i sidepanelet og på siden for ny chat."
+            "value": "En spiller for det som spilles, nederst i sidepanelet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odtwarzacz tego, co gra, na dole paska bocznego i na stronie nowego czatu."
+            "value": "Odtwarzacz tego, co gra, na dole paska bocznego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um player do que está tocando, na parte inferior da barra lateral e na página de novo chat."
+            "value": "Um player do que está tocando, na parte inferior da barra lateral."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Плеер для того, что сейчас играет, внизу боковой панели и на странице нового чата."
+            "value": "Плеер для того, что сейчас играет, внизу боковой панели."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น ที่ด้านล่างของแถบด้านข้างและในหน้าแชทใหม่"
+            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น ที่ด้านล่างของแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çalan içerik için bir oynatıcı; kenar çubuğunun altında ve yeni sohbet sayfasında."
+            "value": "Çalan içerik için bir oynatıcı; kenar çubuğunun altında."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Плеєр для того, що зараз грає, унизу бічної панелі та на сторінці нового чату."
+            "value": "Плеєр для того, що зараз грає, унизу бічної панелі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trình phát cho nội dung đang phát, ở cuối thanh bên và trên trang trò chuyện mới."
+            "value": "Trình phát cho nội dung đang phát, ở cuối thanh bên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在播放内容的播放器，位于边栏底部和新聊天页面。"
+            "value": "正在播放内容的播放器，位于边栏底部。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在播放內容的播放器，位於側邊欄底部和新聊天頁面。"
+            "value": "正在播放內容的播放器，位於側邊欄底部。"
           }
         }
       }
@@ -107034,127 +107298,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box."
+            "value": "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أقصى عرض لسطر النص، بالأحرف. الجداول والتعليمات البرمجية العريضة تُمرَّر أفقيًا داخل مربعها."
+            "value": "أقصى عرض لسطر النص، بالأحرف (من 30 إلى 1000). في النافذة الأعرض يبقى النص في المنتصف مع هوامش. الجداول والتعليمات البرمجية العريضة تُمرَّر أفقيًا داخل مربعها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Najveća širina reda teksta, u znakovima. Široke tabele i kod pomjeraju se vodoravno u svom okviru."
+            "value": "Najveća širina reda teksta, u znakovima (30 do 1000). U širem prozoru tekst ostaje centriran s marginama. Široke tabele i kod pomjeraju se vodoravno u svom okviru."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den største bredde en tekstlinje får, i tegn. Brede tabeller og kode ruller sidelæns i deres egen boks."
+            "value": "Den største bredde en tekstlinje får, i tegn (30 til 1000). I et bredere vindue forbliver teksten centreret med margener. Brede tabeller og kode ruller sidelæns i deres egen boks."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die maximale Breite einer Textzeile in Zeichen. Breite Tabellen und Code scrollen seitlich in ihrem eigenen Feld."
+            "value": "Die maximale Breite einer Textzeile in Zeichen (30 bis 1000). In einem breiteren Fenster bleibt der Text mit Rändern zentriert. Breite Tabellen und Code scrollen seitlich in ihrem eigenen Feld."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El ancho máximo de una línea de texto, en caracteres. Las tablas y el código anchos se desplazan en horizontal dentro de su propio cuadro."
+            "value": "El ancho máximo de una línea de texto, en caracteres (de 30 a 1000). En una ventana más ancha, el texto queda centrado con márgenes. Las tablas y el código anchos se desplazan en horizontal dentro de su propio cuadro."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La largeur maximale d’une ligne de texte, en caractères. Les tableaux et le code larges défilent horizontalement dans leur propre cadre."
+            "value": "La largeur maximale d’une ligne de texte, en caractères (de 30 à 1000). Dans une fenêtre plus large, le texte reste centré avec des marges. Les tableaux et le code larges défilent horizontalement dans leur propre cadre."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La larghezza massima di una riga di testo, in caratteri. Tabelle e codice larghi scorrono in orizzontale nel proprio riquadro."
+            "value": "La larghezza massima di una riga di testo, in caratteri (da 30 a 1000). In una finestra più larga il testo resta centrato con i margini. Tabelle e codice larghi scorrono in orizzontale nel proprio riquadro."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "テキスト1行の最大幅（文字数）。幅の広い表やコードは、それぞれの枠内で横にスクロールします。"
+            "value": "テキスト1行の最大幅（文字数、30〜1000）。ウインドウのほうが広いときは、テキストは余白を残して中央に表示されます。幅の広い表やコードは、それぞれの枠内で横にスクロールします。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទទឹងធំបំផុតនៃបន្ទាត់អត្ថបទ គិតជាតួអក្សរ។ តារាង និងកូដធំៗ រំកិលទៅចំហៀងក្នុងប្រអប់ផ្ទាល់ខ្លួន។"
+            "value": "ទទឹងធំបំផុតនៃបន្ទាត់អត្ថបទ គិតជាតួអក្សរ (30 ដល់ 1000)។ នៅលើបង្អួចធំជាងនេះ អត្ថបទនៅកណ្ដាល ដោយមានគែម។ តារាង និងកូដធំៗ រំកិលទៅចំហៀងក្នុងប្រអប់ផ្ទាល់ខ្លួន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "텍스트 한 줄의 최대 너비(문자 수)입니다. 넓은 표와 코드는 각자의 상자 안에서 가로로 스크롤됩니다."
+            "value": "텍스트 한 줄의 최대 너비(문자 수, 30~1000)입니다. 창이 더 넓으면 텍스트는 여백을 두고 가운데에 놓입니다. 넓은 표와 코드는 각자의 상자 안에서 가로로 스크롤됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den største bredden en tekstlinje får, i tegn. Brede tabeller og kode ruller sidelengs i sin egen boks."
+            "value": "Den største bredden en tekstlinje får, i tegn (30 til 1000). I et bredere vindu holder teksten seg midtstilt med marger. Brede tabeller og kode ruller sidelengs i sin egen boks."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Największa szerokość wiersza tekstu w znakach. Szerokie tabele i kod przewijają się w poziomie we własnym polu."
+            "value": "Największa szerokość wiersza tekstu w znakach (od 30 do 1000). W szerszym oknie tekst pozostaje wyśrodkowany z marginesami. Szerokie tabele i kod przewijają się w poziomie we własnym polu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A largura máxima de uma linha de texto, em caracteres. Tabelas e códigos largos rolam na horizontal na própria caixa."
+            "value": "A largura máxima de uma linha de texto, em caracteres (de 30 a 1000). Em uma janela mais larga, o texto fica centralizado com margens. Tabelas e códigos largos rolam na horizontal na própria caixa."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Наибольшая ширина строки текста в символах. Широкие таблицы и код прокручиваются по горизонтали в своём блоке."
+            "value": "Наибольшая ширина строки текста в символах (от 30 до 1000). В более широком окне текст остаётся по центру с полями. Широкие таблицы и код прокручиваются по горизонтали в своём блоке."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ความกว้างสูงสุดของบรรทัดข้อความ เป็นจำนวนอักขระ ตารางและโค้ดที่กว้างจะเลื่อนด้านข้างในกล่องของตัวเอง"
+            "value": "ความกว้างสูงสุดของบรรทัดข้อความ เป็นจำนวนอักขระ (30 ถึง 1000) ในหน้าต่างที่กว้างกว่า ข้อความจะอยู่ตรงกลางโดยมีระยะขอบ ตารางและโค้ดที่กว้างจะเลื่อนในแนวนอนภายในกรอบของตัวเอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir metin satırının karakter cinsinden en fazla genişliği. Geniş tablolar ve kod kendi kutularında yatay kayar."
+            "value": "Bir metin satırının en fazla genişliği, karakter cinsinden (30 ile 1000 arası). Daha geniş bir pencerede metin kenar boşluklarıyla ortada kalır. Geniş tablolar ve kod kendi kutularında yatay kaydırılır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Найбільша ширина рядка тексту в символах. Широкі таблиці й код прокручуються горизонтально у своєму блоці."
+            "value": "Найбільша ширина рядка тексту в символах (від 30 до 1000). У ширшому вікні текст залишається по центру з полями. Широкі таблиці й код прокручуються горизонтально у власному блоці."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Độ rộng tối đa của một dòng văn bản, tính bằng ký tự. Bảng và mã rộng cuộn ngang trong khung riêng."
+            "value": "Độ rộng tối đa của một dòng văn bản, tính bằng ký tự (30 đến 1000). Trên cửa sổ rộng hơn, văn bản vẫn ở giữa với lề hai bên. Bảng và mã rộng cuộn ngang trong khung riêng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "一行文本的最大宽度（字符数）。较宽的表格和代码会在各自的框内横向滚动。"
+            "value": "一行文本的最大宽度，以字符计（30 到 1000）。窗口更宽时，文本保持居中并留出边距。较宽的表格和代码在各自的框内横向滚动。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "一行文字的最大寬度（字元數）。較寬的表格與程式碼會在各自的框內橫向捲動。"
+            "value": "一行文字的最大寬度，以字元計（30 到 1000）。視窗更寬時，文字保持置中並留有邊界。較寬的表格與程式碼會在各自的框內橫向捲動。"
           }
         }
       }

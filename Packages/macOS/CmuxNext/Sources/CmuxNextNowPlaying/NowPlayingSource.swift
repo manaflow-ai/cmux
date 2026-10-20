@@ -29,9 +29,10 @@ extension NowPlayingSource {
 }
 
 extension SidebarModel {
-    /// Shows `source` on the Now Playing card while `sidebar.nowPlaying.enabled` is on (on by
-    /// default), and on the New Tab page while `tabs.newTabNowPlaying` is on too; the page's menu
-    /// writes that key and opens its row in Settings through `registry` (`NewTabNowPlaying.page`).
+    /// Shows `source` on the Now Playing card while `sidebar.nowPlaying.enabled` is on (off by
+    /// default), and on the New Tab page while `tabs.newTabNowPlaying` is on (on by default); the
+    /// page's menu writes that key and opens its row in Settings through `registry`
+    /// (`NewTabNowPlaying.page`).
     public func followNowPlaying(_ source: any NowPlayingSource, settings: @escaping @MainActor () -> SettingsController?,
                                  registry: ActionRegistry?) -> Task<Void, Never> {
         NewTabNowPlaying.page = NewTabNowPlaying.liveActions(settings: settings, registry: registry)
@@ -39,39 +40,34 @@ extension SidebarModel {
                                 onNewTab: { settings()?.snapshot.nowPlaying.newTab ?? NowPlayingSettings.newTabDefault })
     }
 
-    /// Shows `source` on the Now Playing card while `enabled`, and on the New Tab page's player
-    /// (`NewTabNowPlaying`) while `onNewTab` is true too: off there, the page gets nil, so it draws
-    /// no player and keeps no space. The source runs while `enabled` (`NowPlayingSource.run`).
+    /// Shows `source` on the Now Playing card while `enabled` and on the New Tab page's player
+    /// (`NewTabNowPlaying`) while `onNewTab`, each on its own: off on the New Tab page, the page
+    /// gets nil, so it draws no player and keeps no space. The source runs while either shows it
+    /// (`NowPlayingSource.run`); with both off nothing reads what plays.
     public func followNowPlaying(_ source: any NowPlayingSource, enabled: @escaping @MainActor () -> Bool,
-                                 onNewTab: @escaping @MainActor () -> Bool = { true }) -> Task<Void, Never> {
+                                 onNewTab: @escaping @MainActor () -> Bool = { false }) -> Task<Void, Never> {
         Task { [weak self] in
-            for await followed in ObservationStream({ NowPlayingFollowed(enabled() ? .on(source.nowPlaying) : .off, newTab: onNewTab()) }) {
+            for await followed in ObservationStream({ NowPlayingFollowed(card: enabled(), newTab: onNewTab(), source: source) }) {
                 guard let self else { return }
-                source.run(followed.card != .off)
-                if self.nowPlaying != followed.card.nowPlaying { self.nowPlaying = followed.card.nowPlaying }
-                NewTabNowPlaying.show(followed.newTab ? followed.card.nowPlaying : nil, from: source)
+                source.run(followed.card || followed.newTab)
+                let card = followed.card ? followed.nowPlaying : nil
+                if self.nowPlaying != card { self.nowPlaying = card }
+                NewTabNowPlaying.show(followed.newTab ? followed.nowPlaying : nil, from: source)
             }
         }
     }
 }
 
-/// What the card follows (nothing while it is off, else what plays, nil while nothing does), and
-/// whether the New Tab page shows it too.
+/// Where Now Playing shows (the sidebar card, the New Tab page), and what plays while either does
+/// (nil while nothing does, or while neither shows it: the source is not read then).
 nonisolated struct NowPlayingFollowed: Equatable, Sendable {
-    var card: Card
+    var card: Bool
     var newTab: Bool
+    var nowPlaying: SidebarNowPlaying?
 
-    init(_ card: Card, newTab: Bool) {
+    @MainActor init(card: Bool, newTab: Bool, source: any NowPlayingSource) {
         self.card = card
         self.newTab = newTab
-    }
-
-    nonisolated enum Card: Equatable, Sendable {
-        case off
-        case on(SidebarNowPlaying?)
-
-        var nowPlaying: SidebarNowPlaying? {
-            if case .on(let nowPlaying) = self { nowPlaying } else { nil }
-        }
+        nowPlaying = card || newTab ? source.nowPlaying : nil
     }
 }

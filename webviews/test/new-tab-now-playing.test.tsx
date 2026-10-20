@@ -1,8 +1,7 @@
 // The New Tab page's Now Playing player: what plays (the host's `nowPlaying` push: cmux's player, a
 // browser tab, Spotify, Music) shows large under the create actions with its artwork, title and
 // artist; Play or Pause follows the track; the controls ask the host (`nowPlaying.command`); and
-// nothing shows once the host clears it (nothing plays, sidebar.nowPlaying.enabled is off, or
-// tabs.newTabNowPlaying is off). Its right-click menu (Shift-F10 too) runs the controls, opens the
+// nothing shows once the host clears it (nothing plays, or tabs.newTabNowPlaying is off). Its right-click menu (Shift-F10 too) runs the controls, opens the
 // app that plays, hides the player with an Undo, and opens its setting.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";

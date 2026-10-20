@@ -2,20 +2,20 @@
 // schemas/settings/source/now-playing.json. Do not edit; edit the JSON and rerun.
 
 extension NowPlayingSettings {
-    /// `sidebar.nowPlaying.enabled`: On by default. Off: no Now Playing card in the sidebar and no player on the new chat page.
+    /// `sidebar.nowPlaying.enabled`: Off by default. Off: no Now Playing card in the sidebar; a tab playing sound shows only its speaker in the tab strip. The New Tab page's player is tabs.newTabNowPlaying.
     public nonisolated static let enabledPath = ["sidebar", "nowPlaying", "enabled"]
-    public nonisolated static let enabledDefault = true
+    public nonisolated static let enabledDefault = false
 }
 
 extension NowPlayingSettings {
-    /// `tabs.newTabNowPlaying`: On by default. Off: no player on the New Tab page and no space kept for it; the sidebar card stays. sidebar.nowPlaying.enabled off hides both.
+    /// `tabs.newTabNowPlaying`: On by default (Leo 2026-10-19), apart from the sidebar card (sidebar.nowPlaying.enabled, off by default). Off: no player on the New Tab page and no space kept for it.
     public nonisolated static let newTabPath = ["tabs", "newTabNowPlaying"]
     public nonisolated static let newTabDefault = true
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum NowPlayingSettingsSchema {
-    /// The Now Playing player (Austin's idea, Leo 2026-10-18): on by default, and the user can hide it.
+    /// The Now Playing player (Austin's idea, Leo 2026-10-18): off by default since 2026-10-19 (Lawrence did not want the card in the sidebar); the user can turn it on.
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
@@ -24,7 +24,7 @@ nonisolated enum NowPlayingSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.nowPlaying.enabled", "Show Now Playing"),
-                help: SettingsText.keyed("settings.sidebar.nowPlaying.enabled.help", "A player for what is playing, at the bottom of the sidebar and on the new chat page."),
+                help: SettingsText.keyed("settings.sidebar.nowPlaying.enabled.help", "A player for what is playing, at the bottom of the sidebar."),
                 kind: .toggle,
                 default: .bool(NowPlayingSettings.enabledDefault),
                 keywords: ["music", "now playing", "player", "media", "spotify", "song", "sidebar"]
@@ -41,7 +41,7 @@ nonisolated enum NowPlayingSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.newTabNowPlaying", "Show Now Playing on New Tab"),
-                help: SettingsText.keyed("settings.tabs.newTabNowPlaying.help", "A player for what is playing, on the New Tab page. Turning off Show Now Playing hides it too."),
+                help: SettingsText.keyed("settings.tabs.newTabNowPlaying.help", "A player for what is playing, on the New Tab page."),
                 kind: .toggle,
                 default: .bool(NowPlayingSettings.newTabDefault),
                 keywords: ["music", "now playing", "player", "media", "spotify", "song", "new tab", "new chat"]
