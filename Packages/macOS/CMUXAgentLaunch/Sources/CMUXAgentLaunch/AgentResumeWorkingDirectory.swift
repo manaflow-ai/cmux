@@ -87,7 +87,8 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
 
         let slug = ClaudeProjectSlug()
         if let candidate = candidates.first(where: {
-            slug.slug(forWorkingDirectory: $0) == projectDirectory
+            isDirectory(at: $0)
+                && slug.slug(forWorkingDirectory: $0) == projectDirectory
         }) {
             return candidate
         }
@@ -96,6 +97,7 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
         // cwd in the first JSONL record; only accept it when it round-trips to the transcript's
         // project directory so a malformed or foreign transcript cannot redirect the resume.
         guard let recordedCwd = recordedWorkingDirectory(in: transcriptPath),
+              isDirectory(at: recordedCwd),
               slug.slug(forWorkingDirectory: recordedCwd) == projectDirectory else {
             return nil
         }
@@ -130,12 +132,15 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
         let expandedPath = (path as NSString).expandingTildeInPath
         guard let handle = FileHandle(forReadingAtPath: expandedPath) else { return nil }
         defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 64 * 1024),
-              let text = String(data: data, encoding: .utf8) else {
+        guard let data = try? handle.read(upToCount: 64 * 1024) else {
             return nil
         }
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let lineData = line.data(using: .utf8),
+
+        var lineStart = data.startIndex
+        for index in data.indices where data[index] == 0x0A {
+            let lineData = Data(data[lineStart..<index])
+            lineStart = data.index(after: index)
+            guard !lineData.isEmpty,
                   let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                   let cwd = normalized(object["cwd"] as? String) else {
                 continue
@@ -143,6 +148,12 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
             return cwd
         }
         return nil
+    }
+
+    private func isDirectory(at path: String) -> Bool {
+        var isDirectory = ObjCBool(false)
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
     }
 
     private func normalized(_ value: String?) -> String? {
