@@ -42,11 +42,14 @@ export class CloudDO extends CloudIdle {
     if (op === "cloud.vm.network_policy") {
       const result = await cloudVmReceiverPolicy({ team: entity, now: () => Date.now() + this.skewMs,
         connection: () => vmApiConnection(this.env), revision: () => String(this.boundEngine?.currentSeq ?? 0), http: (r) => fetch(r),
-        row: (machine) => this.isBound(entity) ? this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, machine)?.row : undefined,
+        rows: this.isBound(entity) ? this.bind(entity).rows : undefined,
         own: (user, install, grant, machine) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).vmNetworkIdentity(user, install, grant, entity, machine),
         peers: (target) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)).vmReceiverPeers(entity, target),
         allocation: async (row, signal) => {
-          const driver = await cloudDriverFor(this.env, this.sqlStore, entity, row, "operate", (r) => fetch(new Request(r, { signal: AbortSignal.any([r.signal, signal]) })))
+          const driver = await cloudDriverFor(this.env, this.sqlStore, entity, row, "operate", (input, init) => {
+            const r = new Request(input, init)
+            return fetch(new Request(r, { signal: AbortSignal.any([r.signal, signal]) }))
+          })
           if (!driver || signal.aborted) return null
           const found = await driver.peek(row.provider_name)
           return found?.state === "running" && found.tag.cmux_next_team === entity && found.tag.cmux_next_machine === row.id ? found.id : null

@@ -5,6 +5,70 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageCapSetParams {
+    pub cap_usd: Option<WireNumber>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageCapSetResult {
+    pub owner: Option<TeamId>,
+    pub team_cap_usd: Option<WireNumber>,
+}
+
+wire_errors! {
+    /// The error codes usage.cap.set declares.
+    UsageCapSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        TeamRolesRequired = "team.roles_required",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs.
+    UsageSummaryOp {
+        name: "usage.summary",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UsageMeterDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: UsageSummaryParams,
+        result: UsageSummary,
+        error: UsageSummaryError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageSummaryParams {}
+
+wire_errors! {
+    /// The error codes usage.summary declares.
+    UsageSummaryError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Create or refresh the caller's user record from the Stack session.
+    UserEnsureOp {
+        name: "user.ensure",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: UserEnsureParams,
+        result: UserProfile,
+        error: UserEnsureError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UserEnsureParams {}
 
 wire_errors! {

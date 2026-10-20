@@ -1,8 +1,30 @@
 import { afterEach, expect, it, vi } from "vitest"
+import { verifyLinkToken } from "../src/link-token.ts"
 import { withReceiver, type Allow } from "./cloud-vm-api-receiver-support.ts"
 afterEach(() => vi.restoreAllMocks())
 const nativePeer = (f: Parameters<Parameters<typeof withReceiver>[0]>[0], allow: Allow[] = [{ protocol: "tcp", port: 22 }]) =>
   ({ deviceId: f.client.device, wgPublicKey: f.client.wg, installPublicKey: f.client.point, allow })
+
+it("reads through HTTP using the VM's actual challenge-issued credential and the catalog read envelope", async () => {
+  await withReceiver(async (f) => {
+    const read = await f.readHttp()
+    expect(read.status).toBe(200)
+    expect(read.json).toMatchObject({ op: "cloud.vm.network_policy", stream: `cloud:${f.team}`, value: { machine: f.machine, install: f.principal.install, peers: [] } })
+    expect(read.json).not.toHaveProperty("ok")
+  })
+})
+
+it("publishes the same current identity that the actual Cloud signer authorizes for the receiver", async () => {
+  await withReceiver(async (f) => {
+    f.native.peers = [nativePeer(f)]
+    const policy = await f.read(); expect(policy.ok).toBe(true)
+    const peer = policy.value.peers[0], mint = await f.mint(); expect(mint.ok).toBe(true)
+    const binding = { version: 1 as const, tenant: policy.value.tenant, mesh: policy.value.mesh, device: peer.device,
+      host: peer.host, user: peer.user, wg_public_key: peer.wg_public_key, authority_version: peer.authority_version, acl_version: policy.value.acl_version }
+    expect(await verifyLinkToken(mint.value.token, { aud: policy.value.host, epoch: policy.value.epoch, now: Math.floor(Date.now() / 1000),
+      keyset: f.keyset, seen: new Set(), native: { issuer: "cmux:cloud:test", team: f.team, install: peer.install, service: "ssh", binding } })).toMatchObject({ ok: true })
+  })
+})
 
 it("keeps the bound VM's existing self read working", async () => {
   await withReceiver(async (f) => { expect(await f.self()).toMatchObject({ ok: true, value: { machine: { id: f.machine } } }) })
@@ -51,6 +73,31 @@ it("clips the lease to the calling credential and never extends Native freshness
     expect(read).toMatchObject({ ok: true, value: { expires_at: f.native.expiresAt } })
     const expires_at = Date.now() + 4_000
     expect(await f.read({ ...f.principal, expires_at })).toMatchObject({ ok: true, value: { expires_at } })
+  })
+})
+
+it("uses the current enforced team service policy", async () => {
+  await withReceiver(async (f) => {
+    f.native.peers = [nativePeer(f, [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }])]
+    const change = async (services: string[], version: number) => {
+      expect((await f.sessionOp("team.policy.update", { expected_version: version,
+        changes: [{ key: "cloud.connectServices", value: { value: services, mode: "enforced" } }] })).json.ok).toBe(true)
+    }
+    await change(["ssh"], 0)
+    expect(await f.read()).toMatchObject({ ok: true, value: { peers: [{ services: ["ssh"] }] } })
+    await change([], 1)
+    expect(await f.read()).toMatchObject({ ok: true, value: { peers: [] } })
+  })
+})
+
+it.each(["expired", "future", "slow"])("refuses a Native snapshot whose time is %s", async (kind) => {
+  await withReceiver(async (f) => {
+    let now = Date.now()
+    vi.spyOn(Date, "now").mockImplementation(() => now)
+    if (kind === "expired") { f.native.checkedAt = now - 30_000; f.native.expiresAt = now - 1 }
+    if (kind === "future") { f.native.checkedAt = now + 1; f.native.expiresAt = now + 30_000 }
+    if (kind === "slow") f.onRead(async () => { now += 31_000 })
+    expect(await f.read()).toMatchObject({ ok: false })
   })
 })
 
@@ -107,6 +154,36 @@ it("bounds Native response bytes", async () => {
   await withReceiver(async (f) => {
     f.nativeResponse(() => new Response("x".repeat(1_048_577)))
     expect(await f.read()).toMatchObject({ ok: false })
+  })
+})
+
+it("keeps routing and credentials under the owner when request params contain other identities", async () => {
+  await withReceiver(async (f) => {
+    const read = await f.read(f.principal, { machine: f.machine, vm: "vm_" + "3".repeat(26), mesh: "mesh_" + "3".repeat(26),
+      tenant: "other_tenant", origin: "https://another.test", token: "caller-chosen-credential" })
+    expect(read).toMatchObject({ ok: true, value: { tenant: f.tenant, vm: f.native.vmId, mesh: f.native.meshId, origin: "https://vm.test" } })
+    expect(f.requests).toHaveLength(1)
+    expect(f.requests[0]!.url).toContain("https://vm.test/v1/meshes/")
+    expect(f.requests[0]!.headers.get("authorization")).toBe("Bearer test-machine-mesh-key")
+  })
+})
+
+it.each([{ op_classes: [] }, { op_classes: ["read"] }])("refuses a VM whose original grant no longer has vm-self: %j", async ({ op_classes }) => {
+  await withReceiver(async (f) => {
+    await f.grant("vm", { op_classes })
+    expect(await f.read()).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(f.requests).toHaveLength(0)
+  })
+})
+
+it("aborts stalled Native response streaming at the whole-read deadline", { timeout: 30_000 }, async () => {
+  await withReceiver(async (f) => {
+    let aborted = false
+    f.nativeResponse(() => new Response(new ReadableStream({ start(controller) {
+      f.requests.at(-1)!.signal.addEventListener("abort", () => { aborted = true; controller.error(new Error("test aborted Native stream")) }, { once: true })
+    } })))
+    expect(await f.read()).toMatchObject({ ok: false, code: "owner.unreachable" })
+    expect(aborted).toBe(true)
   })
 })
 

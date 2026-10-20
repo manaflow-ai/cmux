@@ -1,4 +1,4 @@
-import type { Principal } from "@cmux/ownership"
+import type { Principal, RowReader } from "@cmux/ownership"
 import { CloudVmNetworkPolicy, CloudVmNetworkPolicyView, NativeVmId } from "@cmux/protocol"
 import { Effect, Schema } from "effect"
 import type { MachineRow } from "./domains/cloud.ts"
@@ -14,7 +14,7 @@ import type { Http } from "./team-domain-external.ts"
 
 interface Deps {
   team: string; now(): number; connection(): VmApiConnection | null; revision(): string; http: Http;
-  row(machine: string): MachineRow | undefined;
+  rows: RowReader | undefined;
   own(user: string, install: string, grant: string, machine: string): Promise<NetworkIdentity | null>;
   allocation(row: MachineRow, signal: AbortSignal): Promise<string | null>; peers(target: VmReceiverPeerTarget): Promise<VmReceiverPeers | null>;
 }
@@ -34,7 +34,7 @@ export const cloudVmReceiverPolicy = (d: Deps, p: Principal, params: unknown): P
     const decoded = decodeParams<typeof CloudVmNetworkPolicy.params.Type>(CloudVmNetworkPolicy, params)
     if (!decoded.ok) return decoded
     const checked = d.now(), machine = decoded.value.machine
-    const gate = () => vmGate(d.team, p, machine, { get: <T>() => { const row = d.row(machine); return row ? { row: row as T, n: null } : undefined } })
+    const gate = () => vmGate(d.team, p, machine, d.rows)
     const first = gate(), connection = d.connection()
     if (!first.ok) return first
     if (!connection || !p.user || !p.install || !p.grant || (p.expires_at !== undefined && p.expires_at <= checked) || !live(first.row, p)) return forbidden()

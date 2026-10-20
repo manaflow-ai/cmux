@@ -4,6 +4,48 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SshPresenceProof {
+    pub install: InstallId,
+    pub nonce: String,
+    pub signature: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_attest: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnection {
+    pub id: SsoConnectionId,
+    pub kind: LitOidc,
+    pub state: SsoConnectionState,
+    pub domains: Vec<EmailDomain>,
+    pub oidc: SsoConnectionOidc,
+    pub secret_set: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_generation: Option<i64>,
+    pub jit: SsoConnectionJit,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+wire_enum! {
+    SsoConnectionState {
+        Draft = "draft",
+        Active = "active",
+        Disabled = "disabled",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionOidc {
+    pub issuer: String,
+    pub client_id: String,
+    pub scopes: Vec<String>,
+    pub authorization_endpoint: Option<String>,
+    pub token_endpoint: Option<String>,
+    pub jwks_uri: Option<String>,
+}
+
 wire_enum! {
     SsoConnectionJitDefaultRole {
         Member = "member",
