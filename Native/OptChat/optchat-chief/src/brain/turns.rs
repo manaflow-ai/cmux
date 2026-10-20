@@ -51,6 +51,26 @@ pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
 }
 
 impl Brain {
+    /// A turn that started with the owner's private context may no longer
+    /// emit or delegate content after the conversation gains participants.
+    pub(super) fn guard_private_turn_scope(&self, tool: &str) -> Result<(), String> {
+        if self.private_turn_scope_changed() {
+            return Err(format!(
+                "{tool}: conversation membership became shared; this private-context turn must end before using tools"
+            ));
+        }
+        Ok(())
+    }
+
+    fn private_turn_scope_changed(&self) -> bool {
+        self.state.turn.is_some()
+            && self.turn_shared_memory
+            && self
+                .summary
+                .as_ref()
+                .is_none_or(|summary| !self.settings.membership.is_private_conversation(summary))
+    }
+
     /// Starts a turn worker when idle with something queued.
     pub(super) fn maybe_start_turn(&mut self) {
         // An update asked for a handoff: no new turn starts here; the next
@@ -1286,11 +1306,7 @@ impl Brain {
         let tool_stopped = std::mem::take(&mut self.tool_stopped);
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
-        let scope_changed = self.turn_shared_memory
-            && self
-                .summary
-                .as_ref()
-                .is_none_or(|summary| !self.settings.membership.is_private_conversation(summary));
+        let scope_changed = self.private_turn_scope_changed();
         // A membership expansion while a private turn ran changes who sees
         // its reply. Never post that already-private model context into the
         // newly shared conversation; queued messages start a scoped turn.

@@ -41,6 +41,7 @@ impl Brain {
     /// The `sleep` tool: saves a wake (or clears them all for 0 seconds) and
     /// ends the running turn.
     pub(super) fn sleep(&mut self, call: SleepCall) -> Result<String, String> {
+        self.guard_private_turn_scope("sleep")?;
         if call.seconds == 0 {
             let n = self.state.wakes.len();
             self.state.wakes.clear();
