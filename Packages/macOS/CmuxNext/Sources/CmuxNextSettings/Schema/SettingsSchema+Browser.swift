@@ -53,6 +53,31 @@ nonisolated enum BrowserSettingsSchema {
                 keywords: ["agent", "cursor", "keystrokes", "typing", "automation", "overlay"]
             ),
             SettingDescriptor(
+                AgentMouseSetting().motionPath, section: .browser, group: agentInput,
+                title: SettingsText.keyed("settings.browser.agentMouseMotion", "Agent Pointer Motion"),
+                help: SettingsText.keyed(
+                    "settings.browser.agentMouseMotion.help",
+                    "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."
+                ),
+                kind: .choice([
+                    SettingChoice("human", SettingsText.keyed("settings.choice.agentMouseHuman", "Human")),
+                    SettingChoice("instant", SettingsText.keyed("settings.choice.agentMouseInstant", "Instant")),
+                ]),
+                default: .string(AgentMouseSetting().fallback.motion.rawValue),
+                keywords: ["agent", "mouse", "pointer", "cursor", "human", "motion", "automation"]
+            ),
+            SettingDescriptor(
+                AgentMouseSetting().maxMoveMsPath, section: .browser, group: agentInput,
+                title: SettingsText.keyed("settings.browser.agentMouseMaxMove", "Longest Agent Pointer Move"),
+                help: SettingsText.keyed(
+                    "settings.browser.agentMouseMaxMove.help",
+                    "The longest time one agent pointer move takes with human motion. Short moves take less."
+                ),
+                kind: .number(SettingNumber(AgentMouseSetting().maxMoveMsRange, step: 10, unit: .milliseconds)),
+                default: .number(AgentMouseSetting().fallback.maxMoveMs),
+                keywords: ["agent", "mouse", "pointer", "speed", "duration"]
+            ),
+            SettingDescriptor(
                 BuiltInAdBlockerSetting().configPath, section: .browser, group: extensions,
                 title: SettingsText.keyed("settings.browser.builtInAdBlocker", "Built-in uBlock Origin"),
                 help: SettingsText.keyed("settings.browser.builtInAdBlocker.help", "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."),

@@ -176,14 +176,19 @@ pass missing credentials to the person as blockers.
 An SSH target with no optchat-chief that knows the format gets this binary installed at
 `~/.cmux/bin/optchat-chief` when its OS and CPU match; otherwise `--remote-bin` names one.
 
-## 6c. Per-target status and gaps (2026-10-20)
+## 6c. Per-target status and gaps (real chain run, 2026-10-20)
 
-| Target | Carries | Proven | Gaps |
-| --- | --- | --- | --- |
-| Mac to Mac mini (`ssh:cmux-lawrence`) | memory, conversations, Chiefs and grants, settings, transcripts | tests (local and stand-in SSH); a real throwaway move with the earlier build (session-name bug found and fixed since) | Home does not switch to the moved Chief (Swift); the mini's own Chief brain install is separate (`~/.cmux/brains/chief`); workspaces and terminals of the old session do not move |
-| Mac mini to cloud Linux VM (Freestyle `chief-subagents-1`) | same | Linux build passes all move tests | the tailnet ACL lets the Mac reach `tag:agent-cloud`, not the minis, so a mini-to-VM move needs a relay through the Mac; the VM reaches only the fleet controller and sr2 (no minis, no GitHub credential) |
-| Linux VM to the Durable-Object Cloud Chief (`cloud:staging`) | conversation history (person and Chief messages), memory text export, then the brain on | real staging move of a throwaway Chief: 2 history and 6 memory messages, a turn answered the code word and its earlier host, and ran `uname` in a cloud sandbox; rollback turned the brain off | production needs a production session token and production hands are off (`HANDS_ENABLED` unset); no export back from the DO memory (rollback keeps what the cloud learned there); reactions, attachments and subagent transcripts do not move into the DO (transcripts would go to R2); hands and grants must be set up on the account |
-| Any target | | | a running subagent is not handed over (the move waits for the Chief's turn, not for subagents); `--subagents leave` through acpmux peers is phase 2 |
+One throwaway Chief (backup off) moved Mac -> Mac mini -> Freestyle Linux VM -> staging Cloud Chief,
+one turn at each stop; every stop gave the code word from memory, the hosts of all earlier stops,
+and ran `hostname; uname -sm` on its own machine.
+
+| Hop | Result | Gaps found |
+| --- | --- | --- |
+| Mac to Mac mini (`ssh:cmux-lawrence`) | moved 17 memory and 11 conversation messages in 33 s (the mover installed itself on the mini); the turn answered `cmux-lawrences-Mac-mini.local` | the mini's own model route (its subrouter, 127.0.0.1:31415) answered 502 for every request; the turn ran with the Mac's route (sr2 gateway) in the environment. The move does not carry the model route as a Chief setting. From the mini, 2 of 131 SSH hosts answer (keys are never copied) |
+| Mac mini to Linux VM (`chief-subagents-1`) | moved 27 memory and 15 conversation messages in 10 s; the turn answered `freestyle-vm Linux x86_64` | the tailnet ACL blocks minis from `tag:agent-cloud`: relayed through the Mac (reverse tunnel). The Chief's own Claude config ignores the VM's `~/.claude/settings.json` env: the route goes in the environment. The VM reaches only the fleet controller and sr2 |
+| Linux VM to the Cloud Chief (`cloud:staging`) | 17 history and 31 memory messages copied, brain on, in 10 s; the turn answered all earlier hosts and ran the shell in a cloud sandbox | staging test account only: production needs a production session token, and production hands are off. No export back from DO memory. Reactions, attachments and subagent transcripts do not move into the DO |
+| The Chief moving itself (MCP `move`) | covered by tests (`--detach` waits for the turn's end) | a turn from the CLI counts as a paired device, so the `move` call waits for approval in the Mac app (allow from the CLI is refused by design); the chain ran the same moves through the CLI |
+| Any target | | a running subagent is not handed over; Home does not switch to the moved Chief; the Swift "Move Chief to..." sheet and Cmd+Shift+P action are not built |
 
 ## 7. Home after a move
 
