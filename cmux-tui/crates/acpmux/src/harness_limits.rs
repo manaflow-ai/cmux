@@ -48,9 +48,14 @@ pub fn lift_claude(
     cmd: &mut tokio::process::Command,
     profile: &crate::config::HarnessProfile,
     session: bool,
+    inherit_ambient: bool,
 ) {
     if profile.kind == crate::config::HarnessKind::ClaudeStdio && session {
-        let have = crate::agent::command_env(cmd);
+        let have = if inherit_ambient {
+            crate::agent::command_env(cmd)
+        } else {
+            crate::agent::command_env_cleared(cmd)
+        };
         for (key, value) in claude_env(&have) {
             cmd.env(key, value);
         }
