@@ -55,7 +55,8 @@ import { useComposerSettings } from "./composerSettings";
 import { usePromptHistory } from "./composer/promptHistory";
 import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
 import type { SendBlock } from "./useFolderTrustAsk";
-import { promptSuggestion, type PromptSuggestion } from "./promptSuggestion";
+import { promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
+import { useHeaderState } from "./header/headerState";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -943,10 +944,23 @@ export function Composer({
   // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
   const cwd = snapshot.summary?.cwd;
   const branch = snapshot.summary?.branch;
+  // The chat folder's own PR, which the App reads with gh for the header's chip: no session summary
+  // reports a PR yet, so this is the live source.
+  const headerPullRequest = useHeaderState().pullRequest;
+  const livePullRequest = useMemo<LivePullRequest | undefined>(
+    () =>
+      headerPullRequest && {
+        number: headerPullRequest.number,
+        title: headerPullRequest.title,
+        state: headerPullRequest.state,
+        checks: headerPullRequest.checks.state,
+      },
+    [headerPullRequest],
+  );
   const suggestion = useMemo<PromptSuggestion | undefined>(
     () =>
       !shell && !snapshot.isWorking && snapshot.rows.length === 0 && remote.canSend && !blocked
-        ? promptSuggestion(snapshot.sessions, { sessionId: snapshot.sessionId, cwd, branch }, Date.now())
+        ? promptSuggestion(snapshot.sessions, { sessionId: snapshot.sessionId, cwd, branch }, Date.now(), livePullRequest)
         : undefined,
     [
       shell,
@@ -958,6 +972,7 @@ export function Composer({
       snapshot.sessionId,
       cwd,
       branch,
+      livePullRequest,
     ],
   );
   const suggestionKey = suggestion && `${snapshot.sessionId ?? ""}|${cwd}|${suggestion.number}`;
