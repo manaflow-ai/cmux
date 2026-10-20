@@ -411,8 +411,8 @@ impl Call {
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|t| !t.is_empty())
-                    .ok_or("react: `reaction` must be one of like, love, laugh, emphasize, question, dislike, ack")?;
-                crate::brain::tapback(reaction)?;
+                    .ok_or("react: `reaction` must be one of like, love, laugh, emphasize, question, dislike, ack, or one emoji")?;
+                crate::brain::reaction(reaction)?;
                 Ok(Call::React {
                     id: num("id")?,
                     reaction: reaction.to_owned(),
