@@ -22,7 +22,7 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
 
 Pushes, dispatches and pull requests labeled `full-ci` run every tier. The
 workflow runs the tiers picked here on every same-repository pull request; a
-fork pull request runs its Mac tiers only with `full-ci`. A changed file this script cannot place selects every
+fork pull request runs the heavier Mac tiers only with `full-ci`. A changed file this script cannot place selects every
 tier, so an unknown input never skips a check.
 
 Usage: cmux_next_route.py --event NAME [--changed-files FILE] [--labels a,b]

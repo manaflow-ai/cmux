@@ -68,7 +68,7 @@ class FakeApi:
     def get(self, path: str):
         if path.startswith(f"repos/o/r/actions/artifacts?name=cmux-next-tree-wait-{KEY}"):
             return {"total_count": len(self.artifacts), "artifacts": self.artifacts}
-        if path == "repos/o/r/git/ref/heads/feat-cmux-next":
+        if path.startswith("repos/o/r/git/ref/heads/"):
             return {"object": {"sha": self.branch_head}}
         if path == "repos/o/r/pulls/7":
             return self.pr

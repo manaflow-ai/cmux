@@ -19,8 +19,9 @@ name: cmux-next
 #   daemon     the same-tree cmux-tui and the live-daemon suites, for daemon,
 #              Rust core, FFI and control paths
 # A same-repository pull request runs every tier the router picks on its own
-# branch, with no label (#22303); a fork pull request runs the Mac tiers only
-# with the full-ci label, on its hosted fallback. full-ci also makes the router
+# branch, with no label (#22303); a fork pull request runs the fast tier and,
+# for a CmuxNext .swift change, the Release compile, and the other Mac tiers
+# only with the full-ci label, on its hosted fallback. full-ci also makes the router
 # pick every tier. A feat-cmux-next push runs the Mac compiles but not swift
 # test (see the jobs comment below); a red push run names the pull requests in
 # its range.
@@ -751,7 +752,10 @@ jobs:
               marker.update(origin="pull_request", pr=int(env["PR_NUMBER"]), head_ref=env["HEAD_REF"],
                             head_repo=env["HEAD_REPO"], base_ref=env["BASE_REF"])
           else:
-              marker.update(origin="push", branch=env["BRANCH"])
+              # A dispatch on a working branch (#22303) is not a push: its same-tree run still
+              # runs daemon-test, which a push's skips. The DEV daily stays a feat-cmux-next push.
+              marker.update(origin="dispatch" if env["EVENT_NAME"] == "workflow_dispatch" and env["DEV_DAILY"] != "true" else "push",
+                            branch=env["BRANCH"])
           with open(sys.argv[1], "w", encoding="utf-8") as stream:
               json.dump(marker, stream)
           print(json.dumps(marker))
@@ -1497,9 +1501,11 @@ jobs:
   # Builds the cmux-next web bundles once per source key (web-bundle-key.py --source: every
   # input file and the pinned bun) on Linux and caches them under that key. The Mac jobs
   # restore them by the same key instead of running bun and Vite+ themselves; a push to
-  # feat-cmux-next fills the cache every pull request can read.
+  # feat-cmux-next fills the cache every pull request can read. A pull request builds them
+  # only for a routed tier that restores them (swift test, daemon tests, generated files).
   web-bundles:
-    if: ${{ inputs.dev_daily != true && inputs.same_tree_sha == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    needs: path_route
+    if: ${{ inputs.dev_daily != true && inputs.same_tree_sha == '' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.path_route.outputs.swift == 'true' || needs.path_route.outputs.daemon == 'true' || needs.path_route.outputs.generated == 'true')) }}
     name: cmux-next web bundles (source-keyed cache)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15

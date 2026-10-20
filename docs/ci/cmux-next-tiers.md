@@ -21,7 +21,12 @@ Dispatch runs every tier on any ref of this repository (feat-cmux-next, a
 working branch cancels the older one, as a push to a pull request does, so a
 superseded run does not hold a mini in the queue. Dispatches on
 feat-cmux-next and `next-batch/*`, same-tree runs and the DEV daily keep a run
-of their own and are never cancelled.
+of their own and are never cancelled. When a dispatch's cmux-tui tree is still
+building, its tree jobs start once the tree publishes, as for a push; the
+marker records the run as a dispatch, so that same-tree run also runs
+`cmux-next daemon tests` (a push's skips them). `cmux-next web bundles` runs on
+a pull request only when a tier that restores them (swift, daemon, generated)
+is routed.
 
 | Tier | Check (job) | Runs when the PR changes | Runner |
 | --- | --- | --- | --- |
@@ -231,6 +236,6 @@ or by their run. A newer push to the pull request cancels its older run. What
 a pull request can wait behind is runner capacity, and `macos-placement`
 decides that: an idle mini first, then Blacksmith for the fast tier, the canary
 and the scheme compile (`docs/ci/mac-fleet.md`). The tip's Release compile has
-its own reserved runner (`vars.CI_NEXT_PROMOTE_POOL`), so pull request jobs do
-not delay nightly-next promotion. This workflow sets no runner variable or
+its own reserved runner while `vars.CI_NEXT_PROMOTE_POOL` is set, so pull
+request jobs do not delay nightly-next promotion. This workflow sets no runner variable or
 capacity.
