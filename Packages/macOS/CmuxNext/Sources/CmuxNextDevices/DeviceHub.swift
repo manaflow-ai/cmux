@@ -218,7 +218,9 @@ public final class DeviceHub {
     }
 
     public func refreshAudit(limit: Int = 100) async {
-        await load { try await $0.audit(limit: limit) } into: { hub, value in hub.audit = value }
+        // This device's History: sessions where it is the viewer or the host.
+        let device = thisDevice?.id
+        await load { try await $0.audit(limit: limit, device: device) } into: { hub, value in hub.audit = value }
     }
 
     private func load<Value: Sendable>(_ fetch: @Sendable (DeviceHubClient) async throws -> Value,

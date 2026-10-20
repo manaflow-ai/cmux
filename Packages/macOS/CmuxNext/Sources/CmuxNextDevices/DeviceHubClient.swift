@@ -201,12 +201,15 @@ public actor DeviceHubClient {
         _ = try await call("DELETE", "/v1/relays/\(segment(id))", as: Empty.self)
     }
 
-    /// Audit entries, newest first: at most `limit` (1-200), older than `before` (an entry's `ts`).
+    /// Audit entries, newest first: at most `limit` (1-200), older than `before` (an entry's `ts`),
+    /// only those naming `device` as viewer or host when it is given.
     public func audit(limit: Int? = nil, before: Date? = nil, device: String? = nil) async throws -> [AuditEntry] {
         struct Answer: Decodable { var entries: [AuditEntry] }
         var query: [URLQueryItem] = []
         if let limit { query.append(URLQueryItem(name: "limit", value: String(limit))) }
         if let before { query.append(URLQueryItem(name: "before", value: String(Int64((before.timeIntervalSince1970 * 1000).rounded())))) }
+        // One device's entries (it is the viewer or the host).
+        if let device { query.append(URLQueryItem(name: "device", value: device)) }
         return try await call("GET", "/v1/audit", query: query, as: Answer.self).entries
     }
 
