@@ -10,7 +10,10 @@
 //!
 //! A folder the app made for a new chat (agent-home, `made_by_cmux`) is
 //! trusted by construction when acpmux has no record for it: nobody is asked.
-//! This one rule serves `get` and the trust gate (`session_level`) alike.
+//! A folder under the person's project roots, or in a repository whose remotes are all the
+//! person's own organizations, is trusted the same way (`trust_auto.rs`, switchable in Settings);
+//! an explicit "Don't trust" or an agent's own untrusted level still wins.
+//! These rules serve `get` and the trust gate (`session_level`) alike.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -163,16 +166,25 @@ pub fn get(paths: &Paths, cwd: &str) -> Result<Value, Failure> {
         codex_level(&std::fs::read_to_string(&paths.codex_config).unwrap_or_default(), &cwd);
     let decided = read_record(&paths.record)?.get(&cwd).and_then(|level| Level::parse(level));
     let agent_home = paths.agent_home.as_deref().is_some_and(|root| made_by_cmux(root, &cwd));
-    // acpmux's own decision answers first; then a folder cmux made for a chat (trusted by
-    // construction); then the stricter of the agents' levels.
-    let level =
-        decided.unwrap_or_else(|| if agent_home { Level::Trusted } else { claude.stricter(codex) });
+    // The person's own folders (project roots, own organizations) need no question, unless an
+    // agent already holds the folder as untrusted: the rule widens an unknown, never a refusal.
+    let auto = (decided.is_none() && !agent_home && claude.stricter(codex) != Level::Untrusted)
+        .then(|| crate::trust_auto::AutoTrust::current().reason(&cwd))
+        .flatten();
+    // acpmux's own decision answers first; then a folder cmux made for a chat or one of the
+    // person's own (trusted by construction); then the stricter of the agents' levels.
+    let level = decided.unwrap_or_else(|| {
+        if agent_home || auto.is_some() { Level::Trusted } else { claude.stricter(codex) }
+    });
     Ok(json!({
         "cwd": cwd,
         "level": level.as_str(),
         "harnesses": {"claude": claude.as_str(), "codex": codex.as_str()},
-        // acpmux answered (its record, or its agent-home rule): `level` holds for every agent.
-        "decided": decided.is_some() || agent_home,
+        // acpmux answered (its record, its agent-home rule, or an auto-trust rule): `level`
+        // holds for every agent.
+        "decided": decided.is_some() || agent_home || auto.is_some(),
+        // Why no question was asked (`root` or `org`); absent otherwise.
+        "auto": auto.as_ref().map(crate::trust_auto::Reason::label),
     }))
 }
 

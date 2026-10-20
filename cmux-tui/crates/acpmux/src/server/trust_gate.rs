@@ -239,6 +239,10 @@ pub(super) async fn answer(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?;
+    if setting && reply.is_ok() {
+        // A sub-session start waiting on this folder's card goes on (`hub/trust_wait.rs`).
+        hub.trust_changed();
+    }
     reply.map_err(|failure| match failure {
         crate::trust::Failure::Invalid(message) => RpcError::invalid_params(message),
         crate::trust::Failure::Record(message) => RpcError::internal(message),
