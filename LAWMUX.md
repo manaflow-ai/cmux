@@ -74,6 +74,20 @@ cd lawmux
 更新するときは `git pull`（または `scripts/lawmux-sync-upstream.sh`）のあと、同じコマンドを
 もう一度実行してください。起動中の lawmux があれば先に終了します。
 
+ビルド時間を抑えるため、既定では **この Mac のアーキテクチャだけ**（M シリーズなら arm64）を
+**差分コンパイル**でビルドします。本家の Release は Universal（arm64 + x86_64）かつ
+Whole Module Optimization で、アプリ本体が 2,700 ファイル超の 1 モジュールなので、
+そのままだと 1 行の変更でも 10 分以上かかります。
+
+| 環境変数 | 効果 | 使いどころ |
+| --- | --- | --- |
+| `LAWMUX_UNIVERSAL=1` | x86_64 も含めた Universal バイナリにする | Intel Mac にも配りたいとき |
+| `LAWMUX_WMO=1` | 本家と同じ Whole Module Optimization にする | 改造が落ち着いて安定版を作るとき |
+
+どちらも切り替えた直後の 1 回はキャッシュが使えず、フルビルドになります。
+DerivedData は `~/Library/Developer/Xcode/DerivedData/lawmux-release` に置かれ、
+`LAWMUX_DERIVED_DATA` で変更できます。
+
 ### 開発用（Debug）ビルド
 
 本家の開発フローをそのまま使えます。タグ付きビルドは Bundle ID が

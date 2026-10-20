@@ -42,7 +42,32 @@ fi
 DERIVED_DATA="${LAWMUX_DERIVED_DATA:-${HOME}/Library/Developer/Xcode/DerivedData/lawmux-release}"
 PRODUCTS="$DERIVED_DATA/Build/Products/Release"
 
-echo "==> Building Release into $DERIVED_DATA"
+# Build settings lawmux overrides on the command line (upstream's project stays
+# untouched). Changing either knob invalidates the Swift build cache, so the
+# first build after a switch is a full one.
+#
+#   LAWMUX_UNIVERSAL=1  also build x86_64 (default: the current arch only;
+#                       the Rust/Go sidecars read ARCHS as well)
+#   LAWMUX_WMO=1        whole-module optimization like upstream's release
+#                       (default: incremental, so small edits rebuild fast)
+BUILD_SETTINGS=(
+  CODE_SIGN_ENTITLEMENTS=
+  CMUX_CUA_HELPER_DISPLAY_NAME="lawmux Computer Use"
+)
+if [[ "${LAWMUX_UNIVERSAL:-0}" == 1 ]]; then
+  ARCH_NOTE="universal (arm64 + x86_64)"
+else
+  BUILD_SETTINGS+=(ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES)
+  ARCH_NOTE="$(uname -m) only"
+fi
+if [[ "${LAWMUX_WMO:-0}" == 1 ]]; then
+  MODE_NOTE="whole-module"
+else
+  BUILD_SETTINGS+=(SWIFT_COMPILATION_MODE=incremental)
+  MODE_NOTE="incremental"
+fi
+
+echo "==> Building Release into $DERIVED_DATA ($ARCH_NOTE, $MODE_NOTE Swift compilation)"
 # CODE_SIGN_ENTITLEMENTS= mirrors upstream's Release dev builds: the entitlements
 # file needs a provisioning profile that an ad-hoc build does not have.
 xcodebuild \
@@ -51,8 +76,7 @@ xcodebuild \
   -configuration Release \
   -destination 'platform=macOS' \
   -derivedDataPath "$DERIVED_DATA" \
-  CODE_SIGN_ENTITLEMENTS= \
-  CMUX_CUA_HELPER_DISPLAY_NAME="lawmux Computer Use" \
+  "${BUILD_SETTINGS[@]}" \
   build
 
 echo "==> Renaming cmux.app to lawmux.app"
