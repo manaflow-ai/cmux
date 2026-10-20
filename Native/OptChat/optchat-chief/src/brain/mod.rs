@@ -26,6 +26,7 @@ mod children;
 mod control;
 mod drafts;
 mod engine_control;
+pub mod files;
 mod image_fit;
 pub mod images;
 mod inbox;
@@ -412,7 +413,10 @@ impl Queued {
             } | Source::Resume {
                 requires_approval: true,
                 ..
-            }
+            } | Source::Spawn(crate::state::SpawnRef {
+                requires_approval: true,
+                ..
+            })
         )
     }
 }
