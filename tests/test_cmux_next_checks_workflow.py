@@ -1167,7 +1167,13 @@ class FastTierStartsWarm(unittest.TestCase):
                 self.assertIn("github.repository == 'manaflow-ai/cmux'", job.get("if", ""))
                 self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", job.get("if", ""))
                 self.assertEqual(job.get("environment"), NEXT_WRITER)
-        self.assertFalse(seed.get("concurrency", {}).get("cancel-in-progress", True),
+        # One lane per pool, not one for the workflow: seed run 39396578253 sat queued on
+        # blacksmith-12vcpu-macos-26 from 08:53 to past 20:50 on 2026-10-20 while holding the
+        # workflow's group, so the next 299 pushes' seeds were cancelled pending and none landed.
+        self.assertNotIn("concurrency", seed, "a stalled pool never holds another pool's seed")
+        lane = seed["jobs"]["seed"]["concurrency"]
+        self.assertIn("matrix.pool", lane["group"])
+        self.assertFalse(lane.get("cancel-in-progress", True),
                          "a running seed finishes; a newer push only replaces the pending one")
 
     def test_seed_saves_what_the_fast_tier_restores(self):
@@ -1191,13 +1197,23 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertNotIn("setup-cmux-tui-rust", yaml.safe_dump(build), "nothing restores a Mac cargo seed")
         self.assertLess(tier, steps.index(saves[0]))
         self.assertIn(FAST_CACHE_MANIFEST, steps[record]["run"])
+        # The seed runs once per pool the fast tier lands on, from the due job's matrix:
+        # the key holds the workspace path, so a Blacksmith seed (/Users/runner/_work) never
+        # warms a hosted macos-26 fast tier (/Users/runner/work). Every PR fast tier sampled
+        # on 2026-10-20 ran hosted and built CmuxNext cold (20 to 28 minutes).
+        self.assertEqual(build["strategy"]["matrix"], {"include": "${{ fromJSON(needs.due.outputs.pools) }}"})
+        self.assertIs(build["strategy"].get("fail-fast"), False)
+        self.assertIn("matrix.runner", str(build["runs-on"]))
+        self.assertIn("needs.due.outputs.pools != '[]'", build.get("if", ""))
+        guard = steps[index_of(steps, lambda s: "matrix.workspace" in json.dumps(s))]
+        self.assertLess(steps.index(guard), steps.index(saves[0]), "a seed whose workspace is not its pool's never saves")
+        pools = {p["pool"]: p for p in json.loads(self.seed()["jobs"]["due"]["env"]["SEED_POOLS"])}
         # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
-        # cascade fills it first, so a seed pinned there sat queued (run
-        # 39351410275, 85+ minutes) while its concurrency group held every later
-        # feat-cmux-next push, and no seed ever landed.
-        self.assertIn("'blacksmith-6vcpu-macos-26'", str(build["runs-on"]))
-        self.assertNotIn("12vcpu", str(build["runs-on"]))
-        self.assertIn("needs.due.outputs.due == 'true'", build.get("if", ""))
+        # cascade fills it first, so a seed pinned there sat queued (run 39351410275).
+        self.assertEqual(pools["blacksmith"]["runner"], "blacksmith-6vcpu-macos-26")
+        self.assertEqual(pools["hosted"]["runner"], "macos-26", "next_macos_cascade.py HOSTED")
+        self.assertEqual(pools["hosted"]["workspace"], "/Users/runner/work/cmux/cmux")
+        self.assertEqual(pools["blacksmith"]["workspace"], "/Users/runner/_work/cmux/cmux")
 
     def test_seed_key_matches_the_fast_tier_key_for_one_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1274,6 +1290,36 @@ class FastTierStartsWarm(unittest.TestCase):
                          "the swift archive is written last; only it marks a finished seed")
         self.assertEqual(due([{"key": "v1/macOS-ARM64/latest/cmux-next-fast-v3-swift-", "last_modified": "2026-10-19T21:59:00.000Z"}]),
                          "due=true", "pointers are not archives")
+
+    def test_each_pool_is_due_on_its_own_seeds(self):
+        """A fresh Blacksmith seed does not make the hosted pool's seed fresh: their keys differ."""
+        import hashlib
+        place = lambda path: hashlib.sha256(path.encode()).hexdigest()[:12]
+        hosted, blacksmith = "/Users/runner/work/cmux/cmux", "/Users/runner/_work/cmux/cmux"
+        pools = [{"pool": "hosted", "runner": "macos-26", "workspace": hosted},
+                 {"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": blacksmith}]
+        swift = lambda modified, path: {
+            "key": f"v1/macOS-ARM64/objects/cmux-next-fast-v3-swift-macOS-ARM64-0123456789abcdef-fedcba9876543210-{place(path)}-abc.tar.zst",
+            "last_modified": modified}
+
+        def due(objects: list[dict]) -> list[str]:
+            with tempfile.TemporaryDirectory() as tmp:
+                listing = Path(tmp) / "objects.json"
+                listing.write_text(json.dumps(objects))
+                out = subprocess.run([sys.executable, "-I", str(SEED_DUE_SCRIPT), "--minutes", "30", "--now", "2026-10-19T22:00:00Z",
+                                      "--listing", str(listing), "--pools", json.dumps(pools)],
+                                     check=True, capture_output=True, text=True).stdout.strip()
+            self.assertTrue(out.startswith("pools="), out)
+            chosen = json.loads(out.removeprefix("pools="))
+            for entry in chosen:
+                self.assertIn(entry, pools, "a due pool keeps its runner and workspace")
+            return [entry["pool"] for entry in chosen]
+
+        self.assertEqual(due([]), ["hosted", "blacksmith"])
+        self.assertEqual(due([swift("2026-10-19T21:50:00Z", blacksmith)]), ["hosted"])
+        self.assertEqual(due([swift("2026-10-19T21:50:00Z", hosted)]), ["blacksmith"])
+        self.assertEqual(due([swift("2026-10-19T21:50:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), [])
+        self.assertEqual(due([swift("2026-10-19T21:00:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), ["hosted"])
 
     def test_receipt_names_the_seed_a_prefix_restore_picked(self):
         with tempfile.TemporaryDirectory() as tmp:
