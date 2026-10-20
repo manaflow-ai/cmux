@@ -5,6 +5,7 @@ public enum ClassicSessionImportError: Error, LocalizedError, Equatable, Sendabl
     case snapshotTooLarge(actualBytes: Int, maximumBytes: Int)
     /// The file is JSON but not a session object (a damaged or foreign file).
     case notASnapshot
+    case snapshotTooComplex
 
     public var errorDescription: String? {
         switch self {
@@ -12,6 +13,8 @@ public enum ClassicSessionImportError: Error, LocalizedError, Equatable, Sendabl
             "The classic cmux session snapshot is too large to read."
         case .notASnapshot:
             "The classic cmux session file is not a session snapshot."
+        case .snapshotTooComplex:
+            "The classic cmux session snapshot has too much saved state to import safely."
         }
     }
 }
@@ -25,6 +28,20 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// of 128 workspaces) passes 64 MB at about 150 full terminals, so the
     /// cap sits far above what classic writes in practice.
     public static let maximumSnapshotBytes = 512 * 1024 * 1024
+    static let maximumWindows = 64
+    static let maximumWorkspaces = 1_000
+    static let maximumPanelsPerWorkspace = 256
+    static let maximumTotalPanels = 4_096
+    static let maximumLayoutDepth = 64
+    static let maximumLayoutNodes = 8_192
+    static let maximumJSONNodes = 100_000
+    static let maximumEncodedJSONTokens = 200_000
+    static let maximumJSONDepth = 128
+    static let maximumMetadataStringBytes = 64 * 1024
+    static let maximumEncodedStringBytes = 4 * 1024 * 1024
+    static let maximumTotalEncodedStringBytes = 160 * 1024 * 1024
+    static let maximumScrollbackBytes = 4 * 1024 * 1024
+    static let maximumTotalScrollbackBytes = 128 * 1024 * 1024
     public let fileURL: URL
 
     public init(fileURL: URL? = nil, fileManager: FileManager? = nil) {
@@ -90,14 +107,7 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     }
 
     private func readData() throws -> Data? {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
-        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
-        if let size = (attributes[.size] as? NSNumber)?.intValue,
-           size > Self.maximumSnapshotBytes {
-            throw ClassicSessionImportError.snapshotTooLarge(actualBytes: size, maximumBytes: Self.maximumSnapshotBytes)
-        }
-        // concurrency-allow: callers hop to a detached utility task; the synchronous API stays fixture-testable.
-        return try Data(contentsOf: fileURL, options: [.mappedIfSafe])
+        try Self.readData(at: fileURL, maximumBytes: Self.maximumSnapshotBytes)
     }
 
     /// The whole saved session, window by window; nil when classic has no snapshot.
@@ -130,10 +140,11 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// crashed, was force quit or the Mac lost power. A quit save's own
     /// scrollback always wins, as in classic's restore.
     public func decodeSnapshot(_ data: Data, checkpoints: URL?) throws -> ClassicSessionSnapshot {
+        try Self.validateEncodedJSON(data, maximumBytes: Self.maximumSnapshotBytes)
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ClassicSessionImportError.notASnapshot
         }
-        return decodeSnapshot(root, checkpoints: checkpoints)
+        return try decodeSnapshot(root, checkpoints: checkpoints)
     }
 
     /// Decodes the snapshot with its windows, groups, and each workspace's
@@ -142,18 +153,34 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         try decodeSnapshot(data, checkpoints: nil)
     }
 
-    private func decodeSnapshot(_ root: [String: Any], checkpoints: URL?) -> ClassicSessionSnapshot {
+    private func decodeSnapshot(_ root: [String: Any], checkpoints: URL?) throws -> ClassicSessionSnapshot {
         let windows = (root["windows"] as? [[String: Any]]) ?? []
+        guard windows.count <= Self.maximumWindows else { throw ClassicSessionImportError.snapshotTooComplex }
         let managers = windows.map { window in
             window["tabManager"] as? [String: Any] ?? window["tab_manager"] as? [String: Any] ?? [:]
         }
         let perWindow = managers.map { ($0["workspaces"] as? [[String: Any]]) ?? [] }
+        let workspaces = perWindow.flatMap { $0 }
+        guard workspaces.count <= Self.maximumWorkspaces else { throw ClassicSessionImportError.snapshotTooComplex }
+        var budget = DecodeBudget()
+        try Self.validateJSON(root, budget: &budget)
+        for workspace in workspaces { try Self.validate(workspace, budget: &budget) }
         // Classic merges checkpoints only after an unclean exit, whose last
         // save is an autosave: one without any scrollback.
-        let saved = Self.carriesScrollback(perWindow.flatMap { $0 })
+        let saved = Self.carriesScrollback(workspaces)
+        var checkpointBytes = 0
         let scrollback: (String) -> String? = { panel in
-            guard !saved, let checkpoints else { return nil }
-            return Self.checkpoint(panel, in: checkpoints)
+            let remaining = Self.maximumTotalScrollbackBytes - checkpointBytes
+            guard !saved, let checkpoints, remaining > 0,
+                  let text = Self.checkpoint(
+                      panel,
+                      in: checkpoints,
+                      maximumBytes: min(Self.maximumScrollbackBytes, remaining)
+                  ) else { return nil }
+            let bytes = text.utf8.count
+            guard bytes <= remaining else { return nil }
+            checkpointBytes += bytes
+            return text
         }
         var names = Self.names(perWindow.flatMap { $0 }.map(Self.clues))[...]
         let decoded = zip(windows, zip(managers, perWindow)).map { window, pair in
@@ -222,13 +249,27 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// The scrollback classic's checkpoint holds for `panel`
     /// (`<folder>/<PANEL UUID>.json`, `{panelId, scrollback, ...}`); nil
     /// when there is none or it records another panel.
-    private static func checkpoint(_ panel: String, in folder: URL) -> String? {
+    private static func checkpoint(_ panel: String, in folder: URL, maximumBytes: Int) -> String? {
         let name = panel.uppercased()
         // Panel ids are UUIDs; anything else is not a file name to read.
         guard UUID(uuidString: name) != nil else { return nil }
         // concurrency-allow: called from readSnapshot, which callers run on a detached utility task.
-        guard let data = FileManager.default.contents(atPath: folder.appendingPathComponent("\(name).json").path),
-              let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        let loaded: Data?
+        do {
+            loaded = try readData(
+                at: folder.appendingPathComponent("\(name).json"),
+                maximumBytes: maximumBytes
+            )
+        } catch {
+            return nil
+        }
+        guard let data = loaded else { return nil }
+        do {
+            try validateEncodedJSON(data, maximumBytes: maximumBytes)
+        } catch {
+            return nil
+        }
+        guard let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               (record["panelId"] as? String)?.uppercased() == name,
               let text = record["scrollback"] as? String, !text.isEmpty else { return nil }
         return text
