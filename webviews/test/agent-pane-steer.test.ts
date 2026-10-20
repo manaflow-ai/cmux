@@ -1,9 +1,12 @@
 // Queue and steer while a turn runs, in the real agent pane (cx-xtg0.3). The page is the pane's dev
 // entry (vite.config.acpmux-pane.mjs) with its browser host, talking JSON-RPC over a WebSocket to a
 // stand-in acpmux daemon whose one chat has a turn running, and which answers prompts as acpmux
-// does: a plain prompt waits behind the turn (`queued`), a steer goes into it (`user_message`).
+// does: a prompt with `_meta.acpmux.queue` waits behind the turn (`queued`), a steer goes into it
+// (`user_message`), and a plain prompt stops the turn and runs next (acpmux's default since
+// 2026-10-20).
 //
-// - Enter queues: the queue row shows the prompt and the composer is free for the next one. The
+// - Enter queues, so it sends `_meta.acpmux.queue` (the composer keeps its keys; acpmux's default
+//   changed): the queue row shows the prompt and the composer is free for the next one. The
 //   prompt shows there from the send on, never first as a transcript bubble.
 // - ⌘Enter steers, and an agent that cannot steer is told to stop the turn and run it next
 //   (`_meta.acpmux.interrupt`); the button says so.
@@ -233,8 +236,9 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         rows: await page.locator(".acpmux-queued").count(),
         composer: (await composerText(page)).trim(),
         steers: prompts.filter((p) => p._meta?.acpmux?.steer).length,
+        queued: prompts.filter((p) => p._meta?.acpmux?.queue === true).length,
         sent: prompts.length,
-      }).toEqual({ rows: 2, composer: "", steers: 0, sent: 2 });
+      }).toEqual({ rows: 2, composer: "", steers: 0, queued: 2, sent: 2 });
       await page.close();
     });
 
