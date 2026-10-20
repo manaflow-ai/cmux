@@ -36,8 +36,17 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// The name the sidebar row shows for a workspace named `name` (titled
     /// `title`) whose front tab is `front`; nil keeps the workspace's own
     /// name. Both variants show it.
-    public func label(name: String, title: String?, front: Front?) -> String? {
+    ///
+    /// `anchor` is the workspace's own work tab (an agent chat, else a
+    /// terminal) when it has one. A browser page opened beside it (an agent
+    /// showing its PR in a split) never renames the workspace: the anchor
+    /// keeps naming it, so the row does not flip to whatever page is focused.
+    public func label(name: String, title: String?, front: Front?, anchor: Front? = nil) -> String? {
         guard enabled, !Self.isUserNamed(name: name, title: title), let front else { return nil }
+        if case .browser = front, let anchor {
+            if case .browser = anchor { return Self.derived(front) }
+            return Self.derived(anchor)
+        }
         return Self.derived(front)
     }
 
