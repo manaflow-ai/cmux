@@ -1,5 +1,8 @@
 import CnxTransport
 import Foundation
+import os
+
+private let log = Logger(subsystem: "dev.cmux.cnx", category: "browser-stream")
 
 /// Streamed browser tabs while the app is linked to a Mac: one model per tab
 /// key, kept while the tab exists so the page and its history stay on the
@@ -64,7 +67,11 @@ public final class StreamedBrowserDirectory {
     /// keeps going under the real id (it opened under the placeholder's, and
     /// a redial must reopen this page, not the real tab's blank one).
     public func rename(tab old: String, to new: String) {
-        guard old != new, let model = models.removeValue(forKey: old) else { return }
+        guard old != new, let model = models.removeValue(forKey: old) else {
+            log.notice("browser rename \(old, privacy: .public) -> \(new, privacy: .public): no model")
+            return
+        }
+        log.notice("browser rename \(old, privacy: .public) -> \(new, privacy: .public)")
         models.removeValue(forKey: new)?.close()
         model.retab(new)
         models[new] = model

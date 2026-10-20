@@ -190,6 +190,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         // A page the Mac stopped starts again where it was, not at its first address.
         // (A cnx-hostd restart stops every host too: the page comes back where it was.)
         let url = url.flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
+        log.notice("browser \(tab, privacy: .public): open at \(url?.absoluteString ?? "-", privacy: .public)")
         // task-owner: one dial per connect; the result lands on the main actor
         Task { [weak self] in
             do {
