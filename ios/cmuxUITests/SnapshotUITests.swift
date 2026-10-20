@@ -272,7 +272,10 @@ final class AgentChatModeUITests: XCTestCase {
         let stopTurn = app.buttons["Stop turn"]
         XCTAssertTrue(stopTurn.waitForExistence(timeout: 5), "Stop agent menu should expose a polite stop")
         stopTurn.tap()
-        XCTAssertTrue(app.buttons["Send"].waitForExistence(timeout: 8), "Interrupt should return the composer to idle send mode")
+        XCTAssertTrue(
+            app.buttons["MobileAgentComposerSend"].waitForExistence(timeout: 8),
+            "Interrupt should return the composer to idle send mode"
+        )
         XCTAssertTrue(reveal(queuedPrompt, in: app), "Queued follow-up must survive interrupt delivery")
         XCTAssertTrue(app.staticTexts["I received the instruction and finished this preview turn."].waitForExistence(timeout: 8))
         keepScreenshot(app, named: "agent-codex-interrupted-followup")

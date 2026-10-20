@@ -2338,6 +2338,7 @@ private struct AgentChatComposer: View {
                         .foregroundStyle(canSend ? Color.primary : Color.secondary)
                         .disabled(!canSend)
                         .accessibilityLabel(AgentChatStrings.send)
+                        .accessibilityIdentifier("MobileAgentComposerSend")
                     }
                 }
             }
