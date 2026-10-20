@@ -442,7 +442,8 @@ final class TopHomePageView: NSView {
                 _ = registry.perform("home.leaveConversation",
                                      invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
             },
-            inviteByEmail: { [weak self] in self?.presentInvite(prefill: "") }))
+            inviteByEmail: { [weak self] in self?.presentInvite(prefill: "") },
+            setChiefReplies: { await actions.setChiefReplies($0, id) }))
         let sheet = HomeGroupInfoSheet(model: model, colors: performWithTheme { HomeGroupInfoColors.resolve() })
         // task-owner: lives while the sheet shows; event-driven (Observation): members, name and mute as the owner says
         let watch = Task { [weak sheet] in
