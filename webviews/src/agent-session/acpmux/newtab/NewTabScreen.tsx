@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
@@ -29,6 +29,7 @@ import {
   shortHost,
   stepSelection,
   type CreateKind,
+  type ScreenMode,
   type ScreenRow,
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
@@ -147,12 +148,16 @@ export function NewTabScreen(props: Props) {
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
-  // The highlighted row; -1 is none (Enter is the prompt's).
-  const [selected, setSelected] = useState<number | undefined>(undefined);
+  // The highlighted row, by its rowKey (NO_ROW: none, so Enter is the prompt's). A key, not an
+  // index: an arrow pressed while a Search | Ask switch is still rendering picks from the rows on
+  // screen, and the pick must stay on that row when the switch reorders them.
+  const [selected, setSelected] = useState<string | undefined>(undefined);
   // Whether the highlight was moved by the keyboard (Down, Up, Tab): only then does Tab step it.
   const [keyboardPick, setKeyboardPick] = useState(false);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
+  /// Which row a prompt's Return takes (Leo 2026-10-18): Ask the agent, or Search the web. Tab flips it.
+  const [mode, setMode] = useState<ScreenMode>("ask");
   const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
@@ -258,12 +263,18 @@ export function NewTabScreen(props: Props) {
     [props.onCreate, harness],
   );
   const suggested = useMemo(
-    () => (touched && !shell ? screenRows(text, { omnibar, home, create: creates, ...(ask ? { ask } : {}) }) : []),
-    [touched, shell, text, omnibar, home, ask, creates],
+    () =>
+      touched && !shell ? screenRows(text, { omnibar, home, mode, create: creates, ...(ask ? { ask } : {}) }) : [],
+    [touched, shell, text, omnibar, home, ask, mode, creates],
   );
   const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
-  const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
+  const current =
+    selected === undefined ? defaultSelection(rows, mode) : rows.findIndex((row) => rowKey(row) === selected);
+  const pick = (index: number) => {
+    const row = rows[index];
+    setSelected(row ? rowKey(row) : NO_ROW);
+  };
   const t = useT();
   const chrome = useComposerChrome();
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -431,7 +442,17 @@ export function NewTabScreen(props: Props) {
   };
   const submit = () => {
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
-    const row = rows.length ? rows[current] : suggested[defaultSelection(suggested)];
+    // A switch whose rows have not rendered yet: Return takes the new mode's row.
+    // An untouched location has no rows in either mode, so a switch changes nothing there.
+    const switched = touched && liveMode.current !== mode && !shell && !steppedSinceSwitch.current;
+    const fresh = switched
+      ? screenRows(text, { omnibar, home, mode: liveMode.current, create: creates, ...(ask ? { ask } : {}) })
+      : [];
+    const row = switched
+      ? fresh[defaultSelection(fresh, liveMode.current)]
+      : rows.length
+        ? rows[current]
+        : suggested[defaultSelection(suggested, mode)];
     if (row) return activate(row);
     const prompt = text.trim();
     if (!prompt || isAddress(prompt, home)) return;
@@ -533,6 +554,28 @@ export function NewTabScreen(props: Props) {
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   };
+  // Search | Ask: the highlight goes back to the row Return takes in the new mode. The switch's
+  // thumb moves first, straight on the element (a compositor-only transform), and the rows follow
+  // as a transition: under CPU load the thumb never waits for the rows' render (Leo 2026-10-18).
+  const modeSwitch = useRef<HTMLSpanElement>(null);
+  // The mode the keys act on before the transition commits (Tab twice, or Tab then Return, fast).
+  // chooseMode is the only writer of both, so this is never behind `mode`.
+  const liveMode = useRef(mode);
+  // An arrow after a switch picks from the rows on screen, even before the switch's rows render.
+  const steppedSinceSwitch = useRef(false);
+  const chooseMode = (next: ScreenMode) => {
+    touch();
+    liveMode.current = next;
+    steppedSinceSwitch.current = false;
+    modeSwitch.current?.setAttribute("data-mode", next);
+    startTransition(() => {
+      setMode(next);
+      setSelected(undefined);
+      // The highlight goes back to the lead row, so the next Tab is the switch's again.
+      setKeyboardPick(false);
+    });
+  };
+  const placeholder = mode === "search" ? nt("searchPlaceholder") : nt("placeholder");
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     touch();
     if (composing.current || event.nativeEvent.isComposing) return;
@@ -563,17 +606,23 @@ export function NewTabScreen(props: Props) {
       return;
     }
     if (event.key === "Tab" && plain && keyboardPick && current >= 0 && current < rows.length) {
-      // Tab advances a highlight the keyboard already moved; Enter still performs the action.
-      // Otherwise Tab is the browser's, so it moves focus on to Send.
+      // Tab advances a highlight the keyboard already moved, as in Chrome's omnibox; Enter still
+      // performs the action.
       event.preventDefault();
-      setSelected(stepSelection(current, 1, rows.length));
+      pick(stepSelection(current, 1, rows.length));
       return;
     }
     const step = listStep(event);
-    if (step && rows.length) {
+    if (event.key === "Tab" && plain) {
+      // Otherwise Tab flips Search | Ask in place, as the switch's hint says; the field keeps focus.
+      // Shift-Tab still moves focus, so the keyboard can leave the field.
       event.preventDefault();
+      chooseMode(liveMode.current === "ask" ? "search" : "ask");
+    } else if (step && rows.length) {
+      event.preventDefault();
+      steppedSinceSwitch.current = true;
       setKeyboardPick(true);
-      setSelected(stepSelection(current, step, rows.length));
+      pick(stepSelection(current, step, rows.length));
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();
@@ -670,10 +719,11 @@ export function NewTabScreen(props: Props) {
               className="nt-field"
               rows={1}
               data-focus-ring="none"
-              aria-label={shell ? t("composer.shell") : nt("placeholder")}
-              placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
+              aria-label={shell ? t("composer.shell") : placeholder}
+              placeholder={shell ? t("composer.shellPlaceholder") : placeholder}
               value={text}
               aria-controls="nt-rows"
+              aria-describedby={shell ? undefined : "nt-mode-hint"}
               aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
               spellCheck={!shell}
               autoCapitalize="off"
@@ -688,6 +738,35 @@ export function NewTabScreen(props: Props) {
                 composing.current = false;
               }}
             />
+            {!shell && (
+              // Search | Ask (Leo 2026-10-18): which row Return takes. The field's row keeps the focus
+              // in the field on a press (focusFromRow), so a click here never takes the caret away.
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              <span ref={modeSwitch} className="nt-mode" role="group" aria-label={nt("mode.label")} data-mode={mode}>
+                {/* The field's description, so a screen reader hears the key too. */}
+                <span id="nt-mode-hint" className="nt-mode-hint">
+                  {nt("mode.hint")}
+                </span>
+                {/* The mode a Tab switched to, said aloud: the field keeps focus, so the pressed button is not. */}
+                <output className="nt-mode-status" aria-live="polite">
+                  {nt(mode === "search" ? "mode.search" : "mode.ask")}
+                </output>
+                <span className="nt-mode-track">
+                  <span className="nt-mode-thumb" aria-hidden="true" />
+                  <button
+                    type="button"
+                    data-mode="search"
+                    aria-pressed={mode === "search"}
+                    onClick={() => chooseMode("search")}
+                  >
+                    {nt("mode.search")}
+                  </button>
+                  <button type="button" data-mode="ask" aria-pressed={mode === "ask"} onClick={() => chooseMode("ask")}>
+                    {nt("mode.ask")}
+                  </button>
+                </span>
+              </span>
+            )}
           </div>
           {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
             this page draws no context ring. */}
@@ -742,7 +821,9 @@ export function NewTabScreen(props: Props) {
                 onMouseMove={() => {
                   if (index === current) return;
                   setKeyboardPick(false);
-                  setSelected(index);
+                  // A row the pointer picked during a switch is the one Return takes.
+                  steppedSinceSwitch.current = true;
+                  pick(index);
                 }}
                 onMouseDown={(event) => {
                   event.preventDefault();
@@ -871,6 +952,9 @@ function ownsKeys(element: Element): boolean {
   if ((element as HTMLElement).isContentEditable || element.closest("input, textarea, select")) return true;
   return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
 }
+
+/// A selection that matches no row's key.
+const NO_ROW = "";
 
 function rowKey(row: ScreenRow): string {
   switch (row.type) {

@@ -207,6 +207,26 @@ public final class MessagesLabHomeView: NSView {
     /// entry point aimed at Home (never for automation).
     public func focusPrimaryInputForTyping() { controller.focusComposeForTyping() }
 
+    /// Whether a plain Up or Down arrow from `responder`, while Home has the
+    /// keyboard, recalls sent messages in the message box: not from a text
+    /// input (it moves its own caret) and not from a transcript text selection.
+    /// The box itself answers false: its own key handling recalls there.
+    /// - Parameter responder: The window's first responder now.
+    /// - Returns: True when the host should call ``recallPrimaryInputHistory(older:)``.
+    public func primaryInputHistoryTakesArrowKeys(from responder: NSResponder?) -> Bool {
+        controller.historyTakesArrowKeys(from: responder)
+    }
+
+    /// Up (`older`) or Down from outside the message box: the box takes the
+    /// keyboard, and Up shows the newest sent message (each further Up an
+    /// older one; Down steps back toward the draft, which is kept).
+    /// - Parameter older: True for Up, false for Down.
+    /// - Returns: True when the box took the key.
+    @discardableResult
+    public func recallPrimaryInputHistory(older: Bool) -> Bool {
+        controller.recallHistoryFromOutside(older ? .older : .newer)
+    }
+
     /// Puts text in the field (first-run suggestions).
     public func setDraft(_ text: String) {
         guard controller.store != nil else { return }

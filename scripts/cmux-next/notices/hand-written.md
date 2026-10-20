@@ -934,6 +934,21 @@ URLhaus filter: their own terms, shipped beside them; publicsuffix.org: MPL-2.0)
 
 ---
 
+## Public Suffix List (email verification AutoFill)
+
+- **License:** Mozilla Public License 2.0 (MPL-2.0)
+- **Copyright:** The Public Suffix List contributors (Mozilla Foundation)
+- **Source:** https://publicsuffix.org/list/public_suffix_list.dat (as of 2026-10-02)
+
+The cmux-next app bundles the list's rules, unmodified except that IDN rules
+are stored in punycode and comments are removed, as
+`PublicSuffixList.dat` in the CmuxNextBrowser resource bundle
+(`Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/PublicSuffixList.dat`).
+The file carries the MPL-2.0 notice. The full license text is at
+https://mozilla.org/MPL/2.0/; the source form is the file itself.
+
+---
+
 ## x264 (remote desktop host encoder)
 
 - **License:** GNU General Public License v2.0 or later (GPL-2.0-or-later)
