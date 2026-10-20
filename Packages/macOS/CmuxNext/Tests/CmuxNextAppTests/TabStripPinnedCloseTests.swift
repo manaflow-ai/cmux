@@ -44,10 +44,12 @@ import Testing
         let strip = model()
         strip.apply(.pin(TabID("t4"))) { TabItem(id: TabID("new"), title: "") }
         #expect(strip.orderedTabs.map(\.id) == ids("p0", "p1", "p2", "t4", "t3", "t5"))
-        #expect(strip.orderedTabs.prefix(4).allSatisfy(\.isPinned))
+        let firstFourPinned = strip.orderedTabs.prefix(4).allSatisfy { $0.isPinned }
+        #expect(firstFourPinned)
         strip.apply(.unpin(TabID("p0"))) { TabItem(id: TabID("new"), title: "") }
         #expect(strip.orderedTabs.map(\.id) == ids("p1", "p2", "t4", "p0", "t3", "t5"))
-        #expect(strip.orderedTabs.filter(\.isPinned).map(\.id) == ids("p1", "p2", "t4"))
+        let pinned = strip.orderedTabs.filter { $0.isPinned }.map { $0.id }
+        #expect(pinned == ids("p1", "p2", "t4"))
     }
 
     /// Cmd-W with `tabs.cmdWClosesPinnedTabs` on closes a pinned tab, as Chrome's Cmd-W does.
