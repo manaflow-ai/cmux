@@ -213,6 +213,7 @@ import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
+import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -268,6 +269,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
+import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
@@ -296,6 +298,7 @@ type NativeRegistry = Record<string, MeasurableRenderer>;
 type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
 type RowProps = {
   row: AcpmuxRow;
+  sessionId?: string;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
   controls?: string;
@@ -629,10 +632,13 @@ const MessageRow = memo(
 
 /// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
 const ToolActivityRow = memo(
-  function ToolActivityRow({ row }: RowProps) {
-    return <ToolRows row={row} />;
+  function ToolActivityRow({ row, sessionId }: RowProps) {
+    return <ToolRows row={row} sessionId={sessionId} />;
   },
-  (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
+  (previous, next) =>
+    previous.row.id === next.row.id &&
+    previous.row.version === next.row.version &&
+    previous.sessionId === next.sessionId,
 );
 
 /// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
@@ -804,10 +810,14 @@ const SubagentOfPillRow = memo(
 );
 /// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
-  function EditedFilesRow({ row, onOpenDiff }: RowProps) {
-    return <EditedFilesCard row={row} onOpenDiff={onOpenDiff} />;
+  function EditedFilesRow({ row, sessionId, onOpenDiff }: RowProps) {
+    return <EditedFilesCard row={row} sessionId={sessionId} onOpenDiff={onOpenDiff} />;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.sessionId === b.sessionId &&
+    a.onOpenDiff === b.onOpenDiff,
 );
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
@@ -2511,6 +2521,7 @@ export function VirtualTranscript({
                     >
                       <Component
                         row={row}
+                        sessionId={sessionId}
                         onToggleActivity={onToggleActivity}
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
@@ -4159,6 +4170,7 @@ function AcpmuxPane() {
         applyAgentTheme(theme as never);
         configureChatWidth(theme.chatWidth);
         configureCodexToolRuns(theme.codexToolRuns);
+        configureTurnActionsPlacement(theme.turnActionsPlacement);
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
@@ -6063,6 +6075,24 @@ function AcpmuxPane() {
             .catch(() => undefined),
       }
     : undefined;
+  const chiefDockEnabled = quick && experimentArm(chiefDock) === "on";
+  const quickChiefDock = chiefDockEnabled
+    ? {
+        sessions: composerSnapshot.sessions,
+        currentId: snapshot.sessionId,
+        queueCounts:
+          snapshot.sessionId && snapshot.queue.length > 0
+            ? new Map([[snapshot.sessionId, snapshot.queue.length]])
+            : undefined,
+        steeringIds:
+          snapshot.summary?.steering && snapshot.sessionId && snapshot.queue.length > 0
+            ? new Set([snapshot.sessionId])
+            : undefined,
+        onSelect: selectSession,
+        onNewChat: () => void callNative("chat.new", {}).catch(() => undefined),
+        onMoveToTab: (sessionId: string) => void callNative("chat.openTab", { sessionId }).catch(() => undefined),
+      }
+    : undefined;
   if (quick)
     return (
       <ShortcutsContext.Provider value={shortcuts}>
@@ -6077,6 +6107,7 @@ function AcpmuxPane() {
             }
             composer={composer}
             floating={quickFloating}
+            chiefDock={quickChiefDock}
           />
           {imageView && (
             <ImageViewer

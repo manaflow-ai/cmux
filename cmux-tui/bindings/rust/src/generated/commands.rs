@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512.
+// cmux-tui mux protocol 12, IR 618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2711,6 +2711,16 @@ pub struct PaneNeighborRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParkTabsRequest {
+    #[serde(alias = "tabs")]
+    pub surfaces: Vec<T::TabRef>,
+}
+
+#[rustfmt::skip]
+pub type ParkTabsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PasteImageRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub data: Optional<String>,
@@ -5042,6 +5052,10 @@ impl CmuxClient {
 
     pub fn pane_neighbor(&mut self, request: PaneNeighborRequest) -> Result<T::PaneNeighborResult> {
         self.execute(&PANE_NEIGHBOR_METADATA, &request)
+    }
+
+    pub fn park_tabs(&mut self, request: ParkTabsRequest) -> Result<ParkTabsResult> {
+        self.execute(&PARK_TABS_METADATA, &request)
     }
 
     pub fn paste_image(&mut self, request: PasteImageRequest) -> Result<PasteImageResult> {
