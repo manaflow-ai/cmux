@@ -120,7 +120,7 @@ extension CmuxTuiSurfaceProvider {
         return display.resource(on: machine, address: info.privateAddress)
     }
 
-    private func publishDisplays() {
+    fileprivate func publishDisplays() {
         let resources = displayResources
         let desiredIDs = Set(resources.map(\.id))
         for resource in catalog.snapshot.resources(on: machine)
