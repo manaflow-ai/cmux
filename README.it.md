@@ -407,7 +407,7 @@ Sì, cmux è gratuito da usare. Il codice sorgente è disponibile su [GitHub](ht
 
 ### Come posso supportare cmux?
 
-cmux è gratuito e open source, e lo sarà sempre. Se vuoi sostenere lo sviluppo e ottenere accesso anticipato a ciò che arriverà, inclusi cmux AI, l'app iOS e le Cloud VM, dai un'occhiata a [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux è gratuito e open source, e lo sarà sempre.
 
 ### Ho una richiesta di funzionalità o ho trovato un bug?
 
@@ -446,19 +446,6 @@ Modi per partecipare:
   <strong>WeChat:</strong> Scansiona il codice QR per unirti alla community.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="Codice QR WeChat per unirti alla community di cmux" width="240" />
 </p>
-
-## Edizione Fondatore
-
-cmux è gratuito, open source, e lo sarà sempre. Se vuoi supportare lo sviluppo e ottenere accesso anticipato a ciò che arriverà:
-
-**[Ottieni l'Edizione Fondatore](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Richieste di funzionalità e correzioni di bug prioritarie**
-- **Accesso anticipato: cmux AI che ti dà contesto su ogni workspace, scheda e pannello**
-- **Accesso anticipato: app iOS con terminali sincronizzati tra desktop e telefono**
-- **Accesso anticipato: VM cloud**
-- **Accesso anticipato: Modalità vocale**
-- **Il mio iMessage/WhatsApp personale**
 
 ## Licenza
 
