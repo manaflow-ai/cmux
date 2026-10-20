@@ -57,7 +57,7 @@ import Testing
 
     @Test func allDevicesSplitsPhonesByBrandAndListsEveryDevice() throws {
         let all = Self.allDevices(Self.menu())
-        #expect(all.items.first?.view is NSSearchField)
+        #expect(all.items.first?.view?.subviews.first is NSSearchField)
         let strings = BrowserDeviceMenu.Strings.self
         #expect(Self.titles(all) == [
             strings.group("phone"), "Apple", "Google",
