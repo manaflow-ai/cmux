@@ -37,6 +37,9 @@ export type { SignInRules } from "./team-sign-in-rules.ts"
 /** The principal of the plain member view in event effects (no user: no own devices). */
 const MEMBER_VIEW: Principal = { identity: "view:member", kind: "session" }
 
+/** How long one confirmed solo-membership read of a personal VM tenant is reused. */
+const PERSONAL_SOLO_CACHE_MS = 30_000
+
 export class TeamDO extends OwnerDO<TeamState> {
   constructor(ctx: DurableObjectState, env: Env) {
     // Members see each other's public ids and display name in events, never email,
@@ -130,7 +133,11 @@ export class TeamDO extends OwnerDO<TeamState> {
    */
   protected override async onWake(now: number): Promise<void> {
     const personalAt = this.personalTenantWakeAt()
-    if (personalAt !== null && personalAt <= now) await this.ensurePersonalVmApiTenant(this.boundEntity() ?? "", false, now)
+    if (personalAt !== null && personalAt <= now) {
+      const reply = await this.ensurePersonalVmApiTenant(this.boundEntity() ?? "", false, now)
+      // An answer that left the due wake time untouched would re-arm the alarm at once: park it for the next explicit create.
+      if (reply.status === "unavailable" && this.personalTenantWakeAt() === personalAt) try { this.personalTenantStore.park() } catch { /* read again on the next create */ }
+    }
     // Stack re-checks, and a deleted Stack team's members leaving through team.member.remove (team-stack-sync.ts).
     if (this.boundEngine) await this.stackSync.wake(now)
     if (this.cleanupRetryAt === null || now >= this.cleanupRetryAt) this.cleanupMembers()
@@ -170,7 +177,22 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (canonical === entity) return null
     const mirror = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(canonical)) as unknown as { vmApiTenantState(e: string): Promise<string> }
     const status = await mirror.vmApiTenantState(canonical).catch(() => null)
-    return status === "unknown" || status === "active" ? target : null
+    if (status !== "unknown" && status !== "active") return null
+    // Solo membership is re-read (briefly cached), not trusted from provisioning: anyone added to the
+    // tenant's Stack team could otherwise reach the owner's personal VMs through the VM API.
+    return (await this.personalTenantSolo(target.tenant, intent.marker.stack_user)) ? target : null
+  }
+
+  private personalSoloChecked: { readonly key: string; readonly at: number } | undefined
+  private async personalTenantSolo(tenant: string, stackUser: string): Promise<boolean> {
+    const key = `${tenant}\n${stackUser}`, now = Date.now()
+    if (this.personalSoloChecked?.key === key && now - this.personalSoloChecked.at < PERSONAL_SOLO_CACHE_MS) return true
+    this.personalSoloChecked = undefined
+    const stack = this.personalStack ?? personalTenantStack(this.env)
+    const members = await stack?.members(tenant).catch(() => null)
+    if (!members || members.length !== 1 || members[0] !== stackUser) return false
+    this.personalSoloChecked = { key, at: now }
+    return true
   }
 
   private readonly personalTenantStore = new PersonalTenantStore(this.sqlStore)
