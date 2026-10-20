@@ -15,6 +15,8 @@ import PackageDescription
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
 //   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
+//   CmuxNextHelperSecurity -> system frameworks only (strict same-Team helper code validation;
+//     no process launch and no UI)
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix); CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
@@ -681,7 +683,7 @@ let package = Package(
         // (Inline) and Stop/Restart VS Code Inline Server. The App opens its URL in a browser tab.
         .target(
             name: "CmuxNextVSCodeServer",
-            dependencies: ["CmuxNextWakeups"],
+            dependencies: ["CmuxNextHelperSecurity", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -985,6 +987,17 @@ let package = Package(
         .target(
             name: "CmuxNextCompat",
             dependencies: [.product(name: "Atomics", package: "swift-atomics")],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Strict static-code validation for executable helpers. Launching modules compare a
+        // candidate with a live or reviewed Team ID and refuse symlinks before Process.run().
+        .target(
+            name: "CmuxNextHelperSecurity",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextHelperSecurityTests",
+            dependencies: ["CmuxNextHelperSecurity"],
             swiftSettings: daemonSwiftSettings
         ),
         // The error journal (`cmux errors`): one bounded, deduplicated NDJSON log of the
@@ -1343,6 +1356,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
+                "CmuxNextHelperSecurity",
                 "CmuxNextWakeups",
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxIrxTransport", package: "CmuxIrxTransport"),
