@@ -1,6 +1,2888 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settingsWindow.agentIntegrations.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent integrations"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكاملات الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integracije agenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentintegrationer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Integrationen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integraciones de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intégrations d’agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrazioni degli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント連携"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរួមបញ្ចូលភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 연동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentintegrasjoner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integracje agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrações de agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Интеграции агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การผสานรวมเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan entegrasyonları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інтеграції агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tích hợp tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体集成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理整合"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets cmux show when an agent is working or waiting."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتيح لـ cmux أن يعرض متى يعمل الوكيل أو ينتظر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tako prikazuje kada agent radi ili čeka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lader cmux vise, når en agent arbejder eller venter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damit zeigt cmux, ob ein Agent arbeitet oder wartet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite a cmux mostrar si un agente trabaja o espera."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permet à cmux d’indiquer si un agent travaille ou attend."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permette a cmux di mostrare se un agente lavora o attende."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが作業中か待機中かを cmux に表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យ cmux បង្ហាញពេលភ្នាក់ងារកំពុងធ្វើការ ឬរង់ចាំ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 작업 중인지 대기 중인지 cmux에 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lar cmux vise når en agent jobber eller venter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwala cmux pokazać, czy agent pracuje, czy czeka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite ao cmux mostrar se um agente trabalha ou espera."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux будет показывать, работает агент или ждёт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้ cmux แสดงว่าเอเจนต์กำลังทำงานหรือรออยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, ajanın çalıştığını veya beklediğini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux показуватиме, чи агент працює, чи чекає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho cmux hiển thị khi tác tử đang làm việc hoặc chờ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让 cmux 显示智能体正在工作还是在等待。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓 cmux 顯示代理正在工作還是在等待。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osvježi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdater"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទុកឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로 고침"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdater"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odśwież"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีเฟรช"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yenile"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Làm mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.checking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التحقق…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjeravanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrollerer…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird geprüft …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérification…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifica in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងពិនិត្យ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sjekker …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdzanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังตรวจสอบ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denetleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірка…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang kiểm tra…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在檢查⋯"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.install": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaliraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំឡើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zainstaluj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cài đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.repair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repair"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إصلاح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Popravi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réparer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripara"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修復"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួសជុល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napraw"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исправить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อมแซม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виправити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sửa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修復"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إزالة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukloni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjern"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លុបចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjern"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вилучити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gỡ bỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Command"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ الأمر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj naredbu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér kommando"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar comando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier la commande"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia comando"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドをコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លងពាក្យបញ្ជា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령어 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier kommando"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj polecenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar comando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать команду"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komutu kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопіювати команду"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sao chép lệnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝指令"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.state.installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مثبّت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストール済み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានដំឡើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zainstalowane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установлено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้งแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüklü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановлено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã cài đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.state.partial": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs repair"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج إلى إصلاح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Treba popravku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skal repareres"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparatur nötig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesita reparación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À réparer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da riparare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修復が必要"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការជួសជុល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 필요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Må repareres"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymaga naprawy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Precisa de reparo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требует исправления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องซ่อมแซม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onarılması gerekiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потребує виправлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cần sửa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要修复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要修復"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.state.absent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not installed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير مثبّت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije instalirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke installeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht installiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No instalado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non installé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non installato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未インストール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់ដំឡើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치되지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke installert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niezainstalowane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não instalado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не установлено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่ได้ติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüklü değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не встановлено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa cài đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未安装"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未安裝"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.state.conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محظور"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blokirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blokeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blockiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloqueado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloqué"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloccato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវបានរារាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "막힘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blokkert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zablokowane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloqueado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировано"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถูกบล็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engellendi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблоковано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bị chặn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受阻"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受阻"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.state.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can’t read"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتعذر القراءة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije čitljivo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan ikke læses"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht lesbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede leer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Illisible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non leggibile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取れません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចអានបាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽을 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan ikke leses"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można odczytać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível ler"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не читается"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okunamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не читається"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không đọc được"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.conflict.symlink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A symlink is here; cmux won’t edit through it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجد هنا رابط رمزي؛ لن يعدّل cmux عبره."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovdje je simbolička veza; cmux ne uređuje kroz nju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her er et symlink; cmux redigerer ikke gennem det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier liegt ein Symlink; cmux bearbeitet nicht darüber."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aquí hay un enlace simbólico; cmux no edita a través de él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ceci est un lien symbolique ; cmux ne passe pas par lui."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qui c’è un link simbolico; cmux non lo attraversa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シンボリックリンクです。cmux はリンク経由で編集しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នេះជា symlink; cmux នឹងមិនកែតាមរយៈវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "심볼릭 링크입니다. cmux는 링크를 통해 편집하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her er en symbolsk lenke; cmux redigerer ikke gjennom den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To dowiązanie symboliczne; cmux nie edytuje przez nie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aqui há um link simbólico; o cmux não edita por ele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь символическая ссылка; cmux не правит через неё."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรงนี้เป็นลิงก์สัญลักษณ์ cmux จะไม่แก้ไขผ่านลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu bir sembolik bağlantı; cmux bunun üzerinden düzenlemez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тут символічне посилання; cmux не редагує через нього."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đây là liên kết tượng trưng; cmux không sửa qua nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里是符号链接，cmux 不会通过它编辑。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡是符號連結，cmux 不會透過它編輯。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.conflict.not_a_file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something other than a file is here. Move it first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجد هنا شيء غير ملف. انقله أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovdje je nešto što nije datoteka. Prvo to premjestite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her ligger noget, der ikke er en fil. Flyt det først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier liegt etwas, das keine Datei ist. Verschiebe es zuerst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aquí hay algo que no es un archivo. Muévelo antes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ceci n’est pas un fichier. Déplacez-le d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qui c’è qualcosa che non è un file. Spostalo prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル以外のものがあります。先に移動してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅទីនេះមិនមែនជាឯកសារទេ។ ផ្លាស់ទីវាជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일이 아닌 항목이 있습니다. 먼저 옮기세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her ligger noe som ikke er en fil. Flytt det først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu jest coś, co nie jest plikiem. Najpierw to przenieś."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Há algo que não é um arquivo aqui. Mova-o antes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь не файл. Сначала переместите его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรงนี้ไม่ใช่ไฟล์ ให้ย้ายออกก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Burada dosya olmayan bir şey var. Önce onu taşıyın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тут не файл. Спершу перемістіть його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ở đây không phải là tệp. Hãy di chuyển nó trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里不是文件。请先将其移走。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡不是檔案。請先將它移走。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.conflict.not_a_directory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something other than a folder is here. Move it first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجد هنا شيء غير مجلد. انقله أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovdje je nešto što nije mapa. Prvo to premjestite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her ligger noget, der ikke er en mappe. Flyt det først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier liegt etwas, das kein Ordner ist. Verschiebe es zuerst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aquí hay algo que no es una carpeta. Muévelo antes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ceci n’est pas un dossier. Déplacez-le d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qui c’è qualcosa che non è una cartella. Spostalo prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ以外のものがあります。先に移動してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅទីនេះមិនមែនជាថតទេ។ ផ្លាស់ទីវាជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더가 아닌 항목이 있습니다. 먼저 옮기세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her ligger noe som ikke er en mappe. Flytt det først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu jest coś, co nie jest folderem. Najpierw to przenieś."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Há algo que não é uma pasta aqui. Mova-o antes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь не папка. Сначала переместите её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรงนี้ไม่ใช่โฟลเดอร์ ให้ย้ายออกก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Burada klasör olmayan bir şey var. Önce onu taşıyın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тут не папка. Спершу перемістіть її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ở đây không phải là thư mục. Hãy di chuyển nó trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里不是文件夹。请先将其移走。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡不是資料夾。請先將它移走。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.conflict.not_owned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A file cmux didn’t create is here. Move it first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجد هنا ملف لم ينشئه cmux. انقله أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovu datoteku nije napravio cmux. Prvo je premjestite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her ligger en fil, cmux ikke har oprettet. Flyt den først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei stammt nicht von cmux. Verschiebe sie zuerst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aquí hay un archivo que cmux no creó. Muévelo antes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un fichier non créé par cmux est ici. Déplacez-le d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qui c’è un file non creato da cmux. Spostalo prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が作成していないファイルがあります。先に移動してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅទីនេះមានឯកសារដែល cmux មិនបានបង្កើត។ ផ្លាស់ទីវាជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 만들지 않은 파일이 있습니다. 먼저 옮기세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her ligger en fil cmux ikke har laget. Flytt den først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tego pliku nie utworzył cmux. Najpierw go przenieś."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Há um arquivo que o cmux não criou aqui. Mova-o antes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь файл, созданный не cmux. Сначала переместите его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีไฟล์ที่ cmux ไม่ได้สร้างอยู่ตรงนี้ ให้ย้ายออกก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dosyayı cmux oluşturmadı. Önce onu taşıyın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тут файл, створений не cmux. Спершу перемістіть його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ở đây có tệp không do cmux tạo. Hãy di chuyển nó trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里有一个不是 cmux 创建的文件。请先将其移走。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡有一個不是 cmux 建立的檔案。請先將它移走。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.conflict.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can’t read this. Check its permissions."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع cmux قراءة هذا. تحقّق من أذوناته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ovo ne može pročitati. Provjerite dozvole."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke læse dette. Tjek tilladelserne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann dies nicht lesen. Prüfe die Zugriffsrechte."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede leer esto. Revisa sus permisos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas lire ceci. Vérifiez les autorisations."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non riesce a leggerlo. Controlla i permessi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこれを読み取れません。権限を確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចអាននេះបានទេ។ ពិនិត្យការអនុញ្ញាត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 항목을 읽을 수 없습니다. 권한을 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke lese dette. Sjekk tillatelsene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie może tego odczytać. Sprawdź uprawnienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não consegue ler isto. Verifique as permissões."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не может это прочитать. Проверьте права доступа."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux อ่านสิ่งนี้ไม่ได้ ให้ตรวจสอบสิทธิ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bunu okuyamıyor. İzinlerini denetleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не може це прочитати. Перевірте дозволи."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux không đọc được mục này. Hãy kiểm tra quyền."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法读取此项。请检查其权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法讀取此項。請檢查其權限。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.restart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart a running agent after installing."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعد تشغيل الوكيل العامل بعد التثبيت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon instalacije ponovo pokrenite agenta koji radi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genstart en kørende agent efter installation."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starte laufende Agents nach der Installation neu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reinicia un agente en ejecución tras instalar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redémarrez un agent en cours après l’installation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riavvia un agente in esecuzione dopo l’installazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストール後、実行中のエージェントを再起動してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់ផ្តើមភ្នាក់ងារដែលកំពុងដំណើរការឡើងវិញ ក្រោយដំឡើង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치 후 실행 중인 에이전트를 다시 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start en kjørende agent på nytt etter installering."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po instalacji uruchom ponownie działającego agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reinicie um agente em execução após instalar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После установки перезапустите работающего агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีสตาร์ทเอเจนต์ที่กำลังทำงานหลังติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükledikten sonra çalışan ajanı yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після встановлення перезапустіть агента, що працює."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khởi động lại tác tử đang chạy sau khi cài đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装后请重启正在运行的智能体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝後請重新啟動正在執行的代理。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or install from a terminal:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أو ثبّت من الطرفية:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ili instalirajte iz terminala:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller installer fra en terminal:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oder im Terminal installieren:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O instala desde una terminal:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou installez depuis un terminal :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppure installa da un terminale:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "またはターミナルからインストール："
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឬដំឡើងពី terminal៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "또는 터미널에서 설치:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller installer fra en terminal:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lub zainstaluj z terminala:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou instale pelo terminal:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Или установите из терминала:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หรือติดตั้งจากเทอร์มินัล:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veya bir terminalden yükleyin:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Або встановіть із термінала:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoặc cài đặt từ terminal:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或在终端中安装："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或在終端機中安裝："
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.problem.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build has no cmux CLI. Use the command below."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يتضمن هذا الإصدار واجهة cmux. استخدم الأمر أدناه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovo izdanje nema cmux CLI. Koristite naredbu ispod."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne build har ingen cmux-CLI. Brug kommandoen nedenfor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Build hat keine cmux-CLI. Nutze den Befehl unten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versión no incluye la CLI de cmux. Usa este comando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version n’a pas la CLI cmux. Utilisez cette commande."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa build non ha la CLI di cmux. Usa il comando sotto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドには cmux CLI がありません。下のコマンドを使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណែនេះគ្មាន cmux CLI ទេ។ ប្រើពាក្យបញ្ជាខាងក្រោម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 빌드에는 cmux CLI가 없습니다. 아래 명령어를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette bygget har ikke cmux-CLI. Bruk kommandoen nedenfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta kompilacja nie ma CLI cmux. Użyj polecenia poniżej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versão não tem a CLI do cmux. Use o comando abaixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этой сборке нет CLI cmux. Используйте команду ниже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บิลด์นี้ไม่มี cmux CLI ให้ใช้คำสั่งด้านล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu derlemede cmux CLI yok. Aşağıdaki komutu kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цій збірці немає CLI cmux. Скористайтеся командою нижче."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản dựng này không có cmux CLI. Hãy dùng lệnh bên dưới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本没有 cmux CLI。请使用下面的命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本沒有 cmux CLI。請使用下方的指令。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.problem.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t read the hook status. Try Refresh."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت قراءة حالة الخطافات. جرّب التحديث."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status hookova nije pročitan. Pokušajte Osvježi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke læse status for hooks. Prøv Opdater."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook-Status nicht lesbar. Versuche Aktualisieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el estado de los hooks. Prueba Actualizar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire l’état des hooks. Essayez Actualiser."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile leggere lo stato degli hook. Prova Aggiorna."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックの状態を読み取れませんでした。更新してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចអានស្ថានភាព hook បានទេ។ សាកល្បងផ្ទុកឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "훅 상태를 읽지 못했습니다. 새로 고침을 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke lese statusen for hooks. Prøv Oppdater."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się odczytać stanu hooków. Spróbuj Odśwież."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler o status dos hooks. Tente Atualizar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось прочитать состояние хуков. Нажмите «Обновить»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านสถานะฮุกไม่ได้ ลองรีเฟรช"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanca durumu okunamadı. Yenile’yi deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося прочитати стан хуків. Спробуйте «Оновити»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không đọc được trạng thái hook. Hãy thử Làm mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取钩子状态。请尝试刷新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取掛鉤狀態。請嘗試重新整理。"
+          }
+        }
+      }
+    },
     "settingsPage.theme.edit.ansi": {
       "comment": "ANSI color %@ in the theme editor; %@ is 0-15.",
       "extractionState": "manual",
@@ -41600,2884 +44482,3015 @@
         }
       }
     },
-    "settingsWindow.agentIntegrations.title": {
+    "settingsPage.inheritsWindow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent integrations"
+            "value": "Inherits window"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تكاملات الوكلاء"
+            "state": "needs_review",
+            "value": "يرث من النافذة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Integracije agenata"
+            "state": "needs_review",
+            "value": "Nasljeđuje od prozora"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Agentintegrationer"
+            "state": "needs_review",
+            "value": "Arver fra vinduet"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Agent-Integrationen"
+            "state": "needs_review",
+            "value": "Wie Fenster"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Integraciones de agentes"
+            "state": "needs_review",
+            "value": "Hereda de la ventana"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Intégrations d’agents"
+            "state": "needs_review",
+            "value": "Hérite de la fenêtre"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Integrazioni degli agenti"
+            "state": "needs_review",
+            "value": "Eredita dalla finestra"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "エージェント連携"
+            "state": "needs_review",
+            "value": "ウインドウを継承"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ការរួមបញ្ចូលភ្នាក់ងារ"
+            "state": "needs_review",
+            "value": "ទទួលពីបង្អួច"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 연동"
+            "state": "needs_review",
+            "value": "윈도우 따름"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Agentintegrasjoner"
+            "state": "needs_review",
+            "value": "Arver fra vinduet"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Integracje agentów"
+            "state": "needs_review",
+            "value": "Dziedziczy z okna"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Integrações de agentes"
+            "state": "needs_review",
+            "value": "Herda da janela"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Интеграции агентов"
+            "state": "needs_review",
+            "value": "Как у окна"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "การผสานรวมเอเจนต์"
+            "state": "needs_review",
+            "value": "ตามหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ajan entegrasyonları"
+            "state": "needs_review",
+            "value": "Pencereden alır"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Інтеграції агентів"
+            "state": "needs_review",
+            "value": "Як у вікна"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tích hợp tác tử"
+            "state": "needs_review",
+            "value": "Theo cửa sổ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "智能体集成"
+            "state": "needs_review",
+            "value": "继承窗口"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "代理整合"
+            "state": "needs_review",
+            "value": "繼承視窗"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.help": {
+    "settingsPage.automatic": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lets cmux show when an agent is working or waiting."
+            "value": "Automatic"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يتيح لـ cmux أن يعرض متى يعمل الوكيل أو ينتظر."
+            "state": "needs_review",
+            "value": "تلقائي"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux tako prikazuje kada agent radi ili čeka."
+            "state": "needs_review",
+            "value": "Automatski"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Lader cmux vise, når en agent arbejder eller venter."
+            "state": "needs_review",
+            "value": "Automatisk"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Damit zeigt cmux, ob ein Agent arbeitet oder wartet."
+            "state": "needs_review",
+            "value": "Automatisch"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Permite a cmux mostrar si un agente trabaja o espera."
+            "state": "needs_review",
+            "value": "Automático"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Permet à cmux d’indiquer si un agent travaille ou attend."
+            "state": "needs_review",
+            "value": "Automatique"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Permette a cmux di mostrare se un agente lavora o attende."
+            "state": "needs_review",
+            "value": "Automatico"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "エージェントが作業中か待機中かを cmux に表示します。"
+            "state": "needs_review",
+            "value": "自動"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "អនុញ្ញាតឱ្យ cmux បង្ហាញពេលភ្នាក់ងារកំពុងធ្វើការ ឬរង់ចាំ។"
+            "state": "needs_review",
+            "value": "ស្វ័យប្រវត្តិ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "에이전트가 작업 중인지 대기 중인지 cmux에 표시합니다."
+            "state": "needs_review",
+            "value": "자동"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Lar cmux vise når en agent jobber eller venter."
+            "state": "needs_review",
+            "value": "Automatisk"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pozwala cmux pokazać, czy agent pracuje, czy czeka."
+            "state": "needs_review",
+            "value": "Automatycznie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Permite ao cmux mostrar se um agente trabalha ou espera."
+            "state": "needs_review",
+            "value": "Automático"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux будет показывать, работает агент или ждёт."
+            "state": "needs_review",
+            "value": "Автоматически"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ให้ cmux แสดงว่าเอเจนต์กำลังทำงานหรือรออยู่"
+            "state": "needs_review",
+            "value": "อัตโนมัติ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux, ajanın çalıştığını veya beklediğini gösterir."
+            "state": "needs_review",
+            "value": "Otomatik"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux показуватиме, чи агент працює, чи чекає."
+            "state": "needs_review",
+            "value": "Автоматично"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cho cmux hiển thị khi tác tử đang làm việc hoặc chờ."
+            "state": "needs_review",
+            "value": "Tự động"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "让 cmux 显示智能体正在工作还是在等待。"
+            "state": "needs_review",
+            "value": "自动"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "讓 cmux 顯示代理正在工作還是在等待。"
+            "state": "needs_review",
+            "value": "自動"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.refresh": {
+    "settingsPage.history.toolbar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh"
+            "value": "Undo and reset appearance"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تحديث"
+            "state": "needs_review",
+            "value": "التراجع عن المظهر وإعادة تعيينه"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Osvježi"
+            "state": "needs_review",
+            "value": "Poništi i resetuj izgled"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Opdater"
+            "state": "needs_review",
+            "value": "Fortryd og nulstil udseende"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aktualisieren"
+            "state": "needs_review",
+            "value": "Darstellung widerrufen und zurücksetzen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Actualizar"
+            "state": "needs_review",
+            "value": "Deshacer y restablecer la apariencia"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Actualiser"
+            "state": "needs_review",
+            "value": "Annuler et réinitialiser l’apparence"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aggiorna"
+            "state": "needs_review",
+            "value": "Annulla e ripristina l’aspetto"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "更新"
+            "state": "needs_review",
+            "value": "外観の取り消しとリセット"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ទុកឡើងវិញ"
+            "state": "needs_review",
+            "value": "មិនធ្វើវិញ និងកំណត់រូបរាងឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "새로 고침"
+            "state": "needs_review",
+            "value": "모양 실행 취소 및 재설정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Oppdater"
+            "state": "needs_review",
+            "value": "Angre og tilbakestill utseende"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Odśwież"
+            "state": "needs_review",
+            "value": "Cofnij i zresetuj wygląd"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Atualizar"
+            "state": "needs_review",
+            "value": "Desfazer e redefinir a aparência"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Обновить"
+            "state": "needs_review",
+            "value": "Отмена и сброс оформления"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "รีเฟรช"
+            "state": "needs_review",
+            "value": "เลิกทำและรีเซ็ตรูปลักษณ์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Yenile"
+            "state": "needs_review",
+            "value": "Görünümü geri al ve sıfırla"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Оновити"
+            "state": "needs_review",
+            "value": "Скасування й скидання вигляду"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Làm mới"
+            "state": "needs_review",
+            "value": "Hoàn tác và đặt lại giao diện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "刷新"
+            "state": "needs_review",
+            "value": "撤销和重置外观"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "重新整理"
+            "state": "needs_review",
+            "value": "還原和重置外觀"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.checking": {
+    "settingsPage.history.undo": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking…"
+            "value": "Undo"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ التحقق…"
+            "state": "needs_review",
+            "value": "تراجع"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Provjeravanje…"
+            "state": "needs_review",
+            "value": "Poništi"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kontrollerer…"
+            "state": "needs_review",
+            "value": "Fortryd"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Wird geprüft …"
+            "state": "needs_review",
+            "value": "Widerrufen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Comprobando…"
+            "state": "needs_review",
+            "value": "Deshacer"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vérification…"
+            "state": "needs_review",
+            "value": "Annuler"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Verifica in corso…"
+            "state": "needs_review",
+            "value": "Annulla"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "確認中…"
+            "state": "needs_review",
+            "value": "取り消す"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កំពុងពិនិត្យ…"
+            "state": "needs_review",
+            "value": "មិនធ្វើវិញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "확인 중…"
+            "state": "needs_review",
+            "value": "실행 취소"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sjekker …"
+            "state": "needs_review",
+            "value": "Angre"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sprawdzanie…"
+            "state": "needs_review",
+            "value": "Cofnij"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Verificando…"
+            "state": "needs_review",
+            "value": "Desfazer"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Проверка…"
+            "state": "needs_review",
+            "value": "Отменить"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "กำลังตรวจสอบ…"
+            "state": "needs_review",
+            "value": "เลิกทำ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Denetleniyor…"
+            "state": "needs_review",
+            "value": "Geri al"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Перевірка…"
+            "state": "needs_review",
+            "value": "Скасувати"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Đang kiểm tra…"
+            "state": "needs_review",
+            "value": "Hoàn tác"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "正在检查…"
+            "state": "needs_review",
+            "value": "撤销"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "正在檢查⋯"
+            "state": "needs_review",
+            "value": "還原"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.install": {
+    "settingsPage.history.redo": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install"
+            "value": "Redo"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تثبيت"
+            "state": "needs_review",
+            "value": "إعادة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Instaliraj"
+            "state": "needs_review",
+            "value": "Ponovi"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installer"
+            "state": "needs_review",
+            "value": "Gentag"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installieren"
+            "state": "needs_review",
+            "value": "Wiederholen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Instalar"
+            "state": "needs_review",
+            "value": "Rehacer"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installer"
+            "state": "needs_review",
+            "value": "Rétablir"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installa"
+            "state": "needs_review",
+            "value": "Ripristina"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "インストール"
+            "state": "needs_review",
+            "value": "やり直す"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ដំឡើង"
+            "state": "needs_review",
+            "value": "ធ្វើវិញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "설치"
+            "state": "needs_review",
+            "value": "실행 복귀"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installer"
+            "state": "needs_review",
+            "value": "Gjør om"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Zainstaluj"
+            "state": "needs_review",
+            "value": "Ponów"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Instalar"
+            "state": "needs_review",
+            "value": "Refazer"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Установить"
+            "state": "needs_review",
+            "value": "Повторить"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ติดตั้ง"
+            "state": "needs_review",
+            "value": "ทำซ้ำ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Yükle"
+            "state": "needs_review",
+            "value": "Yinele"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Встановити"
+            "state": "needs_review",
+            "value": "Повторити"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cài đặt"
+            "state": "needs_review",
+            "value": "Làm lại"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "安装"
+            "state": "needs_review",
+            "value": "重做"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "安裝"
+            "state": "needs_review",
+            "value": "重做"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.repair": {
+    "settingsPage.history.undoNamed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Repair"
+            "value": "Undo: %@"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "إصلاح"
+            "state": "needs_review",
+            "value": "تراجع: %@"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Popravi"
+            "state": "needs_review",
+            "value": "Poništi: %@"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Reparer"
+            "state": "needs_review",
+            "value": "Fortryd: %@"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Reparieren"
+            "state": "needs_review",
+            "value": "Widerrufen: %@"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Reparar"
+            "state": "needs_review",
+            "value": "Deshacer: %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Réparer"
+            "state": "needs_review",
+            "value": "Annuler : %@"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ripara"
+            "state": "needs_review",
+            "value": "Annulla: %@"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "修復"
+            "state": "needs_review",
+            "value": "取り消す：%@"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ជួសជុល"
+            "state": "needs_review",
+            "value": "មិនធ្វើវិញ៖ %@"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "복구"
+            "state": "needs_review",
+            "value": "실행 취소: %@"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Reparer"
+            "state": "needs_review",
+            "value": "Angre: %@"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Napraw"
+            "state": "needs_review",
+            "value": "Cofnij: %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Reparar"
+            "state": "needs_review",
+            "value": "Desfazer: %@"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Исправить"
+            "state": "needs_review",
+            "value": "Отменить: %@"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ซ่อมแซม"
+            "state": "needs_review",
+            "value": "เลิกทำ: %@"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Onar"
+            "state": "needs_review",
+            "value": "Geri al: %@"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Виправити"
+            "state": "needs_review",
+            "value": "Скасувати: %@"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sửa"
+            "state": "needs_review",
+            "value": "Hoàn tác: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "修复"
+            "state": "needs_review",
+            "value": "撤销：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "修復"
+            "state": "needs_review",
+            "value": "還原：%@"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.remove": {
+    "settingsPage.history.redoNamed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remove"
+            "value": "Redo: %@"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "إزالة"
+            "state": "needs_review",
+            "value": "إعادة: %@"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ukloni"
+            "state": "needs_review",
+            "value": "Ponovi: %@"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Fjern"
+            "state": "needs_review",
+            "value": "Gentag: %@"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Entfernen"
+            "state": "needs_review",
+            "value": "Wiederholen: %@"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Quitar"
+            "state": "needs_review",
+            "value": "Rehacer: %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer"
+            "state": "needs_review",
+            "value": "Rétablir : %@"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Rimuovi"
+            "state": "needs_review",
+            "value": "Ripristina: %@"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "削除"
+            "state": "needs_review",
+            "value": "やり直す：%@"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "លុបចេញ"
+            "state": "needs_review",
+            "value": "ធ្វើវិញ៖ %@"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "제거"
+            "state": "needs_review",
+            "value": "실행 복귀: %@"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Fjern"
+            "state": "needs_review",
+            "value": "Gjør om: %@"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Usuń"
+            "state": "needs_review",
+            "value": "Ponów: %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Remover"
+            "state": "needs_review",
+            "value": "Refazer: %@"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Удалить"
+            "state": "needs_review",
+            "value": "Повторить: %@"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "นำออก"
+            "state": "needs_review",
+            "value": "ทำซ้ำ: %@"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kaldır"
+            "state": "needs_review",
+            "value": "Yinele: %@"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Вилучити"
+            "state": "needs_review",
+            "value": "Повторити: %@"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Gỡ bỏ"
+            "state": "needs_review",
+            "value": "Làm lại: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "移除"
+            "state": "needs_review",
+            "value": "重做：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "移除"
+            "state": "needs_review",
+            "value": "重做：%@"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.copy": {
+    "settingsPage.history.change": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy Command"
+            "value": "%@ → %@"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "نسخ الأمر"
+            "state": "needs_review",
+            "value": "%@ ← %@"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kopiraj naredbu"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kopiér kommando"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Befehl kopieren"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Copiar comando"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Copier la commande"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Copia comando"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "コマンドをコピー"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ចម្លងពាក្យបញ្ជា"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "명령어 복사"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kopier kommando"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kopiuj polecenie"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Copiar comando"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Скопировать команду"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "คัดลอกคำสั่ง"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Komutu kopyala"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Скопіювати команду"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sao chép lệnh"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "复制命令"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "拷貝指令"
+            "state": "needs_review",
+            "value": "%@ → %@"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.state.installed": {
+    "settingsPage.history.theme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installed"
+            "value": "Theme"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "مثبّت"
+            "state": "needs_review",
+            "value": "السمة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Instalirano"
+            "state": "needs_review",
+            "value": "Tema"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installeret"
+            "state": "needs_review",
+            "value": "Tema"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installiert"
+            "state": "needs_review",
+            "value": "Thema"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Instalado"
+            "state": "needs_review",
+            "value": "Tema"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installé"
+            "state": "needs_review",
+            "value": "Thème"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installato"
+            "state": "needs_review",
+            "value": "Tema"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "インストール済み"
+            "state": "needs_review",
+            "value": "テーマ"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "បានដំឡើង"
+            "state": "needs_review",
+            "value": "រចនាប័ទ្ម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "설치됨"
+            "state": "needs_review",
+            "value": "테마"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installert"
+            "state": "needs_review",
+            "value": "Tema"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Zainstalowane"
+            "state": "needs_review",
+            "value": "Motyw"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Instalado"
+            "state": "needs_review",
+            "value": "Tema"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Установлено"
+            "state": "needs_review",
+            "value": "Тема"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ติดตั้งแล้ว"
+            "state": "needs_review",
+            "value": "ธีม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Yüklü"
+            "state": "needs_review",
+            "value": "Tema"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Встановлено"
+            "state": "needs_review",
+            "value": "Тема"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Đã cài đặt"
+            "state": "needs_review",
+            "value": "Chủ đề"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "已安装"
+            "state": "needs_review",
+            "value": "主题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "已安裝"
+            "state": "needs_review",
+            "value": "主題"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.state.partial": {
+    "settingsPage.history.ghosttyTheme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Needs repair"
+            "value": "Ghostty config"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يحتاج إلى إصلاح"
+            "state": "needs_review",
+            "value": "إعدادات Ghostty"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Treba popravku"
+            "state": "needs_review",
+            "value": "Ghostty konfiguracija"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Skal repareres"
+            "state": "needs_review",
+            "value": "Ghostty-konfiguration"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Reparatur nötig"
+            "state": "needs_review",
+            "value": "Ghostty-Konfiguration"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Necesita reparación"
+            "state": "needs_review",
+            "value": "Configuración de Ghostty"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "À réparer"
+            "state": "needs_review",
+            "value": "Configuration Ghostty"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Da riparare"
+            "state": "needs_review",
+            "value": "Configurazione di Ghostty"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "修復が必要"
+            "state": "needs_review",
+            "value": "Ghosttyの設定"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ត្រូវការជួសជុល"
+            "state": "needs_review",
+            "value": "ការកំណត់ Ghostty"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "복구 필요"
+            "state": "needs_review",
+            "value": "Ghostty 설정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Må repareres"
+            "state": "needs_review",
+            "value": "Ghostty-konfigurasjon"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Wymaga naprawy"
+            "state": "needs_review",
+            "value": "Konfiguracja Ghostty"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Precisa de reparo"
+            "state": "needs_review",
+            "value": "Configuração do Ghostty"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Требует исправления"
+            "state": "needs_review",
+            "value": "Конфигурация Ghostty"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ต้องซ่อมแซม"
+            "state": "needs_review",
+            "value": "การตั้งค่า Ghostty"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Onarılması gerekiyor"
+            "state": "needs_review",
+            "value": "Ghostty yapılandırması"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Потребує виправлення"
+            "state": "needs_review",
+            "value": "Конфігурація Ghostty"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cần sửa"
+            "state": "needs_review",
+            "value": "Cấu hình Ghostty"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "需要修复"
+            "state": "needs_review",
+            "value": "Ghostty 配置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "需要修復"
+            "state": "needs_review",
+            "value": "Ghostty 設定"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.state.absent": {
+    "settingsPage.history.default": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not installed"
+            "value": "Default"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "غير مثبّت"
+            "state": "needs_review",
+            "value": "الافتراضي"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nije instalirano"
+            "state": "needs_review",
+            "value": "Zadano"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ikke installeret"
+            "state": "needs_review",
+            "value": "Standard"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nicht installiert"
+            "state": "needs_review",
+            "value": "Standard"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No instalado"
+            "state": "needs_review",
+            "value": "Predeterminado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Non installé"
+            "state": "needs_review",
+            "value": "Par défaut"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Non installato"
+            "state": "needs_review",
+            "value": "Predefinito"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "未インストール"
+            "state": "needs_review",
+            "value": "デフォルト"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "មិនទាន់ដំឡើង"
+            "state": "needs_review",
+            "value": "លំនាំដើម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "설치되지 않음"
+            "state": "needs_review",
+            "value": "기본값"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ikke installert"
+            "state": "needs_review",
+            "value": "Standard"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Niezainstalowane"
+            "state": "needs_review",
+            "value": "Domyślne"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Não instalado"
+            "state": "needs_review",
+            "value": "Padrão"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не установлено"
+            "state": "needs_review",
+            "value": "По умолчанию"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ยังไม่ได้ติดตั้ง"
+            "state": "needs_review",
+            "value": "ค่าเริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Yüklü değil"
+            "state": "needs_review",
+            "value": "Varsayılan"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не встановлено"
+            "state": "needs_review",
+            "value": "За замовчуванням"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chưa cài đặt"
+            "state": "needs_review",
+            "value": "Mặc định"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "未安装"
+            "state": "needs_review",
+            "value": "默认"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "未安裝"
+            "state": "needs_review",
+            "value": "預設"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.state.conflict": {
+    "settingsPage.history.on": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Blocked"
+            "value": "On"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "محظور"
+            "state": "needs_review",
+            "value": "تشغيل"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Blokirano"
+            "state": "needs_review",
+            "value": "Uključeno"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Blokeret"
+            "state": "needs_review",
+            "value": "Til"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Blockiert"
+            "state": "needs_review",
+            "value": "Ein"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bloqueado"
+            "state": "needs_review",
+            "value": "Activado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bloqué"
+            "state": "needs_review",
+            "value": "Activé"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bloccato"
+            "state": "needs_review",
+            "value": "Attivo"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ブロック中"
+            "state": "needs_review",
+            "value": "オン"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ត្រូវបានរារាំង"
+            "state": "needs_review",
+            "value": "បើក"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "막힘"
+            "state": "needs_review",
+            "value": "켬"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Blokkert"
+            "state": "needs_review",
+            "value": "På"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Zablokowane"
+            "state": "needs_review",
+            "value": "Włączone"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bloqueado"
+            "state": "needs_review",
+            "value": "Ativado"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Заблокировано"
+            "state": "needs_review",
+            "value": "Вкл."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ถูกบล็อก"
+            "state": "needs_review",
+            "value": "เปิด"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Engellendi"
+            "state": "needs_review",
+            "value": "Açık"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Заблоковано"
+            "state": "needs_review",
+            "value": "Увімк."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bị chặn"
+            "state": "needs_review",
+            "value": "Bật"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "受阻"
+            "state": "needs_review",
+            "value": "开"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "受阻"
+            "state": "needs_review",
+            "value": "開啟"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.state.unavailable": {
+    "settingsPage.history.off": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can’t read"
+            "value": "Off"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تتعذر القراءة"
+            "state": "needs_review",
+            "value": "إيقاف"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nije čitljivo"
+            "state": "needs_review",
+            "value": "Isključeno"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kan ikke læses"
+            "state": "needs_review",
+            "value": "Fra"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nicht lesbar"
+            "state": "needs_review",
+            "value": "Aus"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No se puede leer"
+            "state": "needs_review",
+            "value": "Desactivado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Illisible"
+            "state": "needs_review",
+            "value": "Désactivé"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Non leggibile"
+            "state": "needs_review",
+            "value": "Disattivo"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "読み取れません"
+            "state": "needs_review",
+            "value": "オフ"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចអានបាន"
+            "state": "needs_review",
+            "value": "បិទ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "읽을 수 없음"
+            "state": "needs_review",
+            "value": "끔"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kan ikke leses"
+            "state": "needs_review",
+            "value": "Av"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nie można odczytać"
+            "state": "needs_review",
+            "value": "Wyłączone"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Não é possível ler"
+            "state": "needs_review",
+            "value": "Desativado"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не читается"
+            "state": "needs_review",
+            "value": "Выкл."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "อ่านไม่ได้"
+            "state": "needs_review",
+            "value": "ปิด"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Okunamıyor"
+            "state": "needs_review",
+            "value": "Kapalı"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не читається"
+            "state": "needs_review",
+            "value": "Вимк."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Không đọc được"
+            "state": "needs_review",
+            "value": "Tắt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "无法读取"
+            "state": "needs_review",
+            "value": "关"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "無法讀取"
+            "state": "needs_review",
+            "value": "關閉"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.conflict.symlink": {
+    "settingsPage.history.resetMenu": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A symlink is here; cmux won’t edit through it."
+            "value": "Reset appearance"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يوجد هنا رابط رمزي؛ لن يعدّل cmux عبره."
+            "state": "needs_review",
+            "value": "إعادة تعيين المظهر"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ovdje je simbolička veza; cmux ne uređuje kroz nju."
+            "state": "needs_review",
+            "value": "Resetuj izgled"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Her er et symlink; cmux redigerer ikke gennem det."
+            "state": "needs_review",
+            "value": "Nulstil udseende"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hier liegt ein Symlink; cmux bearbeitet nicht darüber."
+            "state": "needs_review",
+            "value": "Darstellung zurücksetzen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aquí hay un enlace simbólico; cmux no edita a través de él."
+            "state": "needs_review",
+            "value": "Restablecer la apariencia"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ceci est un lien symbolique ; cmux ne passe pas par lui."
+            "state": "needs_review",
+            "value": "Réinitialiser l’apparence"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Qui c’è un link simbolico; cmux non lo attraversa."
+            "state": "needs_review",
+            "value": "Ripristina l’aspetto"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "シンボリックリンクです。cmux はリンク経由で編集しません。"
+            "state": "needs_review",
+            "value": "外観をリセット"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "នេះជា symlink; cmux នឹងមិនកែតាមរយៈវាទេ។"
+            "state": "needs_review",
+            "value": "កំណត់រូបរាងឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "심볼릭 링크입니다. cmux는 링크를 통해 편집하지 않습니다."
+            "state": "needs_review",
+            "value": "모양 재설정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Her er en symbolsk lenke; cmux redigerer ikke gjennom den."
+            "state": "needs_review",
+            "value": "Tilbakestill utseende"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "To dowiązanie symboliczne; cmux nie edytuje przez nie."
+            "state": "needs_review",
+            "value": "Zresetuj wygląd"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aqui há um link simbólico; o cmux não edita por ele."
+            "state": "needs_review",
+            "value": "Redefinir a aparência"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Здесь символическая ссылка; cmux не правит через неё."
+            "state": "needs_review",
+            "value": "Сбросить оформление"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ตรงนี้เป็นลิงก์สัญลักษณ์ cmux จะไม่แก้ไขผ่านลิงก์"
+            "state": "needs_review",
+            "value": "รีเซ็ตรูปลักษณ์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bu bir sembolik bağlantı; cmux bunun üzerinden düzenlemez."
+            "state": "needs_review",
+            "value": "Görünümü sıfırla"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Тут символічне посилання; cmux не редагує через нього."
+            "state": "needs_review",
+            "value": "Скинути вигляд"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Đây là liên kết tượng trưng; cmux không sửa qua nó."
+            "state": "needs_review",
+            "value": "Đặt lại giao diện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "这里是符号链接，cmux 不会通过它编辑。"
+            "state": "needs_review",
+            "value": "重置外观"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "這裡是符號連結，cmux 不會透過它編輯。"
+            "state": "needs_review",
+            "value": "重置外觀"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.conflict.not_a_file": {
+    "settingsPage.history.reset": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Something other than a file is here. Move it first."
+            "value": "Reset"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يوجد هنا شيء غير ملف. انقله أولًا."
+            "state": "needs_review",
+            "value": "إعادة تعيين"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ovdje je nešto što nije datoteka. Prvo to premjestite."
+            "state": "needs_review",
+            "value": "Resetuj"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Her ligger noget, der ikke er en fil. Flyt det først."
+            "state": "needs_review",
+            "value": "Nulstil"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hier liegt etwas, das keine Datei ist. Verschiebe es zuerst."
+            "state": "needs_review",
+            "value": "Zurücksetzen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aquí hay algo que no es un archivo. Muévelo antes."
+            "state": "needs_review",
+            "value": "Restablecer"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ceci n’est pas un fichier. Déplacez-le d’abord."
+            "state": "needs_review",
+            "value": "Réinitialiser"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Qui c’è qualcosa che non è un file. Spostalo prima."
+            "state": "needs_review",
+            "value": "Ripristina"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ファイル以外のものがあります。先に移動してください。"
+            "state": "needs_review",
+            "value": "リセット"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "នៅទីនេះមិនមែនជាឯកសារទេ។ ផ្លាស់ទីវាជាមុនសិន។"
+            "state": "needs_review",
+            "value": "កំណត់ឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "파일이 아닌 항목이 있습니다. 먼저 옮기세요."
+            "state": "needs_review",
+            "value": "재설정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Her ligger noe som ikke er en fil. Flytt det først."
+            "state": "needs_review",
+            "value": "Tilbakestill"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tu jest coś, co nie jest plikiem. Najpierw to przenieś."
+            "state": "needs_review",
+            "value": "Resetuj"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Há algo que não é um arquivo aqui. Mova-o antes."
+            "state": "needs_review",
+            "value": "Redefinir"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Здесь не файл. Сначала переместите его."
+            "state": "needs_review",
+            "value": "Сбросить"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ตรงนี้ไม่ใช่ไฟล์ ให้ย้ายออกก่อน"
+            "state": "needs_review",
+            "value": "รีเซ็ต"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Burada dosya olmayan bir şey var. Önce onu taşıyın."
+            "state": "needs_review",
+            "value": "Sıfırla"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Тут не файл. Спершу перемістіть його."
+            "state": "needs_review",
+            "value": "Скинути"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ở đây không phải là tệp. Hãy di chuyển nó trước."
+            "state": "needs_review",
+            "value": "Đặt lại"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "这里不是文件。请先将其移走。"
+            "state": "needs_review",
+            "value": "重置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "這裡不是檔案。請先將它移走。"
+            "state": "needs_review",
+            "value": "重置"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.conflict.not_a_directory": {
+    "settingsPage.history.restore": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Something other than a folder is here. Move it first."
+            "value": "Restore"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يوجد هنا شيء غير مجلد. انقله أولًا."
+            "state": "needs_review",
+            "value": "استعادة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ovdje je nešto što nije mapa. Prvo to premjestite."
+            "state": "needs_review",
+            "value": "Vrati"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Her ligger noget, der ikke er en mappe. Flyt det først."
+            "state": "needs_review",
+            "value": "Gendan"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hier liegt etwas, das kein Ordner ist. Verschiebe es zuerst."
+            "state": "needs_review",
+            "value": "Wiederherstellen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aquí hay algo que no es una carpeta. Muévelo antes."
+            "state": "needs_review",
+            "value": "Restaurar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ceci n’est pas un dossier. Déplacez-le d’abord."
+            "state": "needs_review",
+            "value": "Restaurer"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Qui c’è qualcosa che non è una cartella. Spostalo prima."
+            "state": "needs_review",
+            "value": "Ripristina"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "フォルダ以外のものがあります。先に移動してください。"
+            "state": "needs_review",
+            "value": "元に戻す"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "នៅទីនេះមិនមែនជាថតទេ។ ផ្លាស់ទីវាជាមុនសិន។"
+            "state": "needs_review",
+            "value": "ស្ដារ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "폴더가 아닌 항목이 있습니다. 먼저 옮기세요."
+            "state": "needs_review",
+            "value": "복원"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Her ligger noe som ikke er en mappe. Flytt det først."
+            "state": "needs_review",
+            "value": "Gjenopprett"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tu jest coś, co nie jest folderem. Najpierw to przenieś."
+            "state": "needs_review",
+            "value": "Przywróć"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Há algo que não é uma pasta aqui. Mova-o antes."
+            "state": "needs_review",
+            "value": "Restaurar"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Здесь не папка. Сначала переместите её."
+            "state": "needs_review",
+            "value": "Восстановить"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ตรงนี้ไม่ใช่โฟลเดอร์ ให้ย้ายออกก่อน"
+            "state": "needs_review",
+            "value": "คืนค่า"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Burada klasör olmayan bir şey var. Önce onu taşıyın."
+            "state": "needs_review",
+            "value": "Geri yükle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Тут не папка. Спершу перемістіть її."
+            "state": "needs_review",
+            "value": "Відновити"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ở đây không phải là thư mục. Hãy di chuyển nó trước."
+            "state": "needs_review",
+            "value": "Khôi phục"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "这里不是文件夹。请先将其移走。"
+            "state": "needs_review",
+            "value": "恢复"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "這裡不是資料夾。請先將它移走。"
+            "state": "needs_review",
+            "value": "復原"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.conflict.not_owned": {
+    "settingsPage.history.cancel": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A file cmux didn’t create is here. Move it first."
+            "value": "Cancel"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يوجد هنا ملف لم ينشئه cmux. انقله أولًا."
+            "state": "needs_review",
+            "value": "إلغاء"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ovu datoteku nije napravio cmux. Prvo je premjestite."
+            "state": "needs_review",
+            "value": "Otkaži"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Her ligger en fil, cmux ikke har oprettet. Flyt den først."
+            "state": "needs_review",
+            "value": "Annuller"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Diese Datei stammt nicht von cmux. Verschiebe sie zuerst."
+            "state": "needs_review",
+            "value": "Abbrechen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aquí hay un archivo que cmux no creó. Muévelo antes."
+            "state": "needs_review",
+            "value": "Cancelar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Un fichier non créé par cmux est ici. Déplacez-le d’abord."
+            "state": "needs_review",
+            "value": "Annuler"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Qui c’è un file non creato da cmux. Spostalo prima."
+            "state": "needs_review",
+            "value": "Annulla"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux が作成していないファイルがあります。先に移動してください。"
+            "state": "needs_review",
+            "value": "キャンセル"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "នៅទីនេះមានឯកសារដែល cmux មិនបានបង្កើត។ ផ្លាស់ទីវាជាមុនសិន។"
+            "state": "needs_review",
+            "value": "បោះបង់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux가 만들지 않은 파일이 있습니다. 먼저 옮기세요."
+            "state": "needs_review",
+            "value": "취소"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Her ligger en fil cmux ikke har laget. Flytt den først."
+            "state": "needs_review",
+            "value": "Avbryt"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tego pliku nie utworzył cmux. Najpierw go przenieś."
+            "state": "needs_review",
+            "value": "Anuluj"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Há um arquivo que o cmux não criou aqui. Mova-o antes."
+            "state": "needs_review",
+            "value": "Cancelar"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Здесь файл, созданный не cmux. Сначала переместите его."
+            "state": "needs_review",
+            "value": "Отмена"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "มีไฟล์ที่ cmux ไม่ได้สร้างอยู่ตรงนี้ ให้ย้ายออกก่อน"
+            "state": "needs_review",
+            "value": "ยกเลิก"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bu dosyayı cmux oluşturmadı. Önce onu taşıyın."
+            "state": "needs_review",
+            "value": "Vazgeç"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Тут файл, створений не cmux. Спершу перемістіть його."
+            "state": "needs_review",
+            "value": "Скасувати"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ở đây có tệp không do cmux tạo. Hãy di chuyển nó trước."
+            "state": "needs_review",
+            "value": "Hủy"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "这里有一个不是 cmux 创建的文件。请先将其移走。"
+            "state": "needs_review",
+            "value": "取消"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "這裡有一個不是 cmux 建立的檔案。請先將它移走。"
+            "state": "needs_review",
+            "value": "取消"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.conflict.unreadable": {
+    "settingsPage.history.restoreOpenedItem": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux can’t read this. Check its permissions."
+            "value": "Restore How It Was When I Opened Settings"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "لا يستطيع cmux قراءة هذا. تحقّق من أذوناته."
+            "state": "needs_review",
+            "value": "استعادة ما كان عليه عند فتح الإعدادات"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux ovo ne može pročitati. Provjerite dozvole."
+            "state": "needs_review",
+            "value": "Vrati kako je bilo kad sam otvorio Postavke"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux kan ikke læse dette. Tjek tilladelserne."
+            "state": "needs_review",
+            "value": "Gendan, som det var, da jeg åbnede Indstillinger"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux kann dies nicht lesen. Prüfe die Zugriffsrechte."
+            "state": "needs_review",
+            "value": "Wie beim Öffnen der Einstellungen wiederherstellen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux no puede leer esto. Revisa sus permisos."
+            "state": "needs_review",
+            "value": "Restaurar como estaba al abrir Ajustes"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux ne peut pas lire ceci. Vérifiez les autorisations."
+            "state": "needs_review",
+            "value": "Restaurer l’état à l’ouverture des Réglages"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux non riesce a leggerlo. Controlla i permessi."
+            "state": "needs_review",
+            "value": "Ripristina com’era all’apertura delle Impostazioni"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux はこれを読み取れません。権限を確認してください。"
+            "state": "needs_review",
+            "value": "設定を開いたときの状態に戻す"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux មិនអាចអាននេះបានទេ។ ពិនិត្យការអនុញ្ញាត។"
+            "state": "needs_review",
+            "value": "ស្ដារដូចពេលខ្ញុំបើកការកំណត់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux가 이 항목을 읽을 수 없습니다. 권한을 확인하세요."
+            "state": "needs_review",
+            "value": "설정을 열었을 때 상태로 복원"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux kan ikke lese dette. Sjekk tillatelsene."
+            "state": "needs_review",
+            "value": "Gjenopprett slik det var da jeg åpnet Innstillinger"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux nie może tego odczytać. Sprawdź uprawnienia."
+            "state": "needs_review",
+            "value": "Przywróć stan z chwili otwarcia Ustawień"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O cmux não consegue ler isto. Verifique as permissões."
+            "state": "needs_review",
+            "value": "Restaurar como estava ao abrir os Ajustes"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux не может это прочитать. Проверьте права доступа."
+            "state": "needs_review",
+            "value": "Восстановить как было при открытии настроек"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux อ่านสิ่งนี้ไม่ได้ ให้ตรวจสอบสิทธิ์"
+            "state": "needs_review",
+            "value": "คืนค่าเหมือนตอนเปิดการตั้งค่า"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux bunu okuyamıyor. İzinlerini denetleyin."
+            "state": "needs_review",
+            "value": "Ayarları açtığımdaki hâline geri yükle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux не може це прочитати. Перевірте дозволи."
+            "state": "needs_review",
+            "value": "Відновити, як було під час відкриття налаштувань"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux không đọc được mục này. Hãy kiểm tra quyền."
+            "state": "needs_review",
+            "value": "Khôi phục như lúc tôi mở Cài đặt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux 无法读取此项。请检查其权限。"
+            "state": "needs_review",
+            "value": "恢复为打开设置时的样子"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux 無法讀取此項。請檢查其權限。"
+            "state": "needs_review",
+            "value": "復原為打開設定時的樣子"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.restart": {
+    "settingsPage.history.resetDefaultsItem": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restart a running agent after installing."
+            "value": "Reset to Defaults"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "أعد تشغيل الوكيل العامل بعد التثبيت."
+            "state": "needs_review",
+            "value": "إعادة التعيين إلى الافتراضي"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nakon instalacije ponovo pokrenite agenta koji radi."
+            "state": "needs_review",
+            "value": "Resetuj na zadano"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Genstart en kørende agent efter installation."
+            "state": "needs_review",
+            "value": "Nulstil til standard"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Starte laufende Agents nach der Installation neu."
+            "state": "needs_review",
+            "value": "Auf Standard zurücksetzen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Reinicia un agente en ejecución tras instalar."
+            "state": "needs_review",
+            "value": "Restablecer valores predeterminados"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Redémarrez un agent en cours après l’installation."
+            "state": "needs_review",
+            "value": "Réinitialiser les valeurs par défaut"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Riavvia un agente in esecuzione dopo l’installazione."
+            "state": "needs_review",
+            "value": "Ripristina i valori predefiniti"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "インストール後、実行中のエージェントを再起動してください。"
+            "state": "needs_review",
+            "value": "デフォルトに戻す"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ចាប់ផ្តើមភ្នាក់ងារដែលកំពុងដំណើរការឡើងវិញ ក្រោយដំឡើង។"
+            "state": "needs_review",
+            "value": "កំណត់ទៅលំនាំដើមឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "설치 후 실행 중인 에이전트를 다시 시작하세요."
+            "state": "needs_review",
+            "value": "기본값으로 재설정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start en kjørende agent på nytt etter installering."
+            "state": "needs_review",
+            "value": "Tilbakestill til standard"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Po instalacji uruchom ponownie działającego agenta."
+            "state": "needs_review",
+            "value": "Przywróć domyślne"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Reinicie um agente em execução após instalar."
+            "state": "needs_review",
+            "value": "Redefinir para o padrão"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "После установки перезапустите работающего агента."
+            "state": "needs_review",
+            "value": "Сбросить по умолчанию"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "รีสตาร์ทเอเจนต์ที่กำลังทำงานหลังติดตั้ง"
+            "state": "needs_review",
+            "value": "รีเซ็ตเป็นค่าเริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Yükledikten sonra çalışan ajanı yeniden başlatın."
+            "state": "needs_review",
+            "value": "Varsayılanlara sıfırla"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Після встановлення перезапустіть агента, що працює."
+            "state": "needs_review",
+            "value": "Скинути до стандартних"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Khởi động lại tác tử đang chạy sau khi cài đặt."
+            "state": "needs_review",
+            "value": "Đặt lại về mặc định"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "安装后请重启正在运行的智能体。"
+            "state": "needs_review",
+            "value": "重置为默认值"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "安裝後請重新啟動正在執行的代理。"
+            "state": "needs_review",
+            "value": "重置為預設值"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.manual": {
+    "settingsPage.history.restoreOpened": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Or install from a terminal:"
+            "value": "Appearance as opened"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "أو ثبّت من الطرفية:"
+            "state": "needs_review",
+            "value": "المظهر كما كان عند الفتح"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ili instalirajte iz terminala:"
+            "state": "needs_review",
+            "value": "Izgled kao pri otvaranju"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Eller installer fra en terminal:"
+            "state": "needs_review",
+            "value": "Udseende som ved åbning"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Oder im Terminal installieren:"
+            "state": "needs_review",
+            "value": "Darstellung wie beim Öffnen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O instala desde una terminal:"
+            "state": "needs_review",
+            "value": "Apariencia al abrir"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ou installez depuis un terminal :"
+            "state": "needs_review",
+            "value": "Apparence à l’ouverture"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Oppure installa da un terminale:"
+            "state": "needs_review",
+            "value": "Aspetto all’apertura"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "またはターミナルからインストール："
+            "state": "needs_review",
+            "value": "開いたときの外観"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ឬដំឡើងពី terminal៖"
+            "state": "needs_review",
+            "value": "រូបរាងដូចពេលបើក"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "또는 터미널에서 설치:"
+            "state": "needs_review",
+            "value": "열었을 때의 모양"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Eller installer fra en terminal:"
+            "state": "needs_review",
+            "value": "Utseende som ved åpning"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Lub zainstaluj z terminala:"
+            "state": "needs_review",
+            "value": "Wygląd z chwili otwarcia"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ou instale pelo terminal:"
+            "state": "needs_review",
+            "value": "Aparência ao abrir"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Или установите из терминала:"
+            "state": "needs_review",
+            "value": "Оформление как при открытии"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "หรือติดตั้งจากเทอร์มินัล:"
+            "state": "needs_review",
+            "value": "รูปลักษณ์ตอนเปิด"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Veya bir terminalden yükleyin:"
+            "state": "needs_review",
+            "value": "Açıldığındaki görünüm"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Або встановіть із термінала:"
+            "state": "needs_review",
+            "value": "Вигляд як під час відкриття"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hoặc cài đặt từ terminal:"
+            "state": "needs_review",
+            "value": "Giao diện như lúc mở"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "或在终端中安装："
+            "state": "needs_review",
+            "value": "打开时的外观"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "或在終端機中安裝："
+            "state": "needs_review",
+            "value": "打開時的外觀"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.problem.unavailable": {
+    "settingsPage.history.resetDefaults": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This build has no cmux CLI. Use the command below."
+            "value": "Appearance defaults"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "لا يتضمن هذا الإصدار واجهة cmux. استخدم الأمر أدناه."
+            "state": "needs_review",
+            "value": "الإعدادات الافتراضية للمظهر"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ovo izdanje nema cmux CLI. Koristite naredbu ispod."
+            "state": "needs_review",
+            "value": "Zadani izgled"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Denne build har ingen cmux-CLI. Brug kommandoen nedenfor."
+            "state": "needs_review",
+            "value": "Standardudseende"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Build hat keine cmux-CLI. Nutze den Befehl unten."
+            "state": "needs_review",
+            "value": "Standarddarstellung"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Esta versión no incluye la CLI de cmux. Usa este comando."
+            "state": "needs_review",
+            "value": "Apariencia predeterminada"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cette version n’a pas la CLI cmux. Utilisez cette commande."
+            "state": "needs_review",
+            "value": "Apparence par défaut"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Questa build non ha la CLI di cmux. Usa il comando sotto."
+            "state": "needs_review",
+            "value": "Aspetto predefinito"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "このビルドには cmux CLI がありません。下のコマンドを使ってください。"
+            "state": "needs_review",
+            "value": "外観のデフォルト"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កំណែនេះគ្មាន cmux CLI ទេ។ ប្រើពាក្យបញ្ជាខាងក្រោម។"
+            "state": "needs_review",
+            "value": "រូបរាងលំនាំដើម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "이 빌드에는 cmux CLI가 없습니다. 아래 명령어를 사용하세요."
+            "state": "needs_review",
+            "value": "기본 모양"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dette bygget har ikke cmux-CLI. Bruk kommandoen nedenfor."
+            "state": "needs_review",
+            "value": "Standardutseende"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ta kompilacja nie ma CLI cmux. Użyj polecenia poniżej."
+            "state": "needs_review",
+            "value": "Domyślny wygląd"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Esta versão não tem a CLI do cmux. Use o comando abaixo."
+            "state": "needs_review",
+            "value": "Aparência padrão"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "В этой сборке нет CLI cmux. Используйте команду ниже."
+            "state": "needs_review",
+            "value": "Оформление по умолчанию"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "บิลด์นี้ไม่มี cmux CLI ให้ใช้คำสั่งด้านล่าง"
+            "state": "needs_review",
+            "value": "รูปลักษณ์เริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bu derlemede cmux CLI yok. Aşağıdaki komutu kullanın."
+            "state": "needs_review",
+            "value": "Varsayılan görünüm"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "У цій збірці немає CLI cmux. Скористайтеся командою нижче."
+            "state": "needs_review",
+            "value": "Стандартний вигляд"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bản dựng này không có cmux CLI. Hãy dùng lệnh bên dưới."
+            "state": "needs_review",
+            "value": "Giao diện mặc định"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "此版本没有 cmux CLI。请使用下面的命令。"
+            "state": "needs_review",
+            "value": "默认外观"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "此版本沒有 cmux CLI。請使用下方的指令。"
+            "state": "needs_review",
+            "value": "預設外觀"
           }
         }
       }
     },
-    "settingsWindow.agentIntegrations.problem.failed": {
+    "settingsPage.history.confirmRestore": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn’t read the hook status. Try Refresh."
+            "value": "Restore Appearance as it was when you opened Settings?"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تعذّرت قراءة حالة الخطافات. جرّب التحديث."
+            "state": "needs_review",
+            "value": "هل تريد استعادة المظهر كما كان عند فتح الإعدادات؟"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Status hookova nije pročitan. Pokušajte Osvježi."
+            "state": "needs_review",
+            "value": "Vratiti izgled kakav je bio kad ste otvorili Postavke?"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke læse status for hooks. Prøv Opdater."
+            "state": "needs_review",
+            "value": "Gendan udseendet, som det var, da du åbnede Indstillinger?"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hook-Status nicht lesbar. Versuche Aktualisieren."
+            "state": "needs_review",
+            "value": "Darstellung wie beim Öffnen der Einstellungen wiederherstellen?"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo leer el estado de los hooks. Prueba Actualizar."
+            "state": "needs_review",
+            "value": "¿Restaurar la apariencia como estaba al abrir Ajustes?"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de lire l’état des hooks. Essayez Actualiser."
+            "state": "needs_review",
+            "value": "Restaurer l’apparence telle qu’à l’ouverture des Réglages ?"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile leggere lo stato degli hook. Prova Aggiorna."
+            "state": "needs_review",
+            "value": "Ripristinare l’aspetto com’era all’apertura delle Impostazioni?"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "フックの状態を読み取れませんでした。更新してください。"
+            "state": "needs_review",
+            "value": "設定を開いたときの外観に戻しますか？"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចអានស្ថានភាព hook បានទេ។ សាកល្បងផ្ទុកឡើងវិញ។"
+            "state": "needs_review",
+            "value": "ស្ដាររូបរាងដូចពេលអ្នកបើកការកំណត់ឬ?"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "훅 상태를 읽지 못했습니다. 새로 고침을 시도하세요."
+            "state": "needs_review",
+            "value": "설정을 열었을 때의 모양으로 복원할까요?"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke lese statusen for hooks. Prøv Oppdater."
+            "state": "needs_review",
+            "value": "Gjenopprette utseendet slik det var da du åpnet Innstillinger?"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się odczytać stanu hooków. Spróbuj Odśwież."
+            "state": "needs_review",
+            "value": "Przywrócić wygląd z chwili otwarcia Ustawień?"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível ler o status dos hooks. Tente Atualizar."
+            "state": "needs_review",
+            "value": "Restaurar a aparência como estava ao abrir os Ajustes?"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось прочитать состояние хуков. Нажмите «Обновить»."
+            "state": "needs_review",
+            "value": "Восстановить оформление, как было при открытии настроек?"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "อ่านสถานะฮุกไม่ได้ ลองรีเฟรช"
+            "state": "needs_review",
+            "value": "คืนค่ารูปลักษณ์เหมือนตอนที่คุณเปิดการตั้งค่าหรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kanca durumu okunamadı. Yenile’yi deneyin."
+            "state": "needs_review",
+            "value": "Görünüm, Ayarlar’ı açtığınızdaki hâline geri yüklensin mi?"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося прочитати стан хуків. Спробуйте «Оновити»."
+            "state": "needs_review",
+            "value": "Відновити вигляд, як було під час відкриття налаштувань?"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Không đọc được trạng thái hook. Hãy thử Làm mới."
+            "state": "needs_review",
+            "value": "Khôi phục giao diện như lúc bạn mở Cài đặt?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "无法读取钩子状态。请尝试刷新。"
+            "state": "needs_review",
+            "value": "要将外观恢复为打开设置时的样子吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
+            "state": "needs_review",
+            "value": "要將外觀復原為打開設定時的樣子嗎？"
+          }
+        }
+      }
+    },
+    "settingsPage.history.confirmDefaults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
             "state": "translated",
-            "value": "無法讀取掛鉤狀態。請嘗試重新整理。"
+            "value": "Reset Appearance to its defaults?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد إعادة تعيين المظهر إلى الإعدادات الافتراضية؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Resetovati izgled na zadano?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nulstil udseendet til standard?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Darstellung auf Standard zurücksetzen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Restablecer la apariencia a sus valores predeterminados?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réinitialiser l’apparence par défaut ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ripristinare l’aspetto predefinito?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "外観をデフォルトに戻しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់រូបរាងទៅលំនាំដើមឡើងវិញឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모양을 기본값으로 재설정할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilbakestille utseendet til standard?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przywrócić domyślny wygląd?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redefinir a aparência para o padrão?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сбросить оформление по умолчанию?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รีเซ็ตรูปลักษณ์เป็นค่าเริ่มต้นหรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Görünüm varsayılanlara sıfırlansın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скинути вигляд до стандартного?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt lại giao diện về mặc định?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要将外观重置为默认值吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要將外觀重置為預設值嗎？"
           }
         }
       }

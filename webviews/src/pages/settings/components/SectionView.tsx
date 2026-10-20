@@ -9,6 +9,8 @@ import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
+import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
+import { AppearanceBar } from "./AppearanceBar";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
@@ -72,6 +74,7 @@ export function SectionView({
       {category.actions.map((id) => (
         <SectionActions key={id} section={id} />
       ))}
+      {APPEARANCE_CATEGORIES.includes(category.id) && <AppearanceBar />}
     </div>
   );
 }

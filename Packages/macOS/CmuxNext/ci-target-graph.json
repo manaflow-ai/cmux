@@ -222,6 +222,7 @@
         "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextPalette",
+        "CmuxNextPhone",
         "CmuxNextPhoneAccess",
         "CmuxNextPopups",
         "CmuxNextProcessEnvironment",
@@ -893,6 +894,15 @@
       "packages": [],
       "reads": []
     },
+    "CmuxNextPhone": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
     "CmuxNextPhoneAccess": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess",
@@ -912,6 +922,16 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPhoneAccessTests",
       "targets": [
         "CmuxNextPhoneAccess"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextPhoneTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPhoneTests",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextPhone"
       ],
       "packages": [],
       "reads": []

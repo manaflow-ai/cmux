@@ -79,11 +79,14 @@ struct PageFactory {
     }
 
     /// The Cloud app page (cmux.cloud) with the machine list layout from Debug Settings. Its
-    /// namespace answers "not available yet" until the app supervisor (apps-v1) runs the Cloud app
-    /// server; then the route goes to the supervisor relay.
+    /// namespace runs on the Cloud app server through the local daemon (``CloudPageProvider``);
+    /// sign-in and sign-out run the app's own account flow after the native sheet.
     func cloudWebPage() -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .cloud)
-        let cloud = UnavailablePageProvider(code: "cmux.cloud.unsupported")
+        let account = services.cloud
+        let cloud = CloudPageProvider(op: account.appOps,
+                                      signIn: { [weak account] in await account?.auth.signIn() ?? false },
+                                      signOut: { [weak account] in await account?.signOut() })
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
         let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]

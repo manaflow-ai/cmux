@@ -463,7 +463,8 @@ mod api_compat {
                     // Wildcards must sit in the shared prefix; fall back to a rename otherwise.
                     let shared = tokens.len();
                     let from_tokens: Vec<&str> = from.split('/').skip(1).collect();
-                    if from_tokens[shared..].contains(&"*") {
+                    let nested = to.starts_with(&format!("{from}/"));
+                    if nested || from_tokens[shared..].contains(&"*") {
                         Change::Rename { path: from, to: format!("r{n}") }
                     } else {
                         Change::Move { from, path: to }

@@ -66,6 +66,12 @@ pub fn status(path: &Path) -> Result<Value> {
     serde_json::to_value(state).map_err(|_| Error::internal("server.pair.invalid_status"))
 }
 
+/// Whether the backend may still accept a code expiring at `expires_at` (its clock): it allows
+/// five minutes of skew, so a code past expiry here is resumed, never replaced, until then.
+fn code_live(expires_at: u64, now_ms: u64) -> bool {
+    expires_at.saturating_add(enrollment::MAX_CLOCK_SKEW_MS) > now_ms
+}
+
 fn public_result(paired: &Paired) -> Result<Value> {
     serde_json::to_value(EnrollmentStatus::Paired(paired.clone()))
         .map_err(|_| Error::internal("server.pair.invalid_status"))
@@ -99,7 +105,7 @@ pub fn enroll(
     }
     if let Some(attempt) = &identity.attempt {
         let active = if attempt.response.is_some() {
-            attempt.expires_at.is_some_and(|at| at > now_ms)
+            attempt.expires_at.is_some_and(|at| code_live(at, now_ms))
         } else {
             now_ms < attempt.started_at.saturating_add(UNKNOWN_BEGIN_MS)
         };
@@ -115,7 +121,7 @@ pub fn enroll(
     let response = identity.begin_response()?;
     let begun = response
         .as_ref()
-        .filter(|v| v["expires_at"].as_u64().is_some_and(|at| at > now_ms))
+        .filter(|v| v["expires_at"].as_u64().is_some_and(|at| code_live(at, now_ms)))
         .map(|v| Begun::parse(v, &thumbprint, now_ms))
         .transpose()
         .map_err(|_| Error::verification("server.pair.invalid_begin"))?;
@@ -146,9 +152,13 @@ pub fn enroll(
             store.save(&identity)?;
             let response = match transport.begin(&api, &body) {
                 Ok(response) => response,
-                Err(error) if error.kind == crate::ExitKind::Rejected => {
+                Err(error)
+                    if error.kind == crate::ExitKind::Rejected
+                        || error.message == network::UNSENT =>
+                {
                     // The begin route's 4xx replies acknowledge that no code
-                    // was issued. Keep the key and allow a corrected attempt.
+                    // was issued, and an unsent begin made none. Keep the key
+                    // and allow a corrected or repeated attempt.
                     identity.attempt = None;
                     store.save(&identity)?;
                     return Err(error);
