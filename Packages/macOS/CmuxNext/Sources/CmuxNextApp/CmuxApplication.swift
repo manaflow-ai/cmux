@@ -49,6 +49,13 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     private(set) var currentEventIsSynthetic = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
+    /// Set once by `AppServices`: a nil-targeted action's target instead of
+    /// the responder chain's (`found`), or nil to keep it. Paste commands
+    /// that no text input of Home takes go to its message box this way
+    /// (`PrimaryInputPasteRoute`), for menus, key equivalents and synthetic
+    /// Cmd+V alike.
+    var actionTargetOverride: ((Selector, AnyObject?) -> AnyObject?)?
+
     @objc(isHandlingSendEvent)
     func isHandlingSendEvent() -> Bool { handlingSendEvent }
 
@@ -80,6 +87,12 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is
         // not key sets its cursor last (`ArrowCursorView.pointerDidMove`).
         if event.type == .mouseMoved { ArrowCursorView.pointerDidMove() }
+    }
+
+    override func target(forAction action: Selector, to target: Any?, from sender: Any?) -> Any? {
+        let found = super.target(forAction: action, to: target, from: sender)
+        guard target == nil, let actionTargetOverride else { return found }
+        return actionTargetOverride(action, found as AnyObject?) ?? found
     }
 
     /// An exception AppKit caught on the main thread. With
