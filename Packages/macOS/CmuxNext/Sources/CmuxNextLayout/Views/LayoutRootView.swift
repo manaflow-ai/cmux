@@ -331,7 +331,6 @@ public final class LayoutRootView: NSView {
     // MARK: Frames
 
     func advanceFrame(_ dt: Double) -> Bool {
-        model.flushPendingGestureIntents()
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.policy
         var moving = false
@@ -346,9 +345,9 @@ public final class LayoutRootView: NSView {
         if highlight.step(dt) { moving = true }
         updateVisibility()
         flushOverlaySync()
-        // A gesture requests frames on each pointer change (pending intents);
-        // an active gesture with a still pointer needs none.
-        return moving || model.hasPendingGestureIntents
+        // A gesture requests frames on each pointer change; an active
+        // gesture with a still pointer needs none.
+        return moving
     }
 
     func updateVisibility() {
