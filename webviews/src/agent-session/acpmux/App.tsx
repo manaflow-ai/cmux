@@ -193,7 +193,7 @@ import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcut
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
-import { transcriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
+import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
@@ -867,7 +867,7 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
   rowKind(row) !== "editedFiles" &&
-  transcriptCopyText(row).length > 0;
+  hasTranscriptCopyText(row);
 
 /// Slides the thread from `step` px below (above, when negative) to its place over 180 ms, so
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started

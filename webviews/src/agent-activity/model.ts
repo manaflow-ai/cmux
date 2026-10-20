@@ -191,14 +191,6 @@ export function step(state: ActivityState, delta: number, framesOnly = false): A
   return reduceActivity(state, { type: "scrub", seq: events[clamped].seq });
 }
 
-export function scrubToStart(state: ActivityState): ActivityState {
-  return reduceActivity(state, { type: "scrub", seq: selectedEvents(state)[0]?.seq });
-}
-
-export function scrubToEnd(state: ActivityState): ActivityState {
-  return reduceActivity(state, { type: "scrub", seq: undefined });
-}
-
 export function reduceActivity(state: ActivityState, action: any): ActivityState {
   let next = state;
   if (action.type === "snapshot")
