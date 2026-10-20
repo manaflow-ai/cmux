@@ -49,6 +49,7 @@ class SidebarItemRowView: NSView {
     let pill = CALayer()
     private let chip = CALayer()
     let icon = DecorativeImageView() // the row's label names the item
+    private let pin = DecorativeImageView() // the row's label says it is pinned
     let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
@@ -90,7 +91,7 @@ class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [icon, title, badge, avatarView, activity].forEach(addSubview)
+        [pin, icon, title, badge, avatarView, activity].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
@@ -123,6 +124,7 @@ class SidebarItemRowView: NSView {
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly
+        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         title.alignment = style == .favorite ? .center : .natural
         badge.configure(unreadState)
         activity.configure(info.activity, style: info.activityStyle)
@@ -160,6 +162,7 @@ class SidebarItemRowView: NSView {
             let strong = (style == .icon || isProfileChip) && (isHovered || isPressed || showsMenu || showsKeyFocus)
             // The chip's avatar sits beside its name at full strength, as the name does.
             avatarView.isStrong = strong || isProfileChip
+            pin.contentTintColor = Palette.textSecondary
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
                 : info.isActive || isRailButton || strong ? Palette.textPrimary : Palette.textSecondary
@@ -200,9 +203,14 @@ class SidebarItemRowView: NSView {
         // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON).
         let bare = info.textOnly && !style.isIconOnly
         // The glyph lines up with the text of workspace rows (their inset plus the pill inset).
+        // A pinned workspace row's pin leads, and its icon and title follow it.
+        let pinSide = Metrics.smallIconSize
+        let lead = (style == .chip ? Metrics.space2 : inset * 2) + (info.leadingPin ? pinSide + Metrics.space2 : 0)
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
-            : NSRect(x: style == .chip ? Metrics.space2 : inset * 2, y: (b.height - side) / 2, width: side, height: side)
+            : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)
+        pin.isHidden = !info.leadingPin
+        pin.frame = NSRect(x: inset * 2, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         // Icon-only items keep their pill around the glyph (a full-width fill reads
         // as a selected row); the profile avatar's pill and click fill its square.
         let pillFrame = style.isIconOnly ? (showsAvatar ? b : iconFrame)
