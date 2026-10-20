@@ -239,6 +239,31 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     await page.locator(".acpmux-question-answered").first().waitFor({ timeout: 5_000 });
     expect(await page.getByRole("radio", { name: /OAuth 2\.0/ }).count()).toBe(0);
     expect(await records(page)).toEqual(["Answered Auth method: OAuth 2.0"]);
+    // The work after the answer draws below its record, never in the row above it.
+    push([
+      "in",
+      "tool_call_update",
+      update({ sessionUpdate: "tool_call_update", toolCallId: "toolu_ask", status: "completed" }),
+    ]);
+    push([
+      "in",
+      "tool_call",
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: "read-auth",
+        title: "Read src/auth.ts",
+        kind: "read",
+        status: "in_progress",
+        rawInput: { file_path: "src/auth.ts" },
+      }),
+    ]);
+    const after = page.getByText("Read src/auth.ts").first();
+    await after.waitFor({ timeout: 5_000 });
+    const [record, read] = await Promise.all([
+      page.locator(".acpmux-question-answered").first().boundingBox(),
+      after.boundingBox(),
+    ]);
+    expect(read!.y).toBeGreaterThan(record!.y);
     await page.close();
   });
 });

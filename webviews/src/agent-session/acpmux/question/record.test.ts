@@ -87,6 +87,74 @@ describe("answerFromOutcome", () => {
     expect(lines(claude, outcomeOf(claude, answer))).toEqual(["Auth: Keys, rotated", "Platforms: iOS, Web, watchOS"]);
   });
 
+  test("Claude multi-select: a label with a comma among other choices reads back as options", () => {
+    const multi = questionFromPermission({
+      permissionId: "p4",
+      session: "s1",
+      request: {
+        toolCall: {
+          rawInput: {
+            questions: [
+              {
+                question: "Which auth methods?",
+                header: "Auth",
+                multiSelect: true,
+                options: [{ label: "OAuth" }, { label: "Keys, rotated" }, { label: "Keys" }],
+              },
+            ],
+          },
+          _meta: { claude: { tool: "AskUserQuestion" } },
+        },
+        options,
+      },
+    })!;
+    const answer: Answer = { selections: { q0: { optionIDs: ["OAuth", "Keys, rotated"] } } };
+    expect(answerFromOutcome(multi, outcomeOf(multi, answer))).toEqual(answer);
+  });
+
+  test("Claude single-select: Other text with a comma stays whole", () => {
+    const answer: Answer = {
+      selections: { q0: { optionIDs: [], other: "OAuth 2.0, with rotated keys" }, q1: { optionIDs: ["Web"] } },
+    };
+    expect(answerFromOutcome(claude, outcomeOf(claude, answer))).toEqual(answer);
+  });
+
+  test("the daemon's normalized question reads back as its harness's", () => {
+    const normalized = questionFromPermission({
+      permissionId: "p5",
+      session: "s1",
+      request: {
+        toolCall: {
+          rawInput: { questions: [{ question: "Which auth method?" }] },
+          _meta: {
+            acpmux: {
+              question: {
+                harness: "claude",
+                agent: "Claude Code",
+                items: [
+                  {
+                    id: "q0",
+                    header: "Auth",
+                    prompt: "Which auth method?",
+                    options: [
+                      { id: "OAuth 2.0", label: "OAuth 2.0" },
+                      { id: "Keys", label: "Keys" },
+                    ],
+                    multiSelect: false,
+                    allowsOther: true,
+                  },
+                ],
+              },
+            },
+          },
+        },
+        options,
+      },
+    })!;
+    const answer: Answer = { selections: { q0: { optionIDs: ["Keys"] } } };
+    expect(lines(normalized, outcomeOf(normalized, answer))).toEqual(["Auth: Keys"]);
+  });
+
   test("Codex: answers by question id", () => {
     const answer: Answer = { selections: { scope: { optionIDs: ["Org"] } } };
     expect(lines(codex, outcomeOf(codex, answer))).toEqual(["Which scope?: Org"]);
