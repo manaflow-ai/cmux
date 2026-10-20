@@ -44,11 +44,11 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         let pipe: Pipe
         let workspace: Workspace
 
-        init() throws {
+        init(controller: RemoteTmuxController? = nil) throws {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            let controller = RemoteTmuxController()
+            let controller = controller ?? RemoteTmuxController()
             let host = RemoteTmuxHost(destination: "user@paneinput")
             let connection = RemoteTmuxControlConnection(host: host, sessionName: "input-map")
             let pipe = Pipe()
@@ -208,7 +208,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
     private func captureInputCommands(
         in harness: Harness,
         expectedCount: Int,
-        _ sendInput: () throws -> Void
+        _ sendInput: () async throws -> Void
     ) async throws -> [String] {
         let inputPipe = Pipe()
         let inputWriter = RemoteTmuxControlPipeWriter(
@@ -390,6 +390,77 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         }
 
         #expect(commands == ["send-keys -t %4 -H 78"])
+    }
+
+    @Test(arguments: [
+        ("LINE_ONE_KPT\nLINE_TWO_KPT", #""LINE_ONE_KPT\nLINE_TWO_KPT""#),
+        ("LINE_ONE_KPT\r\nLINE_TWO_KPT", #""LINE_ONE_KPT\r\nLINE_TWO_KPT""#),
+        ("LINE_ONE_KPT\rLINE_TWO_KPT", #""LINE_ONE_KPT\rLINE_TWO_KPT""#),
+        ("/tmp/screenshot image.png", #""/tmp/screenshot image.png""#),
+    ])
+    func mirrorPasteUsesOneTmuxPaste(text: String, quoted: String) async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] vim",
+        ])
+        try harness.drainThroughPaneRects([
+            2: ["%4 0 0 80 24 1 off :0 \"host\""],
+        ])
+        let surface = try #require(try harness.mirror().panel(forPane: 4)).surface
+
+        let commands = try await captureInputCommands(in: harness, expectedCount: 2) {
+            try #require(harness.controller.pasteIntoMirror(surfaceId: surface.id, text: text))
+        }
+
+        #expect(commands == [
+            "set-buffer -b cmux-paste-4 -- \(quoted)",
+            "paste-buffer -p -d -b cmux-paste-4 -t %4",
+        ])
+        #expect(!commands.contains { $0.hasPrefix("send-keys ") })
+
+        let pendingCount = harness.connection.pendingCommandKindsForTesting.count
+        #expect(!harness.controller.pasteIntoMirror(surfaceId: surface.id, text: ""))
+        #expect(!harness.controller.pasteIntoMirror(surfaceId: UUID(), text: text))
+        #expect(harness.connection.pendingCommandKindsForTesting.count == pendingCount)
+    }
+
+    @Test func cliPasteIntoMirrorUsesTmuxPaste() async throws {
+        enum PasteError: Error { case rejected }
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let appDelegate = try #require(AppDelegate.shared)
+            let harness = try Harness(controller: appDelegate.remoteTmuxController)
+            defer { harness.tearDown() }
+            harness.publishListWindows([
+                "@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] vim",
+            ])
+            try harness.drainThroughPaneRects([
+                2: ["%4 0 0 80 24 1 off :0 \"host\""],
+            ])
+            let surface = try #require(try harness.mirror().panel(forPane: 4)).surface
+            let controller = TerminalController.shared
+            let previousManager = controller.activeTabManagerForCallerNotification()
+            controller.setActiveTabManager(appDelegate.tabManagerFor(windowId: harness.windowId))
+            defer { controller.setActiveTabManager(previousManager) }
+
+            let commands = try await captureInputCommands(in: harness, expectedCount: 2) {
+                let result = await controller.v2MobileTerminalPaste(params: [
+                    "workspace_id": harness.workspace.id.uuidString,
+                    "surface_id": surface.id.uuidString,
+                    "text": "LINE_ONE_KPT\nLINE_TWO_KPT",
+                    "submit_key": "none",
+                ])
+                guard case .ok = result else {
+                    Issue.record("Expected terminal.paste success, got \(result)")
+                    throw PasteError.rejected
+                }
+            }
+            #expect(commands == [
+                #"set-buffer -b cmux-paste-4 -- "LINE_ONE_KPT\nLINE_TWO_KPT""#,
+                "paste-buffer -p -d -b cmux-paste-4 -t %4",
+            ])
+            #expect(!commands.contains { $0.hasPrefix("send-keys ") })
+        }
     }
 
     @Test
