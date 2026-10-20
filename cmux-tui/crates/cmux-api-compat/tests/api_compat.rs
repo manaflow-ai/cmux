@@ -54,6 +54,20 @@ mod api_compat {
         assert_eq!(tr(&c, 3, 1, r#"{"opts":{"zoom":2}}"#), r#"{"opts":{},"legacy":"x"}"#);
     }
 
+    /// Fleet proptest find (5f9ba6b): a rename onto a key the input already
+    /// has emitted that key twice. A rename replaces its target.
+    #[test]
+    fn api_compat_rename_onto_an_existing_key_replaces_it() {
+        let c = compat(vec![
+            vec![Change::Remove { path: "/a".into(), default: json!(0) }],
+            vec![Change::Move { from: "/a".into(), path: "/r1".into() }],
+        ]);
+        assert_eq!(tr(&c, 3, 1, r#"{"a":null}"#), r#"{"a":0}"#);
+        let c = compat(vec![vec![rename("/a", "b")]]);
+        assert_eq!(tr(&c, 1, 2, r#"{"b":1,"a":2}"#), r#"{"b":2}"#);
+        assert_eq!(tr(&c, 1, 2, r#"{"b":1}"#), r#"{}"#);
+    }
+
     #[test]
     fn api_compat_move_across_parents_round_trips() {
         let c =

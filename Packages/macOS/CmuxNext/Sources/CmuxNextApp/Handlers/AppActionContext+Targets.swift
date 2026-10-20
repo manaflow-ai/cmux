@@ -128,6 +128,19 @@ extension AppActionContext {
         return (pane, id)
     }
 
+    /// The tabs a tab action on `id` acts on: every selected tab of `pane`'s strip from a menu opened
+    /// on one of them (`actsOnTabSelection`), else `id`.
+    func actingTabs(_ invocation: ActionInvocation, _ pane: PaneController, _ id: StripTabID) -> [StripTabID] {
+        invocation.actsOnTabSelection ? pane.stripModel.actingTabs(for: id) : [id]
+    }
+
+    /// The daemon tabs Move Tab to New Workspace or Window takes for `tab`: on one of several
+    /// selected tabs, every selected tab that may move, in strip order (`tab` among them); else `tab`.
+    func movingTabs(_ invocation: ActionInvocation, _ tab: TabModel) -> [TabModel] {
+        guard let pane = services.locateTab(tab.id).flatMap({ services.paneController(for: $0.1) }) else { return [tab] }
+        return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0.id, services: services) == nil }
+    }
+
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
