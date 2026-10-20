@@ -13,7 +13,7 @@ import Foundation
     func apply(_ surfaces: [SurfaceID]) -> IntentUndo? {
         var hidden: [HiddenTab] = []
         for surface in surfaces where !ProvisionalTab.isProvisional(surface: surface) {
-            guard let tab = store.tabsBySurface[surface], let pane = store.index.pane(holding: tab),
+            guard let tab = store.tab(surface: surface), let pane = store.index.pane(holding: tab),
                   let index = pane.tabs.firstIndex(where: { $0 === tab }), let removed = pane.removeTab(surface: surface) else { continue }
             store.index.remove(removed)
             hidden.append(HiddenTab(tab: removed, pane: pane.handle, index: index))
@@ -31,7 +31,7 @@ import Foundation
     /// Whether the confirmed records (the overlay is lifted) still hold a closed tab: the intent
     /// stays, so its settlement and the daemon's `tab-closed` land in one apply.
     func daemonHolds(_ surfaces: [SurfaceID]) -> Bool {
-        surfaces.contains { store.tabsBySurface[$0] != nil }
+        surfaces.contains { store.tab(surface: $0) != nil }
     }
 }
 
@@ -45,7 +45,7 @@ extension DaemonStore {
     /// - Parameter surfaces: The daemon tabs to close; provisional surfaces are ignored.
     /// - Returns: The close's transaction, or nil when none of them is shown.
     public func intendClose(_ surfaces: [SurfaceID]) -> ClientTransactionID? {
-        let shown = surfaces.filter { !ProvisionalTab.isProvisional(surface: $0) && tabsBySurface[$0] != nil }
+        let shown = surfaces.filter { !ProvisionalTab.isProvisional(surface: $0) && tab(surface: $0) != nil }
         guard !shown.isEmpty else { return nil }
         let transaction = ClientTransactionID.generate()
         intend(.closeTabs(surfaces: shown), transaction: transaction)
