@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { runAttempts } from "../../db/schema";
 import { runCloudClient, type RunCloudClient } from "./cloudClient";
+import { RUN_CLOUD_CREATE_PENDING_LIMIT_MS, RunCloudOperationPending, runCloudCreatePendingExpired } from "./cloudClientContract";
 import { claimNextRunAttempt, renewRunAttemptLease, checkpointRunAttempt, finishRunAttempt, cancelClaimedRunAttempt, reconcileCancelledRunAttempts, type ClaimedRunAttempt } from "./worker";
 import { normalizeRunSpec } from "./spec";
 import { parseSourceVerificationReceipt, sourceVerificationCommand } from "./sourceVerification";
@@ -92,8 +93,8 @@ async function processClaim(attempt: ClaimedRunAttempt): Promise<string> {
     try {
       if (!attempt.ownerTeamId) throw new Error("Queued Run lacks an immutable owner");
       client = await runCloudClient(attempt.userId, attempt.ownerTeamId);
-    } catch {
-      return await failClaim(attempt, "Run worker could not open the owner's Cloud session");
+    } catch (error) {
+      return await failClaim(attempt, `Run worker could not open the owner's Cloud session${sessionSetupStage(error)}`);
     }
     const executed = await executeClaim(attempt, client);
     if (lost) throw new RunInterrupted("Run lease lost");
@@ -107,11 +108,29 @@ async function processClaim(attempt: ClaimedRunAttempt): Promise<string> {
     const applied = await finishRunAttempt({ ...attempt, status: "succeeded", ...executed, cleanupState, retainedUntil });
     return applied ? "succeeded" : "fenced";
   } catch (error) {
+    // VM create answers 409 while the same idempotent provider operation is
+    // still running in the Cloud control plane. Leave the attempt running so
+    // its lease expires and the next cron turn retries the same key; a generic
+    // failure here would strand the Run even though the create may succeed.
+    // A create whose continuation died answers 409 forever, so stop once no
+    // live create can still be running and free the Run's concurrency slot.
+    if (error instanceof RunCloudOperationPending) {
+      if (!runCloudCreatePendingExpired({ startedAt: attempt.startedAt })) return "pending";
+      return await failClaim(attempt, `Cloud VM create did not finish within ${RUN_CLOUD_CREATE_PENDING_LIMIT_MS / 60_000} minutes`);
+    }
     if (error instanceof RunPending) return "pending";
     return await failClaim(attempt, "Run source/setup, recipe, or Cloud operation failed");
   } finally {
     clearInterval(timer);
   }
+}
+
+const SESSION_SETUP_STAGES = new Set(["owner-lookup", "session-create", "session-tokens", "cloud-origin"]);
+
+/** Only a known stage label, never the provider's message, joins the receipt. */
+function sessionSetupStage(error: unknown): string {
+  const stage = error instanceof Error ? (error as { stage?: unknown }).stage : undefined;
+  return typeof stage === "string" && SESSION_SETUP_STAGES.has(stage) ? ` (${stage})` : "";
 }
 
 /** Raw provider/database errors must never enter durable receipts. */

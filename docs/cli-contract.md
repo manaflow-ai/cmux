@@ -159,7 +159,7 @@ Environment:
 | `memory` | Print the app's own memory use separately from the recursive RSS of terminal child processes, so a heavy child process does not read as an app leak. |
 | `focus-pane` | Focus a pane. |
 | `new-pane` | Create a pane with terminal or browser content. `--command <text>` is accepted for terminal panes only; see [Initial terminal command](#initial-terminal-command). |
-| `new-surface` | Create a surface inside a pane. `--command <text>` is accepted for terminal surfaces only; see [Initial terminal command](#initial-terminal-command). |
+| `new-surface` | Create a surface inside a pane. `--command <text>` is accepted for terminal surfaces only; see [Initial terminal command](#initial-terminal-command). `--profile <name\|uuid>` is accepted for browser surfaces only and selects the cmux browser profile, like `new-pane`. |
 | `close-surface` | Close a surface. |
 | `move-surface` | Move a surface to another pane, workspace, window, or index. |
 | `split-off` | Move a surface into a new split without changing focus by default. |
@@ -1138,6 +1138,7 @@ the expected text without connecting to a cmux socket.
 - `cmux new-pane --help` -> `--command <text>`
 - `cmux new-surface --help` -> `Usage: cmux new-surface`
 - `cmux new-surface --help` -> `--command <text>`
+- `cmux new-surface --help` -> `--profile <name|uuid>`
 - `cmux close-surface --help` -> `Usage: cmux close-surface`
 - `cmux drag-surface-to-split --help` -> `Usage: cmux drag-surface-to-split`
 - `cmux refresh-surfaces --help` -> `Usage: cmux refresh-surfaces`

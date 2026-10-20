@@ -697,6 +697,10 @@ path = "tests/test_ci_nightly_push_throttle.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_shallow_dev_fetch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
@@ -1939,4 +1943,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_published_in_comments.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_linux_tests_lane.py"
 lane = "linux-guard"

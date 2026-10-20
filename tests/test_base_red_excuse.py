@@ -533,8 +533,8 @@ class Script(unittest.TestCase):
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()
         self.assertIn("base_red_excuse.py", text)
-        # Lint stays unwaivable by --override, but a red one the base has too is asked about.
-        self.assertIn("--override cannot bypass god-file, l10n or concurrency lint", text)
+        # A red lint check the base has too is asked about; risk evidence is never waived.
+        self.assertIn("--override cannot bypass risk evidence", text)
         self.assertIn('"${lint_reds[@]+"${lint_reds[@]}"}"', text)
 
 

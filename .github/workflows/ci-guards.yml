@@ -101,6 +101,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Validate scripts keep full clones full
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_shallow_dev_fetch.py
+
       - name: Validate the local and fast guard runner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
@@ -692,6 +696,10 @@ jobs:
       - name: Validate spread-first compile admission placement
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_admission_placement.py
+
+      - name: Validate the Linux tests dispatch lane
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_linux_tests_lane.py
 
       - name: Validate owned Mac build state
         if: ${{ matrix.group == 'ci' }}

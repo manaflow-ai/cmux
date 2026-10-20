@@ -4,7 +4,7 @@
 # Optional helper: merges only when the PR head's checks are green.
 # Into feat-cmux-next it applies a FAST gate by default (scripts/ci/merge_fast_gate.py):
 # it waits up to --wait seconds (default 2400) for path routing, the fast tier and the touched
-# compiles on the exact head, waits for lint and risk evidence (a red one is never waived),
+# compiles on the exact head, waits for lint and risk evidence (a red risk evidence is never waived),
 # and refuses a completed red in those, in the web, app size or crash families, or in a
 # full-gate lane (ci-status, Release compile, swift test). It also checks conflict markers and freezes. The full suites run after
 # the merge; the culprit bot and the base sheriff revert or fix forward.
@@ -638,11 +638,11 @@ if [ "$needs_app_compile" -eq 1 ] && ! jq -e '
   must+=("macos / macOS compile admission")
 fi
 
-# God-file, localization and concurrency lint is never waived: --override is for
-# base-red or flaky lanes, and any such check reported on the exact head must
-# complete. A red one merges only when the base fails it with every finding the
-# head printed (base_red_excuse.py compares them line by line), since the
-# cmux-next checks job bundles many lints and the base can be red in one.
+# God-file, localization and concurrency lint reported on the exact head must
+# complete. A red one merges when the base fails it with every finding the head
+# printed (base_red_excuse.py compares them line by line), since the cmux-next
+# checks job bundles many lints and the base can be red in one, or when a human
+# waives it with --override, whose reason is posted on the PR before the merge.
 # `risk evidence` (risk-tier.yml on feat-cmux-next) must be green: it reads only
 # the description, so it is never base-red, and a maintainer waives it with the
 # risk:waived label instead (docs/ci/risk-tiers.md on feat-cmux-next).
@@ -653,22 +653,26 @@ while IFS=$'\t' read -r name st co; do
   [[ "$lowered" =~ god[\ -]?files?|l10n|locali[sz]ation|concurrency|^risk\ evidence$ ]] || continue
   if [ "$st" != completed ]; then
     refuse \
-      "not green: '$name' is $st/$co on $sha; --override cannot bypass god-file, l10n or concurrency lint, or risk evidence" \
+      "not green: '$name' is $st/$co on $sha; --override cannot bypass a lint or risk evidence check that has not finished" \
       "wait for '$name' to complete on the exact head, then retry"
   fi
   case "$co" in
     success|neutral|skipped) ;;
     failure)
-      if [ -n "$override_reason" ] || [ "$lowered" = "risk evidence" ]; then
+      if [ "$lowered" = "risk evidence" ]; then
         refuse \
-          "not green: '$name' is $co on $sha; --override cannot bypass god-file, l10n or concurrency lint, or risk evidence" \
+          "not green: '$name' is $co on $sha; --override cannot bypass risk evidence" \
           "fix what '$name' reports on the exact head, then retry"
+      fi
+      if [ -n "$override_reason" ]; then
+        printf 'note: --override waives %s on %s\n' "$name" "$sha" >&2
+        continue
       fi
       lint_reds+=("$name")
       ;;
     *)
       refuse \
-        "not green: '$name' is $co on $sha; --override cannot bypass god-file, l10n or concurrency lint, or risk evidence" \
+        "not green: '$name' is $co on $sha; --override cannot bypass a lint or risk evidence check with no verdict" \
         "fix what '$name' reports on the exact head, then retry"
       ;;
   esac
@@ -847,6 +851,17 @@ if [ "$has_ci" -eq 0 ]; then
     fi
     case "$co" in
       success|neutral|skipped) ;;
+      failure)
+        # The lint loop above already printed the --override waiver for a red
+        # god-file, l10n or concurrency check (risk evidence refused there).
+        lowered=$(tr '[:upper:]' '[:lower:]' <<<"$name")
+        if [ -n "$override_reason" ] && [[ "$lowered" =~ god[\ -]?files?|l10n|locali[sz]ation|concurrency ]]; then
+          continue
+        fi
+        refuse \
+          "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
+          "wait for or repair '$name'; success, neutral, and skipped pass without the aggregate workflow"
+        ;;
       *)
         refuse \
           "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
@@ -982,17 +997,9 @@ fast_gate() {
   gate_checked="${gate_checked:-no fast lane reported}, conflict markers, freezes"
   reds=$(sed -n 's/^red=//p' <<<"$gate_out")
   [ -n "$reds" ] || return 0
-  # merge_fast_gate.py itself refuses a red risk evidence check. A red lint check is
-  # never waived by --override; the base excuses it only when it prints every finding.
+  # merge_fast_gate.py itself refuses a red risk evidence check. Any other red,
+  # lint included, is waived by --override, whose reason is posted on the PR.
   if [ -n "$override_reason" ]; then
-    local red_name
-    while IFS= read -r red_name; do
-      if [[ "$(tr '[:upper:]' '[:lower:]' <<<"$red_name")" =~ god[\ -]?files?|l10n|locali[sz]ation|concurrency ]]; then
-        refuse \
-          "not green: '$red_name' is failure on $sha; --override cannot bypass god-file, l10n or concurrency lint, or risk evidence" \
-          "fix what '$red_name' reports on the exact head, or drop --override so the base comparison can excuse a base red"
-      fi
-    done <<<"$reds"
     printf 'note: --override waives %s on %s\n' "$(paste -sd ';' - <<<"$reds" | sed 's/;/; /g')" "$sha" >&2
     return 0
   fi
