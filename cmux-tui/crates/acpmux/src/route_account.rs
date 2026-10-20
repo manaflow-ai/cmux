@@ -5,10 +5,16 @@
 //! that folder, so it uses that login and no other; the CLI's own
 //! `claude auth login` / `codex login` with the same variable signs it in.
 //! No token is ever read or stored here: the folder is the CLI's.
+//!
+//! A chat's conversation is kept in the home it started in (`claude --resume`
+//! and Codex's resume look there), so a new chat records that home as its
+//! store ([`record`]) and never leaves it: a later route, default change,
+//! fallback, fork or aside keeps the folder ([`keep_home`]).
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::routes::{Route, RouteError, RouteFile, RouteKind};
+use crate::store::SessionMeta;
 
 /// The variable that points `family`'s CLI at an account home, if it has one.
 pub fn home_var(family: &str) -> Option<&'static str> {
@@ -20,7 +26,8 @@ pub fn home_var(family: &str) -> Option<&'static str> {
 }
 
 /// An account home belongs to a direct-subscription route of exactly one
-/// family that has a home variable, and is an absolute path.
+/// family that has a home variable, and is an absolute path that is never
+/// expanded at spawn (no `${…}`).
 pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
     let Some(home) = &file.account_home else { return Ok(()) };
     if file.kind != RouteKind::DirectSubscription {
@@ -33,7 +40,11 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
             "a route with accountHome serves one family: claude or codex".into(),
         ));
     }
-    if !Path::new(home).is_absolute() || home.contains(['\n', '\r', '\0']) || home.len() > 1024 {
+    if !Path::new(home).is_absolute()
+        || home.contains(['\n', '\r', '\0'])
+        || home.contains("${")
+        || home.len() > 1024
+    {
         return Err(RouteError::BadParams(format!("accountHome {home:?} is not an absolute path")));
     }
     Ok(())
@@ -66,49 +77,60 @@ pub fn prepare(file: &RouteFile) -> Result<(), RouteError> {
     Ok(())
 }
 
-/// What a workspace, family or global binding to an account route does to a
-/// chat. A chat's conversation is kept in the account home it started in
-/// (`claude --resume` and Codex's resume look there), so it never moves to
-/// another one by itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Inherited {
-    /// Not an account route, or the chat's own binding: the route applies.
-    Apply,
-    /// A new chat: it starts on the account and is bound to it from now on.
-    Pin,
-    /// A chat that has started: it stays on the login it started with.
-    Skip,
+/// Whether `meta`'s conversation already has a home: the chat has started,
+/// or it runs on a recorded store (an adopted chat, a fork of an account
+/// chat). Such a chat keeps its folder whatever route it runs on.
+pub fn has_home(meta: &SessionMeta) -> bool {
+    meta.agent_session_id.is_some() || meta.chat_store.is_some()
 }
 
-/// How `route`, bound at `scope` (`chat`, `profile`, `workspace`, `family`,
-/// `global`), applies to a chat that has (`started`) or has not begun its
-/// conversation.
-pub fn inherited(route: &Route, scope: &str, started: bool) -> Inherited {
-    if route.file.account_home.is_none() || matches!(scope, "chat" | "profile") {
-        Inherited::Apply
-    } else if started {
-        Inherited::Skip
-    } else {
-        Inherited::Pin
+/// Puts `family`'s home variable back to `before`, its value ahead of the
+/// route, for a chat whose conversation already has a home ([`has_home`]).
+/// The route's other variables still apply.
+pub fn keep_home(family: &str, before: Option<String>, env: &mut BTreeMap<String, String>) {
+    let Some(var) = home_var(family) else { return };
+    match before {
+        Some(value) => env.insert(var.to_owned(), value),
+        None => env.remove(var),
+    };
+}
+
+/// Records the account home a new chat started in as its store, once its
+/// conversation exists: every later spawn, fork and aside then runs in that
+/// folder (`SessionMeta::apply_chat_store`), whatever its route is by then.
+/// A spawn that failed records nothing.
+pub fn record(meta: &mut SessionMeta, home: Option<&Path>) -> bool {
+    match home {
+        Some(home) if meta.agent_session_id.is_some() && meta.chat_store.is_none() => {
+            meta.chat_store = Some(home.to_path_buf());
+            true
+        }
+        _ => false,
     }
 }
 
-/// The account home a started chat runs in under `route` bound at `scope`:
-/// an inherited account route does not apply to it ([`inherited`]).
-pub fn effective_home<'a>(route: Option<&'a Route>, scope: &str) -> Option<&'a str> {
-    route
-        .filter(|_| matches!(scope, "chat" | "profile"))
-        .and_then(|r| r.file.account_home.as_deref())
+/// The folder `meta`'s conversation is kept in when it is not the CLI's
+/// default: its recorded store, else its own or its profile's variable.
+pub fn current_home(
+    meta: &SessionMeta,
+    family: &str,
+    profile_env: &BTreeMap<String, String>,
+) -> Option<PathBuf> {
+    let var = home_var(family)?;
+    let mut env = profile_env.clone();
+    env.extend(meta.session_env.clone());
+    meta.apply_chat_store(&mut env);
+    env.get(var).map(PathBuf::from)
 }
 
-/// A started chat may move only between routes of the same account home: its
-/// conversation is not in another account's folder.
-pub fn switch_allowed(from: Option<&str>, to: Option<&str>) -> Result<(), RouteError> {
-    if from == to {
-        return Ok(());
+/// A chat whose conversation has a home may move to a route with no account
+/// home (its folder stays) or with that same home, never to another one.
+pub fn switch_allowed(current: Option<&Path>, to: &Route) -> Result<(), RouteError> {
+    match to.file.account_home.as_deref().map(Path::new) {
+        Some(home) if Some(home) != current => Err(RouteError::BadParams(
+            "This chat's conversation belongs to another account. Start a new chat to use this one."
+                .into(),
+        )),
+        _ => Ok(()),
     }
-    Err(RouteError::BadParams(
-        "This chat's conversation belongs to another account. Start a new chat to use this one."
-            .into(),
-    ))
 }

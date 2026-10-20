@@ -583,12 +583,12 @@ pub fn add(
         )));
     }
     validate(file)?;
-    crate::route_account::prepare(file)?;
     let dir = dir.ok_or_else(|| RouteError::Failed("no cmux config folder".into()))?;
     let path = dir.join(format!("{id}.toml"));
     if path.exists() && !replace {
         return Err(RouteError::Exists(format!("a route {id:?} exists (pass replace)")));
     }
+    crate::route_account::prepare(file)?;
     write_file(&path, file)?;
     Ok(Route { id: id.to_owned(), file: file.clone(), path })
 }

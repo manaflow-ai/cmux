@@ -2,9 +2,9 @@
 //! ChatGPT"): a direct-subscription route names an account home, the CLI's
 //! own config folder for one login. Over the daemon socket: a chat on the
 //! route runs its harness with `CLAUDE_CONFIG_DIR` (Codex: `CODEX_HOME`) set
-//! to it; a family default to an account route pins each new chat to it, and
-//! a chat that has started never moves to another account's folder by itself
-//! or by a switch, since its conversation is kept there.
+//! to it; a new chat keeps the home it started in as its store, so a chat
+//! that has started never moves to another account's folder: not when the
+//! default changes, not in a fork, not by a switch.
 //!
 //! The RPC test is the only one that touches the environment (ACPMUX_HOME is
 //! process-wide); the others are pure.
@@ -16,10 +16,11 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
-use acpmux::route_account::{self, Inherited};
+use acpmux::route_account;
 use acpmux::routes::{self, Route};
 use acpmux::rpc::Message;
 use acpmux::server::{Origin, serve_connection_with};
+use acpmux::store::SessionMeta;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -93,24 +94,53 @@ fn an_account_home_is_one_clis_absolute_folder_on_a_subscription_route() {
         bad(json!({"kind": "direct-subscription", "families": ["claude"], "accountHome": "work"}))
             .contains("absolute")
     );
+    assert!(
+        bad(json!({"kind": "direct-subscription", "families": ["claude"],
+                       "accountHome": "/a/${HOME}"}))
+        .contains("absolute")
+    );
 }
 
 #[test]
 fn a_started_chat_stays_in_the_account_it_started_in() {
-    let account =
-        route(json!({"kind": "direct-subscription", "families": ["claude"], "accountHome": "/a"}))
-            .unwrap();
+    let mut meta: SessionMeta = serde_json::from_value(json!({
+        "schema": "acpmux.session.v1", "id": "s", "name": "s", "harness": "fake",
+        "family": "claude", "cwd": "/tmp", "status": "ready", "createdAt": 0, "updatedAt": 0,
+    }))
+    .unwrap();
+    // A new chat has no home yet; a failed start records none.
+    assert!(!route_account::has_home(&meta));
+    assert!(!route_account::record(&mut meta, Some(Path::new("/a"))));
+    // Once it started, the account home it started in is its store.
+    meta.agent_session_id = Some("conversation".into());
+    assert!(route_account::has_home(&meta));
+    assert!(route_account::record(&mut meta, Some(Path::new("/a"))));
+    assert_eq!(meta.chat_store.as_deref(), Some(Path::new("/a")));
+    assert!(!route_account::record(&mut meta, Some(Path::new("/b"))), "never moves");
+    let none = std::collections::BTreeMap::new();
+    let home = route_account::current_home(&meta, "claude", &none);
+    assert_eq!(home.as_deref(), Some(Path::new("/a")));
+
+    // A route's home does not move a chat that has one; its folder stays.
+    let mut env =
+        std::collections::BTreeMap::from([("CLAUDE_CONFIG_DIR".to_owned(), "/b".to_owned())]);
+    route_account::keep_home("claude", Some("/a".into()), &mut env);
+    assert_eq!(env["CLAUDE_CONFIG_DIR"], "/a");
+    route_account::keep_home("claude", None, &mut env);
+    assert!(!env.contains_key("CLAUDE_CONFIG_DIR"), "the CLI's default folder");
+
+    // A switch to another account's route is refused; a route without one,
+    // or the same folder written another way, is not.
+    let account = |home: &str| {
+        route(json!({"kind": "direct-subscription", "families": ["claude"], "accountHome": home}))
+            .unwrap()
+    };
     let plain = route(json!({"kind": "direct-subscription"})).unwrap();
-    assert_eq!(route_account::inherited(&account, "family", false), Inherited::Pin);
-    assert_eq!(route_account::inherited(&account, "global", true), Inherited::Skip);
-    assert_eq!(route_account::inherited(&account, "chat", true), Inherited::Apply);
-    assert_eq!(route_account::inherited(&plain, "family", true), Inherited::Apply);
-    assert_eq!(route_account::effective_home(Some(&account), "chat"), Some("/a"));
-    assert_eq!(route_account::effective_home(Some(&account), "family"), None);
-    assert!(route_account::switch_allowed(Some("/a"), Some("/a")).is_ok());
-    assert!(route_account::switch_allowed(None, None).is_ok());
-    assert!(route_account::switch_allowed(Some("/a"), None).is_err());
-    assert!(route_account::switch_allowed(None, Some("/b")).is_err());
+    assert!(route_account::switch_allowed(Some(Path::new("/a")), &account("/a/")).is_ok());
+    assert!(route_account::switch_allowed(Some(Path::new("/a")), &plain).is_ok());
+    assert!(route_account::switch_allowed(None, &plain).is_ok());
+    assert!(route_account::switch_allowed(Some(Path::new("/a")), &account("/b")).is_err());
+    assert!(route_account::switch_allowed(None, &account("/b")).is_err());
 }
 
 #[test]
@@ -130,6 +160,14 @@ fn adding_an_account_route_makes_its_folder_owner_only() {
     }
     let text = std::fs::read_to_string(root.join("routes").join("codex-2.toml")).unwrap();
     assert!(text.contains("account_home"), "{text}");
+    // A refused add (the id is taken) makes no folder.
+    let other = root.join("accounts").join("codex-3");
+    let file =
+        routes::file_from_json(&json!({"kind": "direct-subscription", "families": ["codex"],
+                                               "accountHome": other}))
+        .unwrap();
+    assert!(routes::add(Some(&root.join("routes")), "codex-2", &file, false).is_err());
+    assert!(!other.exists());
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -239,7 +277,7 @@ async fn a_chat_on_a_second_claude_account_keeps_that_account() {
     let before = local.new_chat().await;
     assert_eq!(local.env_of(&before, "CLAUDE_CONFIG_DIR").await, "CLAUDE_CONFIG_DIR=");
 
-    // The family default reaches a new chat, which is pinned to it.
+    // The family default reaches a new chat, which keeps that account.
     local
         .ok(
             "_acpmux/route/default.set",
@@ -251,15 +289,20 @@ async fn a_chat_on_a_second_claude_account_keeps_that_account() {
         local.env_of(&chat, "CLAUDE_CONFIG_DIR").await,
         format!("CLAUDE_CONFIG_DIR={}", work.display())
     );
-    let active = local.ok("_acpmux/route/list", json!({"sessionId": chat})).await;
-    assert_eq!(active["active"], json!({"routeId": "claude-work", "scope": "chat"}), "{active}");
+    // So does its fork, which resumes the conversation from that folder.
+    let fork = local.ok("session/fork", json!({"sessionId": chat, "mcpServers": []})).await;
+    let fork = fork["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(
+        local.env_of(&fork, "CLAUDE_CONFIG_DIR").await,
+        format!("CLAUDE_CONFIG_DIR={}", work.display())
+    );
 
     // Restarting both: the earlier chat does not move into the account.
     let ids = json!({"sessions": [before, chat]});
     local.ok("_acpmux/sessions/restart_harness", ids).await;
     assert_eq!(local.env_of(&before, "CLAUDE_CONFIG_DIR").await, "CLAUDE_CONFIG_DIR=");
 
-    // Clearing the default leaves the pinned chat on its account.
+    // Clearing the default leaves the chat on its account.
     local.ok("_acpmux/route/default.set", json!({"scope": "family:claude"})).await;
     local.ok("_acpmux/sessions/restart_harness", json!({"sessions": [chat]})).await;
     assert_eq!(
@@ -267,17 +310,15 @@ async fn a_chat_on_a_second_claude_account_keeps_that_account() {
         format!("CLAUDE_CONFIG_DIR={}", work.display())
     );
 
-    // A started chat cannot switch to another account's folder.
+    // A route without an account home keeps the chat's folder; another
+    // account's route is refused.
     local
         .ok(
             "_acpmux/route/add",
             json!({"id": "claude-own", "kind": "direct-subscription", "families": ["claude"]}),
         )
         .await;
-    let refused = local
-        .err("_acpmux/chat/route.set", json!({"sessionId": chat, "routeId": "claude-own"}))
-        .await;
-    assert!(refused["message"].as_str().unwrap_or("").contains("another account"), "{refused}");
+    local.ok("_acpmux/chat/route.set", json!({"sessionId": chat, "routeId": "claude-own"})).await;
     let refused = local
         .err("_acpmux/chat/route.set", json!({"sessionId": before, "routeId": "claude-work"}))
         .await;
