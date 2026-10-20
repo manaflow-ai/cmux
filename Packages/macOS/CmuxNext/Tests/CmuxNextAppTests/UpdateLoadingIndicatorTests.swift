@@ -41,7 +41,7 @@ import Testing
         var titles: [String] = []
         for phase in Self.attemptPhases {
             _ = flow.handle(.sparkle(phase), preferences: .defaults)
-            let card = try #require(flow.card, "the loading card left at \(phase)")
+            let card = try #require(flow.card(downloadsAutomatically: true), "the loading card left at \(phase)")
             let shown = Self.presentation(card)
             #expect(shown.showsProgress, "\(phase) shows no progress")
             #expect(!shown.dismissible, "\(phase) can be dismissed while it works")
@@ -50,7 +50,7 @@ import Testing
         #expect(titles == [UpdaterStrings.checking, UpdaterStrings.startingDownload, UpdaterStrings.downloading,
                            UpdaterStrings.preparing, UpdaterStrings.installingUpdate],
                 "the stages are not named in order: \(titles)")
-        #expect(flow.card == .installing)
+        #expect(flow.card(downloadsAutomatically: true) == .installing)
     }
 
     @Test func theDownloadShowsItsBytesAndPercent() throws {
@@ -80,7 +80,7 @@ import Testing
         var heights: Set<CGFloat> = []
         for phase in Self.attemptPhases {
             _ = flow.handle(.sparkle(phase), preferences: .defaults)
-            guard let card = flow.card else { continue }
+            guard let card = flow.card(downloadsAutomatically: true) else { continue }
             heights.insert(SidebarNoticeCardView.height(for: SidebarCardFeed.notice(Self.presentation(card), asked: true)))
         }
         #expect(heights.count == 1, "the card jumps between heights while it loads: \(heights.sorted())")
@@ -124,7 +124,7 @@ import Testing
         _ = flow.handle(.sparkle(.ready(version: "1.0.1")), preferences: .defaults)
         #expect(flow.handle(.installRequested, preferences: .defaults) == [.install])
         _ = flow.handle(.sparkle(.installing), preferences: .defaults)
-        #expect(flow.card == nil, "the click on the staged card swapped it for the notice card")
+        #expect(flow.card(downloadsAutomatically: true) == nil, "the click on the staged card swapped it for the notice card")
         #expect(flow.footerPill(preferences: .defaults) == .installing)
         let card = UpdateReadyCard(version: "1.0.1", isInstalling: true, automaticUpdates: true,
                                    notes: UpdateReadyNotes(version: "1.0.1", notes: nil, fullNotesURL: nil))

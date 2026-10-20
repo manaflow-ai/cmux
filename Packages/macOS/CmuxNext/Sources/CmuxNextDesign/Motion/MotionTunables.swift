@@ -86,6 +86,7 @@ public nonisolated enum MotionTunables {
         .spinner: (0.9, "One turn of the busy spinner."),
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
         .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
+        .sweep: (1.3, "One pass of an unmeasured progress bar's segment (the update card while checking)."),
     ]
 
     static let loops: [MotionLoop: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionLoop.allCases.map { loop in
