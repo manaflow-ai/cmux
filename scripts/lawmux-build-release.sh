@@ -41,6 +41,10 @@ fi
 
 DERIVED_DATA="${LAWMUX_DERIVED_DATA:-${HOME}/Library/Developer/Xcode/DerivedData/lawmux-release}"
 PRODUCTS="$DERIVED_DATA/Build/Products/Release"
+# Keep Spotlight (and so Launchpad) from listing the build output as a second
+# lawmux next to /Applications/lawmux.app.
+mkdir -p "$DERIVED_DATA"
+touch "$DERIVED_DATA/.metadata_never_index"
 
 # Build settings lawmux overrides on the command line (upstream's project stays
 # untouched). Changing either knob invalidates the Swift build cache, so the
@@ -111,6 +115,11 @@ if [[ "$INSTALL" == 1 ]]; then
   echo "==> Installing to $DEST"
   ditto "$APP" "$DEST"
   TARGET="$DEST"
+  # Launch Services otherwise remembers the build copy too and may open it for
+  # the bundle id; the installed app is the only one that should be registered.
+  LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+  "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
+  "$LSREGISTER" -f "$DEST" >/dev/null 2>&1 || true
 fi
 
 if [[ "$OPEN" == 1 ]]; then
