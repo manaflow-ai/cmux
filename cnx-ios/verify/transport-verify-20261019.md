@@ -7,6 +7,56 @@ direct UDP, TURN over UDP, TURN over TLS on 443; TeamHub relay retired;
 WireGuard roaming; browser video on the WebRTC track or the WireGuard RTP
 lane; dev Worker API 0.9.0).
 
+## Summary
+
+Overall: **FAIL**. Every path connects, labels itself right on both ends,
+carries the terminal and streams the browser on the right carrier, and roaming
+and 3 % loss hold up. A transport switch or a cnx-hostd restart while a
+browser tab is open leaves that tab frozen on the channel (defect 7, high).
+
+| Check | Result | Key numbers | Evidence (on mini-cmuxs-mac-mini-3, `~/cnx-tv-evidence-20261019/`) |
+| --- | --- | --- | --- |
+| WireGuard direct: status, Mac label, terminal, browser | PASS | "WireGuard direct" / `Direct`; RTT 0 to 2 ms; echo 8 / 18 ms; `wg-rtp`, glass to glass p50 50 / p90 73 ms, 34.9 fps, 0 stalls | `wg-direct/{terminal,keystroke_echo_idle,browser-ui}.mp4`, `wg-direct/bench/screen.mp4` |
+| WireGuard TURN over UDP | PASS | "WireGuard relay (TURN)" / `Turn`; RTT 14 to 16 ms (25 to 44 at load 169); echo 62 / 1243 ms (load); `wg-rtp`, g2g 52 / 101 ms, 33.9 fps, 2 stalls | `wg-turn/...` |
+| WireGuard TURN over TLS (Block UDP) | PASS | "WireGuard relay (TURN over TLS)" / `TurnTls`; RTT 15 to 18 ms; echo 33 / 48 ms; `wg-rtp`, g2g 35 / 60 ms, 35.4 fps, 0 stalls | `wg-tls/...` |
+| WebRTC direct | PASS | "WebRTC direct" / `Direct`; RTT 0 to 12 ms; echo 24 / 33 ms; `track`, g2g 35 / 60 ms, 35.7 fps, 0 stalls | `rtc-direct/...` |
+| WebRTC TURN | PASS | "WebRTC relay (TURN)" / `Turn`; RTT 15 to 21 ms; echo 32 / 47 ms; `track`, g2g 52 / 102 ms, 27.2 fps, 8 stalls (load 604) | `rtc-turn/...` |
+| WebRTC + Block UDP | PASS (ignored, as documented); label defect 4 | connects "WebRTC direct" in 8 s | `rtc-blockudp/terminal.mp4` |
+| Transport switch while a tab streams | FAIL | tab returns on `channel`, 4 fps, frozen | `t-switch/transition.mp4` |
+| Kill cnx-hostd while a tab streams | FAIL (link and terminal recover in about 1 s; browser does not) | tab on `channel`, 1 fps | `t-kill/transition.mp4` |
+| Roam on WireGuard (DEBUG probe) | PASS | stall 20.7 ms, first packet 4 ms, `wg-rtp` 38 to 46 fps throughout | `t-roam/transition.mp4` |
+| Retired relay | PASS | 0 `relay_retired` on phone and Mac; no binary signaling frame in the client | logs |
+| 3 % loss, WireGuard RTP | PASS | g2g 37 / 85 ms, 29.7 fps, 3 stalls > 100 ms, 524 to 663 NACKs | `loss-wg/bench/screen.mp4` |
+| 3 % loss, WebRTC track | PASS | g2g 59 / 96 ms, 28.1 fps, 2 stalls, 522 to 678 NACKs | `loss-rtc/bench/screen.mp4` |
+
+Glass to glass and fps come from `verify/scripts/browser-track-bench.py`'s
+analysis (12 s, or 20 s under loss, of `bench.html?scroll=6`, OCR of every
+frame). "Page tap to phone frame" (`mac_input_to_frame_ms`) p50: WireGuard
+direct 117, TURN 87, TLS 65, WebRTC direct 77, TURN 130, loss WireGuard 67,
+loss WebRTC 83 ms. Single maxima of 2 to 3 s are one OCR sample each.
+All numbers are on one mini shared with CI and another agent's rig (load in
+each row); they are not comparable to the quiet-host runs in
+`browser-video-track.md`.
+
+Defects, by severity:
+
+- High: 7 (visible browser tab loses the media lane and freezes after a
+  redial); 5 (dev Worker 0.10.0 deployed mid-run; a connected 90375ce5 Mac
+  stayed on its retired team hub and looked offline to its phone until
+  cnx-hostd was killed).
+- Medium: 1 (DEBUG rig app aborts in `MainThreadWatchdog` under host load,
+  taking cnx-hostd down); 2 (after the Mac app restarts, the open terminal
+  stays "Reattaching…" and prints `[unknown surface 15]`).
+- Low: 4 ("WebRTC, UDP blocked" label though WebRTC ignores Block UDP).
+- Rig only: 3 and 6 (other agents' phones on the shared dev account dial
+  the rig Mac and evict its browser tabs); 8 (simulator render server spins
+  after repeated recordings on a loaded host).
+
+Not covered: browser over WebRTC + Block UDP (input timed out; the link
+itself was checked); WireGuard direct terminal stream timing (the first run
+timed from the start of typing, 110.8 s; the TURN and TLS rows give 11 to
+13 s); typed-echo on WebRTC TURN at load 604 is an upper bound.
+
 ## Rig
 
 - Mac: fleet build of `90375ce5e11c` (job `b65d313ac0f91b52bbb59726`, tag
@@ -24,7 +74,7 @@ lane; dev Worker API 0.9.0).
   transport and the Developer toggles, the terminal composer for commands,
   the browser's address bar for pages, the toolbar for Back and Forward.
 - Evidence (videos, screenshots, logs; git-ignored): on the mini under
-  `~/cnx-tv/cnx-ios/verify/evidence/2026-10-19/transport-verify/`.
+  `~/cnx-tv-evidence-20261019/` (moved there from the run's worktree at cleanup; `results.json`, `run.log`, `shots/`, per-row `*.mp4`, `bench/result.json`).
 
 ## Rig notes and load
 
