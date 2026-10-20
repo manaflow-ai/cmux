@@ -806,6 +806,9 @@ fn run_ensure(
                 crate::local_owner::EnsureError::RestoreTimeout => {
                     ("server.restore_timeout", messages.owner_restore_timeout.to_string(), 3)
                 }
+                crate::local_owner::EnsureError::Busy => {
+                    ("server.busy", messages.owner_busy.to_string(), 3)
+                }
                 crate::local_owner::EnsureError::WrongOwner => {
                     ("server.wrong_owner", messages.wrong_owner.to_string(), 1)
                 }
