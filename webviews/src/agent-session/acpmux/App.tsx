@@ -1403,6 +1403,8 @@ export function VirtualTranscript({
   const knownRows = useRef<Set<string> | null>(null);
   const knownFor = useRef<AcpmuxRow[] | null>(null);
   const enteringRows = useRef(new Set<string>());
+  /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
+  const minimapPlaced = useRef<(() => void) | undefined>(undefined);
   const olderRows = useRef<OlderRowFade | undefined>(undefined);
   olderRows.current ??= new OlderRowFade(() => ref.current);
   // Row ids are local to a session: one still waiting to fade belongs to the chat that was shown.
@@ -1976,6 +1978,8 @@ export function VirtualTranscript({
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
+    // The minimap's band reads the offset this pass settled on.
+    minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, sessionId, seekExpired, canLoadOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
@@ -2358,6 +2362,7 @@ export function VirtualTranscript({
           scrollTop={renderScroll.top}
           viewportHeight={height}
           width={width}
+          placed={minimapPlaced}
         />
         {find?.open && <ChatFindBar find={find} />}
         <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>

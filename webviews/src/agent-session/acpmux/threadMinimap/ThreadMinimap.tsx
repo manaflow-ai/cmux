@@ -83,6 +83,7 @@ export function ThreadMinimap({
   scrollTop,
   viewportHeight,
   width,
+  placed,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -91,6 +92,9 @@ export function ThreadMinimap({
   scrollTop: number;
   viewportHeight: number;
   width: number;
+  /// The transcript calls what the rail puts here once each commit's placement pass has set its
+  /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
+  placed?: React.MutableRefObject<(() => void) | undefined>;
 }) {
   const t = useT();
   const marks = usePromptMarks(sessionId);
@@ -147,7 +151,7 @@ export function ThreadMinimap({
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
   const shown = turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
-  const height = railHeight(turns.length, windowHeight);
+  const height = railHeight(turns.length, windowHeight, viewportHeight);
   const overflow = turns.length * ROW_PITCH > height;
 
   /// What the handlers below read: the turns and layout as of the last commit.
@@ -181,6 +185,34 @@ export function ThreadMinimap({
     node.addEventListener("scroll", scrolled, { capture: true, passive: true });
     return () => node.removeEventListener("scroll", scrolled, { capture: true });
   }, [scroller]);
+
+  // The transcript's placement pass (its layout effect, after this rail's) has set the offset for
+  // this commit: restored the reader's place over older turns, or left it. The band reads that
+  // offset before the frame paints, whether or not a scroll event follows.
+  useLayoutEffect(() => {
+    if (!placed) return;
+    placed.current = () => {
+      const node = scroller.current;
+      if (!node) return;
+      const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
+      domTop.current = { sessionId: session, top: node.scrollTop };
+      restoring.current = undefined;
+      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
+    };
+    return () => {
+      placed.current = undefined;
+    };
+  }, [placed, scroller]);
+
+  // A jump still under way belongs to the chat it started in: another chat in the reused scroller,
+  // or the rail going away, ends it.
+  useEffect(() => {
+    const node = scroller.current;
+    return () => {
+      if (node) stopScroll(node);
+    };
+  }, [scroller, sessionId]);
 
   /// Scrolls the transcript to turn `index`: smoothly on the measured curve when its row is mounted,
   /// at once when it is not (or under Reduce Motion, or while scrubbing). A click or a bookmark jump
@@ -305,14 +337,6 @@ export function ThreadMinimap({
     let scrolled = listTop;
     if (added !== undefined && was) {
       holding.current = true;
-      // A transcript that does not restore the reader's place (no scroll by the next frame): the
-      // offset is what it was, and the band reads it again.
-      if (restoring.current)
-        requestAnimationFrame(() => {
-          if (!restoring.current) return;
-          restoring.current = undefined;
-          setBandMoves((count) => count + 1);
-        });
       const index = was.index + added;
       const node = list.current;
       const shell = rail.current;
@@ -534,6 +558,15 @@ export function ThreadMinimap({
           onPointerLeave={(event) => {
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.
             if (!within(rail.current, event.relatedTarget)) intend(null);
+          }}
+          onBlur={(event) => {
+            // Focus leaving the card for anywhere but the rail closes it, as leaving the rail does.
+            const next = event.relatedTarget;
+            if (within(event.currentTarget, next) || within(rail.current, next)) return;
+            if (hovered === undefined) intend(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") dismiss();
           }}
         >
           <div className="acpmux-minimap__title">

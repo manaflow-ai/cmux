@@ -261,6 +261,40 @@ test("keyboard focus grows its row alone and opens the card at once; Escape clos
   }
 });
 
+test("focus in the card keeps it; Escape there or focus leaving rail and card closes it", async () => {
+  const view = await mount(12);
+  try {
+    await act(async () => tick(6).focus());
+    const bookmark = () => card()!.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!;
+    await act(async () => bookmark().focus());
+    expect(card()?.textContent).toContain("Question 6");
+    await act(async () => {
+      bookmark().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(card()).toBeNull();
+    await act(async () => tick(6).focus());
+    await act(async () => bookmark().focus());
+    expect(card()).not.toBeNull();
+    // Tab on past the card: focus goes to the page.
+    await act(async () => {
+      bookmark().blur();
+      document.body.focus();
+    });
+    expect(card()).toBeNull();
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the rail never outgrows a short transcript", async () => {
+  const { railHeight } = await import("../src/agent-session/acpmux/threadMinimap/model");
+  // 60 prompts in an 820 px window over a 400 px transcript: the rail fits the transcript, less 8 px each end.
+  expect(railHeight(60, 820, 400)).toBe(384);
+  expect(railHeight(60, 820, 820)).toBe(Math.min(600, Math.floor(820 * 0.7)));
+  // Not measured yet: the window caps it alone.
+  expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
+});
+
 test("a clicked row takes focus, as a clicked button does in Codex, so Tab goes on from the rail; the click does not hold the card open", async () => {
   const view = await mount(12);
   jest.useFakeTimers();

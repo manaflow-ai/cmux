@@ -71,9 +71,19 @@ export function tickProgress(distance: number | undefined): number {
 export const tickLength = (progress: number) => TICK_BOX * (0.2308 + 0.7692 * progress);
 
 /// The rail's height for `count` rows in a window `windowHeight` tall: every row up to 64 rows or
-/// 70% of the window, after which the rows scroll.
-export function railHeight(count: number, windowHeight: number): number {
-  return Math.min(count * ROW_PITCH, RAIL_MAX_ROWS * ROW_PITCH, Math.floor(windowHeight * RAIL_MAX_SHARE));
+/// 70% of the window, after which the rows scroll. It never outgrows the transcript it is centered
+/// on (`viewportHeight`, less EDGE_MARGIN at each end), so a short pane's rows all scroll into view.
+export function railHeight(count: number, windowHeight: number, viewportHeight = windowHeight): number {
+  return Math.max(
+    0,
+    Math.min(
+      count * ROW_PITCH,
+      RAIL_MAX_ROWS * ROW_PITCH,
+      Math.floor(windowHeight * RAIL_MAX_SHARE),
+      // A transcript not measured yet (0) does not cap it.
+      viewportHeight > 0 ? Math.floor(viewportHeight - 2 * EDGE_MARGIN) : Infinity,
+    ),
+  );
 }
 
 /// The card's top for a row centered at `center`: centered on it, kept inside the viewport.
