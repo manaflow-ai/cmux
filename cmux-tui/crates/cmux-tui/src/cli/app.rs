@@ -39,6 +39,7 @@ mod right;
 mod run;
 mod settings;
 mod skew;
+mod version;
 pub(super) mod wait;
 
 /// Scopes that belong to the app, whatever follows.
@@ -131,6 +132,9 @@ pub(super) enum AppCommand {
         params: Value,
         then: Box<AppCommand>,
     },
+    /// `cmux version`: the CLI, the app behind the socket, its updater and
+    /// bundled helpers in one report (app/version.rs).
+    Version,
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -155,6 +159,13 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     }
     if let Some(command) = agent_open::parse(args)? {
         return Ok(Some(command));
+    }
+    if scope == "version" {
+        if let Some(extra) = args.get(1) {
+            let messages = &crate::localization::catalog().app_control;
+            return Err(UsageError::new(messages.unexpected_argument.replace("{value}", extra)));
+        }
+        return Ok(Some(AppCommand::Version));
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -558,6 +569,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if let AppCommand::Settings(command) = command {
         return Ran::Done(command.run(global));
     }
+    if matches!(command, AppCommand::Version) {
+        return Ran::Done(version::run(global));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -649,6 +663,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
+        AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
