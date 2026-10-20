@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "3949777055301",
+  "notes": "notes/3949777055301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22460,
+      "title": "cmux NEXT Chief pet: Message the Chief opens the pet with its reply box (stacked on #22362)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22493,
+      "title": "test(cmux-tui): the npm rejection test checks the binary's own --version line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22582,
+      "title": "cmux NEXT: Esc double press turns Stop into an Esc hint; a click, focus or key disarms it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22479,
+      "title": "ci(cmux-next): baseline Task Manager's process lineage as a planned removal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21989,
+      "title": "cmux-tui: typing into a live agent suggests cmux agent message",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22566,
+      "title": "cmux-next: readability over a background comes from opacity, blur and glass, not the picture",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22547,
+      "title": "cmux-tui: a second ask while an agent chat waits notifies its tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22299,
+      "title": "ci(cmux-tui): the tree's cargo invocations run at once on 16 vCPU",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
