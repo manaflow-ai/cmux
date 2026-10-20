@@ -34,6 +34,11 @@ cmux-chief = { path = "../../../cmux-tui/crates/cmux-chief" }
 unrelated = { path = "../../../cmux-tui/crates/unrelated" }
 EOF
 echo 'page one' > "$chief/inspector/index.html"
+mkdir -p "$chief/src" "$chief/tests" "$src/schemas/chief-profile" "$src/mux"
+printf 'const TOOL: &str = include_str!("../../../../schemas/chief-profile/tool.json");\nconst PAGE: &str = include_str!(concat!(env!("OUT_DIR"), "/inspector.html"));\n' > "$chief/src/lib.rs"
+printf 'const CASES: &str = include_str!("../../../../mux/cases.json");\n' > "$chief/tests/corpus.rs"
+echo '{}' > "$src/schemas/chief-profile/tool.json"
+echo '[]' > "$src/mux/cases.json"
 printf '[package]\nname = "optchat-core"\n' > "$src/Native/OptChat/optchat-core/Cargo.toml"
 cat > "$src/cmux-tui/Cargo.toml" <<'EOF'
 [workspace]
@@ -88,6 +93,10 @@ keyed; expect_builds 1 "a docs-only commit rebuilt the Chief"
 echo '# x' >> "$src/cmux-tui/crates/unrelated/Cargo.toml"; commit three
 keyed; expect_builds 1 "a dev-dependency change rebuilt the Chief"
 
+# A test target's include is not linked into the binary.
+echo '[1]' > "$src/mux/cases.json"; commit test-include
+keyed; expect_builds 1 "a file only a test target includes rebuilt the Chief"
+
 # Without the variable the commit keys the cache, as before.
 run >/dev/null 2>"$TMP/err" || fail "unkeyed build failed: $(cat "$TMP/err")"
 expect_builds 2 "an unkeyed build of a new commit did not run cargo"
@@ -103,6 +112,16 @@ for change in \
   keyed; n=$((n + 1)); expect_builds "$n" "a change to $change did not rebuild the Chief"
   keyed; expect_builds "$n" "a second build of the same inputs ($change) rebuilt the Chief"
 done
+# A file the binary compiles in from outside its crates is an input.
+echo '{"v":2}' > "$src/schemas/chief-profile/tool.json"; commit schema
+keyed; n=$((n + 1)); expect_builds "$n" "a change to an include_str! file outside the crates did not rebuild the Chief"
+# An include form the key cannot resolve keys by commit.
+printf 'const X: &str = include_str!(concat!(env!("HOME"), "/x"));\n' > "$src/Native/OptChat/optchat-core/lib.rs"
+git_q -C "$src" add -A; commit unresolvable
+keyed; n=$((n + 1)); expect_builds "$n" "an unresolvable include did not build"
+grep -q 'keying by commit' "$TMP/err" || fail "an unresolvable include did not fall back to the commit key: $(cat "$TMP/err")"
+git_q -C "$src" rm -q Native/OptChat/optchat-core/lib.rs; commit resolvable
+keyed; expect_builds "$n" "inputs equal to an earlier commit's did not reuse its binary"
 # A new file in a crate is an input.
 echo 'pub fn f() {}' > "$src/cmux-tui/crates/cmux-server-core/src/lib.rs"; git_q -C "$src" add -A; commit "new file"
 keyed; n=$((n + 1)); expect_builds "$n" "a new source file did not rebuild the Chief"

@@ -12,8 +12,10 @@ it keys the cache by this instead. The key covers:
   (build-web-bundles.sh regenerates the tracked inspector page in place);
 - the Cargo.toml of each workspace those crates inherit from, and every
   .cargo/config(.toml) cargo reads from the crate or those workspaces;
+- every file those crates compile in with include_str!/include_bytes! from
+  outside them (the Chief's schemas/chief-profile tool specs);
 - the build scripts, the Rust toolchain, the architectures, the Xcode
-  developer dir and SDK, and the environment cargo or build.rs read.
+  developer dir, SDK and clang, and the environment cargo, cc or build.rs read.
 
 Dev-dependencies are left out: a release build of the binary does not link
 them. Exits 3, printing nothing, when the inputs cannot be read (no git, an
@@ -29,17 +31,23 @@ import hashlib
 import os
 from pathlib import Path
 import posixpath
+import re
 import subprocess
 import sys
-import tomllib
+
+try:
+    import tomllib
+except ImportError:  # Python < 3.11: key by commit, as before.
+    print("optchat-chief-input-key: python3 has no tomllib (3.11+); keying by commit", file=sys.stderr)
+    sys.exit(3)
 
 ROOT = Path(__file__).resolve().parents[2]
 CRATE = "Native/OptChat/optchat-chief"
 SCRIPTS = ("scripts/cmux-next/build-optchat-chief.sh", "scripts/cmux-next/optchat-chief-input-key.py")
 # Variables cargo, rustc or build.rs read that change the binary. The build
 # script sets OPTCHAT_BUILD_COMMIT and OPTCHAT_REQUIRE_INSPECTOR_PAGE itself.
-ENV_EXACT = ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC", "RUSTC_WRAPPER", "MACOSX_DEPLOYMENT_TARGET", "SDKROOT", "DEVELOPER_DIR")
-ENV_PREFIXES = ("CARGO_PROFILE_", "CARGO_BUILD_", "CARGO_TARGET_AARCH64_APPLE_DARWIN_", "CARGO_TARGET_X86_64_APPLE_DARWIN_")
+ENV_EXACT = ("CC", "CXX", "AR", "CFLAGS", "CXXFLAGS", "LDFLAGS", "CPPFLAGS", "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC", "RUSTC_WRAPPER", "MACOSX_DEPLOYMENT_TARGET", "SDKROOT", "DEVELOPER_DIR")
+ENV_PREFIXES = ("CC_", "CXX_", "AR_", "CFLAGS_", "CXXFLAGS_", "TARGET_CC", "TARGET_CFLAGS", "CARGO_PROFILE_", "CARGO_BUILD_", "CARGO_TARGET_AARCH64_APPLE_DARWIN_", "CARGO_TARGET_X86_64_APPLE_DARWIN_")
 ENV_SKIP_PREFIX = ("OPTCHAT_BUILD_COMMIT", "OPTCHAT_REQUIRE_INSPECTOR_PAGE")
 
 
@@ -155,6 +163,40 @@ def tree_state(directory: str) -> list[str]:
     return lines
 
 
+# include_str!/include_bytes! of a literal path, or of
+# concat!(env!("CARGO_MANIFEST_DIR"), "/path"). Any other include form cannot
+# be resolved here, so it fails the key and the commit keys the cache.
+INCLUDE = re.compile(r'include_(?:str|bytes)!\s*\(')
+INCLUDE_LITERAL = re.compile(r'include_(?:str|bytes)!\s*\(\s*"([^"]+)"\s*\)')
+# OUT_DIR is the crate's own build.rs output, already keyed through its inputs.
+INCLUDE_OUT_DIR = re.compile(r'include_(?:str|bytes)!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"OUT_DIR"\s*\)')
+INCLUDE_MANIFEST = re.compile(r'include_(?:str|bytes)!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*"([^"]+)"\s*\)\s*\)')
+
+
+def outside_includes(crates: list[str]) -> list[str]:
+    """Files compiled in with include_str!/include_bytes! from outside the hashed crates."""
+    found: set[str] = set()
+    for crate in crates:
+        for source in sorted((ROOT / crate).rglob("*.rs")):
+            relative_parts = source.relative_to(ROOT / crate).parts
+            # Test, bench and example targets are not linked into the binary.
+            if relative_parts and relative_parts[0] in ("target", "tests", "benches", "examples"):
+                continue
+            text = source.read_text(encoding="utf-8", errors="replace")
+            total = len(INCLUDE.findall(text))
+            resolved = [posixpath.normpath(posixpath.join(posixpath.dirname(source.relative_to(ROOT).as_posix()), path))
+                        for path in INCLUDE_LITERAL.findall(text)]
+            resolved += [posixpath.normpath(posixpath.join(crate, path.lstrip("/"))) for path in INCLUDE_MANIFEST.findall(text)]
+            if len(resolved) + len(INCLUDE_OUT_DIR.findall(text)) != total:
+                raise InputError(f"{source.relative_to(ROOT)}: an include_str!/include_bytes! this key cannot resolve")
+            for path in resolved:
+                if path.startswith("../"):
+                    raise InputError(f"{source.relative_to(ROOT)}: includes {path} outside the checkout")
+                if not any(path == crate_dir or path.startswith(crate_dir + "/") for crate_dir in crates):
+                    found.add(path)
+    return sorted(found)
+
+
 def sdk_identity() -> str:
     try:
         return subprocess.run(["xcrun", "--sdk", "macosx", "--show-sdk-build-version"], check=True,
@@ -168,6 +210,13 @@ def key(archs: str, toolchain: str) -> str:
     lines = ["optchat-chief-inputs v1", f"archs {archs}", f"toolchain {toolchain}", f"sdk {sdk_identity()}"]
     for directory in crates:
         lines += tree_state(directory)
+    for path in outside_includes(crates):
+        lines.append(f"include {path} {file_digest(path)}")
+    try:
+        clang = subprocess.run(["xcrun", "clang", "--version"], check=True, capture_output=True, text=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        clang = "none"
+    lines.append(f"clang {clang}")
     for root in workspaces:
         lines.append(f"workspace {root}/Cargo.toml {file_digest(f'{root}/Cargo.toml')}")
     for config in cargo_configs(crates + workspaces):
