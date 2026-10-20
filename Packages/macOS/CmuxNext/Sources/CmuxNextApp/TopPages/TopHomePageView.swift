@@ -120,11 +120,18 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
-            for await (all, archived, _, _, _, _, _) in ObservationStream({
+            // The Chiefs listed when their engines (the rows' badges) were last read.
+            var badgedChiefs: Set<String>?
+            for await (all, archived, _, _, _, _, _, _) in ObservationStream({
                 (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar,
-                 sidebar.ownerRows)
+                 sidebar.ownerRows, home.directory.chiefHarnesses)
             }) {
                 guard let self else { return }
+                let chiefs = Set(all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
+                if chiefs != badgedChiefs {
+                    badgedChiefs = chiefs
+                    home.refreshChiefHarnesses()
+                }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
                 list.update(sidebar.model())
                 if shown == nil, let first = defaultConversation(rows: rows, home: home) { show(first) }
@@ -255,7 +262,7 @@ final class TopHomePageView: NSView {
         guard let services else { return }
         let home = services.home
         let sheet = HomeNewChiefSheet()
-        sheet.onCreate = { name in await home.createChief(named: name) }
+        sheet.onCreate = { name, backend in await home.createChief(named: name, backend: backend) }
         present(sheet)
     }
 
