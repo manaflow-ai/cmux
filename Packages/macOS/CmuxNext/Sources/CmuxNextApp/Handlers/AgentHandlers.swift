@@ -189,7 +189,7 @@ enum AgentHandlers {
                 view.runGitAction(action)
             })
         }
-        registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
+        TerminalChatHandler.bind(into: registry, context: context)
         registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
         registry.bindUnavailable(
             ["computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
