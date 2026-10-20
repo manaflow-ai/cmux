@@ -261,7 +261,11 @@ fn a_pending_turn_and_its_items_survive_a_restart_in_the_database() {
     // The turn is running: its pending record is in the database.
     let rows = h.chat.state_prefix("host/turn").unwrap();
     let turn: serde_json::Value = serde_json::from_str(&rows[0].1).unwrap();
-    assert_eq!(turn["items"], json!([{"seq": 1, "child": null}]), "{turn}");
+    assert_eq!(
+        turn["items"],
+        json!([{"seq": 1, "child": null, "requires_approval": false}]),
+        "{turn}"
+    );
     assert!(turn["key"].as_str().unwrap().starts_with("turn:optchat:0:"));
     let Harness {
         dir,
