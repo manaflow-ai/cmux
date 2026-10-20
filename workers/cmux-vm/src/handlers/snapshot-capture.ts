@@ -28,7 +28,7 @@ const toSnapshot = (record: SnapshotCapture, created: CreatedSnapshot) => new Sn
   lastUsedAt: created.snapshot.lastUsedAt ?? null, ttlSeconds: created.snapshot.ttlSeconds ?? null, autoDeleteSeconds: created.snapshot.autoDeleteSeconds ?? null });
 
 /** Errors that prove the capture made nothing; ServiceUnavailable (unknown outcome) keeps it retained. */
-const DEFINITE = new Set(["NotFound", "Conflict", "Forbidden", "PaymentRequired", "QuotaExceeded"]);
+export const DEFINITE: ReadonlySet<string> = new Set(["NotFound", "Conflict", "Forbidden", "PaymentRequired", "QuotaExceeded"]);
 
 const slot = <C>(caller: Named<C, Principal>, resume?: SnapshotId) => Effect.gen(function* () {
   const decision = yield* tenantMayCreate(caller, "snapshot", resume === undefined ? undefined : { snapshotId: resume }).pipe(Effect.mapError(() => unavailable()));

@@ -412,7 +412,7 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
                       receipt: { id: vmId, displayName: spec.displayName, labels: spec.labels, idleTimeoutSeconds: spec.idleTimeoutSeconds } };
                     yield* limits.advance(principal.tenantId, keyed, parent).pipe(Effect.mapError(() => unavailable()));
                   }
-                  snapshotId = yield* acquireForkSnapshot(caller, source, scope, keyed, parent);
+                  snapshotId = yield* acquireForkSnapshot(caller, source, scope, keyed, parent, generated !== undefined);
                   resumeFrom = parent;
                 }
                 const parsed = parseSnapshotId(snapshotId);
