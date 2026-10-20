@@ -130120,6 +130120,661 @@
           }
         }
       }
+    },
+    "settings.category.mobile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الجوال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobilni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Móvil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobile"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "モバイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទូរសព្ទចល័ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모바일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Urządzenia mobilne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Celular"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мобильные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มือถือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мобільні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移动设备"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "行動裝置"
+          }
+        }
+      }
+    },
+    "settings.group.mobile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        }
+      }
+    },
+    "settings.mobile.allowIPhoneConnections": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow iPhone Connections"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح باتصالات iPhone"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli iPhone veze"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillad iPhone-forbindelser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone-Verbindungen erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir conexiones de iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser les connexions iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti connessioni da iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone からの接続を許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតការតភ្ជាប់ iPhone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone 연결 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillat iPhone-tilkoblinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zezwalaj na połączenia z iPhone’a"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir conexões do iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить подключения iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตการเชื่อมต่อจาก iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone bağlantılarına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити підключення iPhone"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép kết nối từ iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许 iPhone 连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許 iPhone 連線"
+          }
+        }
+      }
+    },
+    "settings.mobile.allowIPhoneConnections.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لتطبيق cmux على جهاز iPhone فتح مساحات العمل والطرفيات ومحادثات الوكلاء على هذا الـ Mac أثناء تسجيل دخولك بالحساب نفسه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoljava aplikaciji cmux na vašem iPhoneu da otvara radne prostore, terminale i razgovore s agentima na ovom Macu dok ste prijavljeni istim računom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader cmux-appen på din iPhone åbne denne Macs arbejdsområder, terminaler og agentchats, mens du er logget ind med samme konto."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erlaubt der App cmux auf deinem iPhone, die Arbeitsbereiche, Terminals und Agent-Chats dieses Macs zu öffnen, solange du mit demselben Konto angemeldet bist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que la app cmux de tu iPhone abra los espacios de trabajo, terminales y chats de agentes de este Mac mientras tengas la sesión iniciada con la misma cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à l’app cmux de votre iPhone d’ouvrir les espaces de travail, terminaux et discussions d’agents de ce Mac tant que vous êtes connecté avec le même compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente all’app cmux sul tuo iPhone di aprire spazi di lavoro, terminali e chat degli agenti di questo Mac mentre hai effettuato l’accesso con lo stesso account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "同じアカウントでサインインしている間、iPhone の cmux アプリからこの Mac のワークスペース、ターミナル、エージェントチャットを開けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យកម្មវិធី cmux នៅលើ iPhone របស់អ្នកបើកកន្លែងធ្វើការ ទែមីណាល់ និងការជជែកជាមួយភ្នាក់ងាររបស់ Mac នេះ ខណៈពេលអ្នកបានចូលដោយគណនីដូចគ្នា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "같은 계정으로 로그인한 동안 iPhone의 cmux 앱에서 이 Mac의 작업 공간, 터미널, 에이전트 채팅을 열 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar cmux-appen på iPhonen din åpne denne Macens arbeidsområder, terminaler og agentchatter mens du er logget på med samme konto."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala aplikacji cmux na iPhonie otwierać obszary robocze, terminale i czaty z agentami na tym Macu, gdy jesteś zalogowany tym samym kontem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que o app cmux no seu iPhone abra os espaços de trabalho, terminais e chats de agentes deste Mac enquanto você estiver conectado com a mesma conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет приложению cmux на iPhone открывать рабочие пространства, терминалы и чаты с агентами этого Mac, пока вы вошли в ту же учётную запись."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้แอป cmux บน iPhone ของคุณเปิดพื้นที่ทำงาน เทอร์มินัล และแชทกับเอเจนต์ของ Mac เครื่องนี้ได้ขณะที่คุณลงชื่อเข้าใช้ด้วยบัญชีเดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aynı hesapla oturum açtığınız sürece iPhone’unuzdaki cmux uygulamasının bu Mac’in çalışma alanlarını, terminallerini ve ajan sohbetlerini açmasına izin verir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволяє застосунку cmux на iPhone відкривати робочі простори, термінали та чати з агентами цього Mac, поки ви в тому самому обліковому записі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép ứng dụng cmux trên iPhone mở không gian làm việc, terminal và cuộc trò chuyện với tác nhân của máy Mac này khi bạn đăng nhập cùng tài khoản."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用同一账户登录时，iPhone 上的 cmux 应用可以打开这台 Mac 的工作区、终端和智能体聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用同一帳號登入時，iPhone 上的 cmux App 可以打開這台 Mac 的工作區、終端機和代理程式聊天。"
+          }
+        }
+      }
+    },
+    "settings.mobile.allowIPhoneConnections.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets your iPhone reach this Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لجهاز iPhone الوصول إلى هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogućava iPhoneu pristup ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader din iPhone nå denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lässt dein iPhone diesen Mac erreichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que tu iPhone acceda a este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à votre iPhone d’accéder à ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente al tuo iPhone di raggiungere questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone からこの Mac に接続できます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យ iPhone របស់អ្នកចូលដល់ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone에서 이 Mac에 연결할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar iPhonen nå denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala iPhone’owi łączyć się z tym Makiem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que seu iPhone acesse este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет iPhone подключаться к этому Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้ iPhone ของคุณเข้าถึง Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone’unuzun bu Mac’e erişmesine izin verir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволяє iPhone підключатися до цього Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép iPhone truy cập máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许 iPhone 访问这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許 iPhone 存取這台 Mac"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

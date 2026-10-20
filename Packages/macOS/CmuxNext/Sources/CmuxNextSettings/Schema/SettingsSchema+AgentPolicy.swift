@@ -274,6 +274,8 @@ extension SettingsSchema {
         "phone.keepAwake": .userOnly,
         // Workspace names leave this Mac for the Cloud service: only the person turns it on.
         "phone.cloudReplica": .privacy,
+        // On, a phone signed in to the same account can open this Mac's terminals and agents.
+        "mobile.allowIPhoneConnections": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]
