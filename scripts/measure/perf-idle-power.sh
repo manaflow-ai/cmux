@@ -8,6 +8,8 @@
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-idle-power.sh --ref SHA [--arg=measure=60] [--arg=config=Release]
 #     [--arg=scenarios=terminal,tab1] [--arg=settings={"browser":{...}}]
+# Each idle scenario settles 120 s first (Chromium's post-load work), so a
+# full run takes about 25 minutes.
 # Output: PERF-POWER lines; JSON at artifacts/perf-idle-power.json.
 set -euo pipefail
 measure=60

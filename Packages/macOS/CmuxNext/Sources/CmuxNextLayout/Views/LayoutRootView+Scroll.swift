@@ -3,7 +3,8 @@ public import AppKit
 /// Pointer and trackpad routing. Mouse-downs focus the pane under the
 /// pointer, and so does the start of a scroll that passes through to a pane
 /// (`LayoutRootView+ScrollFocus`); horizontal scroll gestures over a columns screen are claimed by
-/// the layout (first dominant axis decides). Vertical ones pass through,
+/// the layout (first dominant axis decides), except where the pane's own
+/// content scrolls sideways (`LayoutRootView+ScrollClaim`). Vertical ones pass through,
 /// except over a column whose rows overflow: there they scroll the rows
 /// over the gaps between rows, or anywhere with Command held (rows.md V5).
 extension LayoutRootView {
@@ -38,7 +39,8 @@ extension LayoutRootView {
     private func activeColumnsView(at locationInWindow: NSPoint) -> ScreenContentView? {
         guard bounds.contains(convert(locationInWindow, from: nil)),
               let active = model.activeScreenID, let view = screenViews[active],
-              view.acceptsHorizontalScroll(at: view.convert(locationInWindow, from: nil)) else { return nil }
+              view.acceptsHorizontalScroll(at: view.convert(locationInWindow, from: nil)),
+              !paneContentClaimsHorizontalScroll(at: locationInWindow) else { return nil }
         return view
     }
 

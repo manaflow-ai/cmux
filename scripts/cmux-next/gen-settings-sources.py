@@ -141,7 +141,7 @@ SECTIONS = [
         "swift": SCHEMA_DIR + "/SettingsSchema+HoverCards.generated.swift",
         "type": "HoverCardSettingsSchema",
         "lists": {"hoverCards": ("descriptors", "HoverCardSettings")},
-        "enums": {},
+        "enums": {"sidebar.hoverCards.layout": "HoverCardLayoutSetting"},
     },
     {
         "source": "schemas/settings/source/now-playing.json",

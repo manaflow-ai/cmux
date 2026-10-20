@@ -197,7 +197,7 @@ final class TopHomePageView: NSView {
 
     static func chief(_ home: HomeService) -> String? {
         let local = HomeChiefName.select(from: home.conversations)
-        return HomeChiefSource.choose(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, placed: home.cloudChief)
+        return home.tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: home.hostedChief.choice)
     }
 
     /// The shown conversation is one the owner's own inbox does not have:

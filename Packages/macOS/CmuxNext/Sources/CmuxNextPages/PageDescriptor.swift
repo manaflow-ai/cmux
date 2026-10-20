@@ -150,7 +150,9 @@ public extension PageDescriptor {
     /// preview and sound ops share the namespace; the page may run only its own actions and the
     /// sections' buttons, and writes the pasteboard for a row's Copy Setting Key.
     static let settings = PageDescriptor(
-        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
+        // Agents > Chiefs draws the Chief editor: the Chief owner through the host's page relay
+        // (`cmux.chief.profile.`) and the harness center (`cmux.chief.backend.`), as Home does.
+        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings.", "cmux.chief.profile.", "cmux.chief.backend."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",

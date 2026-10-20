@@ -26,10 +26,10 @@ final class GroupHeaderRowView: SidebarRowView {
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     /// A collapsed group's member count, after the name.
     private let count = SidebarRowView.label(font: SidebarStyle.headerFont)
-    private let chevron = NSImageView()
+    private let chevron = DecorativeImageView()
     private let activity = StatusIndicatorView()
     private let badge = UnreadBadgeView()
-    private let pin = NSImageView()
+    private let pin = DecorativeImageView()
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
     private let pill = CALayer()
@@ -74,6 +74,7 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         [glyph, name, count, pin, chevron, activity, badge, addButton, moreButton].forEach(addSubview)
+        // The header's label says the name, the count and (through AXExpanded) the chevron.
         moreButton.onPress = { [weak self] in self?.onEdit?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
         // The + and more show only on hover; VoiceOver reaches the editor and the menu here always.
@@ -132,6 +133,9 @@ final class GroupHeaderRowView: SidebarRowView {
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityLabel("\(group.name), \(Strings.groupCount(row.childCount))")
+        setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue)")
+        moreButton.setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue).more")
+        addButton.setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue).add")
         setAccessibilityHelp(collapsed ? GroupEditorStrings.expand : GroupEditorStrings.collapse)
         setAccessibilityExpanded(!collapsed)
         needsLayout = true
@@ -228,7 +232,8 @@ final class GroupHeaderRowView: SidebarRowView {
         // One full-width rounded bar (the Chrome tab group header) whose
         // radius, padding, type and glyphs scale with the row height
         // (the sidebar density: compact 24, comfortable 32 pt).
-        let barHeight = SidebarStyle.groupHeaderBarHeight(rowHeight: b.height)
+        // The bar fills the row (as tall as a workspace row); the type and glyphs keep their scale.
+        let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: b.height)
         let pad = (barHeight * 0.62).rounded()
         // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
@@ -291,8 +296,8 @@ final class GroupHeaderRowView: SidebarRowView {
         count.isHidden = countWidth == 0
         count.frame = NSRect(x: (pinned ? pin.frame.maxX : name.frame.maxX) + Metrics.space2, y: (b.height - nh) / 2, width: countWidth, height: nh)
         pill.isHidden = renaming
-        // The cx-rcby chip: one full-width rounded bar, a little inset top and bottom.
-        pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
+        // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
+        pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
         pill.cornerRadius = (barHeight * 0.23).rounded()
         // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
         let dotSide = SidebarStyle.groupDotSize

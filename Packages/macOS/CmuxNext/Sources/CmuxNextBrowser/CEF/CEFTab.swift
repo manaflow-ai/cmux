@@ -1,6 +1,7 @@
 public import AppKit
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 
 /// A Chromium tab (CEF fork, Chrome style). Its page is a child window that
 /// tracks `contentView` (`.childWindow` presentation). The Chromium browser
@@ -51,6 +52,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
 
     var machine = BrowserTabStateMachine()
+    /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
+    @ObservationIgnored var titleCoalescer = TitleCoalescer()
+    @ObservationIgnored let titleTimer = DemandTimer(owner: "CEFTab.title")
     @ObservationIgnored var isCreationPending = false
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
@@ -403,6 +407,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         isClosed = true
         agentRelay.resumeWaiters(false)
+        titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()
         if let browserID {

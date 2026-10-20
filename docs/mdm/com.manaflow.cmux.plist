@@ -171,13 +171,14 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>default</string>
+			<string>cards</string>
 			<key>pfm_description</key>
 			<string>The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabTemplate</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>cards</string>
 				<string>default</string>
 				<string>composer</string>
 				<string>threads</string>
@@ -1276,6 +1277,39 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Pinned Folders</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap.</string>
+			<key>pfm_name</key>
+			<string>screenshots.findTools</string>
+			<key>pfm_title</key>
+			<string>Find Screenshot Apps</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths.</string>
+			<key>pfm_name</key>
+			<string>screenshots.folders</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>More Screenshot Folders</string>
 			<key>pfm_type</key>
 			<string>array</string>
 		</dict>
@@ -3895,6 +3929,102 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>timeline</string>
+			<key>pfm_description</key>
+			<string>What a workspace's hover card shows: its history of prompts and waits, its details, or both.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.layout</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>timeline</string>
+				<string>compact</string>
+				<string>log</string>
+				<string>classic</string>
+				<string>minimal</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Workspace Card Layout</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>How long the workspace has worked or waited, and how long its command has run.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.sections.timings</string>
+			<key>pfm_title</key>
+			<string>Show Running Times in Workspace Cards</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Each prompt you sent and when, in the card's history.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.sections.prompts</string>
+			<key>pfm_title</key>
+			<string>Show Prompts in Workspace Cards</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>When an agent waited for your input or finished its turn, in the card's history.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.sections.waiting</string>
+			<key>pfm_title</key>
+			<string>Show Waits in Workspace Cards</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The workspace's branch and pull request.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.sections.git</string>
+			<key>pfm_title</key>
+			<string>Show Branch in Workspace Cards</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The ports the workspace listens on.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.sections.ports</string>
+			<key>pfm_title</key>
+			<string>Show Ports in Workspace Cards</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>20</integer>
+			<key>pfm_description</key>
+			<string>The most prompts, waits and finished turns a workspace's card lists. The list scrolls.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.maxRows</string>
+			<key>pfm_range_max</key>
+			<real>100</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Workspace Card History Lines</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>A player for what is playing, at the bottom of the sidebar.</string>
@@ -4956,6 +5086,22 @@
 			<string>Hibernate Pinned Tabs</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>30</integer>
+			<key>pfm_description</key>
+			<string>Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake. Also accepts a number from 5 to 3600 in a raw profile.</string>
+			<key>pfm_name</key>
+			<string>browser.freezeHiddenTabs</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Freeze Hidden Tabs</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

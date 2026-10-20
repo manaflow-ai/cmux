@@ -191,6 +191,7 @@ let package = Package(
                 "CmuxNextCompat",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
+                "CmuxNextVSCodeServer",
                 "CmuxNextKeepAwake",
                 "CmuxNextChromiumWarmup",
                 "CmuxNextPhoneAccess",
@@ -205,6 +206,7 @@ let package = Package(
                 "CmuxNextDiff",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
+                "CmuxNextHostedChief",
                 "CmuxNextDaemonService",
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
@@ -461,6 +463,17 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Hosted Chief (Lawrence 2026-10-19): the Hosted Chief is the default Chief in Home;
+        // the one-time copy of this Mac's Chief into it, its brain check, the cloud Chief
+        // models and the Chief switch. No AppServices; the App's HomeService wires it.
+        .target(
+            name: "CmuxNextHostedChief",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextHomeEngine"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // Daemon service (moved out of CmuxNextApp): one machine's cmux-tui daemon
         // connection and its command funnels, the frame batcher, and the Refusals and
         // Cloud strings it shows. No AppServices; the App sets `DaemonService.launchMark`.
@@ -626,6 +639,17 @@ let package = Package(
             name: "CmuxNextKeepAwakeTests",
             dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
+        ),
+        // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code
+        // (Inline) and Stop/Restart VS Code Inline Server. The App opens its URL in a browser tab.
+        .target(
+            name: "CmuxNextVSCodeServer",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextVSCodeServerTests",
+            dependencies: ["CmuxNextVSCodeServer"],
+            swiftSettings: daemonSwiftSettings
         ),
         // Chromium warm start: maps the framework and runs CefInitialize and the
         // spare window at idle moments once a Chromium tab is likely. The App
@@ -1182,7 +1206,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextFileGrid", "CmuxNextScreenshots", "CmuxNextTerminalGeometry", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextFloating", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextCookieImport", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextCompat", "CmuxNextVSCodeServer", "CmuxNextFileGrid", "CmuxNextScreenshots", "CmuxNextTerminalGeometry", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextFloating", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextCookieImport", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextFeed", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            // ReduceMotionLoopTests builds the vendored Home typing indicators.

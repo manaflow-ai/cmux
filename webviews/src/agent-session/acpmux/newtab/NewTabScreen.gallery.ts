@@ -872,6 +872,20 @@ export default agentPaneEntry({
         await ctx.waitFor(() => item("Show Dictation Button"));
       },
     },
+    "template-cards": {
+      note: "Cards template, the default (u2851, from a scrawl of Aside's New Tab page): one rounded field with the Search | Ask switch, the project and agent chips under it, three tall chat cards.",
+      ready: newTab({ template: "cards" }),
+      snapshot: noChat(manySessions(6)),
+    },
+    "template-cards-search": {
+      note: "Cards template in Search: the chip row steps aside and the suggestions show under the field.",
+      ready: newTab({ template: "cards" }),
+      snapshot: noChat(manySessions(6)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Search" });
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-mode="search"]'));
+      },
+    },
     "template-composer": {
       note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",
       ready: newTab({ template: "composer" }),
