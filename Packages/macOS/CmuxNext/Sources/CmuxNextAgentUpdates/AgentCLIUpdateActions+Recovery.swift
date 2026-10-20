@@ -182,12 +182,13 @@ extension AgentCLIUpdateActions {
         do {
             receipt = try await route.start(input.family, input.key)
         } catch {
-            // A first start always sends a fresh key, so an owner answer means nothing runs for it:
-            // a refusal, busy (answered before the key is looked up), a failed creation, or a request
-            // turned away during a handoff. The intent settles instead of blocking or staying
-            // resumable. Not `mutation.indeterminate` (see `answered`), and not a lost reply, which
-            // may have created the terminal: it stays unknown, and refresh sends the same key again.
-            if Self.answered(error) { await settle(input.key, in: intent) } else { intent.unsent[input.cli] = input.key }
+            // A refusal created nothing: the intent settles instead of staying resumable. Neither did
+            // busy here: the owner answers it (inventory reservation, execution lock) before it looks
+            // up the key, and a first start always sends a fresh key. Any other code can follow a
+            // durable creation (a launch activation failing after the commit), and a lost reply may
+            // have created the terminal: the row stays, recovery's resolve reads the owner's journal
+            // (a failed creation settles), and refresh sends the same key again.
+            if Self.refusedBeforeCreation(error) || Self.busy(error) { await settle(input.key, in: intent) } else { intent.unsent[input.cli] = input.key }
             failures.append("\(input.cli): \(Self.text(error))")
             guard route.isCurrent() else { throw error }
             return

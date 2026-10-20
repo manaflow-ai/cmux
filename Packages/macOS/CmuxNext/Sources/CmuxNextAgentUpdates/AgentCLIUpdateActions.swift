@@ -384,17 +384,6 @@ public final class AgentCLIUpdateActions {
         return code.hasPrefix("agent_cli_job.") && !busy(error)
     }
 
-    /// Whether the owner answered a first start (a fresh key) with a coded failure that leaves
-    /// nothing worth tracking. `mutation.indeterminate` does not: the owner says the effect may
-    /// have run (a failed creation's reserved terminal may be live), so its row keeps blocking
-    /// until recovery's resolve lets a person dismiss it. A replay or resume needs
-    /// `refusedBeforeCreation`, because a code the owner sends before reading its journal (a
-    /// handoff, a registry error) proves nothing there.
-    static func answered(_ error: any Error) -> Bool {
-        guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
-        return !code.isEmpty && code != "mutation.indeterminate"
-    }
-
     /// The owner's execution lock or inventory reservation is held.
     static func busy(_ error: any Error) -> Bool {
         guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
