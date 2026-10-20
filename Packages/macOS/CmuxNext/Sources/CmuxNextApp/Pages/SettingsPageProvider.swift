@@ -348,12 +348,15 @@ final class SettingsPageProvider: PageProvider {
         return value
     }
 
-    /// SECURITY (agent_settable): the Settings page writes as the user only for a call backed by a
-    /// real key or mouse event in its view (`context.userGesture`, the host's record) from the
-    /// bundled cmux.settings page (the router admits only its trusted frame). A script write with
-    /// no gesture is a page write and may change only agent-settable keys.
+    /// SECURITY (agent_settable): a call from the bundled cmux.settings page (the router admits
+    /// only its trusted frame) is the user's: any interaction with the page, a click, a key or an
+    /// accessibility press (which reaches the page with no AppKit event, so `context.userGesture`
+    /// cannot be required without locking out assistive technology). Posted GUI input cannot be
+    /// told apart from a person's on macOS, so user-only keys are protected on the automation
+    /// paths instead: the CLI, agents, scripts and the control socket's `settings.set` write as
+    /// their origin and are refused. Any other page writes as a page.
     static func writer(_ context: PageCallContext) -> SettingWriter {
-        context.page == PageDescriptor.settings.id && context.userGesture ? .user : .caller("page")
+        context.page == PageDescriptor.settings.id ? .user : .caller("page")
     }
 
     static func userOnlyError(_ refusal: SettingUserOnly) -> PageError {

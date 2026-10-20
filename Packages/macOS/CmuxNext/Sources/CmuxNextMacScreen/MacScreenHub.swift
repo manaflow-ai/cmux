@@ -68,6 +68,8 @@ public nonisolated enum MacScreenHubPhase: Equatable, Sendable {
     case approved(sessionID: String, scope: SessionScope)
     /// The ticket came: the stream runs (`ScreenSession` says how far it got).
     case streaming(sessionID: String, scope: SessionScope)
+    /// The stream failed (its card says why); the hub hears `failed` unless its own reason comes first.
+    case streamFailed(sessionID: String, scope: SessionScope)
     /// The host's person said Deny.
     case declined(SessionScope)
     case refused(MacScreenHubRefusal, requested: SessionScope)
@@ -79,7 +81,7 @@ public nonisolated enum MacScreenHubPhase: Equatable, Sendable {
     /// The session this phase belongs to, if any.
     public var sessionID: String? {
         switch self {
-        case let .waitingForApproval(id, _), let .approved(id, _), let .streaming(id, _): id
+        case let .waitingForApproval(id, _), let .approved(id, _), let .streaming(id, _), let .streamFailed(id, _): id
         default: nil
         }
     }

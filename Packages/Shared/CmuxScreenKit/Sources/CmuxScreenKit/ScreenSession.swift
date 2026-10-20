@@ -231,12 +231,17 @@ public final class ScreenSession {
 
     private func connectStream(_ viewer: ScreenStreamViewer, name: String) {
         stream = viewer
+        if let reconnectStarted { viewer.openTimeout = Self.attemptTimeout(elapsed: Date().timeIntervalSince(reconnectStarted)) }
         relayErrors = []
         isStalled = false
         viewer.onStall = { [weak self, weak viewer] stalled in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
                 self.isStalled = stalled
+                // The give-up clock starts when the picture stops, not when WebRTC
+                // later declares the connection failed; it resets if it recovers.
+                if stalled, self.reconnectStarted == nil { self.reconnectStarted = Date() }
+                if !stalled, !self.isReconnecting { self.reconnectStarted = nil }
             }
         }
         viewer.onICEError = { [weak self] error in
@@ -282,6 +287,12 @@ public final class ScreenSession {
 
     /// The stream ended without the user closing it: reconnect a few times
     /// (backing off) before showing the error.
+    /// How long one try may wait: 30 s, or what is left of the reconnect
+    /// deadline (at least 1 s), so the last try never runs past it.
+    public nonisolated static func attemptTimeout(elapsed: TimeInterval) -> TimeInterval {
+        max(1, min(30, reconnectDeadline - elapsed))
+    }
+
     /// Whether reconnecting stops: after `limit` tries, or once it has tried for ``reconnectDeadline`` seconds.
     public nonisolated static func givesUp(attempts: Int, limit: Int, elapsed: TimeInterval) -> Bool {
         attempts >= limit || elapsed > reconnectDeadline

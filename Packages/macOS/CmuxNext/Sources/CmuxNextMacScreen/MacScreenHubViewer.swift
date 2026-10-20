@@ -169,8 +169,10 @@ public final class MacScreenHubViewer {
     /// no reason of its own arrives within the grace, so a host's cause that
     /// is on its way (it often comes a moment after the stream drops) wins.
     func streamFailed() {
-        guard let id = phase.sessionID else { return }
+        guard let id = phase.sessionID, let scope = phase.streamingScope else { return }
         failedSession = id
+        // The hub state follows the tab: no longer streaming (debug.device_hub, pushes keyed to the id).
+        phase = .streamFailed(sessionID: id, scope: scope)
         failedWhileOffline = !hubConnected
         guard let hub = hub() else { return }
         let grace = failureGrace, end = endSession

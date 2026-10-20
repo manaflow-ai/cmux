@@ -350,8 +350,17 @@ public final class ScreenStreamHost: @unchecked Sendable {
         if let data = try? JSONEncoder().encode(message) { _ = session.link.sendText(String(decoding: data, as: UTF8.self)) }
     }
 
+    /// Whether a viewer message ends its session (the viewer left: `bye`).
+    static func endsSession(_ input: ScreenInput) -> Bool { input.t == "bye" }
+
     private func handleInput(_ data: Data, session: Session) {
         guard let input = try? JSONDecoder().decode(ScreenInput.self, from: data) else { return }
+        if Self.endsSession(input) {
+            // The viewer left (closed its tab, disconnected): end now, view-only sessions too.
+            log("the viewer left")
+            endSession(ifCurrent: session)
+            return
+        }
         if input.t == "quality", let quality = input.s.flatMap(ScreenQuality.init(rawValue:)) {
             session.lock.withLock { session.quality = quality }
             log("quality: \(quality.rawValue)")
@@ -532,6 +541,11 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     public var onICEError: (@Sendable (ICECandidateError) -> Void)?
     /// The connection stalled (true: no picture coming) or recovered (false).
     public var onStall: (@Sendable (Bool) -> Void)?
+    /// How long `connect()` waits for the input channel to open (a reconnect's
+    /// last try gets only what is left of its deadline).
+    public var openTimeout: TimeInterval = 30
+    /// The data channel message that tells the host this viewer left.
+    public static let byeMessage = #"{"t":"bye"}"#
 
     /// The signaling for each attempt (0 first); nil when there is no other.
     private let makeSignaling: @Sendable (Int) -> (any ScreenSignaling)?
@@ -633,7 +647,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         }
         lock.withLock { tasks = [peerTask, signalTask] }
         do {
-            try await opened.wait(timeout: 30)
+            try await opened.wait(timeout: openTimeout)
         } catch {
             // A connect that failed leaves nothing behind: its room socket would
             // otherwise offer to the host when it next joins and open a session
@@ -707,14 +721,26 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         return await link.videoStats()
     }
 
+    /// Ends the session: an open channel first tells the host (`bye`), so it
+    /// ends at once instead of waiting for WebRTC to notice the peer is gone.
     public func close() {
-        let (link, socket, tasks) = lock.withLock { () -> (VNCPeerLink?, (any ScreenSignaling)?, [Task<Void, Never>]) in
+        let (link, socket, tasks, open) = lock.withLock { () -> (VNCPeerLink?, (any ScreenSignaling)?, [Task<Void, Never>], Bool) in
             defer { self.tasks.removeAll() }
-            return (self.link, self.socket, self.tasks)
+            return (self.link, self.socket, self.tasks, self.isOpen)
         }
-        link?.close()
-        socket?.close()
         for task in tasks { task.cancel() }
+        socket?.close()
+        guard let link else { return }
+        guard open, link.sendText(Self.byeMessage) else {
+            link.close()
+            return
+        }
+        // Intentional bounded delay: SCTP sends the queued bye before the
+        // connection closes (closing at once can discard it).
+        Task.detached {
+            try? await Task.sleep(for: .milliseconds(200)) // bounded drain before close
+            link.close()
+        }
     }
 }
 

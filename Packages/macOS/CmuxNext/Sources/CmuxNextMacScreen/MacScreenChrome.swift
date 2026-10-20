@@ -130,7 +130,7 @@ extension MacScreenPaneModel {
         case .idle: return .hubConnect
         case let .requesting(scope), let .approved(_, scope): return .hubRequesting(scope)
         case let .waitingForApproval(_, scope): return .hubWaiting(scope)
-        case .streaming: return nil
+        case .streaming, .streamFailed: return nil
         case let .declined(scope): return .hubDeclined(scope)
         case let .refused(refusal, requested): return .hubRefused(refusal, requested: requested)
         case let .revoked(reason): return .hubRevoked(MacScreenEndReason(reason))
@@ -332,7 +332,7 @@ struct MacScreenToolbar: View {
             case .requesting, .waitingForApproval, .approved: return colors.attention
             case .declined, .refused, .revoked: return colors.danger
             case .idle, .ended: return colors.tertiary
-            case .streaming: break
+            case .streaming, .streamFailed: break
             }
         }
         guard model.gate == .open, let session = model.session else { return colors.tertiary }
