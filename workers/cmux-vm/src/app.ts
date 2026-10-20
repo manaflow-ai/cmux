@@ -12,9 +12,11 @@ import type { ApiKeyStore, AuditStore, OwnershipStore } from "./db/stores.ts";
 import { execHandlers } from "./handlers/exec.ts";
 import { filesHandlers } from "./handlers/files.ts";
 import { healthHandlers } from "./handlers/health.ts";
+import { creationHandlers } from "./handlers/creations.ts";
 import { vmsHandlers } from "./handlers/vms.ts";
 import type { TenantLimits } from "./limits/service.ts";
 import type { TenantPolicy } from "./policy.ts";
+import type { VmImages } from "./proofs/vm-image.ts";
 import type { Entitlements } from "./proofs/tenant-may-create.ts";
 import type { UpstreamClient } from "./upstream/client.ts";
 import { snapshotsHandlers } from "./handlers/snapshots.ts";
@@ -34,6 +36,7 @@ import type { WebhookDeliveryStore } from "./db/identity.ts";
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./handlers/stack-webhook.ts";
 
 export type Services =
+  | VmImages
   | OwnershipStore
   | ApiKeyStore
   | ServiceKeys
@@ -92,6 +95,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
   const api = HttpApiBuilder.api(CmuxVmApi).pipe(
     Layer.provide(healthHandlers),
     Layer.provide(authenticated(vmsHandlers)),
+    Layer.provide(authenticated(creationHandlers)),
     Layer.provide(authenticated(execHandlers)),
     Layer.provide(authenticated(filesHandlers)),
     Layer.provide(authenticated(snapshotsHandlers)),

@@ -44,6 +44,12 @@ final class LayoutViewContext {
     var overlayNeedsSync: () -> Void = {}
     /// A pane's strip clip changed (`PaneHostView.setStripClip`): Chromium pages re-read their clips.
     var stripClipsDidChange: () -> Void = {}
+    /// Screens whose panes spring into a closed pane's space now (`ScreenContentView.closing`).
+    var closingScreens: Set<ScreenID> = [] {
+        didSet { if oldValue.isEmpty != closingScreens.isEmpty { gridHoldDidChange(!closingScreens.isEmpty) } }
+    }
+    /// The first close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
+    var gridHoldDidChange: (Bool) -> Void = { _ in }
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot

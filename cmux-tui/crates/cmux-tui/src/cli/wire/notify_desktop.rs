@@ -4,6 +4,7 @@
 //! as the flag did before (a banner, with no reply).
 
 use std::io::BufReader;
+use std::path::Path;
 
 use serde_json::Value;
 
@@ -14,6 +15,7 @@ use cmux_tui_core::{NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILI
 /// daemon cannot take; true when the request changed.
 pub(super) fn drop_unsupported(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
+    socket: &Path,
     request: &mut Value,
 ) -> bool {
     if request["operation"] != "notification.create" {
@@ -24,7 +26,7 @@ pub(super) fn drop_unsupported(
         [("desktop", NOTIFICATION_DESKTOP_CAPABILITY), ("reply", NOTIFICATION_REPLY_CAPABILITY)]
     {
         if request["params"].get(field).is_none()
-            || super::super::launch_credential::advertises(reader, capability)
+            || super::super::launch_credential::advertises(reader, socket, capability)
         {
             continue;
         }

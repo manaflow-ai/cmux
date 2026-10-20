@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b";
+inline constexpr std::string_view kProtocolIrSha256 = "799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -48,6 +48,7 @@ enum class ClientTransport;
 enum class CloseReason;
 struct CloseTerminalResult;
 struct ColorHex;
+enum class ColumnMoveDirection;
 struct ColumnPin;
 struct ConversationChange;
 struct ConversationImportMessage;
@@ -407,6 +408,7 @@ struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveBookmarkRequest;
 struct MoveBrowserProfileRequest;
+struct MoveColumnRequest;
 struct MovePersonalGroupRequest;
 struct MoveProfileRequest;
 struct MoveScreenRequest;
@@ -1889,6 +1891,11 @@ struct ColorsChangedEvent {
     friend bool operator==(const ColorsChangedEvent&, const ColorsChangedEvent&) = default;
 };
 
+enum class ColumnMoveDirection {
+    left,
+    right,
+};
+
 struct ColumnPin {
     std::string edge{};
     std::string mode{};
@@ -3138,6 +3145,7 @@ struct IdMapping {
 
 struct IdentifyRequest {
     std::optional<bool> machine_metadata{};
+    std::optional<bool> revisions{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
 };
 
@@ -3625,6 +3633,12 @@ struct MoveBrowserProfileRequest {
     std::string browser_profile{};
     std::uint64_t index{};
     friend bool operator==(const MoveBrowserProfileRequest&, const MoveBrowserProfileRequest&) = default;
+};
+
+struct MoveColumnRequest {
+    ColumnMoveDirection direction{};
+    Id pane{};
+    friend bool operator==(const MoveColumnRequest&, const MoveColumnRequest&) = default;
 };
 
 struct MovePersonalGroupRequest {
@@ -6049,6 +6063,12 @@ struct Codec<ColorHex> {
 };
 
 template <>
+struct Codec<ColumnMoveDirection> {
+    static Result<Json> encode(const ColumnMoveDirection& value);
+    static Result<ColumnMoveDirection> decode(const Json& value);
+};
+
+template <>
 struct Codec<ColumnPin> {
     static Result<Json> encode(const ColumnPin& value);
     static Result<ColumnPin> decode(const Json& value);
@@ -8200,6 +8220,12 @@ template <>
 struct Codec<MoveBrowserProfileRequest> {
     static Result<Json> encode(const MoveBrowserProfileRequest& value);
     static Result<MoveBrowserProfileRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveColumnRequest> {
+    static Result<Json> encode(const MoveColumnRequest& value);
+    static Result<MoveColumnRequest> decode(const Json& value);
 };
 
 template <>

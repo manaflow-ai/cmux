@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
+import { memberUpsert } from "../src/domains/team-members.ts"
 
 /**
  * The Chief's Durable Object brain (chief-brain/brain-do.ts) through the product boundary: the
@@ -10,8 +11,9 @@ import { fireAlarm } from "./setup/alarm.ts"
  * chief answers in that conversation as itself (a member's socket sees it type, then the message),
  * with a run reference whose steps the run route returns to members only. Fake model only.
  */
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace; MUX_DO: DurableObjectNamespace }
+const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace; MUX_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
+const inDO = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
 const sessionToken = async (sub: string) =>
   new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
     .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
@@ -31,14 +33,15 @@ const history = async (token: string, conversation: string) => (await http("POST
 /** An owner with one chief whose MuxDO is bound and whose main conversation exists. */
 const ownerWithChief = async (sub: string) => {
   const token = await sessionToken(sub)
-  const user = (await op(token, "user.ensure", {})).value.id as string
+  const ensured = (await op(token, "user.ensure", {})).value
+  const user = ensured.id as string
   const chief = (await op(token, "chief.create", { display_name: "Release Chief" }, `chief-${sub}`)).value
   const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
   for (let i = 0; i < 20; i++) {
     await fireAlarm(userDO)
     if ((await http("POST", "/v1/read", token, { op: "conversation.history", params: { conversation: chief.main_conversation, limit: 1 } })).status === 200) break
   }
-  return { token, user, chief: chief as { id: string; main_conversation: string } }
+  return { token, user, team: ensured.personal_team as string, chief: chief as { id: string; main_conversation: string } }
 }
 
 /** Drives the conversation's outbox (wake to MuxDO, which forwards to the brain) until the chief has answered `n` times. */
@@ -161,6 +164,38 @@ describe("Chief brain on Durable Objects", { timeout: 120_000 }, () => {
     expect(reply.parts[0].text).not.toContain("before")
     expect(reply.thread_root).toBe(sent.value.message_id)
     expect(reply.reply_to).toMatchObject({ message_id: sent.value.message_id })
+  })
+
+  it("asks its owner before a teammate can run an effectful tool", async () => {
+    const { token, user, team, chief } = await ownerWithChief("brain-owner-effects")
+    const teammate = await sessionToken("brain-owner-effects-teammate")
+    const teammateUser = (await op(teammate, "user.ensure", {})).value.id as string
+    // Team membership establishes reach, then the owner makes a shared group with their Chief.
+    await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (instance) => {
+      instance.boundEngine.rows.apply([memberUpsert({ user: teammateUser, role: "member", display_name: "Teammate" })])
+    })
+    const created = await op(token, "conversation.create", {
+      title: "release effects",
+      participants: [
+        { id: user, kind: "human", display_name: "Owner" },
+        { id: teammateUser, kind: "human", display_name: "Teammate" },
+        { id: chief.id, kind: "agent", agent_class: "mux", owner_user: user, display_name: "Release Chief" }
+      ]
+    })
+    expect(created.ok, JSON.stringify(created)).toBe(true)
+    const conversation = created.value.conversation.id as string
+    expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true })).status).toBe(200)
+
+    const text = `@chief tool:spawn ${JSON.stringify({ tasks: ["change the release"] })}`
+    expect((await op(teammate, "message.send", {
+      conversation,
+      client_msg_id: "teammate-effect",
+      parts: [{ type: "text", text, runs: [{ start: 0, length: 6, mention: chief.id }] }]
+    }, "teammate-effect")).ok).toBe(true)
+    await chiefReplies(token, conversation, chief.id, 1)
+    const brains = (env as unknown as { CHIEF_BRAIN_DO: DurableObjectNamespace }).CHIEF_BRAIN_DO
+    const brain = brains.get(brains.idFromName(`${chief.id}/${conversation}`))
+    expect(await runInDurableObject(brain, async (_i, state) => state.storage.sql.exec(`SELECT COUNT(*) AS n FROM cb_spawn`).one().n)).toBe(0)
   })
   it("ends its typing when it skips a turn, so a client's Thinking line does not stay", async () => {
     const limits = env as unknown as { CHIEF_BRAIN_DAILY_TURNS?: string }

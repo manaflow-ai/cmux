@@ -108,6 +108,11 @@ impl Hub {
     /// The command that titles a chat on `harness`, or None (none applies,
     /// or `titles.generate` is off).
     async fn title_command(&self, harness: &str) -> Option<tokio::process::Command> {
+        // Never the shared temp dir or the daemon's folder: Claude Code runs
+        // `rg --files --hidden` over its cwd at start, and one titler per
+        // finished chat over all of `$TMPDIR` pegged the Mac's CPU.
+        let cwd =
+            tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd).await.ok()?;
         let cfg = self.config.read().await;
         if cfg.titles.generate == Some(false) {
             return None;
@@ -119,7 +124,7 @@ impl Hub {
             .or_else(|| cfg.titles.command.clone().filter(|c| !c.is_empty()));
         if let Some(argv) = argv {
             let mut cmd = tokio::process::Command::new(&argv[0]);
-            cmd.args(&argv[1..]);
+            cmd.args(&argv[1..]).current_dir(&cwd);
             #[cfg(unix)]
             cmd.process_group(0);
             return Some(cmd);
@@ -152,7 +157,6 @@ impl Hub {
             ]
             .map(str::to_owned),
         );
-        let cwd = std::env::temp_dir();
         match crate::agent::harness_command(harness, profile, &cwd, Some((program, args)), None) {
             Ok(cmd) => Some(cmd),
             Err(e) => {
