@@ -6,14 +6,14 @@ import AppKit
 /// the main actor with `assumeIsolated`.
 nonisolated final class AgentCursorTagElement: NSAccessibilityElement {
     /// Runs on the main actor only (the press checks the thread).
-    private let onPress: @MainActor () -> Void
+    private let onPress: @MainActor @Sendable () -> Void
 
     /// - Parameters:
     ///   - tag: The tag.
     ///   - frame: The tag's frame in the parent's (y-up) coordinates.
     ///   - parent: The cursor carrier.
     ///   - press: What a VoiceOver press does.
-    init(_ tag: AgentCursorTagTarget, frame: NSRect, parent: NSView, press: @escaping @MainActor () -> Void) {
+    init(_ tag: AgentCursorTagTarget, frame: NSRect, parent: NSView, press: @escaping @MainActor @Sendable () -> Void) {
         onPress = press
         super.init()
         setAccessibilityRole(.button)
@@ -25,7 +25,8 @@ nonisolated final class AgentCursorTagElement: NSAccessibilityElement {
 
     override func accessibilityPerformPress() -> Bool {
         guard Thread.isMainThread else { return false }
-        MainActor.assumeIsolated { onPress() } // main-proof: guarded by Thread.isMainThread above
+        let press = onPress
+        MainActor.assumeIsolated { press() } // main-proof: guarded by Thread.isMainThread above
         return true
     }
 }
