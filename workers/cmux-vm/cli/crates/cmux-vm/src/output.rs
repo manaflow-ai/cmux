@@ -4,7 +4,9 @@
 
 use std::io::Write;
 
-use cmux_vm_client::types::{ApiKeyList, CreatedApiKey, Snapshot, SnapshotList, Vm, VmList};
+use cmux_vm_client::types::{
+    ApiKeyList, CreatedApiKey, Snapshot, SnapshotList, Vm, VmImageList, VmList,
+};
 use serde::Serialize;
 use serde_json::json;
 
@@ -46,6 +48,61 @@ impl<'a> Printer<'a> {
         Ok(())
     }
 
+    pub fn retired(&mut self, body: &[u8], id: &str) -> Result<(), CliError> {
+        if self.json {
+            self.raw_json(body)
+        } else {
+            self.line(&format!(
+                "retired {id}; starts and inbound wakes are fenced"
+            ))
+        }
+    }
+
+    pub fn file_stat(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::FileStat = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let stat: serde_json::Value = decode(body)?;
+        for field in ["kind", "size", "mode", "mtime", "owner", "group"] {
+            let value = &stat[field];
+            let text = if field == "mode" {
+                format!(
+                    "{:04o}",
+                    value
+                        .as_u64()
+                        .ok_or_else(|| CliError::unexpected("invalid file mode"))?
+                )
+            } else if value.is_null() {
+                "unknown".to_owned()
+            } else if let Some(text) = value.as_str() {
+                text.escape_debug().to_string()
+            } else {
+                value.to_string()
+            };
+            self.line(&format!("{field:<11}{text}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn identity(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmInstanceIdentity = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let value: serde_json::Value = decode(body)?;
+        for field in ["id", "scheme", "fingerprint"] {
+            self.line(&format!(
+                "{field:<13}{}",
+                value[field].as_str().unwrap_or_default()
+            ))?;
+        }
+        if let Some(presence) = value["presence"].as_str() {
+            self.line(&format!("presence     {presence}"))?;
+        }
+        Ok(())
+    }
+
     pub fn vm_list(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
             return self.raw_json(body);
@@ -71,6 +128,27 @@ impl<'a> Printer<'a> {
         }
         if let Some(cursor) = &page.next_cursor {
             self.line(&format!("more: cmux-vm list --cursor {cursor}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn image_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        if self.json {
+            return self.raw_json(body);
+        }
+        let images: VmImageList = decode(body)?;
+        if images.items.is_empty() {
+            self.line("no approved images")?;
+        } else {
+            self.line(&format!("{:<24} {:<20} NAME", "ID", "REVISION"))?;
+            for image in &images.items {
+                self.line(&format!(
+                    "{:<24} {:<20} {}",
+                    image.id.as_str(),
+                    image.revision.as_str(),
+                    image.display_name
+                ))?;
+            }
         }
         Ok(())
     }

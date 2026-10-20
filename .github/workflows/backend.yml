@@ -24,6 +24,7 @@ on:
       - libs/integrations-core/**
       # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
       - libs/svix-webhook/**
+      - libs/vm-instance-identity/**
       # The web copy of the keyed acpmux start's guest commands (check-acpmux-guest-commands.ts).
       - web/services/vms/drivers/acpmuxPersonKey.ts
       - web/services/vms/drivers/cmuxTuiDaemon.ts
@@ -41,6 +42,7 @@ on:
       - libs/integrations-core/**
       # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
       - libs/svix-webhook/**
+      - libs/vm-instance-identity/**
       # The web copy of the keyed acpmux start's guest commands (check-acpmux-guest-commands.ts).
       - web/services/vms/drivers/acpmuxPersonKey.ts
       - web/services/vms/drivers/cmuxTuiDaemon.ts
@@ -190,7 +192,7 @@ jobs:
 
   migrations-development:
     needs: test
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: cmux-next-development
     defaults:
@@ -210,7 +212,7 @@ jobs:
 
   preview:
     needs: migrations-development
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     concurrency:
       group: backend-preview-${{ github.event.pull_request.number }}
@@ -283,6 +285,9 @@ jobs:
           (cd backend/db && bun migrate.ts --lint) || errors=1
           # Release rails: the hash lock and the previous head's files and lock entries (plans/cmux-next/release-rails.md).
           (cd scripts/cmux-next/release && bun install --frozen-lockfile >/dev/null && bun lint.ts --tree backend --base "${BEFORE:-origin/feat-cmux-next}") || errors=1
+          # Vitess (drizzle-mysql): expand/contract phases, append-only history, expand and contract in separate pushes
+          # (backend/db/vitess-guard.ts, plans/cmux-next/db-migrations-DESIGN.md).
+          (cd backend/db && bun migrate-mysql.ts --lint --base "${BEFORE:-origin/feat-cmux-next}") || errors=1
           exit "$errors"
 
   deploy-staging:
@@ -322,6 +327,26 @@ jobs:
             exit 1
           fi
           echo "$out"
+      # Staging first (plans/cmux-next/db-migrations-DESIGN.md): every Vitess migration runs on staging
+      # before any production deploy request. Expand files apply before the Worker deploy (the old code
+      # survives them); contract files apply after the smoke (the new code no longer uses what they drop).
+      # Without the staging credential the deploy is refused when this push changes drizzle-mysql.
+      - name: "Vitess staging: expand migrations before the deploy"
+        working-directory: backend/db
+        env:
+          VITESS_STAGING_URL: ${{ secrets.CMUX_NEXT_VITESS_STAGING_ADMIN_URL }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -z "$VITESS_STAGING_URL" ]; then
+            if [ -n "$BEFORE" ] && git fetch --no-tags --depth=1 origin "$BEFORE" 2>/dev/null && git diff --quiet "$BEFORE" HEAD -- drizzle-mysql; then
+              echo "::notice title=Vitess staging migrations not checked::cmux-next-staging has no CMUX_NEXT_VITESS_STAGING_ADMIN_URL; this push does not change drizzle-mysql"
+              exit 0
+            fi
+            echo "::error title=Vitess staging migration not applied::this push changes backend/db/drizzle-mysql (or the change set is unknown) and cmux-next-staging has no CMUX_NEXT_VITESS_STAGING_ADMIN_URL; apply with migrate-mysql.ts --branch staging --phase expand and re-run, or add the secret"
+            exit 1
+          fi
+          bun migrate-mysql.ts --url-env VITESS_STAGING_URL --phase expand
       # deploy-worker.sh records the serving version, deploys, smokes apps/api/release-smoke.json and
       # runs `wrangler rollback` on red (plans/cmux-next/release-rails.md).
       - name: Deploy API Worker (records the rollback target)
@@ -345,6 +370,15 @@ jobs:
           bun ../../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-api-staging --url https://cloud-api-staging.cmux.dev
           --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
           --changed-since "$BEFORE" --source-dir . --wrangler ./node_modules/.bin/wrangler
+      - name: "Vitess staging: contract migrations after the smoke, then verify the history"
+        working-directory: backend/db
+        env:
+          VITESS_STAGING_URL: ${{ secrets.CMUX_NEXT_VITESS_STAGING_ADMIN_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$VITESS_STAGING_URL" ]; then echo "::notice title=Vitess staging migrations not checked::no CMUX_NEXT_VITESS_STAGING_ADMIN_URL"; exit 0; fi
+          bun migrate-mysql.ts --url-env VITESS_STAGING_URL --phase all
+          bun migrate-mysql.ts --url-env VITESS_STAGING_URL --verify
       - name: Deploy dashboard (console-staging.cmux.dev)
         working-directory: backend/apps/dashboard
         env:
@@ -726,7 +760,7 @@ jobs:
         run: curl -fsS https://cloud-api.cmux.dev/v1/health && curl -fsS -o /dev/null https://console.cmux.dev/
 
   preview-cleanup:
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Delete preview Worker

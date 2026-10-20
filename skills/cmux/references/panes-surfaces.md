@@ -29,6 +29,18 @@ cmux pane pane_… swap --other-workspace ws_… --other-screen screen_… --oth
 
 Terminal and tab ids stay the same across moves. Split, create, run and move do not change focus; only the `focus` verbs do.
 
+## Sound
+
+```bash
+cmux tab mute --target tab_…          # mute a browser tab's page
+cmux tab unmute --target tab_…
+cmux tab mute-unmute --target tab_…   # the tab speaker's click
+cmux tab mute-others --target tab_…   # mute every other tab that plays sound
+cmux workspace mute-unmute --target ws_…  # the sidebar row speaker's click
+```
+
+Only a loaded browser tab can be muted. MCP offers the same verbs as tools.
+
 ## Running a command
 
 `pane <sel> run -- <argv…>` opens a tab running the exact argv, with no shell in between. `run shell '<script>'` runs a shell script. `--on-exit close|keep` decides whether the tab stays after the process exits. To type into an existing shell instead, use `cmux terminal term_… write --text $'npm test\n'`; the text is literal, so include the newline.
