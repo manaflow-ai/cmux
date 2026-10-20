@@ -24,8 +24,7 @@ public struct BackdropPaletteColor: Equatable, Hashable, Sendable {
 /// Layout hints authored with each bundled artwork.
 public struct BackdropArtMetadata: Equatable, Sendable {
     public let focalAnchor: BackdropFocalAnchor
-    /// The subject to keep whole and clear of the panes over the art; nil for art that names
-    /// only its focal anchor (``placement(forViewSize:imageSize:visible:)``).
+    /// Where the work's subject is (catalog data); nil for art that names only its focal anchor.
     public let subjectBox: BackdropSubjectBox?
     public let tone: BackdropArtTone
     public let dominantPalette: [BackdropPaletteColor]
