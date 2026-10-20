@@ -119,7 +119,7 @@ export const withReceiver = async (run: (f: {
   }
   await run({ team: w.team, user: w.user, tenant: w.tenant, machine, host: value.host, principal, client, native, requests,
     read: (p = principal, params = { machine }) => w.owner().readOp(w.team, p, "cloud.vm.network_policy", params),
-    self: () => w.owner().readOp(w.team, principal, "cloud.vm.self.get", { machine }), sessionOp,
+    self: () => w.vmSelf(principal, machine), sessionOp,
     power: (phase) => w.power(machine, phase),
     onRead: (value) => { hook = value }, remove: () => w.remove(machine),
     onDial: (value) => { dialHook = value },
