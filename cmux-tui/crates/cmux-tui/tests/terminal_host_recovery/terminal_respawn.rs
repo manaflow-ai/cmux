@@ -385,7 +385,9 @@ fn a_respawned_terminal_resumes_its_agent_session() {
             .unwrap_or_default()
     };
     let command = "claude--resumeabc-123";
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    // The respawn waits up to 10 s for the new prompt before it types, so
+    // a loaded host needs more than that to show the command.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
     while !after_marker(&screen(&harness, surface)).contains(command) {
         assert!(Instant::now() < deadline, "no resume offer: {}", screen(&harness, surface));
         std::thread::sleep(Duration::from_millis(50));
