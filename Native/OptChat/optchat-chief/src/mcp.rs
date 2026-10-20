@@ -55,7 +55,7 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
             "message": {"type": "string", "minLength": 1, "description": "interrupt/restart/resume: the prompt sent once it has stopped."},
             "option": {"type": "string", "minLength": 1, "description": "answer: the option id of its pending prompt, or deny."},
             "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."},
-            "peer": {"type": "string", "minLength": 1, "description": "cloud: the acpmux peer (acpmux host ls) new subagents run on by default, or off; without it, shows the setting."}},
+            "peer": {"type": "string", "minLength": 1, "description": "cloud: the acpmux peers (acpmux host ls, comma-separated) new subagents run on by default, each on the least busy, or off; without it, shows the setting."}},
           "required": ["action"], "additionalProperties": false}}));
     }
     if !subagent && grant.allows("profile") {

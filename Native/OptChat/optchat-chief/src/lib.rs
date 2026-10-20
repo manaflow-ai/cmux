@@ -22,6 +22,7 @@ pub mod chief_settings;
 pub mod claude_import;
 pub mod cli;
 pub mod cloud;
+pub mod cloud_vms;
 pub mod cmux_env;
 pub mod codex_home;
 pub mod compactor;
