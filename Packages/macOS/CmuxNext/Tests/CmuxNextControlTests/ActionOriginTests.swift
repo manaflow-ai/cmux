@@ -121,6 +121,36 @@ import Testing
         #expect(registry.descriptor(for: "importFromBrowser")?.cliName != "browser import-data")
     }
 
+    /// Loading unpacked code stays available to a person through the palette,
+    /// menu, and keyboard, but every automated control origin is refused.
+    @Test func loadingAnUnpackedExtensionIsRefusedOverTheSocket() async {
+        let registry = ActionRegistry.standard()
+        registry.context = [.browserFocused]
+        var ran = false
+        registry.bind("browser.extensions.loadUnpacked", invoke: { _ in ran = true })
+        let bridge = RegistryControlBridge(registry: registry)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil,
+                                   configuration: .loadTolerant)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        for origin: JSONValue in ["user", "cli", "mcp", "script", .null] {
+            let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: [
+                "action": "browser.extensions.loadUnpacked", "origin": origin,
+                "target": "pane:test", "args": ["path": "/tmp/test-extension"],
+            ]))
+            expectPersonOnlyRefusal(result, "browser.extensions.loadUnpacked from \(origin)")
+        }
+        #expect(!ran)
+        #expect(registry.descriptor(for: "browser.extensions.loadUnpacked")?.isPersonOnly == true)
+        #expect(registry.perform(
+            "browser.extensions.loadUnpacked",
+            invocation: ActionInvocation(
+                target: ActionTargetRef(kind: .pane, id: "test"),
+                arguments: ["path": .string("/tmp/test-extension")]
+            )
+        ))
+        #expect(ran, "an in-app palette, menu, or keyboard run still reaches the handler")
+    }
+
     @Test func toolPermissionActionsRequireAPersonInTheApp() async {
         let registry = ActionRegistry.standard()
         registry.context = [.agentPaneFocused]
