@@ -4,9 +4,16 @@ import { MAX_IMAGE_BYTES, MAX_IMAGE_SIDE, readAttachment } from "../src/agent-se
 /// A fake engine: createImageBitmap reports `width`×`height`; each canvas encodes to `encoded(type)`
 /// bytes and records its size, so a test sees what was drawn and which encodings were tried.
 function installEngine(width: number, height: number, encoded: (type: string) => number) {
-  const drawn: { width: number; height: number; type: string }[] = [];
+  const drawn: { width: number; height: number; type: string }[] & { closed?: number } = [];
+  drawn.closed = 0;
   const g = globalThis as Record<string, unknown>;
-  g.createImageBitmap = async () => ({ width, height, close() {} });
+  g.createImageBitmap = async () => ({
+    width,
+    height,
+    close() {
+      drawn.closed! += 1;
+    },
+  });
   g.OffscreenCanvas = class {
     constructor(
       public width: number,
@@ -38,7 +45,28 @@ describe("an image over the per-image limit", () => {
     expect("reason" in result).toBe(false);
     if ("reason" in result) return;
     expect(result).toMatchObject({ kind: "image", name: "image.png", mimeType: "image/png", size: 1024 });
-    expect(drawn).toEqual([{ width: MAX_IMAGE_SIDE, height: 1440, type: "image/png" }]);
+    expect([...drawn]).toEqual([{ width: MAX_IMAGE_SIDE, height: 1440, type: "image/png" }]);
+    expect(drawn.closed).toBe(1);
+  });
+
+  test("keeps the scaled image's base64 under the limit, not only its bytes", async () => {
+    const limit = Math.floor((MAX_IMAGE_BYTES * 3) / 4);
+    installEngine(4000, 4000, (type) => (type === "image/png" ? limit + 1 : limit));
+    const result = await readAttachment(big("image.png"), true);
+    if ("reason" in result) throw new Error(`refused: ${result.reason}`);
+    expect(result.mimeType).toBe("image/jpeg");
+    expect(result.data!.length).toBeLessThanOrEqual(MAX_IMAGE_BYTES);
+  });
+
+  test("encodes a JPEG source straight to JPEG, and names a re-encoded GIF .png", async () => {
+    const drawn = installEngine(6000, 4000, () => 1024);
+    const photo = await readAttachment(big("photo.jpeg", "image/jpeg"), true);
+    expect(photo).toMatchObject({ name: "photo.jpg", mimeType: "image/jpeg" });
+    expect(drawn.map((d) => d.type)).toEqual(["image/jpeg"]);
+    expect(await readAttachment(big("anim.gif", "image/gif"), true)).toMatchObject({
+      name: "anim.png",
+      mimeType: "image/png",
+    });
   });
 
   test("falls back to JPEG, renamed, when the scaled PNG is still too large", async () => {
