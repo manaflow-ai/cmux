@@ -45,7 +45,7 @@
 #   CNX_BUILDS_ROOT     output root (default ~/cnx-ios-builds)
 #   CNX_XCFRAMEWORK     use this CnxFFI.xcframework instead of the cache or a build
 #
-#   CNX_CI_ASC=1        CI only (.github/workflows/cnx-ios-testflight.yml): App Store
+#   CNX_CI_ASC=1        CI only (.github/workflows/ios-internal-nightly.yml): App Store
 #                       Connect credentials come from ASC_KEY_ID, ASC_ISSUER_ID and
 #                       ASC_PRIVATE_KEY_PATH (the release environment's key) instead
 #                       of the local asc profile; the app record is still checked.
