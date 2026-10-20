@@ -52,6 +52,17 @@
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
+/* A reference stays whole on one line: its mark, owner/repo#N and a title cut short. */
+.cv-chip.is-ref {
+  white-space: nowrap;
+}
+.cv-chip.is-ref .cv-chip__title {
+  display: inline-block;
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
 .cv-chip.is-ref:hover,
 .cv-chip.is-path:hover {
   background: color-mix(in srgb, currentColor 16%, transparent);
