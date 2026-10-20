@@ -230,7 +230,10 @@ fn a_queued_line_names_the_env_cap() {
     })
     .unwrap();
     assert!(spawned.contains("a2: queued"), "{spawned}");
-    assert!(spawned.contains("OPTCHAT_MAX_LIVE_SUBAGENTS=1"), "{spawned}");
+    assert!(
+        spawned.contains("OPTCHAT_MAX_LIVE_SUBAGENTS=1"),
+        "{spawned}"
+    );
     assert!(spawned.contains("control cap 0"), "{spawned}");
 }
 
