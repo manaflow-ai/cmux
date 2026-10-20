@@ -21,14 +21,13 @@ nonisolated extension ActionSurfaceCatalog {
         .unimplemented: [
             "palette.browserToggleOmnibar",
             "toggleReactGrab",
-            "palette.openCloudPane",
             "palette.openVaultPane",
             "palette.openFindPane",
             "palette.openFilesPane",
         ],
         .noObject: [
             "sidebar.profileMenu", "browser.downloads.showFolder",
-            "home.show",
+            "home.show", "palette.openCloudPane",
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
             "closeAllWindows", "window.closeOthers", "workspace.closeAllInAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",

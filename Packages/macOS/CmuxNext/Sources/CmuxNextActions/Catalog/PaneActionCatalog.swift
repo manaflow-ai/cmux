@@ -350,8 +350,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.openCloudPane",
                 title: String(localized: "action.palette.openCloudPane", defaultValue: "Open Cloud as Pane", bundle: .module),
-                keywords: ["machines", "pane"], category: .pane, symbol: "cloud", surfaces: [.palette],
-                targets: [.pane], cliName: "pane open-cloud-as"
+                keywords: ["machines", "pane", "vm", "snapshots", "cloud"], category: .pane, symbol: "cloud",
+                surfaces: [.palette, .menu], targets: [.pane], cliName: "pane open-cloud-as", mainMenu: .window
             ),
             // A file in a tab of the pane or in the text editor: the agent pane's changed
             // files (#16723), the palette and the File menu (no path: the cmux
