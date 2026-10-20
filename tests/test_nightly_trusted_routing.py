@@ -74,7 +74,7 @@ class NightlyTrustedRouting(unittest.TestCase):
 
     def test_next_never_borrows_main_or_pr_pool_on_missing_configuration(self):
         for variable in ('vars.CI_NIGHTLY_NEXT_TRUSTED_POOL', 'vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER'):
-            self.assertEqual(select(**{variable: ''}), 'blacksmith-12vcpu-macos-26')
+            self.assertEqual(select(**{variable: ''}), 'macos-26')
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_take_hosted(self):
         cases = [
@@ -84,7 +84,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         ]
         for changes in cases:
             with self.subTest(changes=changes):
-                self.assertEqual(select(**changes), 'blacksmith-12vcpu-macos-26')
+                self.assertEqual(select(**changes), 'macos-26')
         self.assertEqual(select(**{'github.repository_owner': 'someone'}), 'macos-26')
 
     def test_trusted_next_uses_its_own_state_without_shared_cache_secrets(self):
@@ -217,7 +217,7 @@ class NightlyTrustedRouting(unittest.TestCase):
     @unittest.skipUnless('nightly_next_unsigned_run' in DOC[True]['workflow_dispatch']['inputs'],
                          'unsigned resume is owned by PR 21161, not landed on this base yet')
     def test_unsigned_resume_is_linux_before_every_native_route(self):
-        self.assertEqual(select(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(select(**{'inputs.nightly_next_unsigned_run': '123'}), 'ubuntu-24.04')
 
 
 if __name__ == '__main__':

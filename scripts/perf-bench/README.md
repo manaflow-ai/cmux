@@ -67,7 +67,10 @@ login; xbench exits 3 with `PERF-BENCH-NO-GUI`). The owned M4 Pro minis (cmux7s-
 cmuxs-mac-mini*) can open apps, but they are busy CI hosts, so pass `--target-worker` and expect a
 wait. cmux20 (Apple M6, macOS 27.0, user `cmux` logged in at the console, Xcode 26.6) is the planned
 dedicated bench host. It is not a controller worker yet: it needs the controller worker token
-installed (the `mini-ops/gui-worker` LaunchAgent pattern, no sudo).
+installed (the `mini-ops/gui-worker` LaunchAgent pattern, no sudo). Until then cmux11s is the
+dedicated bench mini (2026-10-20): its glaeda GitHub runner LaunchAgents are disabled
+(`launchctl disable gui/501/com.teamleaderleo.glaeda.cmux-runner*`, log `~/bench-dedicate.log`);
+undo with `launchctl enable` and `launchctl bootstrap gui/501 ~/Library/LaunchAgents/<plist>`.
 
 ## Method
 
