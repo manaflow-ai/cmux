@@ -134,26 +134,13 @@ extension ChatController {
 
     // MARK: Picker chrome
 
-    /// The pressed bubble stays bright above the dim (real Messages lifts it).
-    func pickerLift(for hit: MessagesWindowView.Hit) -> NSView? {
-        guard let demo, let window,
-              let cell = demo.collection.visibleCells.compactMap({ $0 as? RowCell }).first(where: { $0.spec?.key == hit.key }) else { return nil }
-        // The row's content rests on the window's device pixels (RowCell.snapRow, MessagesLab c1457e5): the bitmap
-        // starts at the content's place, so the lifted bubble keeps whole pixels and is not resampled.
-        let d = cell.rowSnap
-        let f = cell.convert(cell.bounds, to: demo).offsetBy(dx: d.x, dy: d.y)
-        let scale = window.backingScaleFactor
-        guard let ctx = CGContext(data: nil, width: CrashGuard.int(f.width * scale, in: 1...16_384), height: CrashGuard.int(f.height * scale, in: 1...16_384), /* crash program: no trap on NaN */ bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: DisplayScale.colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue) else { return nil }
-        ctx.scaleBy(x: scale, y: scale)
-        ctx.translateBy(x: -d.x, y: -d.y)
-        cell.layer.render(in: ctx)
-        let lift = NSView(frame: f)
-        lift.wantsLayer = true
-        lift.layer?.contents = ctx.makeImage()
-        lift.layer?.contentsScale = scale
-        lift.layer?.isGeometryFlipped = true
-        return lift
+    /// The pressed bubble's outline in the host's coordinates: the picker's dim leaves it out, so the
+    /// real bubble stays bright (real Messages lifts it). The drawn balloon with its frame's corners, as
+    /// the menu highlight's shape. No bitmap copy of the row: a copy over the dim took its orientation
+    /// from the flips of the views above it and drew upside down in a cmux-next pane (Lawrence 2026-10-20).
+    func pickerHole(for hit: MessagesWindowView.Hit) -> CGPath {
+        BubblePath.make(body: hit.outline, outgoing: hit.row.outgoing, tail: hit.row.tail, cornersOf: hit.body.size,
+                        circularEnds: RowDraw.circularEnds(hit.row)).cgPath
     }
 
     /// The emoji button: a glass circle 34 pt under the strip (center 95 pt in, 12 pt

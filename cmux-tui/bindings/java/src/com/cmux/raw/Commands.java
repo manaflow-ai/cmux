@@ -155,6 +155,7 @@ public final class Commands {
     public static final CommandMetadata MINT_TERMINAL_RENDERER_BY_TERMINAL = new CommandMetadata("mint-terminal-renderer-by-terminal", Authority.FRONTEND, 11, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_BOOKMARK = new CommandMetadata("move-bookmark", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_BROWSER_PROFILE = new CommandMetadata("move-browser-profile", Authority.CONTROL, 12, "browser-profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata MOVE_COLUMN = new CommandMetadata("move-column", Authority.CONTROL, 12, "column-move-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_PERSONAL_GROUP = new CommandMetadata("move-personal-group", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_PROFILE = new CommandMetadata("move-profile", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_SCREEN = new CommandMetadata("move-screen", Authority.CONTROL, 12, "screen-metadata-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -437,6 +438,7 @@ public final class Commands {
         values.put("mint-terminal-renderer-by-terminal", MINT_TERMINAL_RENDERER_BY_TERMINAL);
         values.put("move-bookmark", MOVE_BOOKMARK);
         values.put("move-browser-profile", MOVE_BROWSER_PROFILE);
+        values.put("move-column", MOVE_COLUMN);
         values.put("move-personal-group", MOVE_PERSONAL_GROUP);
         values.put("move-profile", MOVE_PROFILE);
         values.put("move-screen", MOVE_SCREEN);

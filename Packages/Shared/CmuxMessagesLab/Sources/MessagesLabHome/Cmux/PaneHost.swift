@@ -339,8 +339,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var picker: TapbackPickerView?
     private var pickerDim: PickerDimView?
     private var pickerKeys: Any?
-    /// The pressed bubble lifted above the dim, and the picker's emoji bubble (PaneMenu).
-    private var pickerLift: NSView?
+    /// The picker's emoji bubble (PaneMenu).
     private var pickerEmoji: NSView?
     /// The context menu's target highlight, alive while its menu is (the menu's delegate).
     var menuHighlight: MenuHighlight?
@@ -719,15 +718,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let x = min(max(8, hit.row.outgoing ? hit.body.maxX - size.width : hit.body.minX), host.bounds.width - size.width - 8)
         p.frame = CGRect(x: x, y: max(Fixture.headerHeight + 4, hit.body.minY - size.height - 6), width: size.width, height: size.height)
         // The pane dims under the picker; a click on the dim closes it.
-        let dim = PickerDimView(frame: host.bounds)
+        // MessagesLab 69f4256: the pressed bubble stays bright above the dim. cmux: the dim has a hole
+        // in the bubble's shape, so the real bubble shows through (a bitmap copy over the dim drew
+        // upside down in a pane, Lawrence 2026-10-20).
+        let dim = PickerDimView(frame: host.bounds, hole: pickerHole(for: hit))
         dim.onClick = { [weak self] in self?.closePicker() }
         host.addSubview(dim, positioned: .below, relativeTo: host.above)
         pickerDim = dim
-        // MessagesLab 69f4256: the pressed bubble stays bright above the dim.
-        if let lift = pickerLift(for: hit) {
-            host.addSubview(lift, positioned: .below, relativeTo: host.above)
-            pickerLift = lift
-        }
         host.addSubview(p, positioned: .below, relativeTo: host.above)
         picker = p
         let emoji = pickerEmojiButton(under: p)
@@ -744,7 +741,6 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func closePicker() {
         picker?.removeFromSuperview(); picker = nil
         pickerDim?.removeFromSuperview(); pickerDim = nil
-        pickerLift?.removeFromSuperview(); pickerLift = nil
         pickerEmoji?.removeFromSuperview(); pickerEmoji = nil
         if let m = pickerKeys { NSEvent.removeMonitor(m); pickerKeys = nil }
     }

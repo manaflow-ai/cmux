@@ -63,8 +63,9 @@ final class HomeHostView: NSView {
         loadAvatar()
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
-            // The tile avatar is the default Chief's: a named Chief's panel never sets it (cx-327wl).
-            if self?.control.named == nil { service?.refreshChiefAvatar() }
+            // Each Chief's tile reads its own brain home: this re-reads them, so only the
+            // Chief whose picture changed draws differently (cx-327wl).
+            service?.refreshChiefAvatars()
         }
         // A new engine of this Chief: the Home list's badge follows it.
         settingsView.onEngineChanged = { [weak service] in service?.refreshChiefHarnesses() }
@@ -331,6 +332,10 @@ final class HomeHostView: NSView {
     /// Home's primary input: the message box itself. Focusing the transcript
     /// view would leave it the responder after it forwards to the box.
     var focusTarget: NSView { transcript.primaryInput }
+
+    /// The person opened this conversation from Home (a click, Return, a switch key): the message
+    /// box takes the keyboard, at once or once its first page installs it.
+    func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
 
     /// Whether the pane getting focus moves the keyboard to `focusTarget`
     /// from `responder`: always when it is outside this view; inside, unless

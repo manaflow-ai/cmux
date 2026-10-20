@@ -81,6 +81,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_update() {
         capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_CAPABILITY);
+        capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_OWNER_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
@@ -171,6 +172,7 @@ pub(super) fn advertised_capabilities(
         PINNED_DOCK_CAPABILITY,
         PINNED_DOCK_ALONE_CAPABILITY,
         ROWS_CAPABILITY,
+        COLUMN_MOVE_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,

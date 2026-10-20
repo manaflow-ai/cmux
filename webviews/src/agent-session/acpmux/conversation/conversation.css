@@ -35,7 +35,10 @@
   /* Resolved where it is used: 100% is the pane's width there. */
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: system-ui;
-  --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
+     --cv-mono in front of it. */
+  --cv-mono-default: var(--cmux-diff-code-font-family, ui-monospace, "SF Mono", Menlo, monospace);
+  --cv-mono: var(--cv-mono-default);
   /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
      Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
   --font-mono: var(--cv-mono);
@@ -2562,6 +2565,16 @@ pre.cv-math-source {
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
+}
+/* A click opens the task's terminal (processTerminal.ts): no hover fill (Leo 2026-10-13), only the
+   pointer and the keyboard focus ring. */
+.cv-bgtask {
+  cursor: pointer;
+}
+.cv-bgtask:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+  border-radius: 4px;
 }
 
 /* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */
