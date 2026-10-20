@@ -49,4 +49,18 @@ import Testing
         room.setArtLegibility(.primary)
         #expect(workspace.artLegibility == .primary)
     }
+
+    /// Settings' unset Opacity slider rests on the tint the window paints, so with "all" it sits
+    /// on the denser floor, not on the primary one.
+    @Test func theUnsetOpacitySliderFollowsTheChoice() {
+        let scope = ThemeScope(level: .room)
+        scope.setBackdropSelection(Self.work)
+        let primary = scope.shownWindowOpacity
+        scope.setArtLegibility(.all)
+        let painted = WindowBackdrop(scope.tokens, art: scope.backdropArt, selection: scope.backdropSelection,
+                                     tuning: scope.appearanceTuning, tintOpacity: scope.backdropTintOpacity,
+                                     legibility: .all)
+        #expect(scope.shownWindowOpacity == painted.tintOpacity)
+        #expect(scope.shownWindowOpacity > primary)
+    }
 }
