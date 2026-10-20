@@ -241,6 +241,7 @@ import {
   SubagentNavContext,
   SubagentOfRow,
   SubagentPaneContext,
+  SubagentClockContext,
   SubagentStopContext,
   running,
 } from "./subagents/SubagentGroup";
@@ -5416,50 +5417,54 @@ function AcpmuxPane() {
                     <SubagentPaneContext.Provider value={showSubagent}>
                       <WorkingCountsContext.Provider value={workingCounts}>
                         <SubagentStopContext.Provider value={stopSubagent}>
-                          <SubagentHarnessContext.Provider
-                            value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                          >
-                            <ChatFindScope
-                              rows={childRows ?? sourceRows}
-                              shown={childRows ? undefined : transcriptRows}
-                              openFold={openFold}
-                              findRef={findRef}
+                          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+                            <SubagentHarnessContext.Provider
+                              value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                             >
-                              {(find) => (
-                                <VirtualTranscript
-                                  rows={transcriptRows}
-                                  working={snapshot.isWorking}
-                                  // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                  jumpButton={!quick}
-                                  focusComposer={() => composerHandle.current?.focus()}
-                                  // Quick Chat's panel stacks its composer below the transcript.
-                                  dock={quick ? undefined : dock}
-                                  find={quick ? undefined : find}
-                                  sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                                  canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                  onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
-                                  openAt={
-                                    !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                                      ? scrollAnchor
-                                      : undefined
-                                  }
-                                  anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                  onAnchor={
-                                    quick || childRows || !shownSessionId
-                                      ? undefined
-                                      : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                  }
-                                  expanded={expanded}
-                                  reveal={childRows ? undefined : revealRow}
-                                  registry={registry}
-                                  githubRepository={githubRepository}
-                                  // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                  onOpenDiff={quick ? undefined : openDiff}
-                                  onToggleActivity={toggleActivity}
-                                />
-                              )}
-                            </ChatFindScope>
-                          </SubagentHarnessContext.Provider>
+                              <ChatFindScope
+                                rows={childRows ?? sourceRows}
+                                shown={childRows ? undefined : transcriptRows}
+                                openFold={openFold}
+                                findRef={findRef}
+                              >
+                                {(find) => (
+                                  <VirtualTranscript
+                                    rows={transcriptRows}
+                                    working={snapshot.isWorking}
+                                    // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                    jumpButton={!quick}
+                                    focusComposer={() => composerHandle.current?.focus()}
+                                    // Quick Chat's panel stacks its composer below the transcript.
+                                    dock={quick ? undefined : dock}
+                                    find={quick ? undefined : find}
+                                    sessionId={
+                                      childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
+                                    }
+                                    canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                    onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
+                                    openAt={
+                                      !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                        ? scrollAnchor
+                                        : undefined
+                                    }
+                                    anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                    onAnchor={
+                                      quick || childRows || !shownSessionId
+                                        ? undefined
+                                        : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                    }
+                                    expanded={expanded}
+                                    reveal={childRows ? undefined : revealRow}
+                                    registry={registry}
+                                    githubRepository={githubRepository}
+                                    // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                    onOpenDiff={quick ? undefined : openDiff}
+                                    onToggleActivity={toggleActivity}
+                                  />
+                                )}
+                              </ChatFindScope>
+                            </SubagentHarnessContext.Provider>
+                          </SubagentClockContext.Provider>
                         </SubagentStopContext.Provider>
                       </WorkingCountsContext.Provider>
                     </SubagentPaneContext.Provider>
@@ -5770,13 +5775,15 @@ function AcpmuxPane() {
       {/* The agents pill (subagents/AgentsPill.tsx): in the bottom stack, right above the composer,
           while the turn works; an agent a cancel or a reconnect left "running" shows none. */}
       {!quick && !freshView && snapshot.isWorking && chatTones && chatAgents.some(running) && (
-        <AgentsPill
-          key={shownSessionId}
-          agents={chatAgents}
-          waiting={waitingAgents}
-          tones={chatTones}
-          onOpen={showSubagent}
-        />
+        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+          <AgentsPill
+            key={shownSessionId}
+            agents={chatAgents}
+            waiting={waitingAgents}
+            tones={chatTones}
+            onOpen={showSubagent}
+          />
+        </SubagentClockContext.Provider>
       )}
       {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
       <ImageViewerContext.Provider value={openImage}>
@@ -6013,18 +6020,20 @@ function AcpmuxPane() {
     // Its Subagents tab draws the transcript's subagent rows, avatars carrying the harness's mark and
     // a running one's stop button.
     <SubagentStopContext.Provider value={stopSubagent}>
-      <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
-        <SummaryCard
-          key={snapshot.sessionId}
-          card={summaryCard}
-          rows={snapshot.rows}
-          changes={quick ? undefined : lastChanges}
-          onOpenChanges={toggleLastChanges}
-          onOpenOutput={quick ? undefined : openOutput}
-          onOpenImage={quick ? undefined : openImage}
-          subagents={cardSubagents}
-        />
-      </SubagentHarnessContext.Provider>
+      <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+        <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+          <SummaryCard
+            key={snapshot.sessionId}
+            card={summaryCard}
+            rows={snapshot.rows}
+            changes={quick ? undefined : lastChanges}
+            onOpenChanges={toggleLastChanges}
+            onOpenOutput={quick ? undefined : openOutput}
+            onOpenImage={quick ? undefined : openImage}
+            subagents={cardSubagents}
+          />
+        </SubagentHarnessContext.Provider>
+      </SubagentClockContext.Provider>
     </SubagentStopContext.Provider>
   );
   const pane = (
