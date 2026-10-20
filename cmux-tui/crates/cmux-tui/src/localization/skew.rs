@@ -38,7 +38,7 @@ pub(crate) struct SkewMessages {
 
 pub(super) const ENGLISH: SkewMessages = SkewMessages {
     reexec: "cmux: this CLI (build {own}) does not match the daemon (build {daemon}); running the daemon's CLI {cli}",
-    refused: "cmux: the daemon runs build {daemon}, and this CLI did not run the daemon's CLI by itself ({why}); fix (keeps the daemon and its terminals running): {fix}",
+    refused: "cmux: the daemon runs build {daemon}, and this CLI did not run the daemon's CLI by itself ({why}); this keeps the daemon and its terminals running; fix: {fix}",
     loop_guard: "this CLI was already started by a re-exec",
     same_build: "the daemon is this build",
     other_user: "the daemon runs as uid {uid}",

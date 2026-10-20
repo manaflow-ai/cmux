@@ -438,7 +438,6 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
         )
         .await;
     let id = s["sessionId"].as_str().unwrap().to_owned();
-    let mut seen = Vec::new();
     let mut answers = Vec::new();
     for name in ["PATH", "CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "ZDOTDIR", "CMUX_CLI_AGENT_ZDOTDIR"]
     {
@@ -450,7 +449,7 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
         let events = rpc
             .call("_acpmux/events", json!({"sessionId": id, "kinds": ["agent_message_chunk"]}))
             .await;
-        seen = events["events"]
+        let seen: Vec<String> = events["events"]
             .as_array()
             .unwrap()
             .iter()
