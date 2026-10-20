@@ -806,10 +806,16 @@ fn connection(conn: UnixStream, served: &Served) {
                 }
                 if tool == "inspect" {
                     let answer = match &served.inspector {
+                        // Changes only from a caller that is none of the
+                        // Chief's own sessions (the app through its daemon,
+                        // the owner's CLI): the Chief never rewrites its memory.
                         Some(inspector) => crate::inspect::tool_answer(
                             inspector,
                             &req,
                             crate::inspect::INSPECT_MAX_BYTES,
+                            role() == crate::turn_caller::Role::Other
+                                && req.get("from").and_then(Value::as_str) != Some("subagent")
+                                && !peer.is_some_and(crate::turn_caller::under_this_process),
                         ),
                         None => {
                             json!({"status": 503, "error": "the inspector is off on this host"})

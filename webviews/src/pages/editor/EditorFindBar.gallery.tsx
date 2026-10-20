@@ -1,15 +1,16 @@
 import { useMemo } from "react";
 import { componentEntry } from "../../gallery/format";
+import type { Play } from "../../gallery/play";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { EditorFind, type FindRange, type FindTarget } from "./editorFind";
 import { EditorFindBar } from "./EditorFindBar";
 
-type Props = { text: string; query: string };
+type Props = { text: string; query: string; replace: boolean };
 
-/** A stand-in editor: the find runs on `text`. */
+/** A stand-in editor: the find runs on `text`, replacements rewrite it. */
 function fixture(text: string): FindTarget {
-  const lines = text.split("\n");
+  let lines = text.split("\n");
   return {
     findMatches: (query, matchCase) =>
       lines.flatMap((line, i) => {
@@ -29,23 +30,38 @@ function fixture(text: string): FindTarget {
     selectedText: () => "",
     show: () => undefined,
     focus: () => undefined,
+    readOnly: () => false,
+    replace: (ranges, replacement) => {
+      for (const range of [...ranges].reverse()) {
+        const line = lines[range.startLineNumber - 1];
+        lines[range.startLineNumber - 1] =
+          line.slice(0, range.startColumn - 1) + replacement + line.slice(range.endColumn - 1);
+      }
+      lines = [...lines];
+    },
   };
 }
 
-function GalleryEditorFindBar({ text, query }: Props) {
+function GalleryEditorFindBar({ text, query, replace }: Props) {
   const strings = useMemo(() => createStrings(table), []);
   const find = useMemo(() => {
     const model = new EditorFind();
     model.attach(fixture(text));
-    model.show(query);
+    if (replace) model.showReplace(query);
+    else model.show(query);
     return model;
-  }, [text, query]);
+  }, [text, query, replace]);
   return (
     <div className="ed-frame" style={{ height: 160 }}>
       <EditorFindBar find={find} strings={strings} />
     </div>
   );
 }
+
+const replaceAll: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "All" });
+  await ctx.waitFor(() => ctx.find({ selector: ".find-pill__count" }).textContent === "No matches");
+};
 
 export default componentEntry<Props>({
   id: "editor.find-bar",
@@ -57,7 +73,9 @@ export default componentEntry<Props>({
   covers: ["pages/editor/EditorFindBar.tsx#EditorFindBar"],
   load: async () => GalleryEditorFindBar,
   variants: {
-    find: { props: { text: "alpha beta\nalpha gamma", query: "alpha" } },
-    "no-matches": { props: { text: "alpha beta", query: "zeta" } },
+    find: { props: { text: "alpha beta\nalpha gamma", query: "alpha", replace: false } },
+    "no-matches": { props: { text: "alpha beta", query: "zeta", replace: false } },
+    replace: { props: { text: "old one\nold two", query: "old", replace: true } },
+    "replace-all": { props: { text: "old one\nold two", query: "old", replace: true }, play: replaceAll },
   },
 });

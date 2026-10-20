@@ -64,6 +64,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onAttachmentRefusal: (HomeAttachmentError) -> Void = { _ in }
     /// The field's text changed.
     var onDraftTextChange: () -> Void = {}
+    /// Forward… on a bubble (u5402): the host asks where its text goes; nil offers no Forward….
+    var onForward: ((String) -> Void)?
     /// Cancel Upload (`HomeStoreBinding.cancelSend`).
     var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
     /// Bubble pictures and originals.

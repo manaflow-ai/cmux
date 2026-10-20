@@ -164,8 +164,9 @@ def bench(phase, window):
 
 
 def workspace_count():
-    reply = rpc("workspace.list") or {}
-    return len(reply.get("workspaces") or [])
+    snap = rpc("snapshot.get") or {}
+    topology = (snap.get("topology") or snap) if isinstance(snap, dict) else {}
+    return len(topology.get("workspaces") or [])
 
 
 def grow_workspaces(count):
@@ -173,8 +174,11 @@ def grow_workspaces(count):
     have = workspace_count()
     for index in range(have, count):
         rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
-    print(f"workspaces: {have} -> {workspace_count()}", flush=True)
-    return workspace_count()
+    now = workspace_count()
+    print(f"workspaces: {have} -> {now}", flush=True)
+    if now < count:
+        sys.exit(f"could not reach {count} workspaces (have {now})")
+    return now
 
 
 def frame_of(row, key="visible_ms"):
