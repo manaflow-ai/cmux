@@ -93,9 +93,9 @@ nonisolated enum AppearanceSettingsSchema {
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),
                 help: SettingsText.keyed("settings.appearance.experimentalControls.help",
-                                        "Show the wallpaper grid and live appearance tuner while they are being integrated."),
+                                        "Applies Hue and Saturation to the window's tint. Off, they have no effect."),
                 kind: .toggle, default: .bool(false),
-                keywords: ["experimental", "wallpaper", "tuner", "transparency", "hue", "saturation", "labs"]
+                keywords: ["experimental", "tuning", "tint", "transparency", "hue", "saturation", "labs"]
             ),
             SettingDescriptor(
                 WindowBackgroundSetting.opacityPath, section: .appearance, group: window,
@@ -153,12 +153,21 @@ nonisolated enum AppearanceSettingsSchema {
             SettingDescriptor(
                 ["appearance", "density"], section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.density", "Density"),
-                kind: .choice([
-                    SettingChoice("compact", SettingsText.keyed("settings.choice.compact", "Compact")),
-                    SettingChoice("comfortable", SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
-                ]),
-                default: "compact", keywords: ["size", "spacing"]
+                help: SettingsText.keyed("settings.appearance.density.help",
+                                        "Row height, padding, corners, icons and text size together. Compact is the default."),
+                kind: .choice(DensityPreset.allCases.map { SettingChoice($0.rawValue, DensityNames.title($0)) }),
+                default: "compact", keywords: ["size", "spacing", "compact", "comfortable", "cozy", "spacious", "dense", "font"]
             ),
+            SettingDescriptor(
+                CustomDensitySelectionSetting().configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.appearance.customDensity", "Custom Density"),
+                kind: .text, default: nil, keywords: ["density", "custom"]
+            ).hiddenFromPalette("the Density card and the palette's density rows pick it"),
+            SettingDescriptor(
+                CustomDensitiesSetting().configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.appearance.customDensities", "Custom Densities"),
+                kind: .text, default: .array([]), keywords: ["density", "custom"]
+            ).hiddenFromPalette("the Density card edits them: a list of density objects"),
             SettingDescriptor(
                 uiScale.configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),

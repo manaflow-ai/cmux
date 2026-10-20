@@ -180,7 +180,7 @@ final class SidebarRegionView: NSView {
         layoutResult = Self.layout(shown, width: width)
         if layoutResult.height != height { onHeightChange?() }
         guard animated else { return apply(shown) }
-        Motion.animate(.move, in: self, {
+        Motion.sidebar.animate(.move, in: self, {
             self.animatesFrames = true
             self.apply(shown)
             self.animatesFrames = false
@@ -199,7 +199,7 @@ final class SidebarRegionView: NSView {
     private static func layout(_ content: Content, width: CGFloat) -> SidebarRegionLayout {
         SidebarRegionLayout.make(sections: content.sections, width: width, look: content.look,
                                  collapsed: content.collapsed, metrics: content.metrics,
-                                 labelWidths: labelWidths(content), appHeights: content.appHeights)
+                                 labelWidths: labelWidths(content, width: width), appHeights: content.appHeights)
     }
 
     private func place(_ view: NSView, _ frame: CGRect, new: Bool = false) {
@@ -207,16 +207,25 @@ final class SidebarRegionView: NSView {
         if animatesFrames, !new { view.animator().frame = frame } else if springsFrames { Motion.withoutAnimation { view.frame = frame } } else { view.frame = frame }
     }
 
-    /// Icon + label width of every item of an inline section.
-    private static func labelWidths(_ content: Content) -> [LayoutItemID: CGFloat] {
+    /// Icon + label width of every item of an inline section; the profile
+    /// control's avatar + name width where the line has room for it.
+    private static func labelWidths(_ content: Content, width: CGFloat) -> [LayoutItemID: CGFloat] {
         var widths: [LayoutItemID: CGFloat] = [:]
         let font = SidebarStyle.titleFont
+        let line = width - content.metrics.inset * 2
         // Inline lines and span grids (R53) draw labeled items with icon and label.
         for section in content.sections where section.arrangement.layout == .inline
             || (section.arrangement.layout == .grid && section.items.contains { $0.span != nil }) {
-            for item in section.items where item.showsLabel {
+            for item in section.items {
                 let info = content.infos[item.id] ?? .fallback(for: item)
-                widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, activity: info.activity != .idle)
+                // The profile control alone on an inline line (the default footer) is one chip,
+                // avatar, name and chevron, whether or not the item asks for a label (Leo
+                // 2026-10-20, #14893); without room, or beside other items, it keeps its look.
+                if info.avatar != nil, section.arrangement.layout == .inline, section.items.count == 1 {
+                    widths[item.id] = SidebarItemRowView.profileChipWidth(rowHeight: content.metrics.rowHeight, available: line)
+                } else if item.showsLabel {
+                    widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, activity: info.activity != .idle)
+                }
             }
         }
         return widths

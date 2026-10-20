@@ -65,7 +65,7 @@ struct SidebarGroupEditing {
     /// What opened the group editor, which says where it opens (u2250: next to
     /// the control the user clicked, not at the header bar's leading edge).
     enum Opener {
-        /// The group's name (a click on it, Return, Rename, a new group): under the name, on its leading edge.
+        /// The group's name (Return, Rename, a new group): under the name, on its leading edge.
         case name
         /// The header's more button: under the button, on its trailing edge.
         case moreButton
@@ -115,13 +115,6 @@ struct SidebarGroupEditing {
         guard let shown = list.groupEditor.shownGroup else { return }
         let visible = list.enclosingScrollView?.contentView.bounds ?? list.bounds
         guard let row = list.displayed.row(for: .group(shown)), visible.intersects(list.frame(for: row)) else { return list.groupEditor.hide() }
-    }
-
-    /// Whether `point` (list coordinates) is on the group's name, off its chevron.
-    func isOnChip(_ point: NSPoint, group: GroupID) -> Bool {
-        guard let view = list.rowViews[.group(group)] as? GroupHeaderRowView else { return false }
-        let local = list.convert(point, to: view)
-        return view.nameHitFrame.contains(local) && !view.disclosureFrame.contains(local)
     }
 
     /// A group the store gave a new id (the home daemon names a group the

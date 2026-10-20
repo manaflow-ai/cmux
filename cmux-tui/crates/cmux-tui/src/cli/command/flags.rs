@@ -8,8 +8,8 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
-    // `workspace create --no-focus`: accepted and ignored (creation never
-    // moves focus); agents pass it out of habit.
+    // `workspace create --no-focus`: accepted and ignored (creation does not
+    // move focus without `--focus`); agents pass it out of habit.
     "no-focus",
     // `agent list`: only the agents waiting on the person.
     "needs-me",
@@ -31,6 +31,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "right",
     "up",
     "down",
+    // `pane split --focus`: the new pane takes the focus.
+    "focus",
     "force",
     "end-terminals",
     // `server ensure`: private app contract, the install key comes on stdin.

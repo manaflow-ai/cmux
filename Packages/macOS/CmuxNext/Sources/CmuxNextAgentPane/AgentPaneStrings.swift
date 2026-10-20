@@ -176,8 +176,14 @@ extension AgentPaneHostError {
                 format: String(localized: "agentPane.error.notInstalled", defaultValue: "acpmux was not found. Install it on your PATH or in one of these folders: %@.", bundle: .module),
                 AcpmuxEnvironment.installDirectories.joined(separator: ", ")
             )
-        case .daemonFailed(let logPath):
-            String(format: String(localized: "agentPane.error.daemonFailed", defaultValue: "acpmux did not start. Its log is at %@.", bundle: .module), logPath)
+        case .daemonFailed(let logPath, let cause):
+            if let because = cause.userText {
+                String(format: String(localized: "agentPane.error.daemonFailedBecause", defaultValue: "cmux cannot reach acpmux: %1$@. Its log is at %2$@.", bundle: .module), because, logPath)
+            } else {
+                String(format: String(localized: "agentPane.error.daemonFailed", defaultValue: "acpmux did not start. Its log is at %@.", bundle: .module), logPath)
+            }
+        case .daemonRestarting:
+            String(localized: "agentPane.error.daemonRestarting", defaultValue: "acpmux is restarting on the new version. This chat connects when it is back.", bundle: .module)
         case .daemonStopped:
             String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
         case .chiefStopped:

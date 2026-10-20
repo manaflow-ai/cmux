@@ -18,7 +18,6 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = ROOT / "cmux-tui/dist/scripts/validate_package_contract.py"
 PYPI_BUILDER = ROOT / "cmux-tui/dist/scripts/package_pypi.py"
-NPM_LAUNCHER = ROOT / "cmux-tui/dist/npm/cmux/bin/cmux.js"
 
 VERSION = "1.2.3"
 NPM_TARGETS = {
@@ -261,11 +260,10 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
         )
         + "\n"
     )
-    # The shipped launcher: it forwards argv to the platform binary, so
-    # `cmux --version` is the binary's line.
+    # The shipped launcher: it forwards `--version` to the platform binary, whose release line
+    # the contract checks.
     (launcher / "bin").mkdir()
-    shutil.copyfile(NPM_LAUNCHER, launcher / "bin/cmux.js")
-    (launcher / "bin/cmux.js").chmod(0o755)
+    shutil.copy2(ROOT / "cmux-tui/dist/npm/cmux/bin/cmux.js", launcher / "bin/cmux.js")
 
     relay_launcher = root / "cmux-relay"
     relay_launcher.mkdir()

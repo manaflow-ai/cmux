@@ -57,6 +57,7 @@ concurrency:
 
 jobs:
   changes:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
@@ -1154,15 +1155,6 @@ jobs:
       owned_head_repos: ${{ needs.changes.outputs.owned_head_repos }}
       pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' swift-package ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
       pr_gui_runner: ${{ needs.changes.outputs.macos_pr_gui_runner }}
-    # ci-macos.yml's admission-placement and late-placement read the runners with it.
-    secrets:
-      GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-      # Read-only Chromium engine key; ci-macos.yml gives it only to the
-      # admission fetch step of same-repository runs.
-      CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
-      CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
-      CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
-
   linux-preflight:
     name: linux-preflight
     # Retain the Linux verdict in the required final statuses. It no longer

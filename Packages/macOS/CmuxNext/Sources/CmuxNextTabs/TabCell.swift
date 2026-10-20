@@ -105,7 +105,7 @@ final class TabCell {
     let separatorLayer = TabCell.makeSeparatorLayer()
     /// Fades the clipped title and runs its hover marquee (one mask layer,
     /// present only while the title is clipped).
-    private(set) lazy var titleFade = TitleFade(textLayer: titleLayer)
+    private(set) lazy var titleFade = TitleFade(textLayer: titleLayer, gate: Motion.tabs)
     // Created on first need and removed when unused, so 100 idle tabs cost
     // five layers each (architecture.md 3): spinner while busy, badge while
     // unread or showing status, close button on the selected/hovered tab.
@@ -222,7 +222,7 @@ final class TabCell {
         let direct = directTitle
         directTitle = nil
         guard let old, !old.isEmpty, !item.title.isEmpty, item.title != direct else { return }
-        let seconds = Motion.duration(.crossfade)
+        let seconds = Motion.tabs.duration(.crossfade)
         guard seconds > 0 else { return }
         let transition = Motion.crossfadeAction
         transition.duration = seconds
@@ -263,7 +263,7 @@ final class TabCell {
         let elevation = PopupStyle.elevation2
         backgroundLayer.shadowRadius = elevation.layerRadius
         backgroundLayer.shadowOffset = elevation.layerOffset(flipped: true)
-        Motion.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? elevation.alpha : 0), fade: .lift)
+        Motion.tabs.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? elevation.alpha : 0), fade: .lift)
         updateStacking()
         if isLifted { titleFade.stopMarquee(animated: false) }
         // The lifted fill reads as solid from the first frame, so nothing it
@@ -276,10 +276,10 @@ final class TabCell {
     func updateColors(animated: Bool, showing: Bool? = nil) {
         let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isMultiSelected || isHovered)) : nil
         // An instant change also ends a fill still easing in.
-        if (token.map(Motion.duration) ?? 0) == 0 {
+        if (token.map(Motion.tabs.duration) ?? 0) == 0 {
             for layer in [backgroundLayer, closeBackgroundLayer, audioBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
         }
-        Motion.transaction(token) { applyColors() }
+        Motion.tabs.transaction(token) { applyColors() }
     }
 
     private func applyColors() {
@@ -432,7 +432,7 @@ final class TabCell {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
             closeBackgroundLayer.frame = closeRect
-            closeBackgroundLayer.cornerRadius = max(0, m.cornerRadius - Metrics.space1)
+            closeBackgroundLayer.cornerRadius = m.closeCornerRadius
             let inset = (closeRect.width - m.closeGlyphSize) / 2
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
@@ -443,7 +443,7 @@ final class TabCell {
                 closeGlyphLayer.opacity = 1
             } else if appearing, animatesCloseChange {
                 for layer in [closeBackgroundLayer, closeGlyphLayer] as [CALayer] {
-                    Motion.set(layer, "opacity", to: Float(1), fade: .hover, from: Float(0))
+                    Motion.tabs.set(layer, "opacity", to: Float(1), fade: .hover, from: Float(0))
                 }
             }
         } else if onPath {

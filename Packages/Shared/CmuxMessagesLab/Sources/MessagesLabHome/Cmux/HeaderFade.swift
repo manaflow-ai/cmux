@@ -71,6 +71,35 @@ extension HeaderBackdropView {
 }
 
 extension HostView {
+    /// cmux (u2891, 2026-10-19): with no band, the rows under the header showed sharp text behind
+    /// the avatar and the name pill. With the top fade in use, the rows fade out under the header:
+    /// clear down to the pill's bottom, full from where the oldest message rests at the top
+    /// (8 pt under the header, `MessagesWindowView.minOffset`). No band: the pane's own background
+    /// (or the image behind it) shows there.
+    func useRowsUnderHeaderMask() {
+        guard below.root.mask == nil else { return }
+        let mask = CAGradientLayer()
+        mask.actions = ["bounds": NSNull(), "position": NSNull(), "locations": NSNull()]
+        // The rows' host is flipped: (0.5, 0) is the top of the pane.
+        mask.startPoint = CGPoint(x: 0.5, y: 0)
+        mask.endPoint = CGPoint(x: 0.5, y: 1)
+        mask.colors = [NSColor.clear.cgColor, NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor]
+        below.root.mask = mask
+        placeRowsUnderHeaderMask()
+    }
+
+    /// Follows the pane's height (called from `placeNativeViews`).
+    func placeRowsUnderHeaderMask() {
+        guard let mask = below.root.mask as? CAGradientLayer else { return }
+        let h = max(1, bounds.height)
+        let clearEnd = PaneHeaderView.pillCenterY + PaneHeaderView.pillHeight / 2
+        let fullFrom = Fixture.headerHeight + 8
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        mask.frame = CGRect(x: 0, y: 0, width: bounds.width, height: h)
+        mask.locations = [0, clearEnd / h, fullFrom / h, 1].map { NSNumber(value: Double(min(1, $0))) }
+        CATransaction.commit()
+    }
+
     /// The zone over the header plus a small margin, tracked only once the
     /// top fade is in use.
     static let headerZoneMargin: CGFloat = 16
@@ -96,7 +125,7 @@ extension MessagesLabHomeView {
         host.headerZone.onChange = { [weak host] shown in
             host?.headerBackdrop.setRevealed(shown, duration: duration(shown))
         }
-        if first { host.updateHeaderZone() }
+        if first { host.updateHeaderZone(); host.useRowsUnderHeaderMask() }
     }
 
     /// cmux: the name pill's own translucent capsule, always shown.
