@@ -10,6 +10,7 @@ import CoreGraphics
 /// screenful of older rows and back, inside the open's own update (nothing
 /// commits in between, so nothing shows), leaves those rows' cells queued,
 /// one or more per reuse class the history uses.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationCellPoolWarmUp {
     /// How many viewports above the resting offset the spare cells come
     /// from: far enough that UIKit's prefetch window, which keeps cells for

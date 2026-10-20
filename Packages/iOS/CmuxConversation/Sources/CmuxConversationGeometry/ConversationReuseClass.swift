@@ -18,6 +18,7 @@ import CoreGraphics
 /// Classes start where `n_hi = ceil(1.5 n_lo) - 1` runs out: {0}, {1}, {2},
 /// {3, 4}, {5...7}, {8...11}, {12...17}, {18...26}, {27...}. The last holds
 /// rows down to a fortieth of the screen, below any message row.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationReuseClass {
     /// The smallest `floor(viewport / row)` of each class.
     static let starts = [0, 1, 2, 3, 5, 8, 12, 18, 27]
