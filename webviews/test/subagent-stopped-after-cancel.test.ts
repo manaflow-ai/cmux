@@ -234,6 +234,8 @@ test("a stop ends only its own turn's subagents, and never a background one", as
     ...turn("Watch the build and review"),
     background("bg", "Watch"),
     spawned("fg", "Reviewer"),
+    // Spawned before the page this pane read: met through its progress, it is no one's turn's.
+    progress("seen", "Read src/net.ts"),
     ["mux", "turn_result", { status: "cancelled" }],
   ];
   const rows = await connect(fakeDaemon(record(steps)));
@@ -241,5 +243,6 @@ test("a stop ends only its own turn's subagents, and never a background one", as
     ["Audit", "running"],
     ["Watch", "running"],
     ["Reviewer", "cancelled"],
+    ["seen", "running"],
   ]);
 });

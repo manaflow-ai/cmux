@@ -59,7 +59,9 @@ export class SubagentFold {
   reduce(event: Event, update: any): boolean {
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
-    for (const change of events) this.apply(change, event);
+    // Met first through its progress, its spawn is older than what this fold read: not this turn's.
+    const spawn = update?.sessionUpdate !== "subagent_progress";
+    for (const change of events) this.apply(change, event, spawn);
     const owner = typeof mux?.subagent === "string" ? this.agents.get(mux.subagent) : undefined;
     if (owner) {
       if ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") && update.title)
@@ -156,7 +158,7 @@ export class SubagentFold {
     this.versions.set(id, (this.versions.get(id) ?? 0) + 1);
   }
 
-  private apply(change: any, event: Event): void {
+  private apply(change: any, event: Event, spawn = true): void {
     if (typeof change?.id !== "string") return;
     if (typeof change.toolCallId === "string") this.spawnCalls.add(change.toolCallId);
     let agent = this.agents.get(change.id);
@@ -173,7 +175,7 @@ export class SubagentFold {
         startedAt: event.at,
       };
       this.agents.set(agent.id, agent);
-      this.turn.add(agent.id);
+      if (spawn) this.turn.add(agent.id);
       if (parent === null) {
         this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
         this.open.ids.push(agent.id);
