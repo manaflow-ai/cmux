@@ -62,8 +62,7 @@
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
-              "layout.tileBrowsers",
-              "layout.linkPlacement"
+              "layout.tileBrowsers"
             ],
             "title" : {
               "key" : "settings.group.columns",
@@ -312,7 +311,6 @@
           {
             "key" : "settings.group.windowBackground",
             "rows" : [
-              "appearance.backdropArt",
               "appearance.background",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur"
@@ -954,7 +952,6 @@
           {
             "key" : "settings.group.openingLinks",
             "rows" : [
-              "browser.enabled",
               "browser.openLinksInCmuxBrowser",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
@@ -1201,7 +1198,6 @@
           {
             "key" : "settings.group.appearanceTuning",
             "rows" : [
-              "appearance.glassTransparency",
               "appearance.hue",
               "appearance.saturation"
             ],
@@ -2559,7 +2555,7 @@
       "range" : {
         "max" : 320,
         "min" : 16,
-        "placeholder" : 48,
+        "placeholder" : 32,
         "step" : 1,
         "unit" : "points"
       },
@@ -5072,83 +5068,6 @@
       "title" : {
         "key" : "settings.layout.tileBrowsers",
         "text" : "Split for Browsers Too"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "split-right",
-        "new-column",
-        "same-pane"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.linkPlacementSplitRight",
-            "text" : "Split Right"
-          },
-          "value" : "split-right"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.linkPlacementNewColumn",
-            "text" : "New Column on the Right"
-          },
-          "value" : "new-column"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.linkPlacementSamePane",
-            "text" : "Tab in the Same Pane"
-          },
-          "value" : "same-pane"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "split-right",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.columns",
-        "text" : "Columns"
-      },
-      "help" : {
-        "key" : "settings.layout.linkPlacement.help",
-        "text" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "layout.linkPlacement",
-      "keywords" : [
-        "link",
-        "url",
-        "path",
-        "file",
-        "open",
-        "split",
-        "right",
-        "column",
-        "pane",
-        "tab"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "layout",
-        "linkPlacement"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.layout.linkPlacement",
-        "text" : "Open Links and Files"
       },
       "validation" : "portable"
     },
@@ -8597,7 +8516,7 @@
         "legacy"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "backdropArt"
@@ -10284,7 +10203,10 @@
         true
       ],
       "section" : "appearance",
-      "summary" : null,
+      "summary" : {
+        "key" : "settings.appearance.backgroundBlur.summary",
+        "text" : "Clear Glass shows the desktop through the wallpaper"
+      },
       "title" : {
         "key" : "settings.appearance.backgroundBlur",
         "text" : "Material"
@@ -10321,7 +10243,7 @@
         "clear"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "glassTransparency"
@@ -26616,54 +26538,6 @@
       "title" : {
         "key" : "settings.browser.links.middleClick",
         "text" : "Middle-Click"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.openingLinks",
-        "text" : "Opening Links"
-      },
-      "help" : {
-        "key" : "settings.browser.enabled.help",
-        "text" : "When off, cmux opens no browser tabs for web pages and every link opens in your default browser."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.enabled",
-      "keywords" : [
-        "browser",
-        "disable",
-        "turn off",
-        "default browser",
-        "web"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "enabled"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.enabled",
-        "text" : "Enable cmux Browser"
       },
       "validation" : "portable"
     },
