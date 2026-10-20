@@ -54,7 +54,8 @@ fn sizes_ratios_and_user_agents_are_sane() {
         let ratio = screen["device-pixel-ratio"].as_f64().unwrap();
         assert!((1.0..=4.0).contains(&ratio), "{name}: device-pixel-ratio {ratio}");
         for side in ["vertical", "horizontal"] {
-            let (w, h) = (screen[side]["width"].as_i64().unwrap(), screen[side]["height"].as_i64().unwrap());
+            let (w, h) =
+                (screen[side]["width"].as_i64().unwrap(), screen[side]["height"].as_i64().unwrap());
             assert!(w > 0 && h > 0, "{name}: {side} {w}x{h}");
         }
         let group = device["group"].as_str().unwrap_or_default();
@@ -95,7 +96,10 @@ fn cmux_devices_cite_sources_and_rumored_ones_stay_hidden() {
         let sources = device["sources"].as_array().cloned().unwrap_or_default();
         assert!(!sources.is_empty(), "{name}: no sources");
         if device["rumored"] == true {
-            assert_eq!(device["show-by-default"], false, "{name}: a rumored device is hidden by default");
+            assert_eq!(
+                device["show-by-default"], false,
+                "{name}: a rumored device is hidden by default"
+            );
         }
     }
 }

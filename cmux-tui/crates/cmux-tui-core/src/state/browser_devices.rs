@@ -153,7 +153,8 @@ fn category(device: &Value) -> &'static str {
 
 /// The groups of cmux's device menu, in menu order (finer than Chrome's
 /// `category`: laptops and desktops apart from tablets).
-pub(crate) const GROUPS: [&str; 6] = ["phone", "foldable", "tablet", "laptop", "desktop", "smart-display"];
+pub(crate) const GROUPS: [&str; 6] =
+    ["phone", "foldable", "tablet", "laptop", "desktop", "smart-display"];
 
 /// A Chrome row with the fields the data file's `chrome-annotations` give it
 /// by title (`released`, `brand`, `group`): Chrome's own rows stay verbatim
@@ -161,9 +162,10 @@ pub(crate) const GROUPS: [&str; 6] = ["phone", "foldable", "tablet", "laptop", "
 fn annotate(device: &Value, notes: Option<&Map<String, Value>>) -> Value {
     let mut device = device.clone();
     let title = device["title"].as_str().unwrap_or_default().to_string();
-    if let (Some(extra), Some(object)) =
-        (notes.and_then(|notes| notes.get(&title)).and_then(Value::as_object), device.as_object_mut())
-    {
+    if let (Some(extra), Some(object)) = (
+        notes.and_then(|notes| notes.get(&title)).and_then(Value::as_object),
+        device.as_object_mut(),
+    ) {
         for (key, value) in extra {
             object.entry(key.clone()).or_insert_with(|| value.clone());
         }
