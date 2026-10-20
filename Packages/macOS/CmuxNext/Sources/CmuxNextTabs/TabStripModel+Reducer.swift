@@ -26,13 +26,15 @@ extension TabStripModel {
             tabs = ordered
             selectedID = next
         case .closeOthers(let keep):
-            tabs = ordered.filter { $0.id == keep || $0.isPinned }
+            let closed = Set(closedByCloseOthers(keeping: keep))
+            tabs = ordered.filter { !closed.contains($0.id) }
             selectedID = keep
         case .closeToRight(let id):
-            guard let index = ordered.firstIndex(where: { $0.id == id }) else { return false }
-            let kept = Array(ordered[...index])
-            tabs = kept
-            if let selectedID, !kept.contains(where: { $0.id == selectedID }) {
+            guard ordered.contains(where: { $0.id == id }) else { return false }
+            // Pinned tabs after `id` stay (Chrome).
+            let closed = Set(closedByCloseToRight(of: id))
+            tabs = ordered.filter { !closed.contains($0.id) }
+            if let selectedID, closed.contains(selectedID) {
                 self.selectedID = id
             }
         case .reorder(let id, _, let to):
@@ -40,6 +42,10 @@ extension TabStripModel {
             let item = ordered.remove(at: from)
             ordered.insert(item, at: min(max(to, 0), ordered.count))
             tabs = ordered
+        case .reorderTabs(let order):
+            let byID = Dictionary(ordered.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            guard Set(order) == Set(byID.keys) else { return false }
+            tabs = order.compactMap { byID[$0] }
         case .newTab(let after, _, _):
             var item = makeTab()
             if let after, let index = ordered.firstIndex(where: { $0.id == after }) {

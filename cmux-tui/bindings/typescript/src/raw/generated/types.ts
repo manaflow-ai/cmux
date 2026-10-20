@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93. */
+/* cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -547,26 +547,31 @@ export type IdMapping = {
 };
 
 export type IdentifyResult = {
+  "api_revision"?: (number) | null;
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
   "capabilities"?: Array<string>;
   "cli_path"?: (string) | null;
+  "crate_version"?: (string) | null;
   "daemon_handoff": 1;
   "generation": string;
   "ghostty_commit"?: (string) | null;
+  "install"?: (string) | null;
   "launch_snapshot_path"?: (string) | null;
   "lifecycle_ready"?: boolean;
   "machine_capabilities"?: Array<string>;
   "machine_id"?: string;
   "machine_name"?: string;
   "machine_platform"?: MachinePlatform;
+  "min_api_revision"?: (number) | null;
   "pid": number;
   "protocol": number;
   "registry_id": string;
   "session": string;
   "session_id"?: string;
   "terminal_revision": bigint;
+  "update_command"?: (string) | null;
   "version": string;
   "workspace_revision": bigint;
 };

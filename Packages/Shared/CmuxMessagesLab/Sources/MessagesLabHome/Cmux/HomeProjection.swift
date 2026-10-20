@@ -127,6 +127,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func stop() {
         stopped = true
+        homeStore.stopTyping(in: conversation)
         liveLine.stop()
         turnPopover?.close()
         controller.intents = nil
@@ -144,7 +145,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // A running Chief run (`chief-live-v1`) owns the Chief's bubble: its typing dots until text comes.
         let live = homeStore.liveRun(in: conversation)
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
-              typing: (homeStore.typing[conversation] ?? []).union(live.map { [$0.participant] } ?? []),
+              typing: homeStore.typists(in: conversation),
               hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])
         // The line closes on the frame after the one that shows the reply in the bubble's place (cx-zz30r, cx-06vn1).
         if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
@@ -534,7 +535,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func draftChanged() {
         if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
-        homeStore.setDraft(controller.store?.state.ui.draft.text ?? "", for: conversation)
+        let text = controller.store?.state.ui.draft.text ?? ""
+        homeStore.setDraft(text, for: conversation)
+        // My typing dots for the other members (HomeStore+Typing); off once the field is empty.
+        homeStore.composing(text, in: conversation)
         onDraftTextChange()
     }
 
@@ -689,7 +693,8 @@ struct ProjectionCore {
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
                                 participants: HomeMapping.participants(summary, me: me),
-                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) })
+                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) },
+                                cmuxGroup: summary?.kind(me: me) == .group)
         return (conv, HomeMapping.window(items))
     }
 

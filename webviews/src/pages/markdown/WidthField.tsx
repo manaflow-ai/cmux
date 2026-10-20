@@ -168,10 +168,7 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
             inputMode="decimal"
             spellCheck={false}
             autoComplete="off"
-            role="spinbutton"
-            aria-valuemin={range.min}
-            aria-valuemax={range.max}
-            aria-valuenow={width}
+            aria-label={t(L.readingWidth)}
             aria-invalid={invalid || undefined}
             title={t(L.readingWidthHint)}
             value={draft ?? String(width)}
@@ -208,6 +205,7 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
           value={preset}
           options={options}
           onChange={choosePreset}
+          closeOnPick
         />
       </div>
       <output className="md-width-approx" htmlFor={id}>

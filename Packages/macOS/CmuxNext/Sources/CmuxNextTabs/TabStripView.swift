@@ -59,9 +59,6 @@ public final class TabStripView: NSView {
     let scrollingLayer = CALayer()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
     let newTabButton = NewTabButtonView()
-    /// The one-time Shrink-mode hint (`TabOverflowHintPresenter`).
-    private(set) lazy var overflowHints = TabOverflowHintPresenter(strip: self)
-    var overflowHint: TabOverflowHintView? { overflowHints.hint }
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
@@ -148,6 +145,12 @@ public final class TabStripView: NSView {
     /// Tab torn out of this strip and handed to the App's drag session. Its
     /// slot stays collapsed until the model drops it or the App restores it.
     var detachedID: TabID?
+    /// The other selected tabs of a multi-tab drag: hidden while it runs (stacked under the
+    /// dragged tab), shown again at the drop.
+    var dragCompanions: Set<TabID> = []
+    /// A multi-tab drop's order: it stays shown while the App lands it one move at a time.
+    var multiReorderTarget: [TabID]?
+    private(set) lazy var selectionEscape = TabSelectionEscapeMonitor(strip: self)
     /// Display index of the phantom gap shown for an external drag.
     var dropPlaceholderIndex: Int?
     /// Pointer of the external drag, in view coordinates, for edge autoscroll.
@@ -238,8 +241,6 @@ public final class TabStripView: NSView {
     // Every event is handled here, never by a tab subview.
     public override func hitTest(_ point: NSPoint) -> NSView? {
         let local = superview.map { convert(point, from: $0) } ?? point
-        // The overflow hint's buttons take their own clicks.
-        if let hint = overflowHint, !hint.isHidden, let hit = hint.hitTest(contentView.convert(local, from: self)), hit !== hint { return hit }
         return bounds.contains(local) ? self : nil
     }
 
@@ -259,7 +260,6 @@ public final class TabStripView: NSView {
             }
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
-        if let hint = overflowHint, !hint.isHidden { children.append(contentsOf: [hint.label, hint.useButton, hint.dismissButton]) }
         return children
     }
 
@@ -290,14 +290,14 @@ public final class TabStripView: NSView {
         }
     }
 
-    /// The strip leaves sight (its window, or hidden in it): its editor panel, hint and pointer
+    /// The strip leaves sight (its window, or hidden in it): its editor panel and pointer
     /// state end, since it gets no exit while hidden. Closing mode belongs to this window's
     /// pointer; the strip shown again lays out fully.
     private func endPointerState() {
         groupEditor.hide()
-        overflowHints.hide()
         groups.holdTask?.cancel()
         escapeMonitor.remove()
+        selectionEscape.remove()
         closingWatch.end()
         closingModeWidth = nil
         menuTracking.end()
@@ -330,6 +330,7 @@ public final class TabStripView: NSView {
             return
         }
         hoverCards.register(hoverCard)
+        applyMultiSelection()
         if appearanceIsStale {
             appearanceIsStale = false
             applyAppearance()
@@ -385,7 +386,6 @@ public final class TabStripView: NSView {
             chip.font = Typography.caption
         }
         groupEditor.hide()
-        overflowHint?.applyTokens()
         newTabButton.needsLayout = true
         glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
         invalidateIntrinsicContentSize()
@@ -401,8 +401,7 @@ public final class TabStripView: NSView {
         if glassView == nil { contentView.frame = bounds }
         let padding = metrics.stripHorizontalPadding
         windowControlsInset = computeWindowControlsInset()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? metrics.newTabButtonWidth : 0) - overflowHints.reserve)
-        overflowHints.layout()
+        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? metrics.newTabButtonWidth : 0))
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.
