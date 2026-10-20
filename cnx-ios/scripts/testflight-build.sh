@@ -45,7 +45,7 @@
 #   CNX_BUILDS_ROOT     output root (default ~/cnx-ios-builds)
 #   CNX_XCFRAMEWORK     use this CnxFFI.xcframework instead of the cache or a build
 #
-#   CNX_CI_ASC=1        CI only (.github/workflows/cnx-ios-testflight.yml): App Store
+#   CNX_CI_ASC=1        CI only (.github/workflows/ios-internal-nightly.yml): App Store
 #                       Connect credentials come from ASC_KEY_ID, ASC_ISSUER_ID and
 #                       ASC_PRIVATE_KEY_PATH (the release environment's key) instead
 #                       of the local asc profile; the app record is still checked.
@@ -362,6 +362,8 @@ fi
 check_app() {  # <CnxApp.app>
   local app=$1 info="$1/Info.plist" bad=()
   bash "$script_dir/check-production-binary.sh" "$app" "$bundle_id" "$binary_mode"
+  # Apple rejects device names in App Intents text after the upload (90626).
+  python3 -I "$script_dir/check-app-intents-text.py" "$app" || die "$app has App Intents text App Store Connect rejects"
   [[ "$(plutil -extract CNXStackEnvironment raw "$info" 2>/dev/null)" == "$stack_env" ]] || bad+=("CNXStackEnvironment (want '$stack_env')")
   [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || bad+=("CFBundleShortVersionString")
   [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || bad+=("CFBundleVersion")

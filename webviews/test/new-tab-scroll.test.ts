@@ -93,7 +93,9 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
   }
 
   test("with All chats, the list is the page's only scroller and its edges fade", async () => {
-    expect(await look("many-chats")).toMatchObject({
+    // 400 px: Claude Code's split adds the quiet row (28 px and its 4 px gap) under the box, so at
+    // 360 the list is already down to its two-row floor, where the page scrolls by design (below).
+    expect(await look("many-chats", 400)).toMatchObject({
       documentScrolls: false,
       scrollers: ["nt-all-list"],
       fades: [true],
