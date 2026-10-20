@@ -12,6 +12,8 @@ extension TabHoverCardController {
         guard let strip, strip.visibleRect.contains(point), !strip.isHiddenOrHasHiddenAncestor, !isStripDragging(strip),
               !strip.groupEditor.isVisible, strip.inlineRename.field == nil, let window = strip.window else { return nil }
         if let group = strip.chipGroup(at: point), let chip = strip.groups.chips[group] {
+            // `sidebar.hoverCards.groups.tabGroups` off: a chip opens no card.
+            guard DesignSettings.shared.groupHoverCard.tabGroups else { return nil }
             let anchor = window.convertToScreen(strip.tabsClip.convert(Self.drawn(chip.frame, pill: chip.pillFrame), to: nil))
             return (.groupChip(group), strip.metrics.minInactiveTabWidth, anchor)
         }
