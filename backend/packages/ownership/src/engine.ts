@@ -265,6 +265,8 @@ export class OwnerEngine<S, P = unknown> {
     const changed = decision.ok && decision.changed
     const nextSeq = changed ? this.seq + 1 : this.seq
     const effects = changed && decision.ok && this.options.rowMode ? { state: this.redactState(decision.state), writes: this.publicWrites(decision.writes) } : undefined
+    // Socket cache incarnations stay on trusted routing principals, never on published actors.
+    const { install_authority: _installAuthority, ...actor } = changed ? (this.options.eventActor?.(principal) ?? principal) : principal
     const event: EventFrame | undefined = changed
       ? {
           t: "event",
@@ -273,7 +275,7 @@ export class OwnerEngine<S, P = unknown> {
           tx,
           op: frame.op,
           params: this.options.redact?.params ? this.options.redact.params(frame.op, frame.params) : frame.params,
-          actor: this.options.eventActor?.(principal) ?? principal,
+          actor,
           origin,
           at,
           ...(effects ? { effects } : {})

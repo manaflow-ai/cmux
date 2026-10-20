@@ -138,7 +138,8 @@ describe("listen-only sockets end with their token (P0)", { timeout: 60_000 }, (
     const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(u.user))
     const grant = await runInDurableObject(userStub, async (i) => i.boundEngine.currentState.installs[install].grant as string)
     const feed = testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(u.user))
-    const principal = { identity: install, kind: "install", user: u.user, install, grant, install_kind: "mac", grant_classes: ["read", "mutate-own"], expires_at: Date.now() + 600_000 }
+    const install_authority = (await userStub.installGrant(u.user, install, grant)).authority_version
+    const principal = { identity: install, kind: "install", user: u.user, install, grant, install_authority, install_kind: "mac", grant_classes: ["read", "mutate-own"], expires_at: Date.now() + 600_000 }
     const sock = await listen(feed, u.user, principal)
     const session = { identity: `session:${u.user}`, kind: "session", user: u.user }
     const poke = (n: number) => feed.submit(u.user, session, { t: "op", op: "feed.prefs.set", params: { push_enabled: n % 2 === 0 }, idempotency_key: `r${n}`, origin: "user" })
@@ -164,7 +165,8 @@ describe("listen-only sockets end with their token (P0)", { timeout: 60_000 }, (
     const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(u.user))
     const grant = await runInDurableObject(userStub, async (i) => i.boundEngine.currentState.installs[install].grant as string)
     const feed = testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(u.user))
-    const principal = { identity: install, kind: "install", user: u.user, install, grant, install_kind: "mac", grant_classes: ["read", "mutate-own"], expires_at: Date.now() + 600_000 }
+    const install_authority = (await userStub.installGrant(u.user, install, grant)).authority_version
+    const principal = { identity: install, kind: "install", user: u.user, install, grant, install_authority, install_kind: "mac", grant_classes: ["read", "mutate-own"], expires_at: Date.now() + 600_000 }
     const sock = await listen(feed, u.user, principal)
     // This test covers the frame gate when the revoke push did not reach the owner: drop the registry row.
     await sleep(50)
@@ -192,7 +194,8 @@ describe("listen-only sockets end with their token (P0)", { timeout: 60_000 }, (
     const install = reg.value.id as string
     const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(u.user))
     const grant = await runInDurableObject(userStub, async (i) => i.boundEngine.currentState.installs[install].grant as string)
-    const principal = { identity: install, kind: "install", user: u.user, install, grant, install_kind: "mac", grant_classes: ["read", "mutate-own"], expires_at: Date.now() + 600_000 }
+    const install_authority = (await userStub.installGrant(u.user, install, grant)).authority_version
+    const principal = { identity: install, kind: "install", user: u.user, install, grant, install_authority, install_kind: "mac", grant_classes: ["read", "mutate-own"], expires_at: Date.now() + 600_000 }
     const feed = await listen(testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(u.user)), u.user, principal)
     const team = await listen(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(u.team)), u.team, { ...principal, team: u.team })
     expect((await op(u.t, "install.revoke", { install })).ok).toBe(true)

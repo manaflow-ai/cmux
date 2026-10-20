@@ -8,6 +8,7 @@ import { closeQuietly, SocketGate } from "./socket-gate.ts"
 import { AlarmSerial } from "./alarm-serial.ts"
 import { earliest, recordWakeFailure } from "./owner-wake.ts"
 import { SnapshotBatcher } from "./snapshot-batcher.ts"
+import { InstallSocketAuthority } from "./install-socket-authority.ts"
 
 /** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
 const doSql = (storage: DurableObjectStorage): SqlStore => ({
@@ -52,6 +53,7 @@ const safeSend = (ws: WebSocket, text: string) => {
  * The principal always comes from the Worker, never from a frame.
  */
 export abstract class OwnerDO<S> extends DurableObject<Env> {
+  private readonly installAuthority = new InstallSocketAuthority(this.env, () => this.ctx.getWebSockets())
   private engine: OwnerEngine<S> | undefined
   private readonly store: SqlStore
 
@@ -198,6 +200,11 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   async closeInstall(entity: string, install: string, agent?: string): Promise<boolean> {
     if (this.isBound(entity)) [agent ? null : this.gate.revoked(install), this.closeSockets((p) => p.install === install && (!agent || p.agent === agent), "revoked")]
     return true
+  }
+
+  /** The registered user's owner asks for fresh checks; stale notices never carry versions to trust. */
+  async recheckInstallAuthority(entity: string, user: string, install: string): Promise<void> {
+    if (this.isBound(entity)) await this.installAuthority.changed(user, install)
   }
 
   /** Closes every socket whose principal matches (revocation). */

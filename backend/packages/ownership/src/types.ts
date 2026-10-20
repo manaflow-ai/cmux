@@ -70,6 +70,8 @@ export interface Principal {
   }>
   /** Op classes of the principal's grant, resolved by the grant's owner (UserDO) for other owners. */
   readonly grant_classes?: ReadonlyArray<string>
+  /** Current install incarnation resolved by UserDO; private cache metadata, never a token or client selector. */
+  readonly install_authority?: string
   /** Token expiry (ms); long-lived connections close at this time. */
   readonly expires_at?: number
   /**

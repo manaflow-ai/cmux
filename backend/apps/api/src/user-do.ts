@@ -21,6 +21,10 @@ import { readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 import { readInstallAuthority } from "./user-install-authority.ts"
+import { INSTALL_AUTHORITY_CHANGED, installAuthorityVersion } from "./domains/user-authority.ts"
+import { InstallAuthorityFanout } from "./install-authority-fanout.ts"
+import type { InstallSocketRef, InstallSocketView } from "./install-socket-authority.ts"
+import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -35,6 +39,7 @@ export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "
 export type { PresenceKeyBody } from "./user-presence-key.ts"
 
 export class UserDO extends OwnerDO<UserState> {
+  private readonly authorityFanout = new InstallAuthorityFanout(this.ctx.storage.sql, this.env)
   /** UserDO is the revocation authority: it closes a revoked install's sockets itself (afterOp). */
   protected override checksInstallRevocation = false
   /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
@@ -110,7 +115,7 @@ export class UserDO extends OwnerDO<UserState> {
     const inbox = this.inbox.nextWakeAt()
     const pending = krlDueAt(this.boundEngine?.currentState, this.krlRetry, Date.now())
     const closes = nextCloseAt(this.ctx.storage.sql, this.closeRetryAt)
-    const times = [inbox, pending, closes, this.homePush.nextDueAt()].filter((t): t is number => t !== null)
+    const times = [inbox, pending, closes, this.homePush.nextDueAt(), this.authorityFanout.nextAt(Date.now())].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
 
@@ -149,10 +154,11 @@ export class UserDO extends OwnerDO<UserState> {
    * False when the install (with this grant) is not active: the owner closes the socket at once,
    * which closes the race between the Worker's check and a revoke.
    */
-  async registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number, agent?: string): Promise<boolean> {
+  async registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number, agent?: string, authority?: string): Promise<boolean> {
     if (!this.isBound(entity)) return false
     const state = this.bind(entity).currentState
     if (!liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, ...(grant ? { grant } : {}), ...(agent ? { agent } : {}) }, Date.now())) return false
+    if (authority !== undefined && (!/^[0-9a-f]{64}$/.test(authority) || installAuthorityVersion(state, install) !== authority)) return false
     registerSocketOwner(this.ctx.storage.sql, install, agent, cls, name, expiresAt, Date.now())
     return true
   }
@@ -168,7 +174,7 @@ export class UserDO extends OwnerDO<UserState> {
     // Each step runs even when an earlier one throws; a failure is logged, then rethrown after all
     // ran, so OwnerDO.alarm still backs off (no hot loop on past-due work) and still reschedules.
     let failure: unknown
-    for (const [step, run] of [["closes", () => this.flushCloses(now)], ["home_push", () => this.drainHomePush(now)], ["krl", () => this.deliverKrlNotices(now)]] as const) {
+    for (const [step, run] of [["closes", () => this.flushCloses(now)], ["authority", () => this.authorityFanout.run(this.boundEngine!.stream.slice("user:".length), now)], ["home_push", () => this.drainHomePush(now)], ["krl", () => this.deliverKrlNotices(now)]] as const) {
       try {
         await run()
       } catch (e) {
@@ -185,6 +191,22 @@ export class UserDO extends OwnerDO<UserState> {
     this.closeRevoked(op, frames)
     const engine = op === "inbox.bump" && principal.kind === "system" ? this.existing() : undefined
     if (engine) decideHomePush(this.homePush, engine.stream.slice("user:".length), frames, params)
+  }
+
+  /** Only this user's committed outbox can queue a fanout; payloads never supply an authority version. */
+  override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    const notices = items.filter((item) => item.op === INSTALL_AUTHORITY_CHANGED)
+    for (const item of notices) {
+      const install = (item.params as { install?: unknown } | null)?.install
+      if (!this.ctx.id.equals(this.env.USER_DO.idFromName(entity)) || source !== `user:${entity}`
+        || typeof install !== "string" || !install || install.length > 200) continue
+      const state = this.bind(entity).currentState
+      this.authorityFanout.enqueue(install, installAuthorityVersion(state, install))
+      this.scheduleAlarm()
+      await this.recheckInstallAuthority(entity, entity, install)
+    }
+    const rest = items.filter((item) => item.op !== INSTALL_AUTHORITY_CHANGED)
+    return { done: [...notices.map((item) => item.id), ...(rest.length ? (await super.systemDeliver(entity, source, rest)).done : [])] }
   }
 
   /** Sends due Home pushes (home-push-drain.ts); tests call it with an explicit time. */
@@ -371,17 +393,32 @@ export class UserDO extends OwnerDO<UserState> {
     const grant = state ? liveInstallGrant(state, principal, Date.now()) : undefined
     if (!grant) return new Response("forbidden", { status: 403 })
     const expires_at = Math.min(principal.expires_at ?? Infinity, grant.expires_at ?? Infinity)
-    return super.acceptOwnerSocket(entity, { ...attachment, principal: { ...principal,
+    return super.acceptOwnerSocket(entity, { ...attachment, principal: { ...principal, install_authority: installAuthorityVersion(state!, principal.install!),
       ...(Number.isFinite(expires_at) ? { expires_at } : {}) } })
   }
 
   /** RPC from other owners (OwnerDO.runInstallChecks): which of these installs (with the token's grant) are active. Never creates an object. */
-  async installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined; agent?: string }>): Promise<ReadonlyArray<boolean>> {
+  async installsActive(entity: string, list: ReadonlyArray<InstallSocketRef>): Promise<ReadonlyArray<boolean>> {
     // One answer per entry, in order (two sockets of one install may hold different grants).
     if (!this.isBound(entity)) return list.map(() => false)
     const state = this.bind(entity).currentState
     const now = Date.now()
-    return list.map((x) => !!liveInstallGrant(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}), ...(x.agent ? { agent: x.agent } : {}) }, now))
+    return list.map((x) => !!liveInstallGrant(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}), ...(x.agent ? { agent: x.agent } : {}) }, now)
+      && (x.authority === undefined || (/^[0-9a-f]{64}$/.test(x.authority) && installAuthorityVersion(state, x.install) === x.authority)))
+  }
+
+  /** Current socket incarnations, read in bounded batches; unavailable entries remain retryable. */
+  async installSocketAuthorities(entity: string, refs: ReadonlyArray<InstallSocketRef>): Promise<ReadonlyArray<InstallSocketView>> {
+    if (!Array.isArray(refs) || refs.length > 128 || refs.some((ref) => !ref || typeof ref.install !== "string" || !ref.install || ref.install.length > 200
+      || (ref.grant !== undefined && (typeof ref.grant !== "string" || ref.grant.length > 200))
+      || (ref.agent !== undefined && (typeof ref.agent !== "string" || ref.agent.length > 200)))) throw new Error("invalid install authority batch")
+    return Promise.all(refs.map(async (ref): Promise<InstallSocketView> => {
+      if (!ref.grant) return null
+      try {
+        const current = await this.installGrant(entity, ref.install, ref.grant, ref.agent)
+        return current.ok ? current.authority_version : null
+      } catch { return { unavailable: true } }
+    }))
   }
 
   /** A revoked install loses its open sockets at once, not at token expiry. */
@@ -483,16 +520,19 @@ export class UserDO extends OwnerDO<UserState> {
     return inst.public_jwk as JsonWebKey
   }
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
-  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; expires_at: number | null; bound_machine?: string; sso_team?: string } | { ok: false }> {
+  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; expires_at: number | null; authority_version: string; bound_machine?: string; sso_team?: string } | { ok: false }> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false }
     const state = engine.currentState
     const inst = state.installs[install]
     const g = liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, grant, ...(agent ? { agent } : {}) }, Date.now())
     if (!inst || !g) return { ok: false }
+    const authority_version = installAuthorityVersion(state, install)
     const op_classes = agent === undefined ? g.op_classes : await placedChiefClasses(state, inst, install, agent, g.op_classes, (team, host) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).serverPlacementActive(team, host, install), () => engine.currentState)
     if (!op_classes) return { ok: false } // unknown or archived chief, or a placed server TeamDO no longer confirms (G8, revoke race)
-    return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, expires_at: g.expires_at, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}), ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
+    if (installAuthorityVersion(engine.currentState, install) !== authority_version || !liveInstallGrant(engine.currentState,
+      { identity: install, kind: "install", user: entity, install, grant, ...(agent ? { agent } : {}) }, Date.now())) return { ok: false }
+    return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, expires_at: g.expires_at, authority_version, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}), ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
   }
 
   async challenge(entity: string, install: string, team?: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {

@@ -3,7 +3,7 @@ import { idFactory, type Principal } from "@cmux/ownership"
 import type { FeedItem, PushTarget } from "@cmux/protocol"
 import { exportPKCS8, generateKeyPair, importJWK, jwtVerify, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
-import { userDomain, type UserState } from "../src/domains/user.ts"
+import { personalTeamIdFor, userDomain, type UserState } from "../src/domains/user.ts"
 import { apnsPayload, apnsRequest, classifyApns, payloadText, providerToken, sendApns } from "../src/push/apns.ts"
 
 const phone: Principal = { identity: "inst_ios00000000000000000", kind: "install", user: "user_aaaaaaaaaaaaaaaaaaaa", install: "inst_ios00000000000000000" }
@@ -22,6 +22,8 @@ describe("push targets (UserDO)", () => {
   const inst = (kind: string, revoked_at: number | null = null, id = "") => ({ id, kind, revoked_at }) as unknown as UserState["installs"][string]
   const seed = (): UserState => ({
     ...userDomain.initial(),
+    user: { id: phone.user!, stack_user_id: "push-test", email: null, email_verified: false,
+      display_name: "Phone", personal_team: personalTeamIdFor(phone.user!) },
     installs: { [phone.install!]: inst("ios", null, phone.install), [ipad.install!]: inst("ios", null, ipad.install), inst_cli00000000000000000: inst("cli", null, "inst_cli00000000000000000") }
   })
   const reg = (s: UserState, p: Principal, token: string, topic = "dev.cmux.ios") =>
