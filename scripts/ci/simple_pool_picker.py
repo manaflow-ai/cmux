@@ -46,7 +46,7 @@ XCODE_VERSION = re.compile(r"(?:^|/)Xcode_(?P<version>[0-9]+(?:\.[0-9]+)*)\.app(
 # Ten pages of 100 is twice the organization's runners today.
 MAX_RUNNER_PAGES = 10
 OWNED_FAMILY = re.compile(
-    rf"^glaeda-(?:(?P<namespace>aws)-)?(?:root-|side-|gui-)?"
+    rf"^glaeda-(?:(?P<namespace>aws)-)?(?:root-|side-|gui-|session-)?"
     rf"(?P<class>std|light|xl)-xcode-(?P<version>{XCODE_VERSION_PATTERN})$"
 )
 

@@ -22,8 +22,7 @@ final class TabContentCache {
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
     /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
-    /// Shown tabs whose content did not exist yet (a Chromium page being
-    /// created): the token of their `mount`, answered when it installs.
+    /// Shown tabs whose content does not exist yet (a Chromium page being created): their `mount` token, answered at install.
     var pendingMounts: [String: ContentLifecycle<String>.Token] = [:]
     /// How many hidden terminal surfaces stay warm (memory budget; pressure).
     var warmBudget = WarmSetBudget.standard
@@ -85,9 +84,9 @@ final class TabContentCache {
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
-    lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
-        try await cef.makeUserTab($0)
-    }
+    lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in try await cef.makeUserTab($0) }
+    /// Makes a Chromium page in the current turn while Chromium runs (`ChromiumNewTabNow`; a seam for tests).
+    lazy var chromiumNow = ChromiumNow(cef)
     /// The remote-localhost store and navigation guard of a Chromium page for
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
     /// could not start, so the page must not load (never this Mac's localhost).
@@ -203,7 +202,7 @@ final class TabContentCache {
 
     /// The page for a daemon browser tab on the engine its record names,
     /// written back to the record (url, title, favicon) while it lives.
-    /// CEF starts lazily and creates tabs asynchronously: nil until ready.
+    /// CEF starts lazily and creates tabs asynchronously (nil until ready); a New Tab page while it runs is made now.
     /// A Chromium record opens in WebKit when CEF is missing or fails to
     /// start (`ChromiumFallbackLog`: typed reason, one notice per process);
     /// the record keeps naming Chromium, so a build with CEF restores it.
@@ -226,6 +225,7 @@ final class TabContentCache {
         }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
+        if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url) { return tracked(install(page, for: key), tab) }
         guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
         Task {
             defer { pendingBrowsers.remove(key) }

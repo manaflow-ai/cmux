@@ -63,8 +63,11 @@ public final class HomeNativeTranscriptView: NSView {
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }
     }
-    /// A chosen sent-bubble colour (opt in); nil keeps iMessage blue on every theme.
+    /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
+    /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
+    /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followBubbleStyle`).
+    public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
@@ -89,10 +92,11 @@ public final class HomeNativeTranscriptView: NSView {
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
 
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID) {
+    /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
         HomeReduceMotion.install()
         self.me = me
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake())
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // One binding per shown conversation; it opens the conversation on
         // the store now and `stop()` closes exactly that open, once.
         binding = HomeStoreBinding(store: store, conversation: conversation)
@@ -120,6 +124,7 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         followTextSize()
+        followBubbleStyle()
         applyTheme()
         updateFirstRun()
     }
@@ -155,11 +160,16 @@ public final class HomeNativeTranscriptView: NSView {
     public func debugClickFirstRunAgent(_ index: Int, pointer: Bool) -> String? { firstRun.debugClickAgent(index, pointer: pointer) }
     #endif
 
-    /// A click on the header's name pill (the Chief's settings sidebar).
+    /// A click on the header's name pill (the Chief's settings popover).
     public var onNamePill: () -> Void {
         get { transcript.onNamePill }
         set { transcript.onNamePill = newValue }
     }
+
+    /// The header's name pill, which the Chief's settings popover opens under.
+    public var namePill: NSView { transcript.namePill }
+    /// The header views that run ``onNamePill`` (the pill and the avatar).
+    public var namePillToggles: [NSView] { transcript.namePillToggles }
 
     /// The header avatar's text; nil shows the conversation's initials.
     public var avatarText: String? {
@@ -197,6 +207,28 @@ public final class HomeNativeTranscriptView: NSView {
         return transcript.primaryInputShouldTakeKeyboard(from: responder)
     }
 
+    /// Whether a plain Up or Down from `responder` recalls sent messages in
+    /// the message box: no while the person moves through the first-run
+    /// panel's rows, a text input has the keyboard, or the transcript holds a
+    /// text selection.
+    /// - Parameter responder: The window's first responder now.
+    /// - Returns: True when the host should call ``recallPrimaryInputHistory(older:)``.
+    public func primaryInputHistoryTakesArrowKeys(from responder: NSResponder?) -> Bool {
+        if let view = responder as? NSView, view.isDescendant(of: firstRun), !firstRun.isHiddenOrHasHiddenAncestor {
+            return false
+        }
+        return transcript.primaryInputHistoryTakesArrowKeys(from: responder)
+    }
+
+    /// Up (`older`) or Down from outside the message box: the box takes the
+    /// keyboard and recalls a sent message (the draft is kept for Down).
+    /// - Parameter older: True for Up, false for Down.
+    /// - Returns: True when the box took the key.
+    @discardableResult
+    public func recallPrimaryInputHistory(older: Bool) -> Bool {
+        transcript.recallPrimaryInputHistory(older: older)
+    }
+
     /// Cmd+V from the first-run panel (the transcript's own pane handles it
     /// below this view): the message box takes the keyboard and the paste.
     @objc public func paste(_ sender: Any?) { transcript.pasteIntoPrimaryInput(sender) }
@@ -211,6 +243,15 @@ public final class HomeNativeTranscriptView: NSView {
             applyTextScale(Typography.userScale)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followTextSize() }
+        }
+    }
+
+    /// Settings > Agents > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
+    private func followBubbleStyle() {
+        withObservationTracking {
+            bubbleStyle = DesignSettings.shared.homeChiefBubblesThemed ? .theme : .iMessage
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followBubbleStyle() }
         }
     }
 
@@ -339,10 +380,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// The theme's palettes (key and non-key window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
-        let accent = accentOverride
-        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, accentOverride: accent) }
-        let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, accentOverride: accent) }
-        let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(accentOverride: accent) }
+        let accent = accentOverride, style = bubbleStyle
+        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
+        let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, style: style, accentOverride: accent) }
+        let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
         transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
         // The header's band: a light fade of the window background, shown only
         // near the top; the design system's fades.

@@ -30,6 +30,8 @@ export interface SnapshotRow {
 
 /** Keyset position: rows strictly older than (createdAt, id) in newest-first order. */
 export interface SnapshotPage {
+  /** Exact persisted actor reference, derived from the authenticated principal. */
+  readonly createdBy?: string;
   readonly limit: number;
   readonly after: { readonly createdAt: Date; readonly id: string } | null;
   readonly sourceVmId: string | null;
@@ -121,6 +123,7 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
                 AND ($3::timestamptz IS NULL OR (created_at, cmux_id) < ($3::timestamptz, $4::text))
                 AND ($6::text::jsonb IS NULL OR labels @> $6::text::jsonb)
                 AND ($7::text::jsonb IS NULL OR $7::text::jsonb ? cmux_id)
+                AND ($8::text IS NULL OR created_by = $8::text)
               ORDER BY created_at DESC, cmux_id DESC
               LIMIT $5`,
             [
@@ -131,6 +134,7 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
               page.limit,
               page.labels === null ? null : JSON.stringify(page.labels),
               page.only === null ? null : JSON.stringify(page.only),
+              page.createdBy ?? null,
             ],
           )
           .pipe(Effect.flatMap(decodeRows("snapshots.list"))),

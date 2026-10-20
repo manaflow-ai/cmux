@@ -48,6 +48,11 @@ enum SidebarContextMenus {
             return registry.makeContextMenu(for: .sidebarBackground)
         case .profile(let id):
             return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue))
+        case .nowPlaying:
+            // The media card's rows (u2437): Play/Pause, Hide, Hide Until Relaunch, Never Show Media Card.
+            let menu = registry.makeContextMenu(for: .nowPlayingCard)
+            menu.themeRows(in: scope)
+            return menu
         case .layoutItem, .layoutSection:
             return nil
         }

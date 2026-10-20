@@ -21,7 +21,6 @@ nonisolated extension ActionSurfaceCatalog {
         .unimplemented: [
             "palette.browserToggleOmnibar",
             "toggleReactGrab",
-            "palette.openCloudPane",
             "palette.openVaultPane",
             "palette.openFindPane",
             "palette.openFilesPane",
@@ -119,6 +118,8 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.extension.run", "browser.extension.options", "browser.extension.pin", "browser.extension.unpin",
             "browser.extension.enable", "browser.extension.disable", "browser.extension.reload",
             "browser.extension.remove", "browser.extension.command", "palette.attemptUpdate",
+            // The tab menu's Mute Tab / Unmute Tab is the toggle, titled for the tab.
+            "tab.muteAudio", "tab.unmuteAudio",
         ],
         .liveInput: [
             "browserLinkHints", "browserLinkHintsNewSplit", "hints.show",

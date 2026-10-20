@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93.
+// cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -841,6 +841,14 @@ pub struct CloudParticipantAvatarGetRequest {
 
 #[rustfmt::skip]
 pub type CloudParticipantAvatarGetResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudRequestsListRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudRequestsListResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1845,6 +1853,8 @@ pub struct HomeInboxResult {
 pub struct IdentifyRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_metadata: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub revisions: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -3155,6 +3165,8 @@ pub type SelectWorkspaceResult = T::EmptyResult;
 pub struct SendRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bytes: Optional<T::Base64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expect_foreground: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3200,6 +3212,8 @@ pub struct SetCellPixelsRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub api_revision: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub capabilities: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub device_id: Optional<String>,
@@ -3210,11 +3224,15 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub display_name: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub install: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub kind: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub user_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub version: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -4322,6 +4340,10 @@ impl CmuxClient {
         self.execute(&CLOUD_PARTICIPANT_AVATAR_GET_METADATA, &request)
     }
 
+    pub fn cloud_requests_list(&mut self, request: CloudRequestsListRequest) -> Result<CloudRequestsListResult> {
+        self.execute(&CLOUD_REQUESTS_LIST_METADATA, &request)
+    }
+
     pub fn cloud_session_clear(&mut self, request: CloudSessionClearRequest) -> Result<CloudSessionClearResult> {
         self.execute(&CLOUD_SESSION_CLEAR_METADATA, &request)
     }
@@ -4612,6 +4634,9 @@ impl CmuxClient {
         if request.machine_metadata.is_some() {
             self.require_protocol_field("identify", 12)?;
             self.require_capability_field("identify", "machine-identity-v1")?;
+        }
+        if request.revisions.is_some() {
+            self.require_protocol_field("identify", 12)?;
         }
         self.execute_identify(&IDENTIFY_METADATA, &request)
     }
@@ -5189,6 +5214,9 @@ impl CmuxClient {
     }
 
     pub fn send(&mut self, request: SendRequest) -> Result<SendResult> {
+        if !request.expect_foreground.is_missing() {
+            self.require_capability_field("send", "send-expect-foreground-v1")?;
+        }
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
         }
@@ -5211,6 +5239,9 @@ impl CmuxClient {
     }
 
     pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<SetClientInfoResult> {
+        if !request.api_revision.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+        }
         if !request.device_id.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
             self.require_capability_field("set-client-info", "shared-sizing-v1")?;
@@ -5227,9 +5258,15 @@ impl CmuxClient {
             self.require_protocol_field("set-client-info", 12)?;
             self.require_capability_field("set-client-info", "shared-sizing-v1")?;
         }
+        if !request.install.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+        }
         if !request.user_id.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
             self.require_capability_field("set-client-info", "shared-sizing-v1")?;
+        }
+        if !request.version.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
         }
         self.execute(&SET_CLIENT_INFO_METADATA, &request)
     }

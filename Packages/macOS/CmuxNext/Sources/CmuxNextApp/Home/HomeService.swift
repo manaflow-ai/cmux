@@ -67,10 +67,16 @@ final class HomeService {
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
+    /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
+    /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
+    /// nil when the bundle lacks the script: fences stay text.
+    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
     @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
     @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
+    /// Message requests from people the user is not connected to (home-messaging-invites DESIGN 2.3).
+    @ObservationIgnored private(set) lazy var requests = HomeMessageRequests(source: cloudSource)
     @ObservationIgnored private(set) lazy var homeRouter = HomeSourceRouter(local: homeSource, cloud: cloudSource)
     /// The Home list rows (`home-inbox`) the Messages list maps: local from the Chief home, Cloud from the build daemon.
     @ObservationIgnored let homeInbox = HomeInboxSource(owners: ["local"])
