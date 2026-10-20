@@ -214,7 +214,7 @@ struct CloudBringBack {
         services.windows.reveal(workspaceID: workspace.rawValue)
         let tab = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
         if let pane = await AgentSessionWorkspace.mirroredPane(of: workspace, in: daemon.store) {
-            for window in services.windows.controllers { window.state.selection.select(tab, in: pane.id) }
+            for window in services.windows.controllers { window.selectTab(tab, in: pane) }
         }
     }
 

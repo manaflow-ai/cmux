@@ -102,7 +102,8 @@ extension SidebarBridge {
         let target = owner?.state ?? state
         target.selection.select(tab.id, in: pane.id)
         target.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace, source: .intent))
-        services.paneController(for: pane)?.select(StripTabID(tab.id))
+        // The written window's own pane, not the first window's (pane-active-tab-DESIGN.md F4).
+        (owner ?? windows.controller(for: state.id))?.paneController(for: pane)?.select(StripTabID(tab.id))
         windows.show(workspaceID: workspace, in: state)
     }
 }

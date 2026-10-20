@@ -51,7 +51,7 @@ extension AppActionContext {
     func reveal(_ located: LocatedTab) {
         guard ActionRunScope.viewChangeAllowed(), let controller = window(showing: located.workspace.id) else { return }
         controller.state.selection.select(located.tab.id, in: located.pane.id)
-        services.paneController(for: located.pane)?.select(StripTabID(located.tab.id))
+        controller.paneController(for: located.pane)?.select(StripTabID(located.tab.id))
     }
 
     /// Every tab in the mirror, workspace order then screen, pane, tab order.

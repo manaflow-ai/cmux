@@ -169,7 +169,7 @@ enum TabHandlers {
         if let tab, let pane {
             controller.state.selection.select(tab.id, in: pane.id)
             controller.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace.id, source: .intent))
-            ctx.services.paneController(for: pane)?.select(StripTabID(tab.id))
+            controller.paneController(for: pane)?.select(StripTabID(tab.id))
         } else if let pane {
             controller.focus.send(.focusPane(pane.id, workspace: workspace.id, source: .intent))
         }

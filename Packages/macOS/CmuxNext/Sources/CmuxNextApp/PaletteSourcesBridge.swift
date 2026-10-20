@@ -136,7 +136,7 @@ enum PaletteSourcesBridge {
                   let workspace = services.machines.allWorkspaces.map(\.0).first(where: { $0.screens.contains { $0.panes.contains { $0 === pane } } }),
                   let window = services.windows.reveal(workspaceID: workspace.id) else { return }
             window.state.selection.select(id, in: pane.id)
-            services.paneController(for: pane)?.select(StripTabID(id))
+            window.paneController(for: pane)?.select(StripTabID(id))
         }
 
         func renameTab(id: String, to title: String) {

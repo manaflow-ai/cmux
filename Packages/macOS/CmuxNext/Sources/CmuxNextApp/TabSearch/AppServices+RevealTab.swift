@@ -24,7 +24,7 @@ extension AppServices {
               let window = windows.reveal(workspaceID: workspace.id) else { return false }
         window.state.selection.select(tabID, in: paneModel.id)
         window.focus.send(.selectTab(pane: paneModel.id, tab: tabID, workspace: workspace.id, source: .intent))
-        paneController(for: paneModel)?.select(StripTabID(tabID))
+        window.paneController(for: paneModel)?.select(StripTabID(tabID))
         if let nsWindow = window.window { showJumpWindow(nsWindow, intent) }
         return true
     }

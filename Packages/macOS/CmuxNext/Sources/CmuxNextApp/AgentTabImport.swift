@@ -58,7 +58,7 @@ enum AgentTabImport {
                     renamed[record.id] = created.key
                     // Windows restored before the import showed the old tab: they show the store tab.
                     for controller in services.windows.controllers where controller.state.selection.selection(in: pane.id) == record.id {
-                        controller.state.selection.select(created.key, in: pane.id)
+                        controller.selectTab(created.key, in: pane)
                     }
                 } catch {
                     services.daemon.logger.error("agent tab import: \(String(describing: error), privacy: .public)")
