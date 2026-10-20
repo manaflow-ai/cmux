@@ -317,10 +317,8 @@ impl Hub {
             return ForumTurn { posts: told, retold };
         }
         // This prompt runs first: it tells the urgent rules still waiting
-        // behind it, and their own prompts are taken back.
-        for p in &posts {
-            self.remove_queued_because(session, &format!("{PUSH_PREFIX}{}", p.id), Some("told"));
-        }
+        // behind it. Their own prompts are taken back once the agent answers
+        // it (`forum_turn_end`); if it fails, they still run.
         let lines: Vec<String> = posts.iter().map(rule_text).collect();
         told.extend(posts.into_iter().map(|p| p.id));
         blocks.push(json!({
@@ -350,8 +348,10 @@ impl Hub {
     }
 
     /// A turn that ran [`Self::forum_context`] ended; `answered`: the agent
-    /// answered its prompt, so what it carried counts as told.
-    pub(super) fn forum_turn_end(&self, session: &Session, turn: &ForumTurn, answered: bool) {
+    /// answered its prompt, so what it carried counts as told, and the pushed
+    /// prompts of those rules still waiting behind it are taken back. Runs
+    /// before the turn lock is released, so no waiting push starts first.
+    pub(super) fn forum_turn_end(&self, session: &Arc<Session>, turn: &ForumTurn, answered: bool) {
         session.forum_telling.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
         if !answered {
             return;
@@ -360,6 +360,9 @@ impl Hub {
             session.forum_retell.store(false, Ordering::SeqCst);
         }
         self.forum_told(session, &turn.posts);
+        for id in &turn.posts {
+            self.remove_queued_because(session, &format!("{PUSH_PREFIX}{id}"), Some("told"));
+        }
     }
 
     /// Whether the turn `session` runs now tells a rule of `key`.

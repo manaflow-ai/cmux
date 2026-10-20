@@ -568,14 +568,15 @@ async fn an_urgent_rule_whose_carrying_prompt_failed_is_still_pushed() {
     gate.open().await;
     let r = queued.await.unwrap();
     assert!(r.get("error").is_some(), "{r}");
-    // The failed prompt did not tell the rule: its pushed prompt still runs,
-    // ahead of the next one, without waiting for another person prompt.
+    // The failed prompt did not tell the rule: its pushed prompt is still
+    // held behind the failed turn, and resuming the queue sends it.
+    let push = format!("forum-{}", u["post"]["id"].as_str().unwrap());
+    let resume = json!({"sessionId": s, "promptId": push, "op": "resume"});
+    let resumed = app.ok("_acpmux/queue_edit", resume).await;
+    assert_eq!(resumed["ok"], json!(true), "{resumed}");
     app.prompt(&s, "after").await;
     let replies = app.replies(&s).await;
-    assert!(
-        replies.iter().any(|r| r.contains("Urgent cmux rule. [ci]")),
-        "{replies:?}"
-    );
+    assert!(replies.iter().any(|r| r.contains("Urgent cmux rule. [ci]")), "{replies:?}");
     let after = replies.iter().find(|r| r.starts_with("echo: after")).unwrap();
     assert!(!after.contains("CI waits use glaeda-gh."), "{replies:?}");
 }
