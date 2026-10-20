@@ -126,8 +126,11 @@ pub struct SpawnPlan {
     /// The engine of the turn that called spawn (engine.json); None before
     /// any turn.
     pub engine: Option<SpawnEngine>,
-    /// The acpmux peer its subagents run on (cloud); None: this host.
+    /// The acpmux peer its subagents run on (cloud; the first one's when
+    /// they differ); None: this host.
     pub peer: Option<String>,
+    /// Each subagent's peer, in `ids` order (B4: the least busy one each).
+    pub peers: Vec<Option<String>>,
 }
 
 /// The engine a spawn's subagents run on: the calling turn's harness and
@@ -307,6 +310,8 @@ pub struct Spawner {
     /// The subagent system text for a peer set at run time
     /// (`control cloud`) when the env set none.
     cloud_text: Option<String>,
+    /// The VMs behind cloud peers (B4): resumed before a subagent starts.
+    cloud_vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>,
 }
 
 impl Spawner {
@@ -332,6 +337,7 @@ impl Spawner {
             refused: Mutex::new(BTreeMap::new()),
             cloud: None,
             cloud_text: None,
+            cloud_vms: None,
         }
     }
 
@@ -362,8 +368,8 @@ impl Spawner {
 
     /// The VMs behind cloud peers: resumed before a subagent starts or is
     /// told there.
-    pub fn with_cloud_vms(self, vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>) -> Spawner {
-        let _ = vms;
+    pub fn with_cloud_vms(mut self, vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>) -> Spawner {
+        self.cloud_vms = vms;
         self
     }
 
@@ -1069,7 +1075,9 @@ impl Orchestrator for Spawner {
                 map.insert(id.clone(), e.clone());
             }
         }
-        for (id, task) in plan.ids.iter().zip(&tasks) {
+        for (k, (id, task)) in plan.ids.iter().zip(&tasks).enumerate() {
+            let sub_peer = plan.peers.get(k).cloned().flatten();
+            let sub_cloud = sub_peer.as_deref().map(|p| self.placement(p));
             if let Some(e) = &refused {
                 (self.log)(&format!("subagent {id} did not start: {e}"));
                 lines.push(format!("- {id}: did not start ({e})"));
@@ -1120,19 +1128,27 @@ impl Orchestrator for Spawner {
                 ));
                 continue;
             }
-            let task = match &cloud {
+            let task = match &sub_cloud {
                 Some(c) => c.task(id, cwd.as_deref(), task),
                 None => task.clone(),
             };
-            match self.start_one(
-                &plan.spawn,
-                id,
-                &task,
-                &view,
-                floor.as_deref(),
-                &launch,
-                plan.peer.as_deref(),
-            ) {
+            // A paused VM resumes first (B4); a no-op when it runs.
+            let resumed = match (&sub_peer, &self.cloud_vms) {
+                (Some(p), Some(vms)) => vms.resume(p),
+                _ => Ok(()),
+            };
+            let started_one = resumed.and_then(|()| {
+                self.start_one(
+                    &plan.spawn,
+                    id,
+                    &task,
+                    &view,
+                    floor.as_deref(),
+                    &launch,
+                    sub_peer.as_deref(),
+                )
+            });
+            match started_one {
                 Ok(note) => {
                     started.push(id.clone());
                     lines.push(format!("- {id}: {note}"));
@@ -1152,12 +1168,31 @@ impl Orchestrator for Spawner {
         } else if started.is_empty() {
             format!("Queued {}.", plan.queued.join(", "))
         } else if let Some(c) = &cloud {
-            format!(
-                "Started {} on the cloud VM {} (acpmux peer), in {}.",
-                started.join(", "),
-                c.peer,
-                dir.display()
-            )
+            let mut on: Vec<&str> = plan.peers.iter().flatten().map(String::as_str).collect();
+            on.sort_unstable();
+            on.dedup();
+            if on.len() > 1 {
+                let each = plan
+                    .ids
+                    .iter()
+                    .zip(&plan.peers)
+                    .filter(|(id, _)| started.contains(id))
+                    .filter_map(|(id, p)| p.as_ref().map(|p| format!("{id} on {p}")))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "Started {} on the cloud VMs (acpmux peers; {each}), in {}.",
+                    started.join(", "),
+                    dir.display()
+                )
+            } else {
+                format!(
+                    "Started {} on the cloud VM {} (acpmux peer), in {}.",
+                    started.join(", "),
+                    c.peer,
+                    dir.display()
+                )
+            }
         } else {
             format!("Started {} in {}.", started.join(", "), dir.display())
         };

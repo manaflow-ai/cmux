@@ -534,6 +534,12 @@ pub struct Brain {
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
+    /// B4: the VMs behind cloud peers, how long a peer idles before its VM
+    /// pauses, the peers paused by this host and since when each idles.
+    cloud_vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
+    cloud_idle: std::time::Duration,
+    cloud_paused: std::collections::BTreeSet<String>,
+    cloud_idle_since: std::collections::BTreeMap<String, u64>,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
     max_live: Option<usize>,
     /// A finished subagent's workspace closes instead of taking the done
@@ -679,6 +685,10 @@ impl Brain {
             trace: crate::trace::Trace::off(),
             workspaces: None,
             sub_starter: None,
+            cloud_vms: None,
+            cloud_idle: std::time::Duration::from_secs(600),
+            cloud_paused: Default::default(),
+            cloud_idle_since: Default::default(),
             max_live: None,
             sub_close_on_finish: false,
             resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
@@ -800,7 +810,8 @@ impl Brain {
         vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
         idle: std::time::Duration,
     ) {
-        let _ = (vms, idle);
+        self.cloud_vms = vms;
+        self.cloud_idle = idle;
     }
 
     /// Caps the subagents at work at once (None: no cap, the default).
@@ -912,7 +923,7 @@ impl Brain {
             } => {
                 let plan = self
                     .spawn_peer(peer.as_deref(), place.as_deref())
-                    .and_then(|peer| self.register_spawn(&tasks, peer.as_deref()));
+                    .and_then(|peers| self.register_spawn(&tasks, &peers));
                 let _ = reply.send(plan);
             }
             Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
@@ -962,7 +973,10 @@ impl Brain {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
             }
-            Input::SubTick => self.sub_tick(),
+            Input::SubTick => {
+                self.sub_tick();
+                self.cloud_tick();
+            }
             Input::Setting { key, value, reply } => {
                 let _ = reply.send(self.set_setting(&key, &value));
             }

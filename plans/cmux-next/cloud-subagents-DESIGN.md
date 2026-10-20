@@ -128,3 +128,21 @@ change, and its credential question (B3) had no default.
    Full crate, clippy and fmt on macOS: fleet step `cloudsub-green2-1ccfbdc`.
 5. Proof: after the nightly, `control cloud chief-subagents-1` and one real
    spawn that reports back.
+
+### B4 and B11 slice (2026-10-20)
+
+- `control cloud cloud1,cloud2` lists peers. Each new cloud subagent goes to
+  the peer with the fewest live (starting or running) cloud subagents,
+  counting the ones of the same spawn; ties go to the first listed.
+- `CloudVms` (optchat-chief `cloud_vms.rs`): before a cloud subagent starts,
+  the host resumes its peer's VM (a no-op when it runs). The host's minute
+  tick pauses a peer's VM once after 10 minutes with no live cloud subagent
+  on it; a `tell` to a finished subagent on a paused VM resumes it first.
+- The command is cmuxterm-hq `tools/cloud-subagents/deploy.sh`, named in
+  `~/.config/cloud-subagents/vm-cmd`, which `deploy.sh up` writes. No file:
+  the host leaves VMs alone. Everything stays behind the same opt-in: with
+  `control cloud` off and no `OPTCHAT_SUBAGENT_PEER`, subagents run local.
+- B11: `deploy.sh up` grows the VM disk to 64 GB (Freestyle resize is
+  grow-only, needs a running VM) and grows the guest file system.
+- Tests: two new tests in `tests/cloud_subagents.rs` (least busy peer and
+  resume; idle pause once, then resume).
