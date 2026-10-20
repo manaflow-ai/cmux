@@ -498,6 +498,9 @@ const postStartInBackground = (sessionId: string, cwd: string | undefined, name:
 /// and pushed the composer on each switch and reconnect).
 const knownHarnessHealth = new Map<string, HarnessHealth | undefined>();
 
+/// Each local folder's GitHub repository (`#123` links in the transcript) from its last read.
+const knownGithubRepositories = new Map<string, string | undefined>();
+
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
 
@@ -2640,11 +2643,15 @@ function AcpmuxPane() {
       setGithubRepository(undefined);
       return;
     }
+    // The folder's repository from its last read draws now (no links to the chat before's repo, no
+    // links popping in late); unknown, the transcript links nothing until the read answers.
+    setGithubRepository(knownGithubRepositories.get(cwd));
     let current = true;
     void callNative<{ repository?: unknown }>("git.githubRepository", { cwd })
       .then((value) => {
-        if (!current) return;
-        setGithubRepository(typeof value?.repository === "string" && value.repository ? value.repository : undefined);
+        const repository = typeof value?.repository === "string" && value.repository ? value.repository : undefined;
+        knownGithubRepositories.set(cwd, repository);
+        if (current) setGithubRepository(repository);
       })
       .catch(() => {});
     return () => {

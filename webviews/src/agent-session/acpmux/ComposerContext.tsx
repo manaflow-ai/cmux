@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
@@ -81,8 +81,13 @@ export function ComposerContext({
     [summary, sessions, peers, localName],
   );
   const initialComputer = computerId(summary);
-  const [selectedComputer, setSelectedComputer] = useState(initialComputer);
-  useEffect(() => setSelectedComputer(initialComputer), [summary?.sessionId, initialComputer]);
+  // A pick in the Computer menu holds for its chat and that chat's computer; another chat shows its
+  // own computer in the render that shows it (it followed in an effect, a frame late: the wrong
+  // computer and no folder for one frame on a local/peer switch).
+  const [picked, setPicked] = useState<{ key: string; computer: string }>();
+  const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
+  const selectedComputer = picked?.key === pickKey ? picked.computer : initialComputer;
+  const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);
     if (selectedComputer !== "local" || !projectChoices) return known;
