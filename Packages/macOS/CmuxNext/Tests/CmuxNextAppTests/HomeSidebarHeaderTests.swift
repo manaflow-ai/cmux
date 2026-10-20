@@ -110,6 +110,22 @@ struct HomeSidebarHeaderTests {
         #expect(home.newChief.accessibilityLabel() == HomeConversationStrings.chiefTitle)
     }
 
+    /// The field's text is centred on the row (Leo 2026-10-19, "vertically they need to all be
+    /// centered"): an unbezeled search cell draws its line from the frame's top, so the field is
+    /// one text line tall and centred in its capsule, on the buttons' centre line.
+    @Test(arguments: [260, 320, 480] as [CGFloat])
+    func theSearchTextIsCentredOnTheRow(_ width: CGFloat) throws {
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: width, height: 600))
+        home.layoutSubtreeIfNeeded()
+        home.list.headerView.needsLayout = true
+        home.list.headerView.layoutSubtreeIfNeeded()
+        let field = home.list.searchField
+        let font = try #require(field.font)
+        #expect(field.frame.height == ceil(NSLayoutManager().defaultLineHeight(for: font)))
+        #expect(abs(field.frame.midY - home.searchCapsule.frame.midY) <= 0.5)
+        #expect(abs(field.frame.midY - home.compose.frame.midY) <= 0.5)
+    }
+
     @Test func theUnreadToggleFiltersInOneClick() {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         #expect(!home.unreadOnly)
