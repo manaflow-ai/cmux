@@ -1,3 +1,4 @@
+import { decodeJwt } from "jose"
 import type { Principal } from "@cmux/ownership"
 import { CloudMachineLinkToken } from "@cmux/protocol"
 import { Schema } from "effect"
@@ -68,7 +69,7 @@ const client = async (f: World) => {
   expect(bound.json).toMatchObject({ ok: true, value: { host, network: { state: "confirmed", install_grant: grant } } })
   const principal: Principal = { kind: "install", identity: `install:${install}`, user: f.user, team: f.team, install, grant,
     install_kind: "mac", grant_classes: ["read", "mutate-own", "execute"] }
-  return { principal, proof, token, reads: () => reads, deny: () => { allowed = false },
+  return { principal, proof, token, host, wg, reads: () => reads, deny: () => { allowed = false },
     onRead: (hook: () => Promise<void>) => { onRead = hook },
     revoke: async () => { expect((await sessionOp("install.revoke", { install })).json.ok).toBe(true) } }
 }
@@ -83,6 +84,7 @@ it("mints through CloudDO, TeamDO and UserDO after real client and VM binding, a
     expect(first).toMatchObject({ ok: true, value: { host: info.host, services: ["ssh"], epoch: 1 } })
     if (!first.ok) throw new Error(first.code)
     const firstGrant = Schema.decodeUnknownSync(CloudMachineLinkToken.result)(first.value)
+    expect(decodeJwt(firstGrant.token).network).toMatchObject({ version: 1, tenant: f.tenant, mesh: MESH, device: DEVICE, host: c.host, user: f.user, wg_public_key: c.wg, authority_version: expect.stringMatching(/^[0-9a-f]{64}$/) })
     expect(await mint(proof)).toMatchObject({ ok: false, code: "validation.invalid" })
     const second = await mint(await c.proof())
     expect(second.ok).toBe(true)
