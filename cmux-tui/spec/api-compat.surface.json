@@ -7750,6 +7750,7 @@
         "required": true
       }
     },
+    "request:cloud-requests-list": {},
     "request:cloud-session-clear": {},
     "request:cloud-session-set": {
       "/access_token": {
@@ -12502,6 +12503,12 @@
       }
     },
     "response:cloud-participant-avatar-get": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:cloud-requests-list": {
       "/data": {
         "ty": "json",
         "required": true

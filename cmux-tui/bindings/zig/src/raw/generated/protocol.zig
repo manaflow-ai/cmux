@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "23c9826d750d16e26fda9d1f733bd4a3343a6b82ffa2c3fa877b07aabeb345f7";
+pub const ir_sha256 = "6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4465,6 +4465,23 @@ pub fn cloudParticipantAvatarGet(client: anytype, request: CloudParticipantAvata
             .authority = "local-admin",
             .since = 12,
             .capability = "participant-avatars-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudRequestsListRequest = struct {};
+
+pub const CloudRequestsListResult = JsonValue;
+
+pub fn cloudRequestsList(client: anytype, request: CloudRequestsListRequest) !wire.Decoded(CloudRequestsListResult) {
+    return client.callTyped(
+        CloudRequestsListResult,
+        .{
+            .name = "cloud-requests-list",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-conversations-v1",
         },
         request,
     );
@@ -11262,7 +11279,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 277;
+pub const command_count: usize = 278;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11321,6 +11338,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-mux-subscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-mux-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-participant-avatar-get", .authority = "local-admin", .since = 12, .capability = "participant-avatars-v1", .stream = null },
+    .{ .name = "cloud-requests-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-clear", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },

@@ -2639,6 +2639,12 @@ class CloudParticipantAvatarGetRequest:
 
 
 @dataclass(frozen=True)
+class CloudRequestsListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-requests-list/request'
+    pass
+
+
+@dataclass(frozen=True)
 class CloudSessionClearRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-clear/request'
     pass
@@ -6093,6 +6099,7 @@ __all__ = [
     'CloudMuxSubscribeRequest',
     'CloudMuxUnsubscribeRequest',
     'CloudParticipantAvatarGetRequest',
+    'CloudRequestsListRequest',
     'CloudSessionClearRequest',
     'CloudSessionSetRequest',
     'CloudSessionStatusRequest',
