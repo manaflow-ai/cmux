@@ -17,9 +17,14 @@ public enum TerminalCardContent: Equatable, Sendable {
     /// The static labeled placeholder.
     case placeholder
 
-    public static func choose(sessionStarted: Bool, connecting: Bool, hasSnapshot: Bool, screenText: String?) -> Self {
+    /// `screenTextIsNewer`: the Mac's screen text arrived after the page's
+    /// last snapshot (a started tab whose page is off screen while the grid
+    /// shows, D6): the text is the current screen then.
+    public static func choose(sessionStarted: Bool, connecting: Bool, hasSnapshot: Bool, screenText: String?,
+                              screenTextIsNewer: Bool = false) -> Self {
         if sessionStarted {
             if connecting { return .connecting }
+            if screenTextIsNewer, let screenText, screenText.contains(where: { !$0.isWhitespace }) { return .screenText }
             return hasSnapshot ? .snapshot : .placeholder
         }
         // Not opened in this launch: a saved frame may be from long ago (or a
@@ -59,11 +64,13 @@ public struct TerminalCardScreenRefresh: Sendable {
 
     /// A new read to send, or nil: one is still out (unless the grid is
     /// opening), or the last one was asked for under `interval` ago.
-    public mutating func begin(_ id: String, now: Date, gridOpening: Bool = false) -> Request? {
+    /// `interval`: the grid's live refresh asks at its own, shorter one
+    /// (`TerminalCardLiveRefresh.screenTextInterval`).
+    public mutating func begin(_ id: String, now: Date, gridOpening: Bool = false, interval: Double = Self.interval) -> Request? {
         if !gridOpening, let last = latest[id] {
             let age = now.timeIntervalSince(last.at)
             if inFlight.contains(id), age < Self.staleAfter { return nil }
-            if age < Self.interval { return nil }
+            if age < interval { return nil }
         }
         sequence += 1
         latest[id] = (sequence, now)
@@ -84,6 +91,86 @@ public struct TerminalCardScreenRefresh: Sendable {
         guard latest[id]?.request == request else { return }
         inFlight.remove(id)
         latest[id] = nil
+    }
+}
+
+/// Which grid cards to refresh while the grid is visible (full verify
+/// 2026-10-19 D6, T-TABS-01: the active card was a snapshot taken once, when
+/// the grid opened, and stayed at row 78 while the Mac went to 201). Every
+/// `tick` while the grid shows and is not scrolling (a card that changes in
+/// a scroll frame makes that frame late):
+/// - a page that can be captured (in a window: the active tab's) and drew
+///   output since its card was taken is captured again, at most every
+///   `snapshotInterval`;
+/// - any other terminal (a warm tab whose page is off screen, or one not
+///   opened in this launch) reads the Mac's screen, at most every
+///   `screenTextInterval`.
+/// So a streaming card is at most about a second old (T-TABS-01: ≤ 1 s).
+public struct TerminalCardLiveRefresh: Sendable {
+    public static let tick: Duration = .milliseconds(250)
+    public static let tickSeconds: Double = 0.25
+    public static let snapshotInterval: Double = 0.5
+    public static let screenTextInterval: Double = 1
+
+    public enum Action: Equatable, Sendable {
+        case snapshot(String)
+        case screenText(String)
+    }
+
+    public struct Tab: Equatable, Sendable {
+        public var id: String
+        /// The page started its session in this launch.
+        public var pageStarted: Bool
+        /// The page is in a window, so its presented frame can be copied.
+        public var capturable: Bool
+        /// The page drew output since its card snapshot was taken.
+        public var behind: Bool
+
+        public init(id: String, pageStarted: Bool, capturable: Bool, behind: Bool) {
+            self.id = id
+            self.pageStarted = pageStarted
+            self.capturable = capturable
+            self.behind = behind
+        }
+    }
+
+    public private(set) var isVisible = false
+    public private(set) var isScrolling = false
+    private var lastSnapshot: [String: Double] = [:]
+    private var lastText: [String: Double] = [:]
+
+    public init() {}
+
+    /// The grid became visible (cards were just taken: the first refresh
+    /// waits an interval) or was covered.
+    public mutating func setVisible(_ visible: Bool, now: Double) {
+        isVisible = visible
+        lastSnapshot = [:]
+        lastText = [:]
+        if visible { opened = now }
+    }
+    private var opened: Double = 0
+
+    public mutating func setScrolling(_ scrolling: Bool) {
+        isScrolling = scrolling
+    }
+
+    /// The refreshes due now, in `tabs` order.
+    public mutating func due(_ tabs: [Tab], now: Double) -> [Action] {
+        guard isVisible, !isScrolling else { return [] }
+        var actions: [Action] = []
+        for tab in tabs {
+            if tab.pageStarted, tab.capturable {
+                guard tab.behind, now - (lastSnapshot[tab.id] ?? opened) >= Self.snapshotInterval else { continue }
+                lastSnapshot[tab.id] = now
+                actions.append(.snapshot(tab.id))
+            } else {
+                guard now - (lastText[tab.id] ?? opened) >= Self.screenTextInterval else { continue }
+                lastText[tab.id] = now
+                actions.append(.screenText(tab.id))
+            }
+        }
+        return actions
     }
 }
 

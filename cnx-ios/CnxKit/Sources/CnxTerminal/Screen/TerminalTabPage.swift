@@ -129,7 +129,8 @@ public struct TerminalTabCard: View {
                 let started = model.controller?.started == true
                 let content = TerminalCardContent.choose(sessionStarted: started,
                                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
-                                                         hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText)
+                                                         hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
+                                                         screenTextIsNewer: model.cardScreenTextIsNewer)
                 switch content {
                 case .connecting:
                     TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.snapshot,

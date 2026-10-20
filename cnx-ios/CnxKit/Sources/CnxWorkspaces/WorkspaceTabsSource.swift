@@ -232,7 +232,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public struct PendingClose: Identifiable {
         public let id = UUID()
         public let title: String
-        public let message: String
+        /// Filled in when the Mac answers a pending question (D7).
+        public internal(set) var message: String
         fileprivate let resume: CheckedContinuation<Bool, Never>
     }
 
@@ -281,12 +282,94 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let asked = guardrail.terminalsToAsk(tabs)
         let hasAgent = tabs.contains { guardrail.workingAgent($0) != nil }
         guard hasAgent || !asked.isEmpty else { return true }
-        var programs: [String] = []
-        if !hasAgent, let creator { programs = await creator.backend.runningPrograms(of: asked, in: workspace) }
-        guard let prompt = guardrail.prompt(closing: tabs, programs: programs) else { return true }
+        // The grid read the programs when it opened (D7): a busy tab asks at once.
+        let plan = TabClosePromptPlan(closing: tabs, cached: hasAgent ? nil : programCache.programs(of: asked.map(\.id), now: Self.uptime))
+        guard !hasAgent, let creator else {
+            guard let prompt = plan.immediate else { return true }
+            return await ask(prompt, title: prompt.title, updatedBy: nil, plan: plan)
+        }
+        let fetch = Task { @MainActor [weak self] in
+            let programs = await creator.backend.runningPrograms(of: asked, in: workspace)
+            if asked.count == 1 { self?.programCache.record(tabID: asked[0].id, programs: programs, at: Self.uptime) }
+            return programs
+        }
+        if let prompt = plan.immediate {
+            return await ask(prompt, title: prompt.title, updatedBy: fetch, plan: plan)
+        }
+        // Nothing known: the Mac answers first when it is quick; otherwise the
+        // question shows at once as pending and the answer fills it in.
+        let quick: [String]? = await withTaskGroup(of: [String]?.self) { group in
+            group.addTask { await fetch.value }
+            group.addTask {
+                try? await Task.sleep(for: TabClosePromptPlan.pendingAfter)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        if let quick {
+            switch plan.afterReply(programs: quick) {
+            case .close: return true
+            case .ask(let prompt): return await ask(prompt, title: prompt.title, updatedBy: nil, plan: plan)
+            }
+        }
+        return await ask(plan.pending, title: plan.pending.title, updatedBy: fetch, plan: plan)
+    }
+
+    /// Shows the close question; with `updatedBy`, the Mac's answer replaces
+    /// its message, or closes the tab when a pending question learns the
+    /// shell is idle (`TabClosePromptPlan.afterReply`).
+    private func ask(_ prompt: TabCloseGuard.Prompt, title: String, updatedBy fetch: Task<[String], Never>?,
+                     plan: TabClosePromptPlan) async -> Bool {
         resolvePendingClose(false)
         return await withCheckedContinuation { continuation in
-            pendingClose = PendingClose(title: prompt.title, message: prompt.message, resume: continuation)
+            let pending = PendingClose(title: title, message: prompt.message, resume: continuation)
+            pendingClose = pending
+            guard let fetch else { return }
+            let id = pending.id
+            Task { @MainActor [weak self] in
+                let programs = await fetch.value
+                guard let self, self.pendingClose?.id == id else { return }
+                switch plan.afterReply(programs: programs) {
+                case .ask(let answer):
+                    if self.pendingClose?.message != answer.message { self.pendingClose?.message = answer.message }
+                case .close:
+                    self.resolvePendingClose(true)
+                }
+            }
+        }
+    }
+
+    /// Programs per terminal tab, read while the grid shows (D7).
+    @ObservationIgnored private var programCache = TabProgramCache()
+    @ObservationIgnored private var programPrefetch: Task<Void, Never>?
+    /// How often the grid reads its terminals' programs (within the cache's age).
+    static let programPrefetchInterval: Duration = .milliseconds(2500)
+    static var uptime: Double { ProcessInfo.processInfo.systemUptime }
+
+    /// The grid shows: its terminals' foreground programs are read now and
+    /// every `programPrefetchInterval` (one bounded `process-info` per terminal).
+    private func prefetchPrograms(_ visible: Bool) {
+        programPrefetch?.cancel()
+        programPrefetch = nil
+        guard visible, let creator else { return }
+        programPrefetch = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard self != nil else { return }
+                await self?.prefetchProgramsOnce(creator)
+                try? await Task.sleep(for: WorkspaceTabsSource.programPrefetchInterval)
+            }
+        }
+    }
+
+    private func prefetchProgramsOnce(_ creator: WorkspaceCreator) async {
+        guard let workspace else { return }
+        let backend = creator.backend
+        for tab in TabCloseGuard().terminalsToAsk(workspace.tabs) {
+            guard !Task.isCancelled else { return }
+            let programs = await backend.runningPrograms(of: [tab], in: workspace)
+            programCache.record(tabID: tab.id, programs: programs, at: Self.uptime)
         }
     }
 
@@ -398,8 +481,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         let kind = Self.kind(of: option)
         let tab: WorkspaceTab
+        let asked = Self.uptime
         do {
             tab = try await creator.backend.createTab(kind, in: workspace)
+            // T-TABS-06 timing: the Mac's create and list (the page's attach
+            // and first output follow in the terminal log).
+            tabsLog.notice("new tab \(tab.id, privacy: .public) (\(option.id, privacy: .public)) listed by the Mac \(Int((Self.uptime - asked) * 1000), privacy: .public) ms after the pick")
         } catch let error as WorkspaceCreationError where error.isForPerson {
             tabsLog.error("tab request refused on \(self.macName, privacy: .public): \(error.message, privacy: .public)")
             show(named(error.message))
@@ -494,6 +581,17 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard let id = activeTabID else { return }
         if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).takeSnapshot() }
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
+    }
+
+    public func overviewVisibilityChanged(_ visible: Bool) {
+        prefetchPrograms(visible)
+        terminal.overviewVisibilityChanged(visible) { [weak self] in
+            (self?.workspace?.tabs ?? []).filter { $0.kind == .terminal }
+        }
+    }
+
+    public func overviewScrollingChanged(_ scrolling: Bool) {
+        terminal.overviewScrollingChanged(scrolling)
     }
 
     public func showStaticCard(for id: TabsKitTab.ID) -> Bool {
