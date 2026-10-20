@@ -187,6 +187,8 @@ def main():
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     LAUNCHED.append(app.pid)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
+        log.flush()
+        print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-4000:], flush=True)
         sys.exit("the tagged app did not come up")
     time.sleep(2)  # test harness: first launch settles
     if opts.activate:

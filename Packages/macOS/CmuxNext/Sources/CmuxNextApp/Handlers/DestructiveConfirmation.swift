@@ -1,7 +1,9 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextSettings
 import os
 
@@ -77,6 +79,12 @@ enum DestructiveConfirmation {
             guard let key, services.taskManager.refusal(for: key) == nil else { return nil }
             let question = services.taskManager.prompt(for: key)
             return Prompt(title: question.title, body: question.body, button: question.button)
+        case "home.leaveConversation":
+            // The group's name in the question; a conversation not listed is refused by the action.
+            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownPage(services)?.shown
+            guard let id, let info = services.home.groupActions.info(id), info.isGroup else { return nil }
+            let prompt = info.leavePrompt
+            return Prompt(title: prompt.title, body: prompt.body, button: prompt.button)
         case "closeWorkspace":
             return await WorkspaceBulkClose.prompt(id, invocation, context, warn: warn) // the selection's question, once
         default:

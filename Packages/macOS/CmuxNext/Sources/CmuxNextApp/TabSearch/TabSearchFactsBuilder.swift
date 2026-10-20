@@ -21,22 +21,9 @@ enum TabSearchFactsBuilder {
         return result
     }
 
-    /// Tabs closing locally. Only panes a window shows have controllers
-    /// (`AppServices.paneController(for:)`), so this walks those, not every
-    /// pane of every workspace: the control publisher calls it on each
-    /// publish, and the old walk read every workspace's tree inside its
-    /// tracking (O(workspaces) per publish).
+    /// Tabs whose close is in flight: the daemons' pending close intents (`DaemonStore.closingTabIDs`).
     static func closing(_ services: AppServices) -> Set<String> {
-        var result = Set<String>()
-        for controller in services.windows.controllers {
-            guard let content = controller.content else { continue }
-            // As before: a controller counts only while it mirrors the tree's pane model.
-            for pane in content.panes.values where !pane.pendingClosed.isEmpty && content.pane(for: pane.pane.handle) === pane
-                && pane.daemon.store.pane(pane.pane.handle) === pane.pane {
-                result.formUnion(pane.pendingClosed)
-            }
-        }
-        return result
+        services.machines.daemons.reduce(into: Set<String>()) { $0.formUnion($1.store.closingTabIDs) }
     }
 
     /// The closed tabs the daemons record (the only closed history), newest

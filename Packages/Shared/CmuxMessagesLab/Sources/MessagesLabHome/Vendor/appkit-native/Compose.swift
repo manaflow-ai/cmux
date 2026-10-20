@@ -307,6 +307,18 @@ final class FieldTextView: NSTextView {
     private var storageEdits = 0
     private var storageObserver: NSObjectProtocol?
     private var observedStorage: ObjectIdentifier?
+    /// cmux: the field's typing undo is on the window's undo stack, which does not retain its
+    /// targets; NSTextView registers it with the text storage as the target, not itself. A field
+    /// leaving its window (Cmd+1…9, a rebuilt conversation or dock view) takes its entries off that
+    /// stack; a freed field's left behind crashed the next Edit > Undo (`_undoRedoTextOperation:`
+    /// to freed text, nightly 3934935376001).
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let window, newWindow !== window, let stack = undoManager ?? window.undoManager {
+            stack.removeAllActions(withTarget: self)
+            if let storage = textStorage { stack.removeAllActions(withTarget: storage) }
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyScale()

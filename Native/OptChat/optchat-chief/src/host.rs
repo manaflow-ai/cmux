@@ -1270,7 +1270,13 @@ fn start(
         .with_pinned_harness(sub_set.is_some())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
-        .with_no_workspace_reason(no_workspace_reason.clone());
+        .with_no_workspace_reason(no_workspace_reason.clone())
+        // OPTCHAT_SUBAGENT_PEER: subagents run on that acpmux peer (a cloud
+        // VM) and take no local slot (plans/cmux-next/cloud-subagents-DESIGN.md).
+        .with_cloud(crate::subagents::CloudPlacement::from_env(
+            env,
+            sub_text.clone(),
+        ));
         let spawner = Arc::new(spawner);
         sub_starter = Some(spawner.queue_starter());
         spawner as Arc<dyn crate::tools::Orchestrator>

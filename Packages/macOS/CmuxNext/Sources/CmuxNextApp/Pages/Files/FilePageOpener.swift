@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import typealias CmuxNextDaemon.SurfaceID
 
 /// The file viewer seam (R89 ``FileOpening``) for the file pages: every file open (Open File...,
 /// the cmux picker, `file.open` and `cmux file open`, Finder drops on a file page, a followed link
@@ -39,17 +40,19 @@ final class FilePageOpener: FileOpening {
 
     /// `userChose` false for an agent's or a script's open (`cmux file open`): a markdown document
     /// is writable all the same; another document is writable only inside a root the user chose.
-    func open(_ file: URL, in pane: PaneController?, userChose: Bool) -> String? {
+    /// `placed` (``LinkOpener``): a new tab opens unselected and reports its surface there, to be
+    /// moved beside `pane`; a tab that already shows the file is selected and focused where it is.
+    func open(_ file: URL, in pane: PaneController?, userChose: Bool, placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
         switch Self.kind(for: url) {
         case .markdown?:
-            services.viewers.markdownPages.open(url, in: pane, focus: true, userChose: userChose)
+            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed)
         case .editor?:
-            services.viewers.editorPages.open(url, in: pane, focus: true, userChose: userChose)
+            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed)
         case nil:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
-            pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url))
+            pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, then: placed)
         }
         return nil
     }

@@ -841,7 +841,10 @@ fn closed_members(value: &str) -> Result<Value, UsageError> {
     Ok(Value::Array(members))
 }
 
+mod checklist;
 mod status_flags;
+
+pub(super) use checklist::parse_workspace_checklist;
 
 #[cfg(test)]
 mod tests;
