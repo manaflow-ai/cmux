@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Group chats with Chief: 3 designs</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f5f5f7; --card:#fff; --ink:#1d1d1f; --mute:#6e6e73; --line:#d2d2d7; --accent:#0a84ff; --bubble:#e9e9eb; --me:#0a84ff; --pill:rgba(0,0,0,.06); }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1c1c1e; --card:#2c2c2e; --ink:#f5f5f7; --mute:#98989d; --line:#3a3a3c; --bubble:#3a3a3c; --pill:rgba(255,255,255,.08); } }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:28px; background:var(--bg); color:var(--ink); font:13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p.lead { color:var(--mute); margin:0 0 22px; max-width:760px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(330px, 1fr)); gap:22px; }
+  .design { background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; display:flex; flex-direction:column; }
+  .design.rec { outline:2px solid var(--accent); }
+  .head { padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; }
+  .head b { font-size:14px; }
+  .tag { margin-left:auto; font-size:11px; padding:2px 8px; border-radius:99px; background:var(--accent); color:#fff; }
+  .to { padding:9px 14px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .to .lbl { color:var(--mute); }
+  .tok { padding:2px 9px; border-radius:99px; background:color-mix(in srgb, var(--accent) 16%, transparent); color:var(--accent); }
+  .strip { padding:7px 14px; border-bottom:1px solid var(--line); display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .strip .lbl { color:var(--mute); font-size:11px; margin-right:4px; }
+  .add { padding:2px 10px; border-radius:99px; background:var(--pill); border:.5px solid var(--line); }
+  .add small { color:var(--mute); }
+  .menu { margin:6px 14px; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .menu .sec { font-size:11px; color:var(--mute); padding:6px 10px 2px; }
+  .menu .row { padding:6px 10px; display:flex; justify-content:space-between; }
+  .menu .row small { color:var(--mute); }
+  .menu .row.hl { background:color-mix(in srgb, var(--accent) 18%, transparent); }
+  .chat { padding:14px; display:flex; flex-direction:column; gap:8px; flex:1; min-height:200px; }
+  .msg { max-width:78%; padding:7px 11px; border-radius:16px; background:var(--bubble); }
+  .msg.me { align-self:flex-end; background:var(--me); color:#fff; }
+  .who { font-size:11px; color:var(--mute); margin:2px 0 -4px 8px; }
+  .composer { margin:10px 14px 14px; border:1px solid var(--line); border-radius:18px; padding:7px 12px; color:var(--mute); display:flex; gap:8px; align-items:center; }
+  .ask { padding:2px 9px; border-radius:99px; background:var(--pill); color:var(--ink); font-size:12px; }
+  .info { margin:0 14px 14px; border:1px solid var(--line); border-radius:10px; padding:10px; }
+  .info .row { display:flex; justify-content:space-between; }
+  .info small { color:var(--mute); display:block; margin-top:4px; }
+  .notes { padding:10px 14px 14px; color:var(--mute); border-top:1px solid var(--line); }
+  .notes b { color:var(--ink); }
+</style>
+</head>
+<body>
+<h1>Group chats with Chief</h1>
+<p class="lead">Three ways to start a group with Chiefs from New Message, and the Chiefs Reply setting in group info.
+Design A is marked Recommended and is what ships on feat-cmux-next (plans/cmux-next/chief-group-chats-DESIGN.md).</p>
+<div class="grid">
+
+  <section class="design rec">
+    <div class="head"><b>A. Chiefs strip under To:</b><span class="tag">Recommended · shipped</span></div>
+    <div class="to"><span class="lbl">To:</span><span class="tok">Chief</span><span class="tok">Aziz</span></div>
+    <div class="strip"><span class="lbl">Chiefs</span><span class="add">+ Unii</span><span class="add">+ Cloud Chief</span><span class="add">+ Team Pulse</span></div>
+    <div class="chat">
+      <div class="msg me">@Unii can you check the nightly?</div>
+      <div class="who">Unii</div><div class="msg">Nightly 4803cf8 built on cmux22. 2 suites red, both known.</div>
+    </div>
+    <div class="info"><div class="row"><span>Chiefs Reply</span><span>Automatically ▾</span></div>
+      <small>A Chief answers when you @mention it or reply to it. With only you and one Chief, it answers every message.</small></div>
+    <div class="notes"><b>Why:</b> one click per Chief, no extra sheet, works with the To: field as it is. The strip goes away once every Chief is chosen. No animation.</div>
+  </section>
+
+  <section class="design">
+    <div class="head"><b>B. Chiefs section in the + list</b></div>
+    <div class="to"><span class="lbl">To:</span><span class="tok">Aziz</span><span style="margin-left:auto;color:var(--mute)">⊕</span></div>
+    <div class="menu">
+      <div class="sec">CHIEFS</div>
+      <div class="row hl"><span>Chief</span><small>Main · Cloud</small></div>
+      <div class="row"><span>Unii</span><small>This Mac</small></div>
+      <div class="row"><span>Team Pulse</span><small>Cloud</small></div>
+      <div class="sec">PEOPLE</div>
+      <div class="row"><span>Austin</span><small>Team</small></div>
+    </div>
+    <div class="chat"><div class="msg me">Plan for Friday?</div></div>
+    <div class="notes"><b>Trade-off:</b> shows where each Chief runs, but needs a click on ⊕ first and hides Chiefs among people.</div>
+  </section>
+
+  <section class="design">
+    <div class="head"><b>C. "Ask Chief" in the composer</b></div>
+    <div class="to"><span class="lbl">To:</span><span class="tok">Aziz</span><span class="tok">Leo</span></div>
+    <div class="chat">
+      <div class="msg me">Who owns the release notes?</div>
+      <div class="who">Chief</div><div class="msg">Leo, per a170's report.</div>
+    </div>
+    <div class="composer"><span class="ask">✦ Ask Chief</span> iMessage</div>
+    <div class="notes"><b>Trade-off:</b> one tap adds the main Chief to any group, but other Chiefs (Unii, Cloud Chief) are hidden.</div>
+  </section>
+
+</div>
+</body>
+</html>

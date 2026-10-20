@@ -101,6 +101,7 @@ on:
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - tests/test_ci_target_graph.py
+      - scripts/cmux-next/check-package-dependency-lists.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -301,6 +302,7 @@ on:
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - tests/test_ci_target_graph.py
+      - scripts/cmux-next/check-package-dependency-lists.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -550,14 +552,11 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
-      # actions: read lets the probe read the cmux-tui artifacts runs. A
-      # same-repository pull request whose merge tree is not published also
-      # dispatches one cmux-tui artifacts run (actions: write) on a
-      # cmux-tui-pin-<sha12> ref it creates (contents: write). Fork pull
-      # requests never dispatch (CMUX_TUI_TREE_DISPATCH is empty for them) and
-      # GitHub gives them a read-only token whatever this block says.
-      actions: write
-      contents: write
+      # This job executes the checked-out revision's routing and probe scripts,
+      # including on same-repository pull requests. It may inspect Actions and
+      # source, but only trusted default-branch controls may mutate either.
+      actions: read
+      contents: read
       pull-requests: read
     outputs:
       native: ${{ steps.route.outputs.native }}
@@ -693,15 +692,13 @@ jobs:
         # Where the tree jobs may run: a dispatch on another ref runs no macOS job.
         if: (steps.route.outputs.daemon == 'true' || steps.route.outputs.scheme == 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))
         env:
-          # Push and dispatch runs: the pushed commit's artifacts runs publish
-          # the tree. A pull request: the base push's runs when its merge keeps
-          # the base tree, else one artifacts run this probe dispatches for the
-          # merge tree (same-repository pull requests only).
-          # A scheduled DEV run owns its exact SHA but may need to start the
-          # cmux-tui publisher when that tree is cold. Leave the publisher SHA
-          # empty so pin-cmux-tui.sh takes the dispatch path below.
+          # Push runs use the artifacts run already started by that protected
+          # branch. Pull requests may fall back to the base tree; a missing own
+          # tree fails closed because this checked-out revision cannot dispatch.
+          # A scheduled DEV run likewise owns its exact SHA without mutation
+          # authority; only trusted controls may start a publisher.
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
-          CMUX_TUI_TREE_DISPATCH: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true) && '1' || '' }}
+          CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           GH_TOKEN: ${{ github.token }}
@@ -769,11 +766,10 @@ jobs:
         id: tree-final
         if: steps.marker-upload.outcome == 'success'
         env:
-          # A scheduled DEV run owns its exact SHA but may need to start the
-          # cmux-tui publisher when that tree is cold. Leave the publisher SHA
-          # empty so pin-cmux-tui.sh takes the dispatch path below.
+          # A scheduled DEV run owns its exact SHA. A cold tree fails closed;
+          # this checked-out revision never starts a publisher.
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
-          CMUX_TUI_TREE_DISPATCH: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true) && '1' || '' }}
+          CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
@@ -799,10 +795,9 @@ jobs:
           fi
 
   # A cmux NEXT DEV daily run builds exactly the SHA main's dispatcher asked
-  # for. When its cmux-tui tree is cold, path routing starts the publisher and
-  # defers; the same-tree run a publication starts runs only while the
-  # feat-cmux-next tip is still that SHA, so on a busy branch no DEV build was
-  # published (from 01:59Z on 2026-10-14). This waits on Linux for the tree,
+  # for. When its cmux-tui tree is cold, path routing defers without acquiring
+  # mutation authority; a trusted publisher may still satisfy the wait. This
+  # waits on Linux for the tree,
   # then cmux-scheme-compile builds the DEV app in this run
   # (scripts/cmux-next/wait-dev-daily-tree.sh, tested by
   # scripts/cmux-next/tests/wait-dev-daily-tree.test.sh).
@@ -813,10 +808,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     permissions:
-      # As path routing: the probe reads the cmux-tui artifacts runs and may
-      # start the publisher again if its run is gone.
-      actions: write
-      contents: write
+      # The selected revision may inspect a publisher, never start one.
+      actions: read
+      contents: read
     outputs:
       tree_state: ${{ steps.wait.outputs.tree_state }}
       tree_fetch_key: ${{ steps.wait.outputs.tree_fetch_key }}
@@ -829,7 +823,7 @@ jobs:
         id: wait
         env:
           CMUX_TUI_TREE_PUBLISHER_SHA: ""
-          CMUX_TUI_TREE_DISPATCH: "1"
+          CMUX_TUI_TREE_DISPATCH: ""
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/wait-dev-daily-tree.sh
 
@@ -1088,6 +1082,13 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # Every web view goes through the engine decision (browser.defaultEngine,
+      # browser.siteEngines): PageWebView for cmux pages, BrowserTab for tabs.
+      - name: One web view factory
+        id: webview-factory
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-webview-factory.py "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
       - name: Crash safety
         id: crash-safety
         continue-on-error: true
@@ -1222,6 +1223,7 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
             bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh
             bash scripts/cmux-next/tests/request-nightly-next.test.sh
+            bash scripts/cmux-next/tests/cef-runtime-pack.test.sh
             bash scripts/cmux-next/tests/continue-nightly-next.test.sh
             bash scripts/cmux-next/tests/wait-dev-daily-tree.test.sh
             bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
@@ -1325,6 +1327,16 @@ jobs:
           python3 scripts/icons/build_pack.py --check
           python3 scripts/cmux-next/lint-browser-chrome-icons.py
 
+      # What App Store Connect rejects only after an upload (ITMS-90626 device
+      # names in App Intents text, 90683 purpose strings, ...), on the
+      # cnx-ios sources. The INTERNAL builder runs it again on the built app.
+      - name: App Store review rules (cnx-ios intents, Info.plist)
+        id: app-store-rules
+        continue-on-error: true
+        run: |
+          python3 tests/test_app_store_rules.py
+          python3 -I scripts/cmux-next/check-app-store-rules.py --source .
+
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
@@ -1346,6 +1358,16 @@ jobs:
           python3 tests/test_ci_target_graph.py
           python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
+
+      # The CmuxNextAppTests dependencies are one sorted entry per line, so two
+      # pull requests adding different modules merge cleanly; the long lines they
+      # all appended to conflicted on nearly every open pull request.
+      - name: Package dependency lists sorted
+        id: package-dependency-lists
+        continue-on-error: true
+        run: |
+          python3 scripts/cmux-next/check-package-dependency-lists.py
+          python3 scripts/cmux-next/tests/test_check_package_dependency_lists.py
 
       # The web bundle source key covers every file outside webviews/ that a bundle
       # imports, and the publish and routing path lists name each one (cx-wtsf3).
@@ -1469,6 +1491,7 @@ jobs:
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
             ${{ steps.dialog-key-hints.outcome }}|Dialog buttons show their keys (u2647)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
+            ${{ steps.webview-factory.outcome }}|One web view factory
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
             ${{ steps.l10n.outcome }}|String tables (21 languages)
@@ -1487,8 +1510,10 @@ jobs:
             ${{ steps.package-conventions.outcome }}|Package conventions lint
             ${{ steps.browser-chrome-icons.outcome }}|Browser chrome icons
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
+            ${{ steps.app-store-rules.outcome }}|App Store review rules (cnx-ios intents, Info.plist)
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
+            ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted
             ${{ steps.web-bundle-key-inputs.outcome }}|Web bundle key inputs
             ${{ steps.companion-workflows.outcome }}|Companion workflows
             ${{ steps.dev-update-classic-import.outcome }}|DEV update and classic import scripts
@@ -1717,9 +1742,12 @@ jobs:
 
   # The PR fast tier (hq#1915, cx-29ch2): every registered deterministic suite
   # (scripts/cmux-next/fast-tier.json) on every feat-cmux-next PR and push,
-  # whatever paths changed, on an owned Mac without the gui token. Target:
-  # under 5 minutes with the build. A fail-then-pass entry is FLAKY and fails
-  # the job: it is never retried silently (fast-tier.py's flake policy).
+  # whatever paths changed, without the gui token. Target: under 5 minutes
+  # with the build. A fail-then-pass entry is FLAKY and fails the job: it is
+  # never retried silently (fast-tier.py's flake policy). The registry is split
+  # by kind: this Mac job builds and runs the Swift (and script) entries, and
+  # fast-tier-cargo runs the cargo entries on Linux beside it, so the Mac no
+  # longer builds cmux-tui (297-422 s) after CmuxNext.
   fast-tier:
     needs: [macos-placement, push-head-preflight]
     if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
@@ -1741,11 +1769,6 @@ jobs:
     # A cold package build can exceed the 5-minute target; the job still runs
     # the entries so a cold mini reports, and the summary shows the time.
     timeout-minutes: 20
-    # cmux-tui-core's ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with zig,
-    # as in cmux-tui.yml (an empty CMUX_GHOSTTY_SRC overrides a runner-level one).
-    env:
-      GHOSTTY_ZIG_SOURCE: ghostty-next
-      CMUX_GHOSTTY_SRC: ""
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -1781,8 +1804,10 @@ jobs:
           clean: false
           fetch-depth: 2
 
-      - name: Reuse the ghostty-next checkout (self-hosted reused workspace)
-        run: scripts/ci/reset-stale-submodules.sh --reuse ghostty-next
+      # The Swift entries need no submodule (cmux-tui and its ghostty-next build
+      # moved to fast-tier-cargo), so drop whatever a previous job left.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
 
       - name: Remove stale untracked source (keep ignored build caches)
         run: git clean -ffd
@@ -1797,21 +1822,11 @@ jobs:
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
 
-      - name: Set up pinned cmux-tui Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
-        # Bound stalled GitHub connections before they consume the fast-tier budget.
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Install zig
-        run: ./scripts/install-zig-ci.sh
-
       # Owned minis keep their builds on their own SSD (above). Blacksmith overflow
       # restores the newest seed cmux-next-fast-tier-seed.yml saved from a
       # feat-cmux-next push to cmux-ci-cache-next, through its public URL: no
       # credential, and a pull request never writes. The swift directory comes by
-      # prefix; the other two by that seed's exact commit, so all three come from
+      # prefix; the home directory by that seed's exact commit, so both come from
       # one seed and match the input-time manifest in the swift directory.
       - name: Compute fast-tier cache keys
         id: fast-cache-key
@@ -1850,20 +1865,8 @@ jobs:
           path: Packages/Shared/CmuxHomeRender/.build
           key: ${{ steps.fast-cache-key.outputs.home-prefix }}${{ steps.fast-cache-seed.outputs.commit }}
 
-      - name: Restore the cmux-tui cargo target of that seed
-        id: fast-cache-cargo
-        if: ${{ steps.fast-cache-seed.outputs.commit != '' }}
-        continue-on-error: true
-        uses: ./.github/actions/cache-restore
-        env:
-          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
-        with:
-          backend: r2
-          path: cmux-tui/target
-          key: ${{ steps.fast-cache-key.outputs.cargo-prefix }}${{ steps.fast-cache-seed.outputs.commit }}
-
       # A fresh checkout stamps every source with the checkout time, which SwiftPM
-      # and cargo read as "changed". Give each file whose content matches the
+      # reads as "changed". Give each file whose content matches the
       # seed's the time the seed built it from, so only what changed rebuilds.
       - name: Replay the seed's input times
         if: ${{ steps.fast-cache-seed.outputs.commit != '' }}
@@ -1874,10 +1877,8 @@ jobs:
         env:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
-          CMUX_FAST_CARGO_CACHE_KEY: ${{ steps.fast-cache-key.outputs.cargo-key }}
-          CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.fast-cache-cargo.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
-        run: python3 -I scripts/cmux-next/fast-tier.py --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       - name: Upload fast-tier timing receipt
         if: always()
@@ -1885,6 +1886,71 @@ jobs:
         with:
           name: cmux-next-fast-tier-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # The fast tier's cargo entries (fast-tier.py --kind cargo): cmux-tui-core and the
+  # layout reducer, built and run on a Linux runner beside the Mac job, so the
+  # Mac builds only Swift. Same gating, flake policy and quarantine list as
+  # fast-tier; its own check name, receipt and concurrency group.
+  fast-tier-cargo:
+    needs: [push-head-preflight]
+    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
+    name: cmux-next fast tier (cargo)
+    concurrency:
+      group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
+      cancel-in-progress: false
+    # As cmux-tui.yml's Linux test job: a fork keeps the public or 4-vCPU lane.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    # cmux-tui-core's ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with zig,
+    # as in cmux-tui.yml (an empty CMUX_GHOSTTY_SRC overrides a runner-level one).
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # As cmux-tui.yml: cargo's registry and dependency builds under cmux-tui/target.
+      # Only a feat-cmux-next push saves; a pull request reads the base branch's cache.
+      - name: Cache cargo build
+        id: cargo-cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+          shared-key: cmux-next-fast-tier-cargo
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: Run the fast tier (cargo entries)
+        env:
+          CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
+        run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
+
+      - name: Upload fast-tier timing receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-fast-tier-cargo-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-fast-tier-cargo.json
           if-no-files-found: warn
           retention-days: 14
 
@@ -2372,7 +2438,7 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
           SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "6"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter '^(CmuxNextDaemonTests|CmuxNextMobileTests)\.|FirstLaunchTests' --skip BranchStateResourcesTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter '^(CmuxNextDaemonTests|CmuxNextMobileTests)\.|FirstLaunchTests|ClassicImportTests|ClassicMigrationTests' --skip BranchStateResourcesTests
 
       - name: Run state-resource regressions
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
@@ -2832,7 +2898,7 @@ jobs:
   request-nightly-next:
     needs: release-compile
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith
     timeout-minutes: 5
     permissions:
       actions: write

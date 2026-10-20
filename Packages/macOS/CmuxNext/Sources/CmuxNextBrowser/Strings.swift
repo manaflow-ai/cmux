@@ -32,8 +32,26 @@ nonisolated enum Strings {
         case .loadUnpacked: String(localized: "browser.extensions.loadUnpacked", defaultValue: "Load Unpacked…", bundle: .module)
         case .webStore: String(localized: "browser.extensions.webStore", defaultValue: "Chrome Web Store", bundle: .module)
         case .manage: String(localized: "browser.extensions.manage", defaultValue: "Manage Extensions", bundle: .module)
+        case .homePage: String(localized: "browser.extensions.context.homePage", defaultValue: "Home Page", bundle: .module)
+        case .manageExtension: extensionContextManageExtension
+        case .webPermissions: extensionContextViewWebPermissions
         }
     }
+
+    // Extensions bubble and context menu: Chrome's Mac text (generated_resources.grd, use_titlecase).
+    static var extensionMenuClose: String { String(localized: "browser.extensions.menu.close", defaultValue: "Close", bundle: .module) }
+    static var extensionMenuPinTooltip: String { String(localized: "browser.extensions.menu.pinTooltip", defaultValue: "Pin", bundle: .module) }
+    static var extensionMenuUnpinTooltip: String { String(localized: "browser.extensions.menu.unpinTooltip", defaultValue: "Unpin", bundle: .module) }
+    static var extensionMenuPinAccessible: String { String(localized: "browser.extensions.menu.pinAccessible", defaultValue: "Pin %@", bundle: .module) }
+    static var extensionMenuUnpinAccessible: String { String(localized: "browser.extensions.menu.unpinAccessible", defaultValue: "Unpin %@", bundle: .module) }
+    static var extensionMenuPinnedAnnouncement: String { String(localized: "browser.extensions.menu.pinnedAnnouncement", defaultValue: "Extension pinned", bundle: .module) }
+    static var extensionMenuUnpinnedAnnouncement: String { String(localized: "browser.extensions.menu.unpinnedAnnouncement", defaultValue: "Extension unpinned", bundle: .module) }
+    static var extensionMenuMoreTooltip: String { String(localized: "browser.extensions.menu.moreTooltip", defaultValue: "More options", bundle: .module) }
+    static var extensionContextSiteData: String { String(localized: "browser.extensions.context.siteData", defaultValue: "This Can Read and Change Site Data", bundle: .module) }
+    static var extensionContextRemove: String { String(localized: "browser.extensions.context.remove", defaultValue: "Remove from cmux", bundle: .module) }
+    static var extensionContextInstalledByAdmin: String { String(localized: "browser.extensions.context.installedByAdmin", defaultValue: "Installed by Your Administrator", bundle: .module) }
+    static var extensionContextManageExtension: String { String(localized: "browser.extensions.context.manageExtension", defaultValue: "Manage Extension", bundle: .module) }
+    static var extensionContextViewWebPermissions: String { String(localized: "browser.extensions.context.viewWebPermissions", defaultValue: "View Web Permissions", bundle: .module) }
 
     // Address bar
     static func searchWith(engine: String) -> String {
@@ -75,6 +93,7 @@ nonisolated enum Strings {
     static var findNext: String { String(localized: "browser.find.next", defaultValue: "Next Match", bundle: .module) }
     static var dismissNotice: String { String(localized: "browser.notice.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var findDone: String { String(localized: "browser.find.done", defaultValue: "Done", bundle: .module) }
+    static var findMatchCase: String { String(localized: "browser.find.matchCase", defaultValue: "Match Case", bundle: .module) }
     static var findNoMatches: String { String(localized: "browser.find.noMatches", defaultValue: "No matches", bundle: .module) }
     static func findPosition(_ index: Int, of count: Int) -> String {
         String(localized: "browser.find.position", defaultValue: "\(index) of \(count)", bundle: .module)

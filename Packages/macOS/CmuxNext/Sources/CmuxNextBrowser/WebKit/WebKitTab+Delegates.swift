@@ -45,6 +45,12 @@ extension WebKitTab: WKNavigationDelegate {
         // A local Markdown file shows in cmux's markdown page, not as text (LocalFileHandoff).
         if navigationAction.targetFrame?.isMainFrame ?? true, url.isHandedOff(by: .webkit) { emit(.openLocalFile(url)); return decisionHandler(.cancel, preferences) }
         if cancelsFormResubmission(navigationAction, decisionHandler: { decisionHandler(.cancel, preferences) }) { return }
+        // The organization's URLBlocklist (Chrome policy) holds for every frame; a main frame shows why.
+        if let engine, engine.urlFilter.blocks(url) {
+            decisionHandler(.cancel, preferences)
+            if navigationAction.targetFrame?.isMainFrame ?? true { engine.showBlockedByOrganization(url, in: self) }
+            return
+        }
         applySiteSettings(to: preferences, for: navigationAction)
         guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
         navigationSourceSite = pageSite

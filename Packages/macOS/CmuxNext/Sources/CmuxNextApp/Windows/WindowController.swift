@@ -47,6 +47,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private(set) var connectingView: DaemonConnectingView?
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
     private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
+    /// This window's right sidebar (`WindowController+RightSidebar`).
+    let rightSidebar: RightSidebarModel
+    /// Its view, made the first time it shows.
+    var rightSidebarView: RightSidebarView?
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
@@ -55,6 +59,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
+        rightSidebar = RightSidebarModel(defaults: services.rightSidebarDefaults)
         SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
         root = WindowRootView(sidebar: sidebar.container)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
@@ -94,6 +99,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         observeRoom()
         observeSidebarHidden()
         followContentChanges()
+        if rightSidebar.isVisible { showRightSidebar() }
     }
 
     @available(*, unavailable)
@@ -266,6 +272,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
+        services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
     }
 
@@ -295,6 +302,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         Task { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))
         services.cloudContextDidChange()
+        services.canvasContextDidChange()
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -325,13 +333,31 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// An incognito window closes its workspaces: it asks first while one
     /// of its terminals runs a program (`IncognitoCloseConfirmation`).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard !closeConfirmed, services.windows.isIncognito(window: state.id) else { return true }
+        guard !closeConfirmed, services.windows.isIncognito(window: state.id) else { return !fadeOutThenClose(sender) }
         IncognitoCloseConfirmation.confirm(windows: [state.id], sheetOn: sender, services) { [weak self, weak sender] ok in
-            guard ok, let self else { return }
+            guard ok, let self, let sender else { return }
             closeConfirmed = true
-            sender?.close()
+            if !fadeOutThenClose(sender) { sender.close() }
         }
         return false
+    }
+
+    /// The window fading out before it closes (`WindowCloseMotion`), from the person's close.
+    private var closeMotion: WindowCloseMotion?
+
+    /// Starts the person's close as a fade of the whole window; false when it closes now (Reduce
+    /// Motion, not on screen, or a second close while it fades).
+    private func fadeOutThenClose(_ window: NSWindow) -> Bool {
+        if let closeMotion {
+            closeMotion.finish()
+            return true
+        }
+        guard WindowCloseMotion.fades(window) else { return false }
+        let motion = WindowCloseMotion(window: window) { [weak window] in window?.close() }
+        closeMotion = motion
+        let next = NSApp.orderedWindows.first { $0 !== window && $0 is ShellWindow && $0.isVisible && !$0.isMiniaturized }
+        motion.start(handingKeysTo: next)
+        return true
     }
 
     func windowWillClose(_ notification: Notification) {

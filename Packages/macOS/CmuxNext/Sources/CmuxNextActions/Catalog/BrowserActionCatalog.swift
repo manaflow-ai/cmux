@@ -54,13 +54,13 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 targets: [.pane], cliName: "browser focus-address-bar"
             ),
             // Chrome's Search the Web (IDC_FOCUS_SEARCH, Opt-Cmd-F on the Mac): the
-            // address bar in a search with the default engine. Inside a browser
-            // tab it takes Opt-Cmd-F from Search All Windows (more specific).
+            // address bar in a search with the default engine. No default key:
+            // Opt-Cmd-F stays Search All Windows (a default moves only with the
+            // user's OK); bind one in cmux.json or run it from the palette.
             ActionDescriptor(
                 id: "browser.focusSearch",
                 title: String(localized: "action.browser.focusSearch", defaultValue: "Search the Web", bundle: .module),
                 keywords: ["browser", "search", "omnibox", "address bar", "google", "engine"],
-                defaultShortcut: Shortcut("f", modifiers: [.option, .command]),
                 category: .browser, symbol: "magnifyingglass.circle", surfaces: [.palette, .keyboard], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser focus-search"
             ),
@@ -199,8 +199,9 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.browserClearHistory",
                 title: String(localized: "action.palette.browserClearHistory", defaultValue: "Clear Browser History", bundle: .module),
-                keywords: ["browser", "privacy"], category: .browser, symbol: "clock.badge.xmark", surfaces: [.palette],
-                targets: [.pane], cliName: "browser clear-history"
+                keywords: ["browser", "privacy", "clear", "delete"], category: .browser, symbol: "clock.badge.xmark", surfaces: [.palette],
+                arguments: [HistoryActionCatalog.historyRange, CatalogArgument.browserProfile],
+                targets: [.pane], cliName: "browser clear-history", destructive: true
             ),
             {
                 // Person-only and no CLI verb (PASSWORDS-IMPORT-ANY-BROWSER): an agent must not put
@@ -322,6 +323,13 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.filePreviewRevealInFinder", defaultValue: "Reveal File in Finder", bundle: .module),
                 keywords: ["file", "finder"], category: .browser, symbol: "folder", surfaces: [.contextMenu],
                 requires: [.filePreviewFocused], targets: [.pane], cliName: "browser reveal-file-in-finder"
+            ),
+            ActionDescriptor(
+                id: "filePreviewRevealInFiles",
+                title: String(localized: "action.filePreviewRevealInFiles", defaultValue: "Reveal File in cmux Files", bundle: .module),
+                keywords: ["file", "files", "finder", "reveal", "folder"], category: .browser, symbol: "folder",
+                surfaces: [.contextMenu], requires: [.filePreviewFocused], targets: [.pane],
+                cliName: "browser reveal-file-in-files"
             ),
             ActionDescriptor(
                 id: "diffViewerNextLine",

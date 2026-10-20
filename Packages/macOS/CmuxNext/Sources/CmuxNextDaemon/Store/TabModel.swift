@@ -69,8 +69,34 @@ public final class TabModel: Identifiable {
     public internal(set) var emulation: JSONValue?
     /// Marked unread by hand (Mark Tab Unread, `tab-mark-unread-v1`): a flag on the tab record
     /// in the daemon, apart from ``notification``. Every client shows it; a client clears it
-    /// when the person views the tab.
-    public internal(set) var markedUnread = false
+    /// when the person views the tab. This client's own write shows at once
+    /// (``expectMarkedUnread(_:)``) and the record's echo confirms it.
+    public private(set) var markedUnread = false
+    /// The mark as the daemon's tab record says it.
+    @ObservationIgnored private var recordMarkedUnread = false
+    /// A mark or clear this client sent that the record has not echoed yet.
+    @ObservationIgnored private var pendingMarkedUnread: Bool?
+
+    /// Shows `marked` now, before the daemon's `tab.update` answers: the
+    /// round trip (hundreds of ms on a busy daemon) is never on the visible
+    /// path of Toggle Tab Unread. The record's echo of `marked` settles it.
+    public func expectMarkedUnread(_ marked: Bool) {
+        pendingMarkedUnread = marked
+        publishMarkedUnread()
+    }
+
+    /// Rolls back ``expectMarkedUnread(_:)`` when the write of `marked`
+    /// failed. A newer pending value (a second toggle) stays.
+    public func dropExpectedMarkedUnread(_ marked: Bool) {
+        guard pendingMarkedUnread == marked else { return }
+        pendingMarkedUnread = nil
+        publishMarkedUnread()
+    }
+
+    private func publishMarkedUnread() {
+        let shown = pendingMarkedUnread ?? recordMarkedUnread
+        if markedUnread != shown { markedUnread = shown }
+    }
     /// The tab's fit as given (`extra.emulation.fit.value`: "16:9" or "1280", browser-fit-v1), nil for none.
     public var fitValue: String? { emulation?["mode"]?.stringValue == "fit" ? emulation?["fit"]?["value"]?.stringValue ?? "16:9" : nil }
     /// A browser tab's saved back URLs (oldest first) and forward URLs
@@ -106,7 +132,36 @@ public final class TabModel: Identifiable {
         return titleText
     }
 
-    public var hasUnread: Bool { notification?.unread == true }
+    /// Whether the tab holds an unread notification. A notification this
+    /// client read (``expectNotificationRead()``) shows read before the
+    /// daemon's echo.
+    public var hasUnread: Bool {
+        guard let notification, notification.unread else { return false }
+        return notification.notification != readingNotification
+    }
+
+    /// The notification this client acknowledged that the tree still shows
+    /// unread (the ack's round trip). A newer notification is not covered.
+    public private(set) var readingNotification: NotificationID?
+
+    /// Shows the tab's unread notification read now, before the daemon's
+    /// `ack-tab-notifications` answers. The tree's echo settles it.
+    public func expectNotificationRead() {
+        guard let notification, notification.unread else { return }
+        readingNotification = notification.notification
+    }
+
+    /// Rolls back ``expectNotificationRead()`` when the acknowledge failed.
+    public func dropExpectedNotificationRead() {
+        if readingNotification != nil { readingNotification = nil }
+    }
+
+    /// The tree's notification marker arrived: a read or replaced
+    /// notification settles a pending read.
+    private func settleReadingNotification() {
+        guard let reading = readingNotification else { return }
+        if notification?.notification != reading || notification?.unread != true { readingNotification = nil }
+    }
 
     /// Whether the tab shows as unread: an unread notification or the manual mark.
     /// Acknowledging reads only ``hasUnread``; this is for dots and badges.
@@ -202,6 +257,7 @@ public final class TabModel: Identifiable {
         if end != s.end { end = s.end }
         if relaunch != s.relaunch { relaunch = s.relaunch }
         if notification != s.notification { notification = s.notification }
+        settleReadingNotification()
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }
         if pinnedURL != s.pinnedURL { pinnedURL = s.pinnedURL }
@@ -225,7 +281,9 @@ public final class TabModel: Identifiable {
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
         if emulation != record.emulation { emulation = record.emulation }
-        if markedUnread != record.markedUnread { markedUnread = record.markedUnread }
+        recordMarkedUnread = record.markedUnread
+        if pendingMarkedUnread == record.markedUnread { pendingMarkedUnread = nil }
+        publishMarkedUnread()
         if backURLs != record.back { backURLs = record.back }
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }

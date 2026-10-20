@@ -144,6 +144,11 @@ export const PAGES = {
               ].includes(key),
           ),
       },
+      {
+        // Machines > Add Server… (u3849): the palette action's own title.
+        file: `${sources}/CmuxNextActions/ServerActions.xcstrings`,
+        keys: () => ["action.server.addServer"],
+      },
     ],
   },
   history: {
@@ -215,6 +220,11 @@ export const PAGES = {
   stats: {
     out: "webviews/src/pages/stats/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stats/Localizable.xcstrings" }],
+  },
+  // The Chief Usage page (cmux-page://cmux.chief-usage/); its table lives next to it.
+  "chief-usage": {
+    out: "webviews/src/pages/chief-usage/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/chief-usage/Localizable.xcstrings" }],
   },
   // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
   coderouter: {

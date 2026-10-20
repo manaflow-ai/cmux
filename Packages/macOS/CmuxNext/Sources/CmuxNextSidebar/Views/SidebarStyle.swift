@@ -6,7 +6,7 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
+    static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
     /// Height of a placeholder row's bar (about a caption's x-height).
@@ -44,7 +44,15 @@ enum SidebarStyle {
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     static var dragThreshold: CGFloat { Metrics.space2 }
-    static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 10 }
+    /// Rows realized past each edge of the visible list. A scroll draws rows as they come in
+    /// (one or two a frame), so a deep overscan bought nothing and cost every frame: each realized
+    /// or parked row view is a subtree AppKit walks per scroll frame (tracking areas, layout,
+    /// display), 10 rows a side made a scroll cost grow with the workspace count
+    /// (sidebar-scroll-perf-DESIGN.md).
+    static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 3 }
+    /// Extra distance past the realization rect before a row view is parked, so a row at the
+    /// edge does not park and come back on every small scroll.
+    static var pruneMargin: CGFloat { Metrics.sidebarRowHeightWithSubtitle }
 
     /// Workspace titles: regular weight, read or unread, selected or not
     /// (Lawrence 2026-10-14: "sidebar text should not be bold by default"),

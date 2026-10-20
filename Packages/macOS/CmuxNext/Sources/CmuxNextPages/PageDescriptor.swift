@@ -162,6 +162,8 @@ public extension PageDescriptor {
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
                   "browserProfile.manageExtensions", "browserProfile.delete", "browserProfile.clearBrowsingData",
                   "reloadConfiguration",
+                  // Machines > Add Server… opens the Add Server card (no code: the page never approves).
+                  "server.addServer",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
             .union(settingsSectionActions),

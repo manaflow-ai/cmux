@@ -1869,6 +1869,7 @@ jobs:
           workspaces: |
             cmux-tui -> target/acpmux-app
             Native/OptChat/optchat-chief -> target/app
+            cnx-ios/rust -> target/cnx-hostd-app
           shared-key: nightly-next-rust-helpers
           cache-all-crates: true
 
@@ -1926,6 +1927,21 @@ jobs:
           echo "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1" >> "$GITHUB_ENV"
           # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
           echo "CMUX_NEXT_REQUIRE_UBLOCK=1" >> "$GITHUB_ENV"
+
+      # The cmux cnx iPhone host (cnx-ios/rust/crates/cnx-hostd), which
+      # Settings > Mobile runs: the Release build's "Bundle cnx-hostd" phase
+      # copies it to Resources/bin, and sign-cmux-bundle-helpers.sh signs it
+      # with the app's Developer ID, hardened runtime and the helper
+      # entitlements before notarization, like every Mach-O there.
+      - name: Build the cnx iPhone host (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        run: |
+          set -euo pipefail
+          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
+          hostd_bin="$RUNNER_TEMP/cmux-next-cnx-hostd/cnx-hostd"
+          CMUX_NEXT_CNX_HOSTD_ARCHS="$archs" scripts/cmux-next/build-cnx-hostd.sh --output "$hostd_bin"
+          echo "CMUX_NEXT_CNX_HOSTD_BIN=$hostd_bin" >> "$GITHUB_ENV"
+          echo "CMUX_NEXT_REQUIRE_CNX_HOSTD=1" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
@@ -2018,6 +2034,13 @@ jobs:
         run: |
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
+          # The remote browser host the Embed remote browser host phase puts in
+          # Contents/Helpers (phone browser tabs, arm64). From R2 with the same key;
+          # unavailable, the app builds without it (the phase warns). A digest
+          # mismatch fails here. The tailnet store is not reachable from runners.
+          if [[ -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
+            CMUX_RB_HOST_NO_STORE=1 scripts/cmux-next/ensure-remote-browser-host.sh --optional >/dev/null
+          fi
 
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
       # bundles: the daemon, app host and Cloud server come from this tree
@@ -2029,8 +2052,10 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
         env:
           CMUX_NOTICES_ALLOW_CARGO: "1"
-          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
         run: |
+          # A trusted NEXT worker keeps the crate sources between jobs
+          # (nightly_build_state.py); every other runner downloads them.
+          export CMUX_NOTICES_CACHE="${CMUX_NEXT_NOTICES_CACHE:-$RUNNER_TEMP/cmux-notices}"
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
@@ -2755,15 +2780,17 @@ jobs:
           done
           # The cmux-next nightly carries the OptChat Chief with the app's slices.
           if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
-            chief="$APP/Contents/Resources/bin/optchat-chief"
-            [ -x "$chief" ] || { echo "nightly-next is missing bin/optchat-chief" >&2; exit 1; }
-            archs="$(lipo -archs "$chief")"
-            echo "$chief: $archs"
-            if [ "$NIGHTLY_VARIANT" = "universal" ]; then
-              [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
-            else
-              [ "$archs" = "$NIGHTLY_VARIANT" ]
-            fi
+            for helper in optchat-chief cnx-hostd; do
+              binary="$APP/Contents/Resources/bin/$helper"
+              [ -x "$binary" ] || { echo "nightly-next is missing bin/$helper" >&2; exit 1; }
+              archs="$(lipo -archs "$binary")"
+              echo "$binary: $archs"
+              if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+                [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+              else
+                [ "$archs" = "$NIGHTLY_VARIANT" ]
+              fi
+            done
           fi
           # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
           for alias in cmux-tui acpmux; do
@@ -3256,6 +3283,11 @@ jobs:
       - name: Codesign apps
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Chromium on demand (plans/cmux-next/bundle-size-DESIGN.md 6.6): off
+          # until the repository variable CMUX_NEXT_CEF_ON_DEMAND is 1.
+          CMUX_NEXT_CEF_ON_DEMAND: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && '1' || '' }}
+          CMUX_NEXT_CEF_RUNTIME_OUT: ${{ runner.temp }}/cef-runtime
+          CMUX_NEXT_CEF_RUNTIME_BASE_URL: https://files-next.cmux.com
         run: |
           if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
@@ -3272,6 +3304,17 @@ jobs:
             "$CHANNEL_ENTITLEMENTS" \
             "$APPLE_SIGNING_IDENTITY"
 
+
+      # The runtime pack the app's pin names; publish-nightly uploads it
+      # before the appcast.
+      - name: Upload the Chromium runtime pack
+        if: needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cef-runtime-pack
+          path: ${{ runner.temp }}/cef-runtime
+          if-no-files-found: error
+          retention-days: 7
 
       # Onboarding grants Accessibility and Screen Recording only to a helper
       # that passes the Developer ID requirement (cx-urd.6).
@@ -3916,6 +3959,9 @@ jobs:
       - name: Bundle size budget
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
         continue-on-error: true
+        env:
+          # Chromium on demand ships no engine in the app (bundle-size-DESIGN.md 6).
+          BUDGET_VARIANT: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && 'arm64-cef-on-demand' || 'arm64' }}
         run: |
           set -euo pipefail
           # The Linux checks job skips this macOS-only test of the release strip.
@@ -3933,7 +3979,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           python3 -I scripts/cmux-next/bundle-size.py check "$app" --dmg "$release" \
-            --budget scripts/cmux-next/bundle-size-budget.json --variant arm64
+            --budget scripts/cmux-next/bundle-size-budget.json --variant "$BUDGET_VARIANT"
 
       - name: Upload tested DMG digests
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
@@ -3943,6 +3989,48 @@ jobs:
           path: tested/tested-${{ matrix.variant }}.sha256
           if-no-files-found: error
           retention-days: 3
+
+      # The smokes leave daemons of the shipped bundle running (the app keeps
+      # its cmux-tui and acpmux daemons by design). On a hosted runner the
+      # runner then spends 3 to 5 minutes in "Cleaning up orphan processes"
+      # before the job ends (run 39395352101: two `cmux` orphans,
+      # 09:27:36-09:31:01). List what is left, then stop the daemons of this
+      # job's bundle through their own commands. Ephemeral runner only.
+      - name: Stop the daemons the smokes left
+        if: always() && env.TRACK == 'nightly-next'
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          set -uo pipefail
+          echo "cmux processes left by the smokes:"
+          ps -axww -o pid=,ppid=,lstart=,args= | grep -i cmux | grep -v grep || true
+          app="$GITHUB_WORKSPACE/$CHANNEL_APP_PATH"
+          bin="$app/Contents/Resources/bin"
+          [ -d "$bin" ] || exit 0
+          # shellcheck source=/dev/null
+          source scripts/lib/stop-cmux-tui-owners.sh
+          cmux_stop_cmux_tui_owners "$(cd -P "$bin" && pwd)"
+          # The DMG smoke's owners ran from the detached mount, so ask each
+          # remaining owner to stop through its socket with this bundle's
+          # cmux-tui; SIGTERM only that exact PID if the request fails.
+          ps -axww -o pid= -o args= | while read -r pid args; do
+            case "$args" in
+              */Contents/Resources/bin/cmux-tui\ --headless\ *) ;;
+              *) continue ;;
+            esac
+            socket="$(printf '%s\n' "$args" | sed -nE 's/.* --socket ([^ ]+).*/\1/p')"
+            if [ -n "$socket" ] && "$bin/cmux-tui" --socket "$socket" server stop --end-terminals >/dev/null 2>&1; then
+              continue
+            fi
+            kill -TERM "$pid" 2>/dev/null || true
+          done
+          # `cmux acp` finds the bundle's own acpmux build home (a bare
+          # `acpmux` would use ~/.acpmux). The DMG app has the same bundle id.
+          if [ -x "$bin/cmux" ]; then
+            "$bin/cmux" acp daemon shutdown --end-agents >/dev/null 2>&1 || true
+          fi
+          echo "cmux processes after the stop:"
+          ps -axww -o pid=,ppid=,args= | grep -i cmux | grep -v grep || true
 
 
   # nightly-next continuation. A build whose notarization wait ran out left a
@@ -4578,6 +4666,16 @@ jobs:
           # text; cx-lntk). The app shows the same lines from the signed notes.
           if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" != "$NOTES_HEAD" ]; then
             ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
+            # The changelog gate (2026-10-20, Lawrence: "the change log needs to be better at all
+            # times"): before any asset uploads, the span's notes must give the update card real
+            # What's New entries. A span with none fails here instead of shipping a card that says
+            # only "What's new in this build"; sign-release-notes builds the same notes later.
+            gate_dir="$(mktemp -d)"
+            python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
+              --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
+              --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" --out "$gate_dir" >/dev/null
+            python3 scripts/cmux-next/release-notes.py check --notes "$gate_dir/$NIGHTLY_BUILD.json"
+            rm -rf "$gate_dir"
             python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
               --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
             # The GitHub release body lists the same span's PRs (the two release
@@ -4884,6 +4982,25 @@ jobs:
       # The nightly-next track writes only its own bucket prefix with its own
       # scoped token (release-next secrets), after the guard has checked every
       # appcast enclosure and object key. It never receives CF_R2_* .
+      # Chromium on demand: the pack the app's pin names goes up before the
+      # appcast that offers the app. A recovered build from another run has no
+      # pack artifact here, so this fails and nothing is offered.
+      - name: Download the Chromium runtime pack
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cef-runtime-pack
+          path: cef-runtime
+
+      - name: Publish the Chromium runtime pack
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: bash "$PUBLISH_TOOLING/cmux-next/publish-cef-runtime.sh" cef-runtime
+
       - name: Upload nightly-next appcasts to R2
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:

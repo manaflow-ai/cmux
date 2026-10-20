@@ -70,8 +70,9 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "equalizeSplits",
                 title: String(localized: "action.equalizeSplits", defaultValue: "Equalize Splits", bundle: .module),
+                // Ctrl-Cmd-= as Ghostty's `equalize_splits` (Lawrence 2026-10-19); the interface scale moved to Ctrl-Shift-Cmd.
                 keywords: ["balance", "resize"],
-                defaultShortcut: Shortcut("=", modifiers: [.control, .shift, .command]), category: .pane,
+                defaultShortcut: Shortcut("=", modifiers: [.control, .command]), category: .pane,
                 symbol: "equal.square", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane equalize-splits", mainMenu: .view
             ),
@@ -107,8 +108,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusLeft",
                 title: String(localized: "action.focusLeft", defaultValue: "Focus Pane Left", bundle: .module),
                 keywords: ["navigate"],
-                // Ctrl-Cmd-H: Cmd-Opt-Left is a Chrome tab key (KeyBindingDefaults.tabSwitching).
-                defaultShortcut: Shortcut("h", modifiers: [.control, .command]), category: .pane,
+                // Ghostty's goto_split:left, reserved (schemas/keybindings/ghostty-reserved-keys.json).
+                defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.option, .command]), category: .pane,
                 symbol: "arrow.left.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-left"
             ),
@@ -116,8 +117,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusRight",
                 title: String(localized: "action.focusRight", defaultValue: "Focus Pane Right", bundle: .module),
                 keywords: ["navigate"],
-                // Ctrl-Cmd-L: Cmd-Opt-Right is a Chrome tab key (KeyBindingDefaults.tabSwitching).
-                defaultShortcut: Shortcut("l", modifiers: [.control, .command]), category: .pane,
+                // Ghostty's goto_split:right, reserved (schemas/keybindings/ghostty-reserved-keys.json).
+                defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.option, .command]), category: .pane,
                 symbol: "arrow.right.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-right"
             ),

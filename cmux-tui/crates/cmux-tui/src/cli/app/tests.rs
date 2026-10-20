@@ -15,7 +15,9 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
-        | AppCommand::Settings(_) => {
+        | AppCommand::Right { .. }
+        | AppCommand::Settings(_)
+        | AppCommand::Version => {
             panic!("expected a call")
         }
     }
@@ -755,7 +757,9 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
-        | AppCommand::Settings(_) => {
+        | AppCommand::Right { .. }
+        | AppCommand::Settings(_)
+        | AppCommand::Version => {
             panic!("expected a call")
         }
     };
@@ -1203,3 +1207,54 @@ fn settings_validate_reports_what_the_owner_would() {
         local(parse(&args(&["settings", "validate", missing.as_str()])).unwrap().unwrap());
     assert_eq!(missing.unwrap_err()["code"], "settings.unreadable");
 }
+
+/// Lawrence 2026-10-19: `cmux <noun> move-to-window --new` moves the object
+/// to a new window, as `cmux <noun> move-to-new-window` does, for every noun.
+#[test]
+fn move_to_window_new_is_move_to_new_window() {
+    for noun in
+        ["tab", "tab-group", "pane", "workspace", "workspace-group", "screen", "screen-group"]
+    {
+        let name = format!("{noun} move-to-window");
+        assert_eq!(
+            new_window_spelling(&name, &args(&["--new", "--target", "x1"])),
+            Some((format!("{noun} move-to-new-window"), args(&["--target", "x1"]))),
+            "{noun}"
+        );
+        assert_eq!(
+            new_window_spelling(&name, &args(&["--target", "x1", "--new=true"])),
+            Some((format!("{noun} move-to-new-window"), args(&["--target", "x1"]))),
+            "{noun} --new=true"
+        );
+    }
+    // Without --new it names a window: the action keeps its own name.
+    assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--window", "w1"])), None);
+    assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--new=false"])), None);
+    assert_eq!(new_window_spelling("workspace rename", &args(&["--new"])), None);
+}
+
+/// A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host) names the
+/// Home chat too, so the app opens its tabs beside Home's chat when it does not
+/// know the turn's agent session (a Cloud Chief turn on a VM, or a local turn).
+#[test]
+fn a_chief_turn_names_the_home_chat_as_its_caller() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    };
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "turn-1"), ("CMUX_CALLER_HOME_CHAT", "1")])),
+        Some(json!({ "agent_session": "turn-1", "home_chat": true }))
+    );
+    assert_eq!(
+        caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "1")])),
+        Some(json!({ "home_chat": true }))
+    );
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "turn-1")])),
+        Some(json!({ "agent_session": "turn-1" }))
+    );
+    assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
+}
+
+#[path = "right_tests.rs"]
+mod right;

@@ -80,6 +80,7 @@ pub mod sha256;
 pub mod stats;
 pub mod store;
 pub mod subagents;
+pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
 pub mod transcript;
