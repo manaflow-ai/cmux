@@ -34,7 +34,7 @@ public final class CmuxToastView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     private func build() {
-        let label = NSTextField(wrappingLabelWithString: toast.message)
+        let label = ChromeLabel(wrappingLabelWithString: toast.message)
         label.font = Typography.body
         label.maximumNumberOfLines = 3
         label.preferredMaxLayoutWidth = 360

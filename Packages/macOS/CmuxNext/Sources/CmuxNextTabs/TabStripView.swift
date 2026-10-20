@@ -59,9 +59,6 @@ public final class TabStripView: NSView {
     let scrollingLayer = CALayer()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
     let newTabButton = NewTabButtonView()
-    /// The one-time Shrink-mode hint (`TabOverflowHintPresenter`).
-    private(set) lazy var overflowHints = TabOverflowHintPresenter(strip: self)
-    var overflowHint: TabOverflowHintView? { overflowHints.hint }
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
@@ -72,9 +69,14 @@ public final class TabStripView: NSView {
     var cells: [TabID: TabCell] = [:]
     let windowMain = WindowMainObserver()
     let windowVisibility = WindowVisibilityObserver()
+    /// In a window and not hidden (`syncShown`).
+    private(set) var isShownInWindow = false
+    /// An appearance or scale change came while hidden; applied when shown.
+    private var appearanceIsStale = false
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
-    var motion: [TabID: TabMotion] = [:]
+    /// Every tab's and chip's target geometry (`TabPlace`); Core Animation shows the motion to it.
+    var placed: [TabID: TabPlace] = [:]
     var dying: Set<TabID> = []
     /// A closing tab's left neighbour when it closed (nil entry: it was the first tab); `pinClosingTabs`
     /// pins the closing tab to that tab's slot, so a tab opened meanwhile cannot move it a slot.
@@ -82,7 +84,22 @@ public final class TabStripView: NSView {
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
-    var scroll = Spring(value: 0, token: .scroll, kind: .position)
+    /// The strip's scroll offset (its target; a reveal's spring is a Core Animation move).
+    var scrollOffset: CGFloat = 0
+    /// The last strip move's generation (`TabStripMove`).
+    var moveGeneration = 0
+    /// When a closing tab's or chip's last move ends: it goes then (`moveEnded`).
+    var goesAt: [TabID: CFTimeInterval] = [:]
+    /// Takes the scroll part of every move (a reveal's spring, a relayout that keeps the selected tab
+    /// in view) and nothing else: what they add now is its presentation x minus its model x (`settleScroll`).
+    let scrollProbe: CALayer = {
+        let probe = CALayer()
+        probe.actions = ["position": NSNull(), "bounds": NSNull()]
+        probe.opacity = 0
+        return probe
+    }()
+    /// Tabs whose occlusion mask follows the moves in flight, and when that path ends (`updateOcclusion`).
+    var occlusionEnds: [TabID: CFTimeInterval] = [:]
     var closingModeWidth: CGFloat?
     var closingHit = TabClosingModeHit()
     /// Closing mode's exit: the pointer leaving the strip's extended area (`TabClosingModeWatch`).
@@ -94,10 +111,8 @@ public final class TabStripView: NSView {
     var lastSyncedInput: ModelSnapshot?
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
-    /// Springs and drag autoscroll step on the window's one `MotionClock`,
-    /// with the window's other chrome springs.
+    /// Drag autoscroll steps on the window's one `MotionClock`; nothing else in the strip does.
     weak var motionClock: MotionClock?
-    var isAnimating: Bool { motionClock?.isRunning(self) ?? false }
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
 
@@ -186,7 +201,7 @@ public final class TabStripView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var mouseDownCanMoveWindow: Bool { false }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     /// Keyboard navigation (the key view loop, Full Keyboard Access) may focus the strip, where F2
@@ -220,8 +235,6 @@ public final class TabStripView: NSView {
     // Every event is handled here, never by a tab subview.
     public override func hitTest(_ point: NSPoint) -> NSView? {
         let local = superview.map { convert(point, from: $0) } ?? point
-        // The overflow hint's buttons take their own clicks.
-        if let hint = overflowHint, !hint.isHidden, let hit = hint.hitTest(contentView.convert(local, from: self)), hit !== hint { return hit }
         return bounds.contains(local) ? self : nil
     }
 
@@ -241,20 +254,21 @@ public final class TabStripView: NSView {
             }
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
-        if let hint = overflowHint, !hint.isHidden { children.append(contentsOf: [hint.label, hint.useButton, hint.dismissButton]) }
         return children
     }
 
     // MARK: - Lifecycle
 
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        // A move to another window (or none) ends this strip's card only.
+        if newWindow !== window { syncShown(false) }
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // A move to another window (or none) ends this strip's card only.
-        hoverCards.unregister(hoverCard)
-        windowMain.observe(window) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
-        windowVisibility.observe(window) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }
+        syncShown()
         if window != nil {
-            hoverCards.register(hoverCard)
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()
@@ -266,25 +280,71 @@ public final class TabStripView: NSView {
             tokenObservationTask = nil
             motionClock?.stop(self)
             motionClock = nil
-            groupEditor.hide()
-            overflowHints.hide()
-            groups.holdTask?.cancel()
-            escapeMonitor.remove()
-            closingWatch.end()
-            // Closing mode belongs to this window's pointer; the strip in another window lays out fully.
-            closingModeWidth = nil
-            menuTracking.end()
-            buttonReveal.pointerInStrip = false
+            endPointerState()
+        }
+    }
+
+    /// The strip leaves sight (its window, or hidden in it): its editor panel and pointer
+    /// state end, since it gets no exit while hidden. Closing mode belongs to this window's
+    /// pointer; the strip shown again lays out fully.
+    private func endPointerState() {
+        groupEditor.hide()
+        groups.holdTask?.cancel()
+        escapeMonitor.remove()
+        closingWatch.end()
+        closingModeWidth = nil
+        menuTracking.end()
+        buttonReveal.pointerInStrip = false
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        syncShown(false)
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        syncShown()
+    }
+
+    /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a
+    /// shown strip: a hidden one (a parked workspace, still in its window, or a hidden screen bar)
+    /// is not in them, and an appearance or scale change waits until it shows. Showing re-reads
+    /// the window's state; its model observation never stopped, so its cells are current.
+    func syncShown(_ shown: Bool? = nil) {
+        let shown = shown ?? (window != nil && !isHiddenOrHasHiddenAncestor)
+        guard shown != isShownInWindow else { return }
+        isShownInWindow = shown
+        hoverCards.unregister(hoverCard)
+        windowMain.observe(shown ? window : nil) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
+        windowVisibility.observe(shown ? window : nil) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }
+        guard shown else {
+            if window != nil { endPointerState() }
+            return
+        }
+        hoverCards.register(hoverCard)
+        if appearanceIsStale {
+            appearanceIsStale = false
+            applyAppearance()
+            applyFrames()
         }
     }
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        guard isShownInWindow || window == nil else {
+            appearanceIsStale = true
+            return
+        }
         applyAppearance()
     }
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        guard isShownInWindow || window == nil else {
+            appearanceIsStale = true
+            return
+        }
         applyAppearance()
         applyFrames()
     }
@@ -318,7 +378,6 @@ public final class TabStripView: NSView {
             chip.font = Typography.caption
         }
         groupEditor.hide()
-        overflowHint?.applyTokens()
         newTabButton.needsLayout = true
         glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
         invalidateIntrinsicContentSize()
@@ -334,8 +393,7 @@ public final class TabStripView: NSView {
         if glassView == nil { contentView.frame = bounds }
         let padding = metrics.stripHorizontalPadding
         windowControlsInset = computeWindowControlsInset()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? metrics.newTabButtonWidth : 0) - overflowHints.reserve)
-        overflowHints.layout()
+        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? metrics.newTabButtonWidth : 0))
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.

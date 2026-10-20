@@ -81,23 +81,15 @@ extension TabContentCache {
             if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key) }
             applyLifecycle(lifecycle.send(.released(key)))
         }
-        presenters = presenters.filter { $0.value.value != nil }
+        for displaced in effects.displaced where presenters[displaced.owner]?.value == nil { presenters[displaced.owner] = nil } // O(changed); removePresenter drops the rest
         presentationChanges.notify(changed: Set(effects.rendering.keys).union(effects.evicted).union(effects.displaced.map(\.key)))
     }
 
-    /// A hidden terminal leaves the warm set: its last picture (off the main thread) stays, then it closes.
+    /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
     private func evict(_ entry: TerminalEntry, key: String) {
+        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: evictsAtOnce)
         entry.session.view.removeFromSuperview()
-        guard !evictsAtOnce, TerminalOutput.shows(entry.session) else { return entry.close() }
-        Task { [weak self] in
-            let generation = self?.lifecycle.record(key)?.generation
-            let image = await entry.session.snapshotInBackground(maxPixelSize: 480)
-            entry.close()
-            // Not for a closed tab (no record), a live surface again, or a newer eviction (generation after `.released`).
-            guard let image, let self, self.terminals[key] == nil, let record = self.lifecycle.record(key),
-                  record.generation == generation else { return }
-            self.previews.insert(image, for: key)
-        }
+        entry.close()
     }
 
     // MARK: Lifecycle effects
@@ -147,6 +139,9 @@ extension TabContentCache {
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = false
             entry.io.setVisible(true)
+            // A new session after an eviction shows its last frame until its content draws (one that
+            // parsed its content while hidden draws it now: no hold).
+            lastFrames.show(key, on: entry.session)
         }
         if let entry = browsers[key] {
             entry.tab.setContentVisible(true)
@@ -162,9 +157,12 @@ extension TabContentCache {
             entry.io.setVisible(false)
         }
         if let entry = browsers[key] {
-            // Only a page that was on screen: a page created or restored
-            // hidden has nothing worth a thumbnail yet.
-            if shownPages.remove(key) != nil { capturePagePreview(entry, key: key, token: token) }
+            // Only a page that was on screen (one created or restored hidden has nothing worth a
+            // thumbnail), and only when it navigated or loaded since its last picture: the engine
+            // cannot picture a hidden page, so this is its last chance; a plain switch takes none.
+            if shownPages.remove(key) != nil, !pagePictureIsCurrent(entry, key: key) {
+                capturePagePreview(entry, key: key, token: token)
+            }
             entry.tab.setContentVisible(false)
         }
         hibernation?.tabDidHide(key)

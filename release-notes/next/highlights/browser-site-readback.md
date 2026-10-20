@@ -1,4 +1,5 @@
-title: Agent emails, invitations and document edits check their target first
+title: Agent emails, invites and doc edits check their target
 category: fixed
+docs: https://cmux.com/docs/browser-automation
 
-Before an agent sends a Gmail message through cmux's site helpers, cmux checks that the To, Cc and Bcc recipients and the subject are the ones the user approved. For a reply, the recipients are read when the draft is made, so the draft shows who will receive it. Before an agent saves a Google Calendar event or sends its invitations, cmux checks the title, the start and end time and the guests. Before a confirmed edit of a shared Google Doc, Sheet or Slides file, cmux checks that it is the same file with the same title and sharing, that Find and replace holds the drafted text, and that the selected cells are the drafted range. On any difference, nothing is sent, saved or changed, and the error names the field.
+Before an agent sends a Gmail message, saves a Calendar event or edits a shared Google file, cmux checks the recipients, times, guests or file against what you approved. On any difference nothing changes, and the error names the field.

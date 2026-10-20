@@ -19,6 +19,7 @@ import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../.
 import type { TurnActions } from "./turnActions";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
 export function WorkedFor({
@@ -56,7 +57,14 @@ export function WorkedFor({
 function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean): ReactNode {
   switch (group.type) {
     case "group":
-      return <ToolGroupRow key={group.items[0]!.tool!.id || index} kind={group.kind} items={group.items} />;
+      return (
+        <ToolGroupRow
+          key={group.items[0]!.tool!.id || index}
+          kind={group.kind}
+          items={group.items}
+          disclosureKey={`group:${group.kind}:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
+        />
+      );
     case "message":
       return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
     case "item":
@@ -83,7 +91,7 @@ export function shouldFoldToolRun(
     row.settled === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
   );
 }
-export function ToolRows({ row }: { row: AcpmuxRow }) {
+export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
   // A run in flight (Debug toggle) shows its newest entry alone: one line that replaces itself.
@@ -94,11 +102,19 @@ export function ToolRows({ row }: { row: AcpmuxRow }) {
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
   return (
-    <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-      <div className="cv-tools">
-        {shouldFoldToolRun(row, groups, items ?? []) ? <ToolRun items={items ?? []}>{nodes}</ToolRun> : nodes}
-      </div>
-    </FindReveal.Provider>
+    <TranscriptDisclosureProvider sessionId={sessionId}>
+      <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
+        <div className="cv-tools">
+          {shouldFoldToolRun(row, groups, items ?? []) ? (
+            <ToolRun disclosureKey={`run:${row.id}`} items={items ?? []}>
+              {nodes}
+            </ToolRun>
+          ) : (
+            nodes
+          )}
+        </div>
+      </FindReveal.Provider>
+    </TranscriptDisclosureProvider>
   );
 }
 

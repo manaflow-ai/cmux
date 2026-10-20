@@ -171,7 +171,7 @@ public nonisolated final class CloudHomeSource: HomeSource {
             // task-owner: one inbox list; ends with its reply
             Task { [weak self] in await self?.reloadInbox(generation: generation) }
         case .subscriptionState(let report): apply(report)
-        case .sessionNeeded:
+        case .sessionNeeded, .hostReplicaNeeded:
             break
         case .live(let live): applyLive({ $0.event(live) }, conversation: live.conversation)
         case .runChanged(let changed): applyLive({ $0.event(changed) }, conversation: changed.conversation)
@@ -217,7 +217,7 @@ public nonisolated final class CloudHomeSource: HomeSource {
         case .inboxChanged(let changed): account = changed.account
         case .inboxReset(_, let named): return named.map { cloudID == CloudIdentity.cloudID(stackUserID: $0) } ?? true
         case .subscriptionState(let report): return report.account.map { cloudID == CloudIdentity.cloudID(stackUserID: $0) } ?? true
-        case .sessionNeeded: return true
+        case .sessionNeeded, .hostReplicaNeeded: return true
         case .live(let live): account = live.account
         case .runChanged(let changed): account = changed.account
         }
