@@ -456,7 +456,7 @@ pub struct Brain {
     /// A human message arrived while an acpmux turn ran: that turn is
     /// being stopped, and its end posts nothing.
     stop_wanted: bool,
-    /// The owner stopped the running turn (chief.stop): its end says so.
+    /// The owner stopped the running turn (chief.stop): its end posts nothing.
     owner_stopped: bool,
     /// The running turn's interrupt (a new one per turn).
     interrupt: Arc<crate::turn::Interrupt>,

@@ -16,9 +16,10 @@ import { warmViteServer } from "./support/warmDevServer";
 type Inset = { spread: number; alpha: number };
 
 await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
-  /** The composer edge's alpha over this page's transparent background, and its quiet focus step: 30% text over the edge. */
+  /** The composer edge's alpha over this page's transparent background, and its quiet focus step: 22% text over the edge
+   * (Leo 2026-10-19, a subtler focus; still well past the 8% step an eye could not see). */
   const EDGE = 0.18;
-  const FOCUS = 0.3 + 0.7 * EDGE;
+  const FOCUS = 0.22 + 0.78 * EDGE;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -157,6 +158,22 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
       expect(await shadow(id), `${id} keeps the glass rim`).toContain("0px 1px 0px 0px inset");
       expect(await shadow(id, "::before"), `${id}'s ring layer`).toMatch(/inset/);
     }
+    await page.close();
+  });
+
+  // Over art the focused glass card catches more light on its top edge (the glass rim, #21786), in
+  // place of a heavier ring: the ring keeps its one-device-pixel quiet step.
+  test("over art keyboard focus brightens the glass card's top-lit rim", async () => {
+    const page = await open(2);
+    await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
+    const topRim = async () => (await insets(page, "composer")).find(({ spread }) => spread === 0)?.alpha ?? 0;
+    const rest = await topRim();
+    expect(rest, "the glass card draws its top-lit rim").toBeGreaterThan(0);
+    await page.focus("#composer-field");
+    expect(await topRim(), "focus brightens the top-lit rim").toBeGreaterThan(rest);
+    const ring = (await insets(page, "composer")).filter(({ spread }) => spread > 0);
+    expect(ring.length, "one ring").toBe(1);
+    expect(ring[0]?.alpha, "the ring keeps the quiet focus step").toBeCloseTo(FOCUS, 2);
     await page.close();
   });
 

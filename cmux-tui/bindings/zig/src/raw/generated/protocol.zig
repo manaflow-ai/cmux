@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93";
+pub const ir_sha256 = "6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1044,6 +1044,7 @@ pub const IdMapping = struct {
 };
 
 pub const IdentifyResult = struct {
+    api_revision: wire.Field(u32) = .absent,
     app: []const u8,
     build_commit: wire.Field([]const u8) = .absent,
     build_id: wire.Field([]const u8) = .absent,
@@ -1058,6 +1059,7 @@ pub const IdentifyResult = struct {
     machine_id: ?[]const u8 = null,
     machine_name: ?[]const u8 = null,
     machine_platform: ?MachinePlatform = null,
+    min_api_revision: wire.Field(u32) = .absent,
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
@@ -4463,6 +4465,23 @@ pub fn cloudParticipantAvatarGet(client: anytype, request: CloudParticipantAvata
             .authority = "local-admin",
             .since = 12,
             .capability = "participant-avatars-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudRequestsListRequest = struct {};
+
+pub const CloudRequestsListResult = JsonValue;
+
+pub fn cloudRequestsList(client: anytype, request: CloudRequestsListRequest) !wire.Decoded(CloudRequestsListResult) {
+    return client.callTyped(
+        CloudRequestsListResult,
+        .{
+            .name = "cloud-requests-list",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-conversations-v1",
         },
         request,
     );
@@ -8181,6 +8200,7 @@ pub fn selectWorkspace(client: anytype, request: SelectWorkspaceRequest) !wire.D
 
 pub const SendRequest = struct {
     bytes: wire.Field(Base64) = .absent,
+    expect_foreground: wire.Field([]const u8) = .absent,
     paste: ?bool = null,
     surface: wire.Field(Id) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
@@ -8208,6 +8228,7 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "expect_foreground", .since = null, .capability = "send-expect-foreground-v1" },
                 .{ .name = "paste", .since = 7, .capability = null },
                 .{ .name = "terminal_id", .since = null, .capability = "terminal-input-while-creating-v1" },
             },
@@ -8272,6 +8293,7 @@ pub fn setCellPixels(client: anytype, request: SetCellPixelsRequest) !wire.Decod
 }
 
 pub const SetClientInfoRequest = struct {
+    api_revision: wire.Field(u32) = .absent,
     capabilities: wire.Field([]const []const u8) = .absent,
     device_id: wire.Field([]const u8) = .absent,
     device_kind: wire.Field([]const u8) = .absent,
@@ -8293,6 +8315,7 @@ pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decod
             .since = 6,
             .capability = null,
             .fields = &.{
+                .{ .name = "api_revision", .since = 12, .capability = null },
                 .{ .name = "device_id", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_kind", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_name", .since = 12, .capability = "shared-sizing-v1" },
@@ -11256,7 +11279,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 277;
+pub const command_count: usize = 278;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11315,6 +11338,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-mux-subscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-mux-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-participant-avatar-get", .authority = "local-admin", .since = 12, .capability = "participant-avatars-v1", .stream = null },
+    .{ .name = "cloud-requests-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-clear", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },

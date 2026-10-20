@@ -172,7 +172,7 @@ impl Begun {
             || thumbprint != expected_thumbprint
             || fingerprint_words(thumbprint).is_none()
             || !valid_collect_secret(collect_secret)
-            || expires_at <= now_ms
+            || expires_at.saturating_add(MAX_CLOCK_SKEW_MS) <= now_ms
             || expires_at.saturating_sub(now_ms) > MAX_WAIT_MS + MAX_CLOCK_SKEW_MS
         {
             return Err("pairing.invalid_begin".into());
@@ -220,7 +220,8 @@ pub fn read_frame(text: &str) -> Result<Option<Waited>, String> {
             Ok(Some(Waited::Paired(paired)))
         }
         Some("refused") => Ok(Some(Waited::Refused)),
-        Some("pending") if frame["expires_at"].as_u64().is_some() => Ok(None),
-        _ => Err("pairing.invalid_frame".into()),
+        // Pending, or a type a newer backend added: keep waiting, as Chief did.
+        Some(_) => Ok(None),
+        None => Err("pairing.invalid_frame".into()),
     }
 }

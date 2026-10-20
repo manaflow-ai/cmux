@@ -368,19 +368,19 @@ function mutedNow(entry: Json): boolean {
   return entry.muted === true && (typeof entry.muted_until !== "number" || entry.muted_until > Date.now());
 }
 
-/** A conversation known only from its inbox entry (no people yet): a DM names its peer's id. */
+/** A conversation known only from its inbox entry (no people yet): a DM's peer has no name yet. */
 function fromEntry(entry: Json): HomeConversation {
   const at = time(entry.last_at);
   const peer = typeof entry.dm_peer === "string" ? entry.dm_peer : undefined;
   const participants: HomeParticipant[] = [{ id: LOCAL_USER, kind: "human", name: "You", chief: false }];
   if (peer) {
-    // Named once its head is read; until then a Chief is "Chief" and a person their id (the
-    // daemon's home-inbox rows name them the same way).
+    // Named once its head is read; until then a Chief is "Chief" and a person has no name: an
+    // id is never a name (the daemon's home-inbox rows do the same).
     const chief = entry.kind === "chief";
     participants.push({
       id: peer,
       kind: peer.startsWith("agent_") ? "agent" : "human",
-      name: chief ? "Chief" : peer,
+      name: chief ? "Chief" : "",
       chief,
     });
   }

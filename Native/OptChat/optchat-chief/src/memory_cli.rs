@@ -11,12 +11,13 @@ use crate::paths::Paths;
 
 pub const USAGE: &str = "optchat-chief memory export --text DIR [--mux-home DIR]   the memory as JSONL day files (main/, tree/; the old store's format)
 optchat-chief memory import [--mux-home DIR] DIR          an old JSONL home or an export into an empty memory (host stopped)
-optchat-chief memory search [--mux-home DIR] [--limit N] QUERY  full-text search: messages and summaries holding every word
+optchat-chief memory search [--mux-home DIR] [--limit N] [--json] QUERY  full-text search: messages and summaries holding every word
+                                                          (--json: an array of hits, messages with id, kind, date, snippet and full text)
 optchat-chief memory stats [--mux-home DIR]               counts, schema version, migration record, file size
 optchat-chief memory check [--mux-home DIR]               opens the memory as the host does (host stopped): how it loaded and how long it took";
 
 /// Runs `memory <verb>`; returns what to print.
-pub fn run(flags: &Flags, home: &Path) -> Result<String, String> {
+pub fn run(flags: &Flags, home: &Path, json: bool) -> Result<String, String> {
     let paths = Paths::new(home);
     let words: Vec<&str> = flags.words.iter().skip(2).map(String::as_str).collect();
     match flags.words.get(1).map(String::as_str) {
@@ -58,9 +59,13 @@ pub fn run(flags: &Flags, home: &Path) -> Result<String, String> {
                 .map(|v| v.parse::<usize>().map_err(|e| format!("--limit {v}: {e}")))
                 .transpose()?
                 .unwrap_or(20);
-            let hits = read_only(&paths)?
+            let db = read_only(&paths)?;
+            let hits = db
                 .search(&words.join(" "), limit)
                 .map_err(|e| format!("searching: {e}"))?;
+            if json {
+                return search_json(&db, &hits);
+            }
             Ok(hits
                 .iter()
                 .map(|h| match h {
@@ -101,6 +106,34 @@ pub fn run(flags: &Flags, home: &Path) -> Result<String, String> {
         }
         _ => Err(USAGE.to_owned()),
     }
+}
+
+/// The hits as a JSON array: a message with its id, kind, date, snippet and
+/// full text, a summary node with its name and snippet.
+pub fn search_json(db: &ReadOnly, hits: &[Hit]) -> Result<String, String> {
+    let mut out = Vec::with_capacity(hits.len());
+    for hit in hits {
+        out.push(match hit {
+            Hit::Message { id, kind, snippet } => {
+                let row = db
+                    .message_row(*id)
+                    .map_err(|e| format!("reading message {id}: {e}"))?;
+                serde_json::json!({
+                    "id": id,
+                    "kind": kind,
+                    "date": row.as_ref().map(|r| r.date.as_str()),
+                    "snippet": snippet,
+                    "text": row.as_ref().map(|r| r.text.as_str()),
+                })
+            }
+            Hit::Node { node, snippet } => serde_json::json!({
+                "node": node.name(),
+                "kind": "summary",
+                "snippet": snippet,
+            }),
+        });
+    }
+    Ok(serde_json::Value::Array(out).to_string())
 }
 
 fn read_only(paths: &Paths) -> Result<ReadOnly, String> {
