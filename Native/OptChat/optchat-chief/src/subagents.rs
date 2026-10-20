@@ -1304,6 +1304,22 @@ impl Orchestrator for Spawner {
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
+
+    fn escalate_auth(
+        &self,
+        agent: &str,
+        request: &crate::tools::AuthEscalation,
+    ) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::EscalateAuth {
+            agent: agent.to_owned(),
+            request: request.clone(),
+            reply,
+        })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
 }
 
 /// Queued subagent `id`'s launch from the log, `messages` newest first: the
