@@ -569,7 +569,10 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         .and_then(|value| value.get("workspace"))
         .and_then(Value::as_str)
     {
-        app_focus::overlay_focused(&mut snapshot["workspaces"], shown);
+        app_focus::overlay_focused(
+            &mut snapshot["workspaces"],
+            &app_focus::AppWorkspaces::showing(shown),
+        );
     }
     snapshot
 }
