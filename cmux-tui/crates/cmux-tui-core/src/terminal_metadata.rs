@@ -988,6 +988,22 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_terminal_notification_invisible_formatting_is_removed() {
+        let hidden = "\u{202e}\u{2066}\u{200b}\u{00ad}\u{feff}";
+        let mut metadata = TerminalMetadata::default();
+
+        metadata.observe_output(format!("\x1b]9;Build{hidden} finished\x07").as_bytes());
+        assert_eq!(notes(&mut metadata), vec![("Build finished".into(), String::new())]);
+
+        metadata
+            .observe_output(format!("\x1b]777;notify;Deploy{hidden};Done{hidden}\x07").as_bytes());
+        assert_eq!(notes(&mut metadata), vec![("Deploy".into(), "Done".into())]);
+
+        metadata.observe_output(format!("\x1b]99;;Kitty{hidden}\x1b\\").as_bytes());
+        assert_eq!(notes(&mut metadata), vec![("Kitty".into(), String::new())]);
+    }
+
+    #[test]
     fn cmux_next_terminal_notification_osc9_progress_text_is_still_retained() {
         let mut metadata = TerminalMetadata::default();
         metadata.observe_output(b"\x1b]9;4;1;50\x07");
