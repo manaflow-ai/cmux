@@ -118,6 +118,11 @@ public struct BackdropShuffle: Equatable, Sendable {
         self.rotation = rotation
     }
 
+    /// The picture that shows at `date`, and how long until the next turn (a second past it).
+    public func turn(at date: Date, calendar: Calendar) -> (picture: BackdropSelection?, wait: TimeInterval) {
+        (pick(on: date, calendar: calendar), max(1, rotation.nextTurn(after: date, calendar: calendar).timeIntervalSince(date) + 1))
+    }
+
     /// The picture that shows at `date`; nil for a folder with no pictures.
     public func pick(on date: Date, calendar: Calendar, fileManager: FileManager = .default) -> BackdropSelection? {
         switch source {

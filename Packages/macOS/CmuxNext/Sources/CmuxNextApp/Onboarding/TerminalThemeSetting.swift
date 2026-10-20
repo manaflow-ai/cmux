@@ -128,11 +128,9 @@ final class TerminalThemeSetting {
 
     /// Shows the shuffle's picture of `now()` and turns to the next one when its period ends.
     func showShuffledArt() {
-        guard let shuffling else { return }
-        let (now, calendar) = (now(), calendar())
-        backdropScope.setBackdropSelection(shuffling.pick(on: now, calendar: calendar))
-        let wait = max(1, shuffling.rotation.nextTurn(after: now, calendar: calendar).timeIntervalSince(now) + 1)
-        dailyTimer.schedule(after: .seconds(wait)) { @MainActor [weak self] in self?.showShuffledArt() }
+        guard let turn = shuffling?.turn(at: now(), calendar: calendar()) else { return }
+        backdropScope.setBackdropSelection(turn.picture)
+        dailyTimer.schedule(after: .seconds(turn.wait)) { @MainActor [weak self] in self?.showShuffledArt() }
     }
 
     /// Puts `snapshot`'s appearance on the Ghostty overrides before the
