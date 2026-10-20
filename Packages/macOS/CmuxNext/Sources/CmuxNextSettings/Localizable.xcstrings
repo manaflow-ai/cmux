@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.sidebar.sessionTree.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض مساحة العمل التي بدأها وكيل مساحة عمل أخرى تحتها، ويعرض طلبات الدمج لكل صف ومفاتيح Command مع الرقم للصفوف الأولى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje radni prostor koji je pokrenuo agent drugog radnog prostora ispod njega, te zahtjeve za spajanje svakog reda i tipke Command-broj prvih redova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser et arbejdsområde, som et andet arbejdsområdes agent har startet, under det, og viser hver rækkes pull requests og de første rækkers Command-tal-taster."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt einen Arbeitsbereich, den der Agent eines anderen Arbeitsbereichs gestartet hat, unter diesem an, dazu die Pull Requests jeder Zeile und die Befehl-Ziffer-Tasten der ersten Zeilen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra un espacio de trabajo iniciado por el agente de otro debajo de este, junto con las solicitudes de incorporación de cada fila y las teclas Comando-número de las primeras filas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche sous un espace de travail ceux que son agent a lancés, avec les pull requests de chaque ligne et les touches Commande-chiffre des premières lignes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra uno spazio di lavoro avviato dall'agente di un altro spazio sotto quest'ultimo, con le pull request di ogni riga e i tasti Comando-numero delle prime righe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のワークスペースのエージェントが開始したワークスペースをその下に表示し、各行のプルリクエストと先頭の行の Command-数字キーを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញកន្លែងធ្វើការដែលភ្នាក់ងាររបស់កន្លែងធ្វើការមួយទៀតបានចាប់ផ្តើមនៅក្រោមវា ហើយបង្ហាញសំណើទាញរបស់ជួរនីមួយៗ និងគ្រាប់ចុច Command-លេខ នៃជួរដំបូងៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 작업 공간의 에이전트가 시작한 작업 공간을 그 아래에 표시하고, 각 행의 풀 리퀘스트와 처음 행들의 Command-숫자 키를 보여 줍니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser et arbeidsområde som et annet arbeidsområdes agent startet, under det, og viser hver rads pull requests og de første radenes Command-tall-taster."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje obszar roboczy uruchomiony przez agenta innego obszaru pod nim oraz pull requesty każdego wiersza i klawisze Command-cyfra pierwszych wierszy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra um espaço de trabalho iniciado pelo agente de outro espaço abaixo dele, com os pull requests de cada linha e as teclas Command-número das primeiras linhas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает рабочее пространство, запущенное агентом другого пространства, под ним, а также пул-реквесты каждой строки и клавиши Command-цифра первых строк."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงพื้นที่ทำงานที่เอเจนต์ของพื้นที่ทำงานอื่นเริ่มไว้ใต้พื้นที่ทำงานนั้น พร้อมคำขอรวมโค้ดของแต่ละแถวและปุ่ม Command-ตัวเลขของแถวแรกๆ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir çalışma alanının ajanının başlattığı çalışma alanını onun altında listeler; her satırın çekme isteklerini ve ilk satırların Command-rakam tuşlarını gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує робочий простір, запущений агентом іншого простору, під ним, а також пул-реквести кожного рядка й клавіші Command-цифра перших рядків."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị không gian làm việc do tác tử của không gian khác khởi chạy bên dưới nó, cùng các yêu cầu hợp nhất của từng hàng và phím Command-số của các hàng đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将由另一个工作区的代理启动的工作区列在其下方，并显示每一行的拉取请求以及前几行的 Command-数字键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將由另一個工作區的代理啟動的工作區列在其下方，並顯示每一列的拉取請求以及前幾列的 Command-數字鍵。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.sessionTree": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Tree"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شجرة الجلسات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stablo sesija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionstræ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsbaum"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árbol de sesiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arborescence des sessions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Albero delle sessioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションツリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មែកធាងវគ្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 트리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øktetre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drzewo sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árvore de sessões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дерево сеансов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แผนผังเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum ağacı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дерево сеансів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cây phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段樹"
+          }
+        }
+      }
+    },
     "settings.group.chiefChat": {
       "comment": "Settings group in Agents: how the Chief chat looks.",
       "extractionState": "manual",
