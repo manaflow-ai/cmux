@@ -30,6 +30,8 @@ public nonisolated enum ColumnLayoutSettings {
     public static let rowsFallback = true
     /// `layout.focusPaneOnScroll` defaults on: a scroll over a pane focuses it.
     public static let focusPaneOnScrollFallback = true
+    /// `layout.scrollAreas` defaults off until dogfood (scroll-areas-DESIGN.md, open question 1).
+    public static let scrollAreasFallback = false
     public static let minimumPaneWidthFallback: Double = 200
     public static let minimumPaneHeightFallback: Double = 64
     public static let minimumPaneWidthRange: ClosedRange<Double> = 80...800

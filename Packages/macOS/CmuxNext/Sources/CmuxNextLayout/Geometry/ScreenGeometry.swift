@@ -70,6 +70,12 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// column's vertical offset moves.
     public var rowColumnOfPane: [PaneID: ColumnID] = [:]
     public var rowColumnOfSplit: [SplitID: ColumnID] = [:]
+    /// Horizontal scroll areas (plans/cmux-next/scroll-areas-DESIGN.md G5), keyed by their
+    /// root split, and the area holding each pane and split divider. Empty while
+    /// `LayoutStyle.scrollAreasEnabled` is off.
+    public var scrollAreas: [SplitID: ScrollAreaGeometry] = [:]
+    public var scrollAreaOfPane: [PaneID: SplitID] = [:]
+    public var scrollAreaOfSplit: [SplitID: SplitID] = [:]
 
     public static func compute(_ layout: ScreenLayout, viewport: CGSize, style: LayoutStyle, scale: CGFloat = 2) -> ScreenGeometry {
         switch layout {
