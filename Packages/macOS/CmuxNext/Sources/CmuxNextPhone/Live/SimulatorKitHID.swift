@@ -41,9 +41,16 @@ public final class SimulatorKitHID: SimulatorHIDSending {
         (try? runtime.load()) != nil
     }
 
-    // MARK: SimulatorHIDSending
+    // MARK: SimulatorHIDSending (nonisolated witnesses that run on the main actor)
 
-    public func screenSize(of udid: String) async throws -> CGSize {
+    public nonisolated func screenSize(of udid: String) async throws -> CGSize { try await mainScreenSize(udid) }
+    public nonisolated func send(touches: [PhoneTouch], to udid: String) async throws { try await mainSend(touches: touches, udid) }
+    public nonisolated func send(keys: [PhoneKeyStroke], to udid: String) async throws { try await mainSend(keys: keys, udid) }
+    public nonisolated func press(page: UInt32, usage: UInt32, on udid: String) async throws {
+        try await mainPress(page: page, usage: usage, udid)
+    }
+
+    private func mainScreenSize(_ udid: String) throws -> CGSize {
         let device = try runtime.device(udid)
         let scale = privateObject(device, "deviceType").flatMap { privateNumber($0, "mainScreenScale") } ?? 0
         // The live surface is in the displayed orientation; the device type's size is portrait only.
@@ -56,7 +63,7 @@ public final class SimulatorKitHID: SimulatorHIDSending {
         return CGSize(width: pixels.width / scale, height: pixels.height / scale)
     }
 
-    public func send(touches: [PhoneTouch], to udid: String) async throws {
+    private func mainSend(touches: [PhoneTouch], _ udid: String) async throws {
         let transport = try transport(udid)
         var previous = Duration.zero
         for touch in touches {
@@ -70,7 +77,7 @@ public final class SimulatorKitHID: SimulatorHIDSending {
         }
     }
 
-    public func send(keys: [PhoneKeyStroke], to udid: String) async throws {
+    private func mainSend(keys: [PhoneKeyStroke], _ udid: String) async throws {
         let transport = try transport(udid)
         for stroke in keys {
             if stroke.command { try transport.key(0xE3, down: true) }
@@ -85,7 +92,7 @@ public final class SimulatorKitHID: SimulatorHIDSending {
         }
     }
 
-    public func press(page: UInt32, usage: UInt32, on udid: String) async throws {
+    private func mainPress(page: UInt32, usage: UInt32, _ udid: String) async throws {
         let transport = try transport(udid)
         try transport.button(page: page, usage: usage, down: true)
         // concurrency-allow: a bounded, intended hold; Siri needs a long press, other buttons a short one (injected clock).
