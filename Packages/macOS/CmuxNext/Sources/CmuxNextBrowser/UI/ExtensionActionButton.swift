@@ -68,7 +68,8 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
     }
 
     private func applyIcon(_ action: CEFExtensionAction) {
-        let size = OmnibarStyle.buttonSize
+        // The extension's own image keeps its size (the bar's height) in the larger button.
+        let size = OmnibarStyle.barHeight
         if let data = action.iconPNG, let icon = NSImage(data: data) {
             icon.size = NSSize(width: size, height: size)
             image = icon

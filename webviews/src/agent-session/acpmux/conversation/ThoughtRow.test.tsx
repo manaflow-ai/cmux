@@ -366,6 +366,15 @@ test("with Reduce Motion the toggle opens and closes at once", () => {
   expect(animations).toEqual([]);
 });
 
+test("with explicit animation off the toggle does not schedule a Web Animation", () => {
+  document.documentElement.dataset.agentMotion = "off";
+  height = 900;
+  render(thought(), false, "off-motion:0");
+  click();
+  expect(body()?.textContent).toBe(LONG);
+  expect(animations).toEqual([]);
+});
+
 test("the folded line reads the first line without heading marks", () => {
   expect(thoughtPreview("**Planning the retry fix**\n\nMore detail.")).toBe("Planning the retry fix");
   expect(thoughtPreview("## Check errors\nnext")).toBe("Check errors");
