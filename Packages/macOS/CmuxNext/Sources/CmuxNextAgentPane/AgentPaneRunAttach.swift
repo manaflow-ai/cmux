@@ -3,10 +3,11 @@ import Foundation
 /// `run.attach`: a redeemed durable Run attach ticket, passed to the App so it opens the attempt's
 /// terminal on the enrolled worker daemon as a remote-terminal tab in this pane.
 ///
-/// The App resolves `providerVMID` and `providerTerminalID` against the daemons it already knows
-/// and opens only on a connected one whose session is `session`; the page's `route` is checked
-/// here and kept for diagnostics, never dialed. No route token is accepted, so no credential
-/// reaches the App or a shell. Decoding refuses an expired endpoint (`expiresAtUnix`, seconds).
+/// The App resolves `providerVMID` and `providerTerminalID` against the Cloud machines it already
+/// knows and opens only on a connected one whose session is `session`. Every field is the page's
+/// claim: the route, carrier and expiry checks here only refuse a malformed or stale request, they
+/// do not verify the ticket. The route is never dialed and no route token is accepted, so no
+/// credential reaches the App or a shell. `expiresAtUnix` is in seconds.
 public nonisolated struct AgentPaneRunAttach: Equatable, Sendable {
     public let runID: String
     public let attemptID: String

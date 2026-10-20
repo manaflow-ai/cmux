@@ -158,13 +158,16 @@ extension AgentTabStore {
             guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
         }
-        // A redeemed Run attempt's terminal opens only on a remote worker daemon this Mac already
-        // has connected, whose session is the one the ticket names; the tab's own daemon stores the
-        // remote-terminal reference (RemoteTerminalService.openTerminal does the same).
+        // A redeemed Run attempt's terminal opens only on a Cloud machine (keyed by its provider VM
+        // id) whose daemon this Mac already has connected, with the session the ticket names; never
+        // on this Mac, an SSH host or a paired server. The page's ids are not verified against the
+        // Run API here, so this is the boundary. The tab's own daemon stores the remote-terminal
+        // reference (RemoteTerminalService.openTerminal does the same).
         tabs.runAttach = { [weak services] key, request in
             guard let services, let (_, pane) = services.locateTab(key) else { throw DaemonError.notConnected }
             let home = services.machines.daemon(forPane: pane)
             guard let homeConnection = home.connection,
+                  services.machines.session(request.providerVMID) != nil,
                   let worker = services.machines.daemon(machine: request.providerVMID), !worker.isLocal,
                   worker.connection != nil, let identity = worker.identity, let sessionID = identity.sessionID,
                   identity.session == request.session else {
