@@ -820,7 +820,8 @@ const OfferResultRow = memo(
 
 const NO_STARTED: readonly StartedSession[] = [];
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
-const sameItems = <T,>(a: readonly T[], b: readonly T[]) => a.length === b.length && a.every((item, index) => item === b[index]);
+const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
+  a.length === b.length && a.every((item, index) => item === b[index]);
 
 /// The chats this chat's agent started, as cards where each was started (started/StartedSessionCard.tsx).
 const StartedSessionsRow = memo(
