@@ -6,6 +6,7 @@ final class WindowScopedShortcutHintModifierMonitor {
     private weak var window: NSWindow?
     private let clock: any Clock<Duration>
     private let changed: (NSEvent.ModifierFlags?) -> Void
+    private let keepsHints: (NSEvent) -> Bool
     private var policy = ShortcutHintModifierPolicy()
     private var flagsMonitor: Any?
     private var keyMonitor: Any?
@@ -17,10 +18,15 @@ final class WindowScopedShortcutHintModifierMonitor {
     private let capture = ShortcutHintCaptureWaiter()
     #endif
 
+    /// - Parameters:
+    ///   - keepsHints: Whether a key-down leaves the hints up (a pane-navigation key); others hide them until release.
+    ///   - changed: The held set to show hints for, or nil to hide them.
     init(window: NSWindow, clock: any Clock<Duration> = ContinuousClock(),
+         keepsHints: @escaping (NSEvent) -> Bool = { _ in false },
          changed: @escaping (NSEvent.ModifierFlags?) -> Void) {
         self.window = window
         self.clock = clock
+        self.keepsHints = keepsHints
         self.changed = changed
     }
 
@@ -39,7 +45,8 @@ final class WindowScopedShortcutHintModifierMonitor {
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, eligible else { return event }
-            keyDown()
+            // A mouse-down (Option-click) always hides; a pane-navigation key keeps the chips up.
+            keyDown(keepsHints: event.type == .keyDown && keepsHints(event))
             return event
         }
         for (name, object) in [(NSWindow.didResignKeyNotification, window as AnyObject?),
@@ -73,9 +80,11 @@ final class WindowScopedShortcutHintModifierMonitor {
         }
     }
 
-    func keyDown() {
-        policy.keyDown()
-        hide()
+    /// A key or click in the window: hides and suppresses until release, unless `keepsHints`
+    /// (a pane-navigation key while the modifier stays held: shown chips stay, a pending hold still arms).
+    func keyDown(keepsHints: Bool = false) {
+        policy.keyDown(keepsHints: keepsHints)
+        if !keepsHints { hide() }
     }
 
     #if DEBUG

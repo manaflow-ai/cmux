@@ -20,6 +20,10 @@ extension HomeProjection {
         Task { try? await homeStore.retry(item.key) }
     }
 
+    var canForward: Bool { onForward != nil }
+
+    func forward(_ text: String) { onForward?(text) }
+
     func deleteFailedSend(_ message: ID) {
         guard let item = failedSend(message) else { return }
         homeStore.discardFailed(item.key)

@@ -12,7 +12,7 @@ if [ "$#" -eq 1 ]; then
 fi
 . /etc/cmux/agent-config.sh
 . /etc/cmux/agent-auth.sh
-cmux_opencode_apply_auth_mode
+cmux_opencode_apply_auth_mode || exit $?
 if [ "$cmux_agent_auth_mode" = team ]; then
   cmux_ensure_opencode_config || exit $?
   # A configuration the caller pointed OPENCODE_CONFIG at wins.

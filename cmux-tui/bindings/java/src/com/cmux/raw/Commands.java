@@ -265,6 +265,7 @@ public final class Commands {
     public static final CommandMetadata TERMINAL_HISTORY = new CommandMetadata("terminal-history", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_READ_RANGE = new CommandMetadata("terminal-read-range", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_RESOURCES = new CommandMetadata("terminal-resources", Authority.CONTROL, 12, "terminal-resources-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata TERMINAL_RESUME_COMMAND = new CommandMetadata("terminal-resume-command", Authority.CONTROL, 12, "resume-command", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNDO_LAYOUT = new CommandMetadata("undo-layout", Authority.CONTROL, 9, "layout-undo-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNGROUP_SCREEN_GROUP = new CommandMetadata("ungroup-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNGROUP_TAB_GROUP = new CommandMetadata("ungroup-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -548,6 +549,7 @@ public final class Commands {
         values.put("terminal-history", TERMINAL_HISTORY);
         values.put("terminal-read-range", TERMINAL_READ_RANGE);
         values.put("terminal-resources", TERMINAL_RESOURCES);
+        values.put("terminal-resume-command", TERMINAL_RESUME_COMMAND);
         values.put("undo-layout", UNDO_LAYOUT);
         values.put("ungroup-screen-group", UNGROUP_SCREEN_GROUP);
         values.put("ungroup-tab-group", UNGROUP_TAB_GROUP);
