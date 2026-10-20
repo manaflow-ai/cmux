@@ -56,7 +56,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 28 | React Grab | `toggleReactGrab` | React Grab injection is not ported | Handlers/BrowserHandlers.swift | M | done 2bdb267f752 |
 | 29 | VS Code inline (3) | `palette.openFolderInVSCodeInline`, `palette.vscodeServeWebStop`, `palette.vscodeServeWebRestart` | inline VS Code server is not ported | Handlers/WorkspaceHandlers.swift, Handlers/BrowserHandlers.swift | L | done b3e95eba7ab |
 | 30 | Upgrade to cmux Pro | `palette.pro.upgrade` | needs app capability `account-billing` | Handlers/SettingsHandlers.swift | M (billing: open the web billing page only, no money flow) | todo |
-| 31 | Canvas layout (15) | `toggleCanvasLayout`, `canvasOverview`, `canvasTidy`, `canvasRevealFocusedPane`, `canvasZoomIn/Out/Reset`, `canvasAlign{Left,Right,Top,Bottom}`, `canvasEqualize{Widths,Heights}`, `canvasDistribute{Horizontally,Vertically}` | needs canvas layout | Handlers/PaneHandlers+Verbs.swift | L (new layout engine) | todo |
+| 31 | Canvas layout (15) | `toggleCanvasLayout`, `canvasOverview`, `canvasTidy`, `canvasRevealFocusedPane`, `canvasZoomIn/Out/Reset`, `canvasAlign{Left,Right,Top,Bottom}`, `canvasEqualize{Widths,Heights}`, `canvasDistribute{Horizontally,Vertically}` | needs canvas layout | Handlers/PaneHandlers+Verbs.swift | L (new layout engine) | done 37e5e83a42a |
 
 Not counted as unavailable: `hibernateUnsupported` (a real per-page condition: a page that cannot
 keep its history refuses to hibernate), and per-invocation refusals with a target (no pane to the

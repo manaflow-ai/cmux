@@ -32,8 +32,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// How near the layout reports this pane to the viewport.
     private(set) var presence: SurfacePresence = .hidden
     var isVisible: Bool { presence == .visible }
-    /// Tabs closed locally while the daemon confirms, so a close looks instant.
-    var pendingClosed: Set<String> = []
     var pendingDock: Set<String> = [] // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
     var pendingSelectSurface: SurfaceID?  // set by selectWhenReported* (AgentBesidePlacement)
@@ -153,7 +151,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // only, never the workspace list (a lookup by pane would).
         let ownWorkspace = workspace?.workspace ?? store.workspace(containing: pane.handle)
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
-        let hidden = pendingClosed.union(dockBound)
+        let hidden = dockBound
         var local: [StripTabItem] = []
         for tab in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(tab.id) {
             let page = services.cache.existingBrowser(tab.id)?.tab.state
