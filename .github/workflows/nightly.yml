@@ -3903,6 +3903,8 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
+          # The Linux checks job skips this macOS-only test of the release strip.
+          /bin/bash tests/test_strip_release_bundle_atom_info.sh
           release="final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
           mnt="$RUNNER_TEMP/bundle-size-mnt"
           mkdir -p "$mnt"

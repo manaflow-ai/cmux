@@ -5,6 +5,11 @@
 # 2026-10-20). Builds a real mergeable dylib with clang, so it needs macOS.
 set -euo pipefail
 
+if [ "$(uname -s)" != Darwin ]; then
+  echo "skip: needs macOS (clang -make_mergeable, otool, codesign)"
+  exit 0
+fi
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
