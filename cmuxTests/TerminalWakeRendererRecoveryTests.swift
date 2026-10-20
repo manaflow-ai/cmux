@@ -29,15 +29,19 @@ struct TerminalWakeRendererRecoveryTests {
         }
     }
 
-    @Test
-    func displayWakeNotificationReachesTheRecoveryCallback() {
+    @Test(.timeLimit(.minutes(1)))
+    func systemWakeSchedulesVisibleRendererRecovery() async throws {
         let notificationCenter = NotificationCenter()
-        var displayWakeCount = 0
-        let observers = RemoteSessionPowerObserver().install(
+        let recoveries = AsyncStream<String>.makeStream()
+        defer { recoveries.continuation.finish() }
+        var recoveryIterator = recoveries.stream.makeAsyncIterator()
+        let visible = RecoveryProbe(
+            isRendererEffectivelyVisible: true,
+            recoveredReasons: recoveries.continuation
+        )
+        let observers = TerminalWakeRendererRecoveryObserver().install(
             in: notificationCenter,
-            onWillSleep: {},
-            onDidWake: {},
-            onScreensDidWake: { displayWakeCount += 1 }
+            surfaces: { [visible] }
         )
         defer {
             for observer in observers {
@@ -46,15 +50,17 @@ struct TerminalWakeRendererRecoveryTests {
         }
 
         notificationCenter.post(
-            name: NSWorkspace.screensDidWakeNotification,
+            name: NSWorkspace.didWakeNotification,
             object: nil
         )
 
-        #expect(displayWakeCount == 1)
+        let recoveredReason = try #require(await recoveryIterator.next())
+        #expect(recoveredReason == "workspace.didWake")
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func recoveryCoalescesWakeSignalsAndSkipsHiddenSurfaces() async throws {
+    func observerCoalescesWakeSignalsAndSkipsHiddenSurfaces() async throws {
+        let notificationCenter = NotificationCenter()
         let recoveries = AsyncStream<String>.makeStream()
         defer { recoveries.continuation.finish() }
         var recoveryIterator = recoveries.stream.makeAsyncIterator()
@@ -64,39 +70,30 @@ struct TerminalWakeRendererRecoveryTests {
         )
         let hidden = RecoveryProbe(isRendererEffectivelyVisible: false)
         let scheduler = TerminalWakeRendererRecoveryScheduler()
-
-        scheduler.schedule(
-            surfaces: { [visible, hidden] },
-            reason: "workspace.didWake"
+        let observers = TerminalWakeRendererRecoveryObserver(
+            scheduler: scheduler
+        ).install(
+            in: notificationCenter,
+            surfaces: { [visible, hidden] }
         )
-        scheduler.schedule(
-            surfaces: { [visible, hidden] },
-            reason: "workspace.screensDidWake"
+        defer {
+            for observer in observers {
+                notificationCenter.removeObserver(observer)
+            }
+        }
+
+        notificationCenter.post(
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+        notificationCenter.post(
+            name: NSWorkspace.screensDidWakeNotification,
+            object: nil
         )
 
         let recoveredReason = try #require(await recoveryIterator.next())
         #expect(recoveredReason == "workspace.screensDidWake")
         #expect(visible.reasons == ["workspace.screensDidWake"])
         #expect(hidden.reasons.isEmpty)
-    }
-
-    @Test
-    func appDelegateRoutesDisplayWakeIntoRendererRecovery() {
-#if DEBUG
-        let appDelegate = AppDelegate.shared ?? AppDelegate()
-        appDelegate.debugInstallLifecycleSnapshotObserversForTesting()
-        let initialCount =
-            appDelegate.debugTerminalWakeRendererRecoveryScheduleCount
-
-        NSWorkspace.shared.notificationCenter.post(
-            name: NSWorkspace.screensDidWakeNotification,
-            object: nil
-        )
-
-        #expect(
-            appDelegate.debugTerminalWakeRendererRecoveryScheduleCount
-                == initialCount + 1
-        )
-#endif
     }
 }

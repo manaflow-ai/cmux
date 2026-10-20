@@ -4172,6 +4172,7 @@
 		EC7F0201 /* TerminalUploadFailureNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7F0202 /* TerminalUploadFailureNotificationTests.swift */; };
 		5154BEAB50364B86A9E36E4B /* TerminalViewportUITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */; };
 		EB0A832FDE74A9F033A2070E /* TerminalWakeRendererRecoverable.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0327F2DE7ABBFD81EF977B7 /* TerminalWakeRendererRecoverable.swift */; };
+		AEB72B52AA39D3815EABF1BD /* TerminalWakeRendererRecoveryObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA5B143558E3B53EB4AED3A5 /* TerminalWakeRendererRecoveryObserver.swift */; };
 		A68C771A84DB015148826342 /* TerminalWakeRendererRecoveryScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40E50A4233781F1070F6ED7B /* TerminalWakeRendererRecoveryScheduler.swift */; };
 		3C077963DA99D8121209C8D5 /* TerminalWakeRendererRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B51EAEE3F5D6102032DC4B3 /* TerminalWakeRendererRecoveryTests.swift */; };
 		793800000000000000000006 /* TerminalWindowPortal+DebugDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 793800000000000000000005 /* TerminalWindowPortal+DebugDiagnostics.swift */; };
@@ -8763,6 +8764,7 @@
 		EC7F0202 /* TerminalUploadFailureNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalUploadFailureNotificationTests.swift; sourceTree = "<group>"; };
 		31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TerminalViewportUITestRecorder.swift; sourceTree = "<group>"; };
 		E0327F2DE7ABBFD81EF977B7 /* TerminalWakeRendererRecoverable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalWakeRendererRecoverable.swift; sourceTree = "<group>"; };
+		FA5B143558E3B53EB4AED3A5 /* TerminalWakeRendererRecoveryObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalWakeRendererRecoveryObserver.swift; sourceTree = "<group>"; };
 		40E50A4233781F1070F6ED7B /* TerminalWakeRendererRecoveryScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalWakeRendererRecoveryScheduler.swift; sourceTree = "<group>"; };
 		6B51EAEE3F5D6102032DC4B3 /* TerminalWakeRendererRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalWakeRendererRecoveryTests.swift"; sourceTree = "<group>"; };
 		793800000000000000000005 /* TerminalWindowPortal+DebugDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/RemoteTmux/TerminalWindowPortal+DebugDiagnostics.swift"; sourceTree = "<group>"; };
@@ -12447,6 +12449,7 @@
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
 				E0327F2DE7ABBFD81EF977B7 /* TerminalWakeRendererRecoverable.swift */,
 				40E50A4233781F1070F6ED7B /* TerminalWakeRendererRecoveryScheduler.swift */,
+				FA5B143558E3B53EB4AED3A5 /* TerminalWakeRendererRecoveryObserver.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -17270,6 +17273,7 @@
 				EC7F0101 /* TerminalUploadFailureNotification.swift in Sources */,
 				5154BEAB50364B86A9E36E4B /* TerminalViewportUITestRecorder.swift in Sources */,
 				EB0A832FDE74A9F033A2070E /* TerminalWakeRendererRecoverable.swift in Sources */,
+				AEB72B52AA39D3815EABF1BD /* TerminalWakeRendererRecoveryObserver.swift in Sources */,
 				A68C771A84DB015148826342 /* TerminalWakeRendererRecoveryScheduler.swift in Sources */,
 				793800000000000000000006 /* TerminalWindowPortal+DebugDiagnostics.swift in Sources */,
 				C0DE7A9E000000000000C013 /* TerminalWindowPortal+PaneGeometry.swift in Sources */,

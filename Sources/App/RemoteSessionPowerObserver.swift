@@ -6,8 +6,7 @@ struct RemoteSessionPowerObserver {
     func install(
         in notificationCenter: NotificationCenter,
         onWillSleep: @escaping @MainActor () -> Void,
-        onDidWake: @escaping @MainActor () -> Void,
-        onScreensDidWake: @escaping @MainActor () -> Void = {}
+        onDidWake: @escaping @MainActor () -> Void
     ) -> [NSObjectProtocol] {
         let willSleep = notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification,
@@ -23,13 +22,6 @@ struct RemoteSessionPowerObserver {
         ) { _ in
             MainActor.assumeIsolated { onDidWake() }
         }
-        let screensDidWake = notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidWakeNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            MainActor.assumeIsolated { onScreensDidWake() }
-        }
-        return [willSleep, didWake, screensDidWake]
+        return [willSleep, didWake]
     }
 }
