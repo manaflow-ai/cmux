@@ -606,3 +606,24 @@ impl Hub {
         }
     }
 }
+
+/// Whether a remote chain's Claude Code runs without the Seatbelt sandbox:
+/// only on a `vmHost` machine that is not a Mac (a dedicated agent VM, where
+/// the VM boundary is the sandbox). A Mac always sandboxes.
+pub(crate) fn vm_host_unsandboxed(vm_host: bool, macos: bool) -> bool {
+    let _ = (vm_host, macos);
+    false
+}
+
+#[cfg(test)]
+mod vm_host_tests {
+    use super::vm_host_unsandboxed;
+
+    #[test]
+    fn only_a_vm_host_off_macos_runs_remote_claude_unsandboxed() {
+        assert!(vm_host_unsandboxed(true, false));
+        assert!(!vm_host_unsandboxed(true, true), "a Mac always sandboxes");
+        assert!(!vm_host_unsandboxed(false, false), "off by default");
+        assert!(!vm_host_unsandboxed(false, true));
+    }
+}
