@@ -362,6 +362,8 @@ struct MacScreenCardView: View {
     let model: MacScreenPaneModel
     let actions: MacScreenChromeActions
     @Environment(\.macScreenColors) private var colors
+    /// The card's spinner: the side of a regular `ProgressView`.
+    private static let spinnerSide: CGFloat = 32
 
     var body: some View {
         if let card = model.card {
@@ -410,13 +412,13 @@ struct MacScreenCardView: View {
                     .buttonStyle(MacScreenButtonStyle(role: .primary))
             }
         case let .connecting(reconnecting):
-            ProgressView().controlSize(.regular)
+            ThemedSpinner(size: Self.spinnerSide)
             title(reconnecting ? L.t("macScreen.card.reconnecting", "Reconnecting…")
                 : String(format: L.t("macScreen.card.connecting", "Connecting to %@…"), model.name))
             Button(L.t("macScreen.card.cancel", "Cancel"), action: actions.disconnect)
                 .buttonStyle(MacScreenButtonStyle())
         case .waitingForPicture:
-            ProgressView().controlSize(.regular)
+            ThemedSpinner(size: Self.spinnerSide)
             title(L.t("macScreen.card.waiting", "Waiting for the screen…"))
         case .failed:
             // The session's message can quote the signaling URL (with the room id): never shown.
@@ -426,7 +428,7 @@ struct MacScreenCardView: View {
             HStack {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
                     .buttonStyle(MacScreenButtonStyle())
-                Button(L.t("macScreen.card.retry", "Try Again"), action: actions.connect).keyboardShortcut(.defaultAction)
+                CmuxDialogActionButton(L.t("macScreen.card.retry", "Try Again"), hint: .return, action: actions.connect)
                     .buttonStyle(MacScreenButtonStyle(role: .primary))
                     .accessibilityIdentifier("macScreen.card.retry")
             }
@@ -436,7 +438,7 @@ struct MacScreenCardView: View {
             HStack {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
                     .buttonStyle(MacScreenButtonStyle())
-                Button(L.t("macScreen.card.reconnect", "Reconnect"), action: actions.connect).keyboardShortcut(.defaultAction)
+                CmuxDialogActionButton(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, action: actions.connect)
                     .buttonStyle(MacScreenButtonStyle(role: .primary))
                     .accessibilityIdentifier("macScreen.card.reconnect")
             }
@@ -455,14 +457,14 @@ struct MacScreenCardView: View {
             detail(L.t("macScreen.hub.connectBody", "View Only shows the screen. Full Control also sends your clicks and keys."))
             scopeButtons(primary: .full)
         case let .hubRequesting(scope):
-            ProgressView().controlSize(.regular)
+            ThemedSpinner(size: Self.spinnerSide)
             title(String(format: L.t("macScreen.hub.requesting", "Connecting to %@…"), model.name))
             detail(scope.title)
             Button(L.t("macScreen.card.cancel", "Cancel"), action: actions.cancelRequest)
                 .buttonStyle(MacScreenButtonStyle())
                 .accessibilityIdentifier("macScreen.hub.cancel")
         case let .hubWaiting(scope):
-            ProgressView().controlSize(.regular)
+            ThemedSpinner(size: Self.spinnerSide)
             title(String(format: L.t("macScreen.hub.waitingTitle", "Waiting for %@ to approve…"), model.name))
             detail(String(format: L.t("macScreen.hub.waitingBody", "You asked for %@. Someone at that Mac needs to allow it."), scope.title))
             Button(L.t("macScreen.card.cancel", "Cancel"), action: actions.cancelRequest)
@@ -515,7 +517,7 @@ struct MacScreenCardView: View {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
                     .buttonStyle(MacScreenButtonStyle())
                 if reason.canReconnect {
-                    Button(L.t("macScreen.card.reconnect", "Reconnect"), action: actions.connect).keyboardShortcut(.defaultAction)
+                    CmuxDialogActionButton(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, action: actions.connect)
                         .buttonStyle(MacScreenButtonStyle(role: .primary))
                         .accessibilityIdentifier("macScreen.card.reconnect")
                 }
@@ -587,9 +589,8 @@ struct MacScreenCardView: View {
             Button(L.t("macScreen.hub.view", "View Only")) { actions.requestScope(.view) }
                 .buttonStyle(MacScreenButtonStyle(role: primary == .view ? .primary : .plain))
                 .accessibilityIdentifier("macScreen.hub.connectView")
-            Button(L.t("macScreen.hub.control", "Full Control")) { actions.requestScope(.full) }
+            CmuxDialogActionButton(L.t("macScreen.hub.control", "Full Control"), hint: .return) { actions.requestScope(.full) }
                 .buttonStyle(MacScreenButtonStyle(role: primary == .full ? .primary : .plain))
-                .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("macScreen.hub.connectFull")
         }
     }

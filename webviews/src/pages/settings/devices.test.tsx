@@ -101,7 +101,9 @@ test("the sharing switch sends setSharing; a permission's button sends openPermi
   const group = () => card(page.container).querySelector<HTMLElement>('[data-devices-group="sharing"]')!;
   expect(group().querySelector('[data-devices-permission="screenRecording"]')!.textContent).toContain("Allowed");
   expect(group().querySelector('[data-devices-permission="screenRecording"] button')).toBeNull();
-  await click(group().querySelector('[data-devices-permission="accessibility"] [data-devices-action="openPermission"]')!);
+  await click(
+    group().querySelector('[data-devices-permission="accessibility"] [data-devices-action="openPermission"]')!,
+  );
   expect(nonRefresh(page.provider.deviceRuns)).toEqual([{ action: "openPermission", id: "accessibility" }]);
   const toggle = group().querySelector<HTMLButtonElement>('[data-devices-sharing] [role="switch"]')!;
   expect(toggle.getAttribute("aria-checked")).toBe("true");
@@ -310,7 +312,9 @@ test("a host without a devices provider draws nothing", async () => {
 
 test("a fingerprint shows the whole key on hover and Copy writes it", async () => {
   const page = await open();
-  const self = card(page.container).querySelector<HTMLElement>('[data-devices-group="this"] [data-device="dev-mac-studio"]')!;
+  const self = card(page.container).querySelector<HTMLElement>(
+    '[data-devices-group="this"] [data-device="dev-mac-studio"]',
+  )!;
   const full = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809";
   expect(self.querySelector("[data-device-fingerprint] code")!.getAttribute("title")).toBe(full);
   await click(self.querySelector("[data-device-copy-fingerprint]")!);
@@ -324,7 +328,8 @@ test("history fits its card: fixed columns, names wrap at word boundaries, full 
   expect(table.classList.contains("devices-history-fixed")).toBe(true);
   expect(table.querySelectorAll("colgroup col").length).toBe(7);
   const first = table.querySelector("tbody tr")!;
-  for (const cell of first.querySelectorAll("td.devices-wrap")) expect(cell.getAttribute("title")).toBe(cell.textContent);
+  for (const cell of first.querySelectorAll("td.devices-wrap"))
+    expect(cell.getAttribute("title")).toBe(cell.textContent);
   page.unmount();
 });
 

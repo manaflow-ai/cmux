@@ -198,11 +198,12 @@ public final class MacScreenPages {
         return record.deviceID.map(deviceName) ?? Self.homeTitle
     }
 
-    /// The address bar's answer to a pasted or typed pairing link
-    /// (`cmux-vnc://pair?…`): no longer supported. Never loaded or searched.
-    public static func pairingLinkRefusal(_ url: URL) -> String? {
-        guard url.scheme?.lowercased() == "cmux-vnc" else { return nil }
-        return L.t("macScreen.pairingLinkRefused", "Pairing links are no longer supported. Use Settings › Devices.")
+    /// The answer to a pasted or typed pairing link (`cmux-vnc://pair?…`) in any
+    /// input surface: no longer supported. The App decides what is one
+    /// (`BrowserURLResolver.containsPairingLink`); the text is never loaded,
+    /// searched or sent to an agent.
+    nonisolated public static var pairingLinkRefusal: String {
+        L.t("macScreen.pairingLinkRefused", "Pairing links are no longer supported. Use Settings › Devices.")
     }
 
     /// The hub's sessions end here now with `reason` (this Mac was removed:

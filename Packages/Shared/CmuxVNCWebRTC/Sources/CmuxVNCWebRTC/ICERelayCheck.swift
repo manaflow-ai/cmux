@@ -64,6 +64,7 @@ public struct ICERelayCheck: Sendable {
     }
 
     /// Errors from WebRTC's threads.
+    // crash-allow: `errors` is read and written only inside `lock.withLock`.
     private final class ErrorLog: @unchecked Sendable {
         // @unchecked: `errors` is behind `lock`.
         private let lock = NSLock()

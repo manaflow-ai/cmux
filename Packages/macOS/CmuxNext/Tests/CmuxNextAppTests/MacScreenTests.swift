@@ -111,10 +111,32 @@ struct MacScreenAddressTests {
     @MainActor
     @Test func aPastedPairingLinkIsRefusedWithAWord() throws {
         let link = try #require(BrowserURLResolver().url(for: "cmux-vnc://pair?room=aa&secret=bb&name=Mac"))
-        let refusal = try #require(MacScreenPages.pairingLinkRefusal(link))
+        let refusal = try #require(MacScreenPages.pairingLinkRefusal(for: link.absoluteString))
         #expect(refusal.contains("Settings"))
-        #expect(MacScreenPages.pairingLinkRefusal(MacScreenRecord.homeURL) == nil)
-        #expect(MacScreenPages.pairingLinkRefusal(URL(string: "https://example.com")!) == nil)
+        #expect(MacScreenPages.pairingLinkRefusal(for: MacScreenRecord.homeURL.absoluteString) == nil)
+        #expect(MacScreenPages.pairingLinkRefusal(for: "https://example.com") == nil)
+        // A search for text that holds one (the address bar's other way to send it out).
+        #expect(MacScreenPages.pairingLinkRefusal(for: "https://www.google.com/search?q=hi%20cmux-vnc%3A%2F%2Fpair%3Froom%3Dr") != nil)
+    }
+
+    /// H7 walkthrough: the New Tab field offered "Search the web for cmux-vnc://pair?…" and
+    /// Return asked Codex. The New Tab paths (the page's rows, `newTab.submit` from the CLI,
+    /// MCP and palette) never search, ask an agent with, or load pairing-link text.
+    @Test(arguments: [
+        "cmux-vnc://pair?room=h7dummyroom0000&secret=h7dummysecret0000",
+        "  CMUX-VNC://pair?room=r&secret=s  ",
+        "cmux-vnc:pair?room=r&secret=s",
+        "connect to cmux-vnc://pair?room=r&secret=s please",
+    ])
+    func newTabNeverSearchesAsksOrLoadsAPairingLink(_ text: String) {
+        for search in [false, true] {
+            let plan = NewTabSubmit.plan(text: text, search: search, agent: "codex", resolver: OmniboxResolver(), home: nil)
+            switch plan {
+            case .browser, .chat: Issue.record("\(text.debugDescription) search=\(search) planned \(plan)")
+            default: break
+            }
+        }
+        #expect(!OmniboxRemoteSuggestions.allows(text, resolver: OmniboxResolver()))
     }
 
     @Test(arguments: ["cmux-vnc://other", "cmux://history-elsewhere", "javascript:alert(1)"])

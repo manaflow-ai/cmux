@@ -26,18 +26,26 @@ final class DemoScene {
     var clients = 0
     var animate: Bool
 
-    init(width: Int, height: Int, animate: Bool) {
+    /// Nil when Core Graphics cannot make the bitmap contexts (a size it refuses).
+    init?(width: Int, height: Int, animate: Bool) {
         self.width = width
         self.height = height
         self.animate = animate
-        storage = .allocate(capacity: width * height)
-        storage.initialize(repeating: 0xFF00_0000, count: width * height)
         let space = CGColorSpaceCreateDeviceRGB()
         let info = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        paint = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                          space: space, bitmapInfo: info)!
-        output = CGContext(data: storage, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                           space: space, bitmapInfo: info)!
+        guard let paint = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                    space: space, bitmapInfo: info) else { return nil }
+        let storage = UnsafeMutablePointer<UInt32>.allocate(capacity: width * height)
+        storage.initialize(repeating: 0xFF00_0000, count: width * height)
+        guard let output = CGContext(data: storage, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                     space: space, bitmapInfo: info) else {
+            storage.deinitialize(count: width * height)
+            storage.deallocate()
+            return nil
+        }
+        self.storage = storage
+        self.paint = paint
+        self.output = output
         // Flip both contexts so y grows downward like the framebuffer.
         for context in [paint, output] {
             context.translateBy(x: 0, y: CGFloat(height))

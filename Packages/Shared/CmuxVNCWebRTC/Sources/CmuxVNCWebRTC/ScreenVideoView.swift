@@ -112,6 +112,7 @@ public final class ScreenVideoView: NSView {
 
 /// libwebrtc's renderer callback (decode thread): each frame as a sample
 /// buffer for the display layer, shown at once.
+// crash-allow: `size`, `format` and `pool` are touched only on libwebrtc's one render thread; `onSize` is set before the sink is attached.
 private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sendable {
     // @unchecked: `size` and `format` are touched only on libwebrtc's render thread.
     var onSize: (@Sendable (CGSize) -> Void)?
@@ -133,7 +134,7 @@ private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sen
             size = pixels
             onSize?(pixels)
         }
-        if format == nil || !CMVideoFormatDescriptionMatchesImageBuffer(format!, imageBuffer: pixelBuffer) {
+        if !(format.map { CMVideoFormatDescriptionMatchesImageBuffer($0, imageBuffer: pixelBuffer) } ?? false) {
             format = nil
             CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: pixelBuffer, formatDescriptionOut: &format)
         }
@@ -195,6 +196,7 @@ private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sen
 
 #if canImport(UIKit) || canImport(AppKit)
 /// Counts frames without rendering them.
+// crash-allow: `onFrame` is set once in the view's init, before the tap is attached to a track, and only read after.
 private final class FrameTap: NSObject, RTCVideoRenderer, @unchecked Sendable {
     var onFrame: (() -> Void)?
     func setSize(_ size: CGSize) {}

@@ -97,8 +97,8 @@ final class RFBRectangleDecoder {
     private func inflate(_ reader: RFBReader, stream: inout ZlibStream?, limit: Int) async throws -> [UInt8] {
         let length = Int(try await reader.u32())
         guard length <= RFBLimits.maxCompressedBytes else { throw RFBError.protocolViolation("compressed body of \(length) bytes") }
-        if stream == nil { stream = try ZlibStream() }
-        let inflater = stream!
+        let inflater = try stream ?? ZlibStream()
+        stream = inflater
         return try await reader.withBytes(length) { try inflater.inflate($0, limit: limit) }
     }
 

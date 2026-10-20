@@ -25,6 +25,11 @@ public final class DeviceHub {
     /// Permissions by host id (`GET /v1/permissions?host=`); this device's are fetched on every refresh.
     public private(set) var permissions: [String: [HubPermission]] = [:]
     public private(set) var relays: [HubRelay] = []
+    /// The opened relay secrets this device holds, by relay id: what the Keychain
+    /// holds, loaded off the main actor by ``refreshRelays()`` (a Keychain read can
+    /// take seconds), and kept in step by ``saveRelay(id:name:urls:secret:enabled:priority:)``
+    /// and ``deleteRelay(_:)``. Views read this, never the store.
+    private var openedSecrets: [String: RelaySecret] = [:]
     /// Requests to this device (as host) that wait for ``decide(_:decision:scope:)``.
     public private(set) var pendingRequests: [SessionRequest] = []
     /// Approved sessions' tickets by session id, until the session is denied, revoked or ends.
@@ -44,7 +49,8 @@ public final class DeviceHub {
 
     @ObservationIgnored public let client: DeviceHubClient
     @ObservationIgnored let socket: DeviceHubSocket
-    @ObservationIgnored let secrets: any RelaySecretStore
+    /// The relay secret store (the Keychain): every call off the main actor, one at a time.
+    @ObservationIgnored let vault: RelaySecretVault
     @ObservationIgnored let platform: DevicePlatform
     @ObservationIgnored let now: @Sendable () -> Date
     /// Makes a new identity when the hub refuses this one (`device_removed`, `device_key_mismatch`).
@@ -60,7 +66,7 @@ public final class DeviceHub {
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.client = client
         self.socket = socket ?? DeviceHubSocket(connector: URLSessionDeviceHubConnector(client: client))
-        self.secrets = secrets
+        vault = RelaySecretVault(store: secrets)
         self.deviceName = deviceName
         self.platform = platform
         self.renewIdentity = renewIdentity
@@ -134,6 +140,7 @@ public final class DeviceHub {
         devices = []
         permissions = [:]
         relays = []
+        openedSecrets = [:]
         pendingRequests = []
         tickets = [:]
         audit = []
@@ -192,11 +199,20 @@ public final class DeviceHub {
 
     // MARK: Refresh
 
+    /// Everything again (a reconnect, Settings › Devices › Refresh): pushes have no
+    /// backlog, so nothing read before is trusted. That includes this device's access
+    /// to every other device, read from each host's permission list.
     public func refreshAll() async {
         await refreshMe()
         await refreshDevices()
-        await refreshPermissions(host: identity.id)
+        for host in permissionHosts { await refreshPermissions(host: host) }
         await refreshRelays()
+    }
+
+    /// The hosts whose permission lists a refresh reads: this device's own, then every
+    /// other listed device that shares Mac Screen or whose list was read before.
+    var permissionHosts: [String] {
+        [identity.id] + devices.filter { $0.id != identity.id && ($0.macScreenShared || permissions[$0.id] != nil) }.map(\.id)
     }
 
     public func refreshMe() async {
@@ -204,31 +220,50 @@ public final class DeviceHub {
     }
 
     public func refreshDevices() async {
-        await load { try await $0.devices() } into: { hub, value in hub.devices = value }
+        await load { try await $0.devices() } into: { hub, value in
+            hub.devices = value
+            hub.forgetPermissions(notListedIn: Set(value.map(\.id)))
+        }
+    }
+
+    /// A device that left the list takes its permissions along, as host and as viewer.
+    private func forgetPermissions(notListedIn listed: Set<String>) {
+        guard !listed.isEmpty else { return }
+        for host in permissions.keys where host != identity.id && !listed.contains(host) { permissions[host] = nil }
+        for (host, list) in permissions {
+            let kept = list.filter { listed.contains($0.viewerId) }
+            if kept.count != list.count { permissions[host] = kept }
+        }
     }
 
     public func refreshPermissions(host: String) async {
         await load { try await $0.permissions(host: host) } into: { hub, value in hub.permissions[host] = value }
     }
 
-    /// Fetches the relays and opens (and keeps) each one's secret sealed to this device.
+    /// Fetches the relays, then (off the main actor) opens and keeps each one's
+    /// secret sealed to this device, drops the secrets of relays deleted
+    /// elsewhere, and loads the secrets this device holds into memory.
     public func refreshRelays() async {
-        await load { try await $0.relays() } into: { hub, value in
-            hub.relays = value
-            // A relay deleted elsewhere: its opened secret leaves this Mac too.
-            // One this Mac just saved stays until a listing has shown it
-            // (a listing fetched before the save would not have it yet).
-            let listed = Set(value.map(\.id))
-            hub.savedNotListed.subtract(listed)
-            for id in hub.secrets.relayIDs() where !listed.contains(id) && !hub.savedNotListed.contains(id) {
-                hub.secrets.remove(relayID: id)
-            }
-            let sealing = RelaySealing(identity: hub.identity)
-            for relay in value {
-                guard let blob = relay.sealedForThisDevice, let secret = try? sealing.open(blob, relayID: relay.id) else { continue }
-                hub.secrets.save(secret, relayID: relay.id)
-            }
+        let run = generation
+        let listed: [HubRelay]
+        do { listed = try await client.relays() } catch {
+            guard run == generation else { return }
+            fail(error)
+            return
         }
+        guard run == generation else { return }
+        relays = listed
+        // One this Mac just saved stays until a listing has shown it
+        // (a listing fetched before the save would not have it yet).
+        savedNotListed.subtract(listed.map(\.id))
+        let opened = await vault.sync(listed: listed, keeping: savedNotListed, identity: identity)
+        guard run == generation else { return }
+        // A save or delete while the vault worked wins: keep the relays listed now, and
+        // the ones just saved here with the secret their save put in memory.
+        let listedNow = Set(relays.map(\.id))
+        var held = opened.filter { listedNow.contains($0.key) }
+        for id in savedNotListed { held[id] = openedSecrets[id] ?? opened[id] }
+        openedSecrets = held
     }
 
     public func refreshAudit(limit: Int = 100) async {
@@ -298,6 +333,11 @@ public final class DeviceHub {
     public func removeDevice(_ id: String) async throws {
         try await perform { try await $0.removeDevice(id) }
         devices.removeAll { $0.id == id }
+        // The hub deleted every permission that names it; so does this device.
+        permissions[id] = nil
+        for (host, list) in permissions where list.contains(where: { $0.viewerId == id }) {
+            permissions[host] = list.filter { $0.viewerId != id }
+        }
     }
 
     public func rename(_ id: String, name: String) async throws {
@@ -321,7 +361,8 @@ public final class DeviceHub {
         }
         let update = RelayUpdate(id: id, name: name, urls: urls, authMode: secret.authMode, sealed: sealed, enabled: enabled, priority: priority)
         let relay = try await perform { try await $0.putRelay(update) }
-        secrets.save(secret, relayID: id)
+        openedSecrets[id] = secret
+        await vault.save(secret, relayID: id)
         await refreshRelays()
         return relay
     }
@@ -329,13 +370,15 @@ public final class DeviceHub {
     public func deleteRelay(_ id: String) async throws {
         try await perform { try await $0.deleteRelay(id) }
         savedNotListed.remove(id)
-        secrets.remove(relayID: id)
+        openedSecrets[id] = nil
         relays.removeAll { $0.id == id }
+        await vault.remove(relayID: id)
     }
 
-    /// The opened secret of a relay, when this device has it.
+    /// The opened secret of a relay, when this device has it. From memory: views
+    /// read it on every change, and the Keychain behind it can block for seconds.
     public func relaySecret(_ relayID: String) -> RelaySecret? {
-        secrets.secret(relayID: relayID)
+        openedSecrets[relayID]
     }
 
     /// The ICE servers for a session: the ticket's cmux relay (if any), then
@@ -344,7 +387,7 @@ public final class DeviceHub {
     public func iceServers(for ticket: SessionTicket? = nil) -> [DeviceHubICEServer] {
         let name = thisDevice?.name ?? deviceName
         let mine = relays.filter(\.enabled).sorted { ($0.priority, $0.name) < ($1.priority, $1.name) }.compactMap { relay in
-            secrets.secret(relayID: relay.id).map { RelaySealing.iceServer(relay, secret: $0, deviceName: name, deviceID: identity.id, now: now()) }
+            openedSecrets[relay.id].map { RelaySealing.iceServer(relay, secret: $0, deviceName: name, deviceID: identity.id, now: now()) }
         }
         return (ticket?.ice ?? []) + mine
     }

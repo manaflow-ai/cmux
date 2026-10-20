@@ -8,6 +8,7 @@ import zlib
 /// It speaks no authentication or VNC password authentication, sends Raw or
 /// ZRLE rectangles, and can send the cursor shape. Never bind it beyond
 /// loopback: it is a fixture, not a host.
+// crash-allow: every mutable field is read and written only on `queue` (start, stop, accept, the timer and typedText all hop to it).
 public final class VNCDemoServer: @unchecked Sendable {
     // @unchecked: every mutable field is confined to `queue`.
     public struct Configuration: Sendable {
@@ -119,6 +120,7 @@ public final class VNCDemoServer: @unchecked Sendable {
     }
 }
 
+// crash-allow: `done` is read and written only while `lock` is held.
 final class ResumeGuard: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
@@ -134,6 +136,7 @@ final class ResumeGuard: @unchecked Sendable {
 
 /// One viewer: the handshake and message state machine, its pending damage
 /// and whether it has an update request outstanding. Confined to the queue.
+// crash-allow: confined to the server queue; the connection's handlers run on it and the server calls in only from it.
 final class DemoConnection: @unchecked Sendable {
     // @unchecked: confined to the server queue.
     private enum Phase {
@@ -356,8 +359,9 @@ final class DemoConnection: @unchecked Sendable {
         if encodings.contains(RFBEncoding.zrle.rawValue) {
             bytes.s32(RFBEncoding.zrle.rawValue)
             let raw = ZRLEEncoder(pixels: pixels, stride: scene.width).encode(x: x, y: y, width: width, height: height)
-            if deflater == nil { deflater = Deflater() }
-            let compressed = deflater!.deflate(raw)
+            let stream = deflater ?? Deflater()
+            deflater = stream
+            let compressed = stream.deflate(raw)
             bytes.u32(compressed.count)
             bytes.append(compressed)
         } else {

@@ -498,11 +498,15 @@ export class UserDO extends DurableObject<Env> {
   private async removeDevice(id: string): Promise<Response> {
     const target = this.liveDevice(id);
     this.sql.exec("UPDATE devices SET removed_at = ?, mac_screen_shared = 0 WHERE id = ?", Date.now(), id);
+    // No permission outlives its device, as host or as viewer; the hosts that listed it hear so.
+    const hosts = this.sql.exec("SELECT DISTINCT host_id FROM permissions WHERE viewer_id = ? AND host_id != ?", id, id).toArray().map((r) => r.host_id as string);
+    this.sql.exec("DELETE FROM permissions WHERE host_id = ? OR viewer_id = ?", id, id);
     const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
     for (const s of open) await this.endSession(s, `device_removed:${s.viewer_id === id ? "viewer" : "host"}`, "revoked", true);
     this.audit("device_removed", { deviceId: id, detail: `${id} ${target.name}` });
     this.closeSockets(id, 4001, "device removed");
     this.broadcast({ type: "devices.changed" });
+    for (const hostId of hosts) this.broadcast({ type: "permissions.changed", hostId });
     return json({});
   }
 
@@ -599,7 +603,8 @@ export class UserDO extends DurableObject<Env> {
     if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
     const perm = this.permission(hostId, me.id);
     if (perm === "none") throw new ApiError(403, "permission_none", "the host does not allow this device");
-    if (perm === "view" && scope === "full") throw new ApiError(403, "scope_exceeds_permission", "this device may only view the host");
+    // A scope above the saved permission (View Only asking for Full Control) is a
+    // request to the host, decided on its prompt like a request under Ask.
     if (!this.online(hostId)) throw new ApiError(409, "host_offline", "the host is not connected");
     const now = Date.now();
     const id = crypto.randomUUID();

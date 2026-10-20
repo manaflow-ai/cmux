@@ -105,9 +105,11 @@ public protocol ScreenBackend: AnyObject, Sendable {
 /// (``run()``, held open and reopened) or one device hub session
 /// (``serve(_:)`` with a ``TicketSignaling``). A view-only host (a device
 /// hub `view` session) never passes input to the backend.
+// crash-allow: `session` is read and written only under `lock`.
 public final class ScreenStreamHost: @unchecked Sendable {
     // @unchecked: `session` is behind `lock`; a session's fields are touched
     // from its own tasks and the backend's callback queue.
+    // crash-allow: a session's mutable fields are read and written under its own `lock`.
     private final class Session: @unchecked Sendable {
         let link: VNCPeerLink
         let video = ScreenVideoSource()
@@ -409,6 +411,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
 
 /// V1's frame source: this Mac's Screen Sharing over loopback (already
 /// authorized), displays found from the image, input sent back as RFB.
+// crash-allow: mutable state is read and written only under `lock`; `client` is an actor.
 public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
     // @unchecked: state behind `lock`.
     private let client: VNCClient
@@ -531,6 +534,7 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
 
 /// The phone side of a screen stream: joins the room, receives the screen
 /// track, and sends input. Callbacks arrive on arbitrary threads.
+// crash-allow: the connection's mutable state is behind `lock`; the owner sets the public callbacks before connect().
 public final class ScreenStreamViewer: @unchecked Sendable {
     // @unchecked: mutable state is behind `lock`.
     public var onVideo: (@Sendable (VideoTrackBox) -> Void)?
@@ -747,6 +751,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
 /// BGRA → NV12 on the GPU (VTPixelTransferSession). The hardware H.264
 /// encoder takes NV12; without this libwebrtc converts on the CPU and its
 /// overuse detector lowers the frame rate ("limited-by cpu").
+// crash-allow: owned by one frame sink and called only from its single frame task, never concurrently.
 final class NV12Converter: @unchecked Sendable {
     // @unchecked: used from one frame task.
     private var session: VTPixelTransferSession?

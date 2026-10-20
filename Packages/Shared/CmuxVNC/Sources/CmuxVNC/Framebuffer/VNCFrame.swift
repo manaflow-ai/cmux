@@ -5,6 +5,7 @@ import Foundation
 /// One presented state of the remote screen: an IOSurface-backed 32BGRA
 /// pixel buffer the session never writes again, so presenters may show it
 /// directly (`CALayer.contents`, Metal, `CGImage`).
+// crash-allow: every field is immutable and the pixel buffer is never written after publish() fills it, before any thread sees the frame.
 public struct VNCFrame: @unchecked Sendable {
     // @unchecked: the session fills the buffer before it hands the frame out
     // and never touches it again.
@@ -49,11 +50,12 @@ final class FramePublisher {
         guard let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
         let stride = CVPixelBufferGetBytesPerRow(buffer)
         framebuffer.pixels.withUnsafeBytes { source in
+            guard let from = source.baseAddress else { return }
             if stride == width * 4 {
-                base.copyMemory(from: source.baseAddress!, byteCount: width * height * 4)
+                base.copyMemory(from: from, byteCount: width * height * 4)
             } else {
                 for row in 0 ..< height {
-                    base.advanced(by: row * stride).copyMemory(from: source.baseAddress!.advanced(by: row * width * 4), byteCount: width * 4)
+                    base.advanced(by: row * stride).copyMemory(from: from.advanced(by: row * width * 4), byteCount: width * 4)
                 }
             }
         }

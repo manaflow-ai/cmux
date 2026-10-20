@@ -4,6 +4,7 @@ import Foundation
 /// The viewer side: an `RFBTransport` whose bytes ride a WebRTC data channel
 /// to a `cmux-vnc-host`, which pipes them to the Mac's VNC server. `open()`
 /// signals through the room, offers, and returns when the channel opens.
+// crash-allow: mutable state (link, socket, inbox, tasks, closed) is read and written only under `lock`.
 public final class WebRTCRFBTransport: RFBTransport, @unchecked Sendable {
     // @unchecked: mutable state is behind `lock`.
     private let pairing: VNCPairing
@@ -107,6 +108,7 @@ public final class WebRTCRFBTransport: RFBTransport, @unchecked Sendable {
 }
 
 /// Resolves once: the channel opened (nil) or the attempt failed.
+// crash-allow: `result` and `waiter` are read and written only under `lock`; the waiter resumes outside it, once.
 final class OpenSignal: @unchecked Sendable {
     private let lock = NSLock()
     private var result: (any Error)??

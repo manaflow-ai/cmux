@@ -5,6 +5,7 @@ import WebRTC
 /// carries the RFB byte stream. The viewer offers and opens the channel; the
 /// host answers. Every callback lands on libwebrtc's threads; state is behind
 /// a lock and surfaced through `events`.
+// crash-allow: mutable state (channel, pending candidates, waiters, sinks) is read and written only under `lock`; libwebrtc objects are thread-safe.
 final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegate, RTCDataChannelDelegate {
     enum Event: Sendable {
         /// A local ICE candidate to send to the other side.
@@ -19,6 +20,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     }
 
     // libwebrtc's factory is thread-safe and owns its threads; one per process.
+    // crash-allow: a `let` made once (lazy static init is atomic); libwebrtc's factory is thread-safe.
     nonisolated(unsafe) private static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
         // Hardware H.264 (VideoToolbox) first, then VP8/VP9/AV1 software.
@@ -32,7 +34,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     let events: AsyncStream<Event>
     private let sink: AsyncStream<Event>.Continuation
-    private var connection: RTCPeerConnection!
+    private let connection: RTCPeerConnection
     private let lock = NSLock()
     private var channel: RTCDataChannel?
     private var remoteSet = false
@@ -64,20 +66,23 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     /// `preferStreamRelays` (byte streams only) drops UDP TURN; video lets ICE choose.
     init(iceServers: [ICEServerConfig], relayOnly: Bool = false, preferStreamRelays: Bool = true) throws {
         (events, sink) = AsyncStream.makeStream(of: Event.self)
-        super.init()
         let configuration = RTCConfiguration()
         configuration.sdpSemantics = .unifiedPlan
         configuration.bundlePolicy = .maxBundle
         configuration.rtcpMuxPolicy = .require
         configuration.continualGatheringPolicy = .gatherContinually
         if relayOnly { configuration.iceTransportPolicy = .relay }
-        configuration.iceServers = (preferStreamRelays ? Self.preferringStreamRelays(iceServers) : iceServers)
+        configuration.iceServers = (preferStreamRelays ? VNCPeerLink.preferringStreamRelays(iceServers) : iceServers)
             .map { RTCIceServer(urlStrings: $0.urls, username: $0.username, credential: $0.credential) }
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        guard let connection = Self.factory.peerConnection(with: configuration, constraints: constraints, delegate: self) else {
+        // No delegate yet (self is not initialized): it is set right after, before any negotiation
+        // starts, and libwebrtc reads the weak `delegate` at each callback.
+        guard let connection = VNCPeerLink.factory.peerConnection(with: configuration, constraints: constraints, delegate: nil) else {
             throw VNCWebRTCError.peer("could not create a peer connection")
         }
         self.connection = connection
+        super.init()
+        connection.delegate = self
     }
 
     /// Drops UDP TURN when a TCP or TLS relay is offered. Measured on
@@ -387,6 +392,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
 /// The host's screen as a WebRTC video source. Frames are pushed by
 /// `ScreenStreamHost`; libwebrtc encodes (hardware H.264), paces and adapts.
+// crash-allow: both fields are `let`; libwebrtc's video source and capturer are thread-safe.
 public final class ScreenVideoSource: @unchecked Sendable {
     // @unchecked: libwebrtc's source and capturer are thread-safe.
     let source: RTCVideoSource
@@ -409,6 +415,7 @@ public final class ScreenVideoSource: @unchecked Sendable {
 }
 
 /// A received video track (libwebrtc objects are thread-safe; not Sendable-annotated).
+// crash-allow: one `let` libwebrtc track; libwebrtc objects are thread-safe.
 public struct VideoTrackBox: @unchecked Sendable {
     public let track: RTCVideoTrack
 }
@@ -417,6 +424,7 @@ extension VNCPeerLink {
     /// `setCodecPreferences:error:` (the non-deprecated form; Swift otherwise
     /// resolves the deprecated overload, which does not apply the order).
     static func setCodecPreferences(_ transceiver: RTCRtpTransceiver, _ codecs: [RTCRtpCodecCapability]) {
+        // crash-allow: checked with responds(to:) before the call, so an unknown selector returns instead of raising.
         let selector = NSSelectorFromString("setCodecPreferences:error:")
         guard transceiver.responds(to: selector) else { return }
         typealias Setter = @convention(c) (AnyObject, Selector, NSArray, UnsafeMutablePointer<NSError?>?) -> Bool
