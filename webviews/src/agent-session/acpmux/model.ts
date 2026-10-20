@@ -325,6 +325,8 @@ export type AcpmuxSnapshot = {
   /// prompt (acpmux `queue_order` with `next`).
   queue: QueuedPrompt[];
   permission?: AcpmuxPermission;
+  /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
+  permissionsWaiting?: number;
   secret?: AcpmuxSecretAsk;
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */

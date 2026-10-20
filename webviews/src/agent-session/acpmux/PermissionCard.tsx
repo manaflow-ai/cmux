@@ -136,11 +136,14 @@ export function PermissionCard({
   onAnswer,
   harness,
   focusComposer,
+  waiting = 0,
 }: {
   permission: AcpmuxPermission;
   onAnswer(optionId: string): void;
   harness?: string;
   focusComposer?: () => void;
+  /// More asks waiting behind this one, answered after it.
+  waiting?: number;
 }) {
   const t = useT();
   const keys = useMemo(
@@ -221,6 +224,7 @@ export function PermissionCard({
       <div className="acpmux-permission-request" data-harness={harness || undefined}>
         <div className="acpmux-permission-request-label">{permissionAction(permission, t)}</div>
         {permission.description && <p className="acpmux-permission-request-description">{permission.description}</p>}
+        {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
         {permissionCommand(permission) && (
           <details className="acpmux-permission-command">
             <summary>
