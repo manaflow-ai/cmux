@@ -36,10 +36,18 @@ fn native_token_receiver_refuses_every_mismatched_signed_authority_field() {
         "acl_version",
     ] {
         let mut c = f["claims"].clone();
-        c["network"][field] = if field == "version" || field == "acl_version" {
-            serde_json::json!(2)
-        } else {
-            serde_json::json!("different")
+        c["network"][field] = match field {
+            "version" | "acl_version" => serde_json::json!(2),
+            "tenant" => serde_json::json!("team_other"),
+            "mesh" => serde_json::json!("mesh_11111111111111111111111111"),
+            "device" => serde_json::json!("dev_11111111111111111111111111"),
+            "host" => serde_json::json!("host_00000000000000000003"),
+            "user" => serde_json::json!("user_00000000000000000003"),
+            "wg_public_key" => {
+                serde_json::json!(base64::engine::general_purpose::STANDARD.encode([7; 32]))
+            }
+            "authority_version" => serde_json::json!("b".repeat(64)),
+            _ => unreachable!(),
         };
         let verifier = receiver();
         assert!(verifier.verify(&signed(&c), &expected(Service::Daemon)).is_err(), "{field}");
@@ -110,7 +118,7 @@ fn native_token_receiver_requires_both_signed_and_current_service_grants() {
         now.unix_ms += 1;
         now.monotonic += Duration::from_millis(1);
     }
-    let mut p = policy(&f, *t.lock().unwrap());
+    let mut p = policy(&f, snapshot(&t));
     p.peers[0].services = vec![Service::Ssh];
     v.replace_authority(p).unwrap();
     assert_eq!(
@@ -201,6 +209,13 @@ fn native_token_receiver_replay_survives_policy_key_refresh_and_revocation() {
     let token = f["token"].as_str().unwrap();
     let (v, t) = configured();
     v.verify(token, &expected(Service::Daemon)).unwrap();
+    let mut rotated = keys();
+    let key = rotated.keys.remove("test-k1").unwrap();
+    rotated.keys.insert("test-k2".into(), key);
+    v.replace_keys(rotated).unwrap();
+    assert_eq!(v.verify(token, &expected(Service::Daemon)), Err(TokenRefused::UnknownKey));
+    v.replace_keys(keys()).unwrap();
+    assert_eq!(v.verify(token, &expected(Service::Daemon)), Err(TokenRefused::Replayed));
     v.clear_authority();
     assert_eq!(v.verify(token, &expected(Service::Daemon)), Err(TokenRefused::NoVerifier));
     v.replace_keys(keys()).unwrap();
@@ -209,7 +224,7 @@ fn native_token_receiver_replay_survives_policy_key_refresh_and_revocation() {
         now.unix_ms += 1;
         now.monotonic += Duration::from_millis(1);
     }
-    v.replace_authority(policy(&f, *t.lock().unwrap())).unwrap();
+    v.replace_authority(policy(&f, snapshot(&t))).unwrap();
     assert_eq!(v.verify(token, &expected(Service::Ssh)), Err(TokenRefused::Replayed));
 }
 
@@ -253,29 +268,45 @@ fn native_token_receiver_lease_expires_on_either_clock_and_refuses_rollback() {
 #[test]
 fn native_token_receiver_refuses_ambiguous_stale_and_cross_mesh_snapshots() {
     let f = fixture();
-    for mode in
-        ["duplicate", "mesh", "acl", "long_lease", "delayed", "future", "device", "key", "services"]
-    {
+    for mode in [
+        "duplicate",
+        "mesh",
+        "acl",
+        "same_host",
+        "same_device",
+        "same_key",
+        "long_lease",
+        "delayed",
+        "future",
+        "device",
+        "key",
+        "services",
+    ] {
         let (v, t) = configured();
         {
             let mut now = t.lock().unwrap();
             now.unix_ms += 1;
             now.monotonic += Duration::from_millis(1);
         }
-        let mut p = policy(&f, *t.lock().unwrap());
+        let mut p = policy(&f, snapshot(&t));
         match mode {
             "duplicate" => p.peers.push(p.peers[0].clone()),
-            "mesh" | "acl" => {
+            "mesh" | "acl" | "same_host" | "same_device" | "same_key" => {
                 let mut other = p.peers[0].clone();
                 other.install = "inst_00000000000000000003".into();
                 other.binding.host = "host_00000000000000000003".into();
                 other.binding.device = "dev_11111111111111111111111111".into();
                 other.binding.wg_public_key =
                     base64::engine::general_purpose::STANDARD.encode([2; 32]);
-                if mode == "mesh" {
-                    other.binding.mesh = "mesh_11111111111111111111111111".into();
-                } else {
-                    other.binding.acl_version += 1;
+                match mode {
+                    "mesh" => other.binding.mesh = "mesh_11111111111111111111111111".into(),
+                    "acl" => other.binding.acl_version += 1,
+                    "same_host" => other.binding.host = p.peers[0].binding.host.clone(),
+                    "same_device" => other.binding.device = p.peers[0].binding.device.clone(),
+                    "same_key" => {
+                        other.binding.wg_public_key = p.peers[0].binding.wg_public_key.clone()
+                    }
+                    _ => unreachable!(),
                 }
                 p.peers.push(other);
             }
@@ -295,13 +326,13 @@ fn native_token_receiver_refuses_ambiguous_stale_and_cross_mesh_snapshots() {
 fn native_token_receiver_old_policy_response_cannot_restore_a_revoked_peer() {
     let f = fixture();
     let (v, t) = configured();
-    let old = policy(&f, *t.lock().unwrap());
+    let old = policy(&f, snapshot(&t));
     {
         let mut now = t.lock().unwrap();
         now.unix_ms += 1;
         now.monotonic += Duration::from_millis(1);
     }
-    let mut revoked = policy(&f, *t.lock().unwrap());
+    let mut revoked = policy(&f, snapshot(&t));
     revoked.peers.clear();
     v.replace_authority(revoked).unwrap();
     assert!(v.replace_authority(old).is_err());
@@ -328,7 +359,7 @@ fn native_token_receiver_full_replay_owner_never_evicts_a_live_id() {
         now.unix_ms += 301_000;
         now.monotonic += Duration::from_secs(301);
     }
-    v.replace_authority(policy(&f, *t.lock().unwrap())).unwrap();
+    v.replace_authority(policy(&f, snapshot(&t))).unwrap();
     c["iat"] = serde_json::json!(1_792_000_311);
     c["exp"] = serde_json::json!(1_792_000_611);
     assert!(v.verify(&signed(&c), &expected(Service::Daemon)).is_ok());

@@ -17,6 +17,10 @@ fn receiver() -> Box<dyn TokenVerifier> {
 
 type TestClock = std::sync::Arc<std::sync::Mutex<cmux_link::native_token::ReceiverTime>>;
 
+fn snapshot(clock: &TestClock) -> cmux_link::native_token::ReceiverTime {
+    *clock.lock().unwrap()
+}
+
 fn configured() -> (cmux_link::native_token::NativeTokenVerifier, TestClock) {
     use cmux_link::native_token::*;
     let f = fixture();
@@ -27,7 +31,7 @@ fn configured() -> (cmux_link::native_token::NativeTokenVerifier, TestClock) {
     let clock = time.clone();
     let receiver =
         NativeTokenVerifier::new(keys(), move || Some(*clock.lock().unwrap()), 2).unwrap();
-    receiver.replace_authority(policy(&f, *time.lock().unwrap())).unwrap();
+    receiver.replace_authority(policy(&f, snapshot(&time))).unwrap();
     (receiver, time)
 }
 
