@@ -16,8 +16,8 @@ const ROW_ICON = rowIconSize(12);
 /// tasks and wakeups follow when there are any.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
 /// an output opens the changes view at that file. Outputs lists every file the chat changed, once
-/// (hq#2569 item 4, cx-0h4xq), with the files only the last turn's checkpoint knows (a shell
-/// command or formatter edited them) opening that turn's diff at the file; Changes is one row
+/// (hq#2569 item 4, cx-0h4xq). A file the last turn changed, by a tool or as only its checkpoint
+/// knows (a shell command or formatter edited it), opens that turn's diff at the file; Changes is one row
 /// that opens the last turn's diff with its totals.
 /// Following a link calls `onFollow`. A chat
 /// with images or renders offers its gallery under Outputs (GalleryDialog.tsx). A chat whose
@@ -61,16 +61,25 @@ export function SummaryBody({
 }) {
   const t = useT();
   // A loaded checkpoint lists its files under the repository root, outputs as the agent wrote them.
-  const checkpointOnly = (changes?.files ?? []).filter((file) => !changedByTools(file, summary.outputs));
-  const outputs = [...summary.outputs, ...checkpointOnly];
+  // A file the last turn changed opens that turn's diff, also when an earlier turn's edit tool made
+  // it an output: its last change is the one to show.
+  const lastTurn = changes?.files ?? [];
+  const rows = [
+    ...summary.outputs.map((output) => {
+      const turn = lastTurn.find((file) => changedByTools(file, [output]));
+      return turn ? { file: turn, inTurnDiff: true } : { file: output, inTurnDiff: false };
+    }),
+    ...lastTurn.filter((file) => !changedByTools(file, summary.outputs)).map((file) => ({ file, inTurnDiff: true })),
+  ];
+  // Two outputs the agent wrote differently (`~/x/a.ts`, `/Users/me/x/a.ts`) are one checkpoint file.
+  const outputs = rows.filter((row, index) => rows.findIndex((other) => other.file.path === row.file.path) === index);
   return (
     <>
       <SummarySection
         title={t("summary.outputs")}
         fixed
         items={outputs}
-        row={(file) => {
-          const inTurnDiff = checkpointOnly.includes(file);
+        row={({ file, inTurnDiff }) => {
           const open = inTurnDiff ? onOpenChanges : onOpenOutput;
           return (
             <li key={file.path}>

@@ -37,7 +37,12 @@ afterAll(() => {
 const file = (path: string, additions: number) =>
   ({ path, displayPath: path.split("/").pop()!, edits: [], additions, deletions: 0, created: false }) as never;
 
-async function sourcesRows(outputs: never[], changed: never[], onOpenChanges: (path?: string) => void = () => {}) {
+async function sourcesRows(
+  outputs: never[],
+  changed: never[],
+  onOpenChanges: (path?: string) => void = () => {},
+  onOpenOutput: (path: string) => void = () => {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { SummaryBody } = await import("../src/agent-session/acpmux/summary/SummaryBody");
   act(() => root?.unmount());
@@ -45,7 +50,9 @@ async function sourcesRows(outputs: never[], changed: never[], onOpenChanges: (p
   const summary = { scheduled: [], pullRequests: [], outputs, subagents: [], sources: [], backgroundTasks: [] };
   const changes = { additions: 1, deletions: 0, files: changed };
   await act(async () =>
-    root!.render(<SummaryBody summary={summary} changes={changes} onOpenChanges={onOpenChanges} />),
+    root!.render(
+      <SummaryBody summary={summary} changes={changes} onOpenChanges={onOpenChanges} onOpenOutput={onOpenOutput} />,
+    ),
   );
   const sections: Record<string, string[]> = Object.fromEntries(
     [...host.querySelectorAll("section")].map((section) => [
@@ -99,4 +106,25 @@ test("a file only the turn's checkpoint knows shows under Outputs and opens the 
   )!;
   await act(async () => row.click());
   expect(opened).toEqual(["/repo/src/format.ts"]);
+});
+
+// An earlier turn edited a file with a tool, and the last turn changed it again (by a shell command,
+// say): its row opens the last turn's diff, where its latest change is, not the earlier turn's.
+test("a file the last turn changed again opens the last turn's diff", async () => {
+  const opened: string[] = [];
+  const outputsOpened: string[] = [];
+  const again = { ...(file("/repo/src/upload.sh", 3) as object), displayPath: "src/upload.sh" } as never;
+  const sections = await sourcesRows(
+    [file("/repo/src/upload.sh", 1), file("/repo/README.md", 4)],
+    [again],
+    (path) => opened.push(path!),
+    (path) => outputsOpened.push(path),
+  );
+  expect(sections["Outputs"]?.filter((row) => row.includes("upload.sh"))).toEqual(["src/upload.sh+3-0"]);
+  const button = (name: string) =>
+    [...host.querySelectorAll<HTMLButtonElement>("section button")].find((b) => b.textContent?.includes(name))!;
+  await act(async () => button("upload.sh").click());
+  await act(async () => button("README.md").click());
+  expect(opened).toEqual(["/repo/src/upload.sh"]);
+  expect(outputsOpened).toEqual(["/repo/README.md"]);
 });

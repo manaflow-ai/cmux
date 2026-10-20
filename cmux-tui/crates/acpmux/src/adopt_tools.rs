@@ -20,6 +20,9 @@ pub struct PastTool {
     /// When it started and ended (ms since the epoch), when recorded.
     pub started_at: Option<u64>,
     pub ended_at: Option<u64>,
+    /// An edit's proposed diffs, kept out of `done` until a result that did not fail confirms
+    /// them: a Claude Code edit cut off before its result, or refused, changed nothing.
+    pub proposed: Option<Value>,
 }
 
 /// A tool call's result, found after the call (Claude Code's `tool_result`, Codex's older
@@ -35,6 +38,9 @@ impl PastTool {
     /// Settles the call with `result` at `at`.
     pub fn settle(&mut self, result: &ToolResult, at: Option<u64>) {
         let failed = result.done["status"] == "failed";
+        if let (Some(proposed), false) = (self.proposed.take(), failed) {
+            self.done["content"] = proposed;
+        }
         if let (Some(done), Some(update)) = (self.done.as_object_mut(), result.done.as_object()) {
             for (key, value) in update {
                 if key != "content" || failed || !done.contains_key("content") {
@@ -164,6 +170,7 @@ fn codex_command(id: &str, item: &Value, at: Option<u64>) -> Option<PastTool> {
         done,
         started_at: at.map(|end| end.saturating_sub(took.unwrap_or(0))),
         ended_at: at,
+        proposed: None,
     })
 }
 
@@ -369,6 +376,7 @@ fn codex_file_change(
         done: json!({"status": status, "content": content}),
         started_at: at,
         ended_at: at,
+        proposed: None,
     })
 }
 
@@ -400,6 +408,7 @@ fn codex_mcp(id: &str, item: &Value, at: Option<u64>) -> PastTool {
         }),
         started_at: at.map(|end| end.saturating_sub(took.unwrap_or(0))),
         ended_at: at,
+        proposed: None,
     }
 }
 
@@ -429,6 +438,7 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
                         done: json!({"status": status(item)}),
                         started_at: at,
                         ended_at: at,
+                        proposed: None,
                     }
                 }
                 _ => return None,
@@ -488,8 +498,8 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
 
 /// Claude Code's `tool_use` blocks in an assistant message, as the calls a live turn sends
 /// (`claude_stdio::tool_call_fields`), not yet settled: a call whose result never came (a turn
-/// cut off) stays failed. An edit's diffs settle it with its result; one too big to draw is
-/// left out. The todo list is the turn's plan, not a call.
+/// cut off) stays failed and shows no diff. An edit's diffs settle it only with a result that
+/// did not fail; one too big to draw is left out. The todo list is the turn's plan, not a call.
 pub fn claude_tool_uses(content: &Value, at: Option<u64>) -> Vec<PastTool> {
     content
         .as_array()
@@ -502,11 +512,14 @@ pub fn claude_tool_uses(content: &Value, at: Option<u64>) -> Vec<PastTool> {
             let input = block.get("input").cloned().unwrap_or(Value::Null);
             let mut call = crate::claude_stdio::tool_call_fields(name, &input);
             let diffs = call.as_object_mut().and_then(|c| c.remove("content"));
-            let mut done = json!({"status": "failed"});
-            if let Some(diffs) = diffs.filter(|d| !oversize(d)) {
-                done["content"] = diffs;
-            }
-            Some(PastTool { id: id.to_owned(), call, done, started_at: at, ended_at: None })
+            Some(PastTool {
+                id: id.to_owned(),
+                call,
+                done: json!({"status": "failed"}),
+                started_at: at,
+                ended_at: None,
+                proposed: diffs.filter(|d| !oversize(d)),
+            })
         })
         .collect()
 }
@@ -536,4 +549,38 @@ pub fn claude_tool_results(content: &Value) -> Vec<ToolResult> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn edit(id: &str) -> Value {
+        json!([{"type": "tool_use", "id": id, "name": "Edit",
+                "input": {"file_path": "/p/src/lib.rs", "old_string": "a", "new_string": "b"}}])
+    }
+
+    fn result(id: &str, is_error: bool) -> ToolResult {
+        let block = json!([{"type": "tool_result", "tool_use_id": id, "content": "ok", "is_error": is_error}]);
+        claude_tool_results(&block).remove(0)
+    }
+
+    /// A Claude Code edit shows its diff only once a result that did not fail confirms it: one
+    /// cut off before its result, or refused, changed nothing and counts no edited file.
+    #[test]
+    fn a_claude_edit_shows_its_diff_only_when_its_result_confirms_it() {
+        let [cut_off] = claude_tool_uses(&edit("t1"), Some(1)).try_into().unwrap();
+        assert_eq!(cut_off.done, json!({"status": "failed"}));
+
+        let [mut refused] = claude_tool_uses(&edit("t2"), Some(1)).try_into().unwrap();
+        refused.settle(&result("t2", true), Some(2));
+        assert_eq!(refused.done["status"], "failed");
+        assert_eq!(refused.done["content"], json!([text_content("ok")]));
+
+        let [mut applied] = claude_tool_uses(&edit("t3"), Some(1)).try_into().unwrap();
+        applied.settle(&result("t3", false), Some(2));
+        assert_eq!(applied.done["status"], "completed");
+        assert_eq!(applied.done["content"][0]["type"], "diff", "{}", applied.done);
+        assert_eq!(applied.done["content"][0]["newText"], "b");
+    }
 }
