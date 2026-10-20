@@ -89,7 +89,7 @@ struct HomeLoneDockTests {
     /// real: a used terminal, or anything else, stays; the untouched shell at `~` closes.
     @Test func theRestoredPlaceholderShellIsTheOnlyRightTabThatCloses() throws {
         let home = "/Users/me"
-        func placeholder(_ right: [TabSnapshot]) throws -> SurfaceID? {
+        func placeholder(_ right: [TabSnapshot]?) throws -> SurfaceID? {
             let store = Self.home(right: right)
             let screen = try #require(store.workspaces.first?.screens.first)
             return HomeDock.placeholderShell(on: screen, home: home)?.surface
