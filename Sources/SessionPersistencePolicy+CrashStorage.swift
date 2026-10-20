@@ -176,10 +176,58 @@ extension SessionPersistencePolicy {
                 removedAny = true
                 continue
             }
+
+            // A crash can write two generations of the same window. The later
+            // generation may contain additional agent checkpoints, so its
+            // fingerprint is not byte-for-byte equal to the earlier one. When
+            // both generations have the same workspace cardinality and one
+            // checkpoint set contains the other, they are still the same
+            // window. Prefer the copy with the stronger persisted fidelity.
+            if let existingIndex = result.firstIndex(where: {
+                areCrashDuplicateWindows($0, window)
+            }) {
+                if sessionWindowRestoreFidelityScore(window) >
+                    sessionWindowRestoreFidelityScore(result[existingIndex]) {
+                    result[existingIndex] = window
+                }
+                removedAny = true
+                continue
+            }
             seenFingerprints[fingerprint] = result.count
             result.append(window)
         }
         return (result, removedAny)
+    }
+
+    private static func areCrashDuplicateWindows(
+        _ lhs: SessionWindowSnapshot,
+        _ rhs: SessionWindowSnapshot
+    ) -> Bool {
+        let lhsWorkspaces = lhs.tabManager.workspaces
+        let rhsWorkspaces = rhs.tabManager.workspaces
+        guard lhsWorkspaces.count == rhsWorkspaces.count,
+              lhsWorkspaces.count > 1 else {
+            return false
+        }
+
+        let lhsAgents = Set(lhsWorkspaces.flatMap { workspace in
+            workspace.panels.compactMap { panel -> String? in
+                guard let terminal = panel.terminal else { return nil }
+                return terminal.agent?.sessionId ?? terminal.resumeBinding?.checkpointId
+            }
+        })
+        let rhsAgents = Set(rhsWorkspaces.flatMap { workspace in
+            workspace.panels.compactMap { panel -> String? in
+                guard let terminal = panel.terminal else { return nil }
+                return terminal.agent?.sessionId ?? terminal.resumeBinding?.checkpointId
+            }
+        })
+        guard !lhsAgents.isEmpty, !rhsAgents.isEmpty else { return false }
+        let overlap = lhsAgents.intersection(rhsAgents)
+        let smaller = min(lhsAgents.count, rhsAgents.count)
+        // Require complete containment of the smaller checkpoint set. This
+        // avoids collapsing unrelated windows that merely share a few agents.
+        return overlap.count == smaller
     }
 
     private static func sessionWindowRestoreFidelityScore(_ window: SessionWindowSnapshot) -> Int {
