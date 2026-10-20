@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT, type Translate } from "./i18n";
 import { bareKey } from "./keyTarget";
 import type { AcpmuxPermission } from "./model";
@@ -158,8 +158,9 @@ export function PermissionCard({
 }: {
   permission: AcpmuxPermission;
   onAnswer(optionId: string): void;
-  /// Denies with `optionId`, then gives the agent `text` (empty: only denies).
-  onDenyWithFeedback?(optionId: string, text: string): void;
+  /// Denies with `optionId`, then gives the agent `text` (empty: only denies). False when acpmux
+  /// refused the deny: the field stays, with what was typed.
+  onDenyWithFeedback?(optionId: string, text: string): Promise<boolean>;
   harness?: string;
   focusComposer?: () => void;
 }) {
@@ -169,34 +170,46 @@ export function PermissionCard({
     [permission.pending, permission.options],
   );
   const feedback = onDenyWithFeedback && permission.pending ? feedbackDeny(permission.options, harness) : undefined;
-  /// The field's text while it is open, for the ask it opened on.
-  const [draft, setDraft] = useState<{ permissionId: string; text: string }>();
+  /// The field's text while it is open, for the ask it opened on; `sending` while its deny goes.
+  const [draft, setDraft] = useState<{ permissionId: string; text: string; sending?: boolean }>();
   const writing = draft?.permissionId === permission.permissionId ? draft : undefined;
   const field = useRef<HTMLTextAreaElement>(null);
-  const openFeedback = () => setDraft({ permissionId: permission.permissionId, text: "" });
+  // Opening it again (the action, its key, the deny shortcut) keeps what is typed.
+  const openFeedback = () => {
+    if (!writing) setDraft({ permissionId: permission.permissionId, text: "" });
+  };
   const fieldOpen = writing !== undefined;
   // Opened by the person's own click or key, so the field takes the keyboard.
   useEffect(() => {
     if (fieldOpen) field.current?.focus();
   }, [fieldOpen]);
   const group = useRef<HTMLFieldSetElement>(null);
+  /// Set by Cancel: the keyboard goes back to the action that opened the field once it closes.
+  const backToOpener = useRef(false);
+  useEffect(() => {
+    if (fieldOpen || !backToOpener.current) return;
+    backToOpener.current = false;
+    group.current?.querySelector<HTMLElement>("[data-feedback-opener]")?.focus();
+  }, [fieldOpen]);
   // The ask whose answer a key already sent: held keys repeat, and a second key can land before
   // the snapshot clears the ask, so the keyboard answers each ask once.
   const answered = useRef<string | undefined>(undefined);
   /// Answers with `optionId` from a key or a shortcut, once per ask. Claude's "tell Claude what to
   /// do differently" opens the field instead (`feedbackDeny`).
   const choose = useRef<(optionId: string) => void>(() => {});
-  choose.current = (optionId: string) => {
-    if (answered.current === permission.permissionId) return;
-    if (feedback?.inline && optionId === feedback.option.id) {
-      openFeedback();
-      return;
-    }
-    answered.current = permission.permissionId;
-    onAnswer(optionId);
-    const option = permission.options.find((candidate) => candidate.id === optionId);
-    if (option && permissionOptionKind(option) === "deny") focusComposer?.();
-  };
+  useLayoutEffect(() => {
+    choose.current = (optionId: string) => {
+      if (answered.current === permission.permissionId) return;
+      if (feedback?.inline && optionId === feedback.option.id) {
+        openFeedback();
+        return;
+      }
+      answered.current = permission.permissionId;
+      onAnswer(optionId);
+      const option = permission.options.find((candidate) => candidate.id === optionId);
+      if (option && permissionOptionKind(option) === "deny") focusComposer?.();
+    };
+  });
   const allowOnceShortcut = useShortcut(SHORTCUT_ACTIONS.permissionAllowOnce);
   const allowChatShortcut = useShortcut(SHORTCUT_ACTIONS.permissionAllowChat);
   const denyShortcut = useShortcut(SHORTCUT_ACTIONS.permissionDeny);
@@ -253,11 +266,21 @@ export function PermissionCard({
     denyShortcut,
     shortcutLabels,
   ]);
-  const sendFeedback = (text: string) => {
-    if (!feedback || answered.current === permission.permissionId) return;
-    answered.current = permission.permissionId;
-    setDraft(undefined);
-    onDenyWithFeedback?.(feedback.option.id, text.trim());
+  const sendFeedback = async (text: string) => {
+    if (!feedback || !onDenyWithFeedback || writing?.sending || answered.current === permission.permissionId) return;
+    const permissionId = permission.permissionId;
+    answered.current = permissionId;
+    setDraft({ permissionId, text, sending: true });
+    if (await onDenyWithFeedback(feedback.option.id, text.trim())) {
+      setDraft(undefined);
+      // The keyboard goes back to the composer, as a plain deny's does.
+      focusComposer?.();
+      return;
+    }
+    // Refused (answered elsewhere, or the connection dropped): the field stays with its text.
+    answered.current = undefined;
+    setDraft({ permissionId, text });
+    field.current?.focus();
   };
 
   return (
@@ -290,6 +313,7 @@ export function PermissionCard({
               className={
                 deny ? "acpmux-permission-deny" : kind === "allow_once" ? "acpmux-permission-primary" : undefined
               }
+              data-feedback-opener={feedback?.inline && option.id === feedback.option.id ? "" : undefined}
               onClick={() => {
                 if (feedback?.inline && option.id === feedback.option.id) return openFeedback();
                 onAnswer(option.id);
@@ -300,7 +324,12 @@ export function PermissionCard({
         })}
       </div>
       {feedback && !feedback.inline && !writing && (
-        <button type="button" className="acpmux-permission-feedback-open" onClick={openFeedback}>
+        <button
+          type="button"
+          className="acpmux-permission-feedback-open"
+          data-feedback-opener=""
+          onClick={openFeedback}
+        >
           {t("permission.denyWithFeedback")}
         </button>
       )}
@@ -309,7 +338,7 @@ export function PermissionCard({
           className="acpmux-permission-feedback"
           onSubmit={(event) => {
             event.preventDefault();
-            sendFeedback(writing.text);
+            void sendFeedback(writing.text);
           }}
         >
           <textarea
@@ -318,19 +347,30 @@ export function PermissionCard({
             aria-label={t("permission.feedbackPlaceholder")}
             placeholder={t("permission.feedbackPlaceholder")}
             value={writing.text}
+            readOnly={writing.sending}
             onChange={(event) => setDraft({ permissionId: permission.permissionId, text: event.target.value })}
+            // ui-allow: a text field's own Return (send) beside Shift-Return (new line), as the composer's.
             onKeyDown={(event) => {
-              // Return sends; Shift-Return starts a new line, and an input method keeps its Return.
-              if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+              // An input method keeps its Return: WebKit can end the composition before the Return's
+              // keydown, which then only says keyCode 229.
+              if (event.key !== "Enter" || event.shiftKey) return;
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
               event.preventDefault();
-              sendFeedback(writing.text);
+              void sendFeedback(writing.text);
             }}
           />
           <div className="acpmux-permission-feedback-actions">
-            <button type="submit" className="acpmux-permission-feedback-send">
+            <button type="submit" className="acpmux-permission-feedback-send" disabled={writing.sending}>
               {t("permission.feedbackSend")}
             </button>
-            <button type="button" onClick={() => setDraft(undefined)}>
+            <button
+              type="button"
+              disabled={writing.sending}
+              onClick={() => {
+                backToOpener.current = true;
+                setDraft(undefined);
+              }}
+            >
               {t("permission.feedbackCancel")}
             </button>
           </div>

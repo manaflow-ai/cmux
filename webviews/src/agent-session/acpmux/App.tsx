@@ -2535,10 +2535,14 @@ function PermissionAsk({
   permission,
   harness,
   focusComposer,
+  shownChat,
 }: {
   permission: AcpmuxPermission;
   harness?: string;
   focusComposer?: () => void;
+  /// The chat shown now, read when a deny's instructions are about to go: with it, the card can deny
+  /// with what the agent should do instead (`denyWithFeedback`).
+  shownChat?: { readonly current: string | undefined };
 }) {
   return permission.question ? (
     <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
@@ -2548,18 +2552,28 @@ function PermissionAsk({
       harness={harness}
       focusComposer={focusComposer}
       onAnswer={answerPermission(permission)}
-      onDenyWithFeedback={denyWithFeedback(permission)}
+      onDenyWithFeedback={shownChat && denyWithFeedback(permission, shownChat)}
     />
   );
 }
 
 /// Denies `permission`, then gives the agent what to do instead: into the running turn now (a
 /// steer; an agent that cannot steer stops the turn and takes it as the next prompt). Sent only once
-/// acpmux took the deny, so the agent never reads it before its tool is refused.
-const denyWithFeedback = (permission: AcpmuxPermission) => (optionId: string, text: string) =>
-  void callNative("chat.permission", { permissionId: permission.permissionId, optionId })
-    .then(() => (text ? callNative("chat.send", { text, attachments: [], steer: true }) : undefined))
-    .catch(() => undefined);
+/// acpmux took the deny, so the agent never reads it before its tool is refused, and only to the chat
+/// that asked: another chat shown meanwhile would take it as its own. False when the deny failed.
+const denyWithFeedback =
+  (permission: AcpmuxPermission, shownChat: { readonly current: string | undefined }) =>
+  async (optionId: string, text: string): Promise<boolean> => {
+    const chat = shownChat.current;
+    try {
+      await callNative("chat.permission", { permissionId: permission.permissionId, optionId });
+    } catch {
+      return false;
+    }
+    if (text && shownChat.current === chat)
+      await callNative("chat.send", { text, attachments: [], steer: true }).catch(() => undefined);
+    return true;
+  };
 
 /// The composer chips on the New Tab page (cx-e2aa): no chat exists yet, so a pick starts a deferred
 /// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
@@ -3169,6 +3183,12 @@ function AcpmuxPane() {
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  /// The chat shown now, for a permission card's deny with instructions (PermissionAsk), which reads
+  /// it after the deny goes, never a render's stale copy.
+  const shownChat = useRef(shownSessionId);
+  useLayoutEffect(() => {
+    shownChat.current = shownSessionId;
+  }, [shownSessionId]);
   const summaryHasContent = useMemo(() => {
     if (chatGallery(snapshot.rows).length > 0) return true;
     return snapshot.rows.some(
@@ -5558,6 +5578,7 @@ function AcpmuxPane() {
               permission={individualPermission}
               harness={snapshot.summary?.harness}
               focusComposer={() => composerHandle.current?.focus()}
+              shownChat={shownChat}
             />
           )}
           {secret && (

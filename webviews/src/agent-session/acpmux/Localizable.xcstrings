@@ -50,13 +50,13 @@
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nega e di' all'agente cosa fare invece"
+            "value": "Rifiuta e di' all'agente cosa fare invece"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "拒否して、代わりにすることをエージェントに伝える"
+            "value": "拒否して、代わりにしてほしいことをエージェントに伝える"
           }
         },
         "km": {
@@ -92,7 +92,7 @@
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Отклонить и сказать агенту, что сделать вместо этого"
+            "value": "Запретить и сказать агенту, что сделать вместо этого"
           }
         },
         "th": {
@@ -110,7 +110,7 @@
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відхилити й сказати агенту, що зробити натомість"
+            "value": "Заборонити й сказати агенту, що зробити натомість"
           }
         },
         "vi": {
@@ -188,7 +188,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代わりにすることをエージェントに伝えてください"
+            "value": "代わりにしてほしいことをエージェントに伝えてください"
           }
         },
         "km": {
@@ -314,7 +314,7 @@
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nega e invia"
+            "value": "Rifiuta e invia"
           }
         },
         "ja": {
@@ -356,7 +356,7 @@
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Отклонить и отправить"
+            "value": "Запретить и отправить"
           }
         },
         "th": {
@@ -374,7 +374,7 @@
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відхилити й надіслати"
+            "value": "Заборонити й надіслати"
           }
         },
         "vi": {
