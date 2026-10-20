@@ -87,6 +87,12 @@ at() {   # SHA: put the source tree at SHA (same path for every leg)
   git -C "$src" checkout --quiet --force --detach "$1"
   git -C "$src" clean -qfdx
   mkdir -p "$work/app-exe/Sources/cmux-next-exe"
+  # The app target's extra linker flags at this commit (cmux-next in
+  # cmux.xcodeproj), so the proxy links the way the shipped app does.
+  extra_ldflags=""
+  if grep -q '"-objc_stubs_small",' "$src/cmux.xcodeproj/project.pbxproj"; then
+    extra_ldflags=' "-Xlinker", "-objc_stubs_small",'
+  fi
   cp "$src/App/main.swift" "$work/app-exe/Sources/cmux-next-exe/main.swift"
   cat >"$work/app-exe/Package.swift" <<EOF
 // swift-tools-version: 6.2
@@ -103,7 +109,7 @@ let package = Package(
             path: "Sources/cmux-next-exe",
             linkerSettings: [.unsafeFlags([
                 "-lc++", "-framework", "Metal", "-framework", "QuartzCore", "-framework", "IOSurface",
-                "-framework", "UniformTypeIdentifiers", "-framework", "Carbon",
+                "-framework", "UniformTypeIdentifiers", "-framework", "Carbon",$extra_ldflags
             ])]
         ),
     ]

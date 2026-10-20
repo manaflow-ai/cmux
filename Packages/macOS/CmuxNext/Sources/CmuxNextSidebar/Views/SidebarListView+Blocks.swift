@@ -103,6 +103,8 @@ final class SidebarBlockRowView: SidebarRowView {
 
     override func layout() {
         super.layout()
+        // The list resizes this row on a sidebar resize without configuring it again.
+        region.fit(width: layoutBounds.width)
         region.frame = NSRect(x: 0, y: 0, width: layoutBounds.width, height: region.layoutResult.height)
     }
 }
