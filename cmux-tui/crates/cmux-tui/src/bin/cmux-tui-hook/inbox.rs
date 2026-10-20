@@ -115,9 +115,9 @@ pub(super) fn deliver(delivery: Delivery, socket: &Path, terminal: Option<&str>)
 /// claude `SessionStart` in a cmux terminal: the startup line for how this
 /// session compacts (`session_banner`), or the empty object.
 pub(super) fn session_banner(terminal: Option<&str>, source: &str) {
-    let line = terminal
-        .filter(|terminal| terminal.starts_with("term_"))
-        .and_then(|_| super::session_banner::message(super::session_banner::from_environment(), source));
+    let line = terminal.filter(|terminal| terminal.starts_with("term_")).and_then(|_| {
+        super::session_banner::message(super::session_banner::from_environment(), source)
+    });
     print_output(&Delivery::SessionBanner.output(line));
 }
 

@@ -3716,10 +3716,9 @@ mod tests {
         let result = run_with_context(&install, &context);
         assert!(!result.failed, "{}", result.value);
 
-        let settings: Value = serde_json::from_slice(
-            &fs::read(context.home.join(".claude/settings.json")).unwrap(),
-        )
-        .unwrap();
+        let settings: Value =
+            serde_json::from_slice(&fs::read(context.home.join(".claude/settings.json")).unwrap())
+                .unwrap();
         let hook = &settings["hooks"]["SessionStart"][0]["hooks"][0];
         assert_eq!(hook.get("async").and_then(Value::as_bool), None, "{hook}");
         let command = hook["command"].as_str().unwrap();

@@ -75,7 +75,7 @@ pub(super) fn from_environment() -> Compaction {
     compaction(socket.as_deref(), base.as_deref())
 }
 
-const MANAGED: &str = "cmux: sr2 manages compaction in this session. Claude compacts at about 400k tokens instead of at its limit. When the account nears its usage limit, cmux types /compact between turns (never over a draft you are typing) and the session goes on with a fresh account.";
+const MANAGED: &str = "cmux: sr2 manages compaction in this session. Claude compacts by about 400k tokens instead of waiting for its limit. When the account nears its usage limit, sr2 types /compact into this terminal between turns (never over a draft you are typing) and the session goes on with a fresh account.";
 
 const UNMANAGED: &str = "cmux: this Claude uses the sr2 gateway without sr2's compaction handling. It compacts only at Claude's own limit and cannot move to a fresh account when this one runs low. Start it with `sr2 claude` to turn that handling on.";
 
@@ -128,7 +128,13 @@ mod tests {
         }
         assert_eq!(message(Compaction::Stock, "startup"), None);
         // Each line promises only what its capability does.
-        assert!(MANAGED.contains("/compact between turns") && MANAGED.contains("fresh account"));
-        assert!(UNMANAGED.contains("`sr2 claude`") && !UNMANAGED.contains("/compact between turns"));
+        assert!(
+            MANAGED.contains("/compact into this terminal between turns")
+                && MANAGED.contains("fresh account")
+        );
+        assert!(
+            UNMANAGED.contains("`sr2 claude`")
+                && !UNMANAGED.contains("/compact into this terminal between turns")
+        );
     }
 }
