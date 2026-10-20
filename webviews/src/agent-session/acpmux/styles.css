@@ -46,7 +46,7 @@
 .acpmux-composer-actions{flex:none;display:flex;align-items:center;gap:8px;margin-left:auto}
 /* Dictation (DictationButton, DictationNotice): the mic before Send, as quiet as the bar's other controls; while listening it
    takes the theme's red (--agent-danger, ANSI 1) and shows the input level in the same circle. Hover and press are in composerStates.css. */
-.acpmux-mic{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted);cursor:default}
+.acpmux-mic{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background-color:transparent;color:var(--agent-muted);cursor:default}
 .acpmux-mic:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-mic[data-state=starting]{color:var(--agent-text)}
 .acpmux-mic[data-state=listening],.acpmux-mic[data-state=finalizing]{color:var(--agent-danger);background:color-mix(in srgb,var(--agent-danger) 16%,transparent)}
@@ -75,17 +75,19 @@
 .acpmux-picker{display:flex;min-width:0}
 .acpmux-picker-button{display:flex;align-items:center;gap:4px;min-width:0;height:28px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);white-space:nowrap}
 .acpmux-picker-button>span{overflow:hidden;text-overflow:ellipsis}
-.acpmux-picker-button[aria-expanded=true]{background:var(--acpmux-pill-open,color-mix(in srgb,var(--agent-text) 16%,transparent));box-shadow:inset 0 0 0 1px var(--acpmux-pill-edge,color-mix(in srgb,var(--agent-text) 24%,transparent))}@media (hover:hover) and (pointer:fine){.acpmux-picker-button:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
-.acpmux-picker-button:focus-visible,.acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-open,color-mix(in srgb,var(--agent-text) 16%,transparent));box-shadow:inset 0 0 0 1px var(--acpmux-pill-edge,color-mix(in srgb,var(--agent-text) 24%,transparent))}
+.acpmux-picker-button[aria-expanded=true]{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}@media (hover:hover) and (pointer:fine){.acpmux-picker-button:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
+.acpmux-picker-button:focus-visible,.acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
 .acpmux-mode .acpmux-picker-button{gap:6px;padding:0 8px 0 6px;color:var(--agent-muted)}
 .acpmux-plan{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default;white-space:nowrap}
 .acpmux-plan:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
-.acpmux-plan[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent,var(--agent-text)) 45%,transparent);color:var(--agent-accent,var(--agent-text))}
+/* Plan on is accent ink with no pill at rest (Leo 2026-10-19); hover, focus and a press draw the chips' soft pill. */
+.acpmux-plan[aria-pressed=true]{color:var(--agent-accent,var(--agent-text))}
 .acpmux-separator{flex:none;width:1px;height:18px;margin:0 4px;background:var(--acpmux-composer-edge)}
 .acpmux-chips>.acpmux-plan+.acpmux-chips-spacer,.acpmux-chips>.acpmux-mode+.acpmux-chips-spacer{margin-left:0}
 /* Full access draws in the chip's own color, like Claude's mode label: the shield's mark names the risk and the menu marks its icon (Leo 2026-10-18). */
 .acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{padding:0 6px 0 8px}
-.acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button,.acpmux-access .acpmux-picker-button{border-radius:999px;background:var(--acpmux-pill-fill,color-mix(in srgb,var(--agent-text) 6%,transparent))}
+/* No pill at rest: the label shows and the pill comes only under the pointer, while open, or on keyboard focus (the Claude app's chips, Leo 2026-10-19). */
+.acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button,.acpmux-access .acpmux-picker-button{border-radius:999px;background:none}
 /* A pill pressed or open keeps the hover step and no edge: no brighter press tone that flashes on a click (Leo 2026-10-18). */
 .acpmux-model .acpmux-picker-button:is(:active,[aria-expanded=true]),.acpmux-effort .acpmux-picker-button:is(:active,[aria-expanded=true]),.acpmux-access .acpmux-picker-button:is(:active,[aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
 @media (hover:hover) and (pointer:fine){.acpmux-model .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-effort .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-access .acpmux-picker-button:hover:not([aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
@@ -93,7 +95,6 @@
 .acpmux-model-name{color:var(--agent-text)}
 .acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-effort .acpmux-picker-button,.acpmux-picker-button .acpmux-icon:last-child{color:var(--agent-muted)}
-.acpmux-menu-search-value{display:none}
 .acpmux-mp-refresh-spinner{width:12px;height:12px;border:1.5px solid color-mix(in srgb,currentColor 35%,transparent);border-top-color:currentColor;border-radius:50%}
 @media (prefers-reduced-motion: no-preference){.acpmux-mp-refresh-spinner{animation:acpmux-mp-spin 700ms linear infinite}}
 :root[data-status-indicators=static] .acpmux-mp-refresh-spinner{animation:none}
@@ -326,10 +327,6 @@
 .acpmux-on{color:var(--agent-text)}
 
 .acpmux-menu-item .acpmux-icon:first-child{color:var(--agent-muted)}
-.acpmux-menu-search{display:flex;align-items:center;gap:8px;min-height:30px;margin-bottom:4px;padding:0 8px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-text)}
-.acpmux-menu-search .acpmux-icon{color:var(--agent-muted)}
-.acpmux-menu-search-empty{color:var(--acpmux-composer-dim)}
-.acpmux-menu-icon{flex:none;display:inline-flex;width:14px;height:14px}
 .acpmux-menu-hint{flex:none;min-width:18px;padding:0 5px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,transparent);color:var(--agent-muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-detail);line-height:18px;text-align:center}
 /* A new chat: the composer docks at the bottom and the hero centers in the space above it. */
 .acpmux-main[data-new-chat]>.acpmux-stage{flex:1 1 0;min-height:0}
@@ -590,6 +587,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-harness-notice{display:block}.acpmux-harness-notice .acpmux-host-error-card{border-color:color-mix(in srgb,var(--agent-text) 14%,transparent);background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg))}.acpmux-host-error-actions{display:flex;flex-wrap:wrap;gap:6px}.acpmux-harness-notice button[data-notice-action=skip],.acpmux-harness-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-harness-spinner{display:inline-block;margin-right:6px;vertical-align:-1px;color:var(--agent-muted)}
 @media (prefers-reduced-motion: no-preference){.acpmux-harness-spinner{animation:acpmux-mp-spin 900ms linear infinite}}
+:root[data-status-indicators=static] .acpmux-harness-spinner{animation:none}
 .acpmux-instructions-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
 .acpmux-switch-notice{display:block;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;color:var(--agent-muted);font-size:12px;line-height:16px}

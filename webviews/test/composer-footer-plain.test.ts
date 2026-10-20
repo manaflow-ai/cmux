@@ -1,7 +1,7 @@
 // The composer footer's plain look (Debug Settings > Pages > "Agent composer: plain footer", the host's
 // `composer` event `plainFooter`, composerSettings.ts): the Claude Code desktop footer, text at rest.
-// The default model, effort and mode pills draw a resting fill (styles.css --acpmux-pill-fill);
-// the plain look takes that and the rest of the difference away:
+// Neither look draws a pill at rest (Leo 2026-10-19: the Claude app's chips). The plain look takes
+// the rest of the difference away:
 //   - the model's name is muted like effort and the permission mode;
 //   - the model's brand mark and the mode's lock are hidden (each comes back when the row's fit
 //     steps take the model's name or the mode's label away, so no chip is a bare chevron).
@@ -11,7 +11,7 @@
 // but the row's controls never overlap.
 //
 // It renders the real composer (the gallery's `agent-pane.composer-row` entry, `claude-auto`: Claude
-// Opus 5.5, Medium, Auto) in Chromium at three pane widths, light and dark, and turns the look on
+// Opus 5.5, Medium, Auto) in Chromium at three pane widths, light and dark, and turns the look off and on
 // through the host's own entry point (window.cmuxAcpmuxComposer, the old host's `composer` script).
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -43,9 +43,6 @@ type Row = {
   modelLabel: boolean;
   accessLabel: boolean;
   look: string;
-  /** The default pills' resting fill, resolved in the bar (styles.css: the model, effort and mode
-   *  pills' `background`). */
-  restingFill: string;
   content: { left: number; right: number };
   chips: Chip[];
   boxes: Chip[];
@@ -92,12 +89,6 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
         },
       ];
     };
-    // The pills' resting fill as styles.css writes it, resolved where the chips resolve it.
-    const probe = document.createElement("span");
-    probe.style.background = "var(--acpmux-pill-fill, color-mix(in srgb, var(--agent-text) 6%, transparent))";
-    bar.append(probe);
-    const restingFill = getComputedStyle(probe).backgroundColor;
-    probe.remove();
     const style = getComputedStyle(bar);
     const barRect = bar.getBoundingClientRect();
     const chips = [
@@ -115,7 +106,6 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
       modelLabel: [...bar.querySelectorAll('.acpmux-model [data-fit-part="model"]')].some(shown),
       accessLabel: [...bar.querySelectorAll('.acpmux-access-trigger [data-fit-part="access"]')].some(shown),
       look: bar.dataset.footerLook ?? "",
-      restingFill,
       content: {
         left: barRect.left + parseFloat(style.paddingLeft),
         right: barRect.right - parseFloat(style.paddingRight),
@@ -210,8 +200,12 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
 
   for (const width of [760, 480, 340])
     for (const scheme of ["light", "dark"]) {
-      test(`at ${width} px (${scheme}): off, the chips draw as today`, async () => {
+      test(`at ${width} px (${scheme}): plain by default; off, the chips draw as before`, async () => {
         const page = await open(width, scheme);
+        // The plain look is the default (#22050, DEFAULT_COMPOSER.plainFooter); the host's
+        // `composer` event turns it off.
+        const initial = await page.evaluate(measure);
+        await plain(page, false);
         const row = await page.evaluate(measure);
         await page.close();
         console.log(
@@ -224,15 +218,15 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
             chips: row.chips,
           }),
         );
+        expect(initial.look).toBe("plain");
         expect(row.look).toBe("");
         const model = chip(row, "model")!;
         expect(model.leadingIcon).toBe(true);
         expect(model.nameColor).not.toBe(chip(row, "effort")!.color);
         expect(chip(row, "mode")!.leadingIcon).toBe(true);
-        // Today's pills: the resting fill styles.css gives them.
-        expect(row.restingFill).not.toBe(CLEAR);
+        // No pill at rest in the default look either: the label and chevron only.
         for (const each of row.chips) {
-          expect(each.background).toBe(row.restingFill);
+          expect({ name: each.name, background: each.background }).toEqual({ name: each.name, background: CLEAR });
           expect(each.chevron).toBe(true);
         }
         expect(overlaps(row)).toEqual([]);
@@ -240,6 +234,7 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
 
       test(`at ${width} px (${scheme}): on, plain text at rest, same labels, no overlap`, async () => {
         const page = await open(width, scheme);
+        await plain(page, false);
         const before = await page.evaluate(measure);
         await plain(page, true);
         const row = await page.evaluate(measure);

@@ -104,6 +104,11 @@ public final class OwnerPanicForwarder: Sendable {
         var tags = ["process": "cmux-tui", "crash_source": "owner_panic_log"]
         if let thread = record["thread"] as? String { tags["thread"] = thread }
         if let version = record["version"] as? String { tags["tui_version"] = version }
+        // The build and platform a tester runs (cmux-tui owner_panic.rs), so
+        // Sentry groups crashes by release and platform.
+        if let build = record["build_identity"] as? String { tags["tui_build"] = build }
+        if let os = record["os"] as? String { tags["tui_os"] = os }
+        if let arch = record["arch"] as? String { tags["tui_arch"] = arch }
         event.tags = tags
         var extra: [String: Any] = ["location": location]
         if let backtrace = record["backtrace"] as? String { extra["backtrace"] = backtrace }

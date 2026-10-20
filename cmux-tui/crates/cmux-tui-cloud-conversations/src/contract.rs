@@ -23,6 +23,11 @@ pub const CLOUD_OP_KINDS: &[&str] = &[
     "title.set",
     "thread.update",
     "invite.create",
+    // Message requests (home-messaging-invites DESIGN 2.3): the invited
+    // address's verified owner accepts without the link, or dismisses (and
+    // with `block`, blocks the sender).
+    "invite.accept_verified",
+    "request.dismiss",
 ];
 
 /// Kinds that create or open a conversation and therefore name none.
@@ -347,6 +352,22 @@ pub(crate) fn inbox_list_data(value: Value, revision: Value) -> Result<Value, Cl
         .cloned()
         .ok_or_else(|| CloudError::Unavailable("inbox.list without entries".into()))?;
     Ok(json!({"entries": entries, "revision": revision}))
+}
+
+/// `home.requests.list` data: `{requests}` with only rows whose
+/// `conversation` is a conversation id (nothing else names an id).
+pub(crate) fn requests_list_data(value: Value) -> Result<Value, CloudError> {
+    let Some(rows) = value.get("requests").and_then(Value::as_array) else {
+        return Err(CloudError::Unavailable("home.requests.list without requests".into()));
+    };
+    let requests: Vec<Value> = rows
+        .iter()
+        .filter(|row| {
+            row.get("conversation").and_then(Value::as_str).is_some_and(valid_conversation_id)
+        })
+        .cloned()
+        .collect();
+    Ok(json!({"requests": requests}))
 }
 
 pub(crate) fn history_data(value: Value) -> Result<Value, CloudError> {
