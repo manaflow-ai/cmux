@@ -18,14 +18,10 @@ final class HomeHostView: NSView {
     private let transcript: HomeNativeTranscriptView
     private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
-    /// The Chief's settings, a right sidebar the header's name pill toggles
-    /// (Chief conversation only); the transcript narrows while it shows.
-    private let sidebar: HomeChiefSidebar
-    /// The one owner of the sidebar's motion: `layout()` and every frame of
-    /// the slide place the transcript and the sidebar from it.
-    private var slide = HomeSidebarSlide()
-    /// Frames for the slide; made on the first toggle, idle when settled.
-    private var slideClient: FrameClient?
+    /// The Chief's settings, a popover under the header's name pill, which
+    /// toggles it (Chief conversation only).
+    private let settings: HomeChiefSettingsPopover
+    private var settingsView: HomeChiefSettingsView { settings.content }
     private var isChief = false
     private var engineWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
@@ -51,22 +47,21 @@ final class HomeHostView: NSView {
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
-        sidebar = HomeChiefSidebar(muxHome: control.brainHome, source: control.engineSource())
+        settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
         super.init(frame: .zero)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
-        sidebar.isHidden = true
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
-        transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
+        transcript.onNamePill = { [weak self] in self?.toggleChiefSettings() }
         loadAvatar()
-        sidebar.onAvatar = { [weak self, weak service] in
+        settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // The tile avatar is the default Chief's: a named Chief's panel never sets it (cx-327wl).
             if self?.control.named == nil { service?.refreshChiefAvatar() }
         }
-        sidebar.onShowMemory = { [weak services] in
+        settingsView.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
         }
-        sidebar.onRename = { [weak service] name in
+        settingsView.onRename = { [weak service] name in
             guard let connection = service?.connection else { return }
             // task-owner: one op; ends with its reply
             Task {
@@ -77,7 +72,7 @@ final class HomeHostView: NSView {
         }
         toggleObserver = NotificationCenter.default.addObserver(forName: Self.toggleSettings, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the toggle
-            Task { @MainActor in self?.toggleSidebar() }
+            Task { @MainActor in self?.toggleChiefSettings() }
         }
         // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
         let registry = services.registry
@@ -92,7 +87,7 @@ final class HomeHostView: NSView {
         let store = service.homeStore
         // task-owner: lives as long as this view; event-driven (Observation):
         // whether this is the Chief conversation, and a refresh of the
-        // sidebar's last turn on each new message.
+        // settings' last turn on each new message.
         engineWatch = Task { [weak self] in
             for await (isChief, _, title, cloud, typing, named) in ObservationStream({ () -> (Bool, Int, String, Bool, Bool, String?) in
                 let row = store.rows.first { $0.summary.id == id }
@@ -107,7 +102,7 @@ final class HomeHostView: NSView {
                 // A named Chief's conversation: its panel, Stop and avatar name it (cx-327wl).
                 if named != control.chief {
                     control.chief = named
-                    sidebar.use(control.engineSource())
+                    settingsView.use(control.engineSource())
                     loadAvatar()
                 }
                 self.isChief = isChief
@@ -116,11 +111,11 @@ final class HomeHostView: NSView {
                 transcript.isWorking = isWorking
                 if cloud != showsCloud {
                     showsCloud = cloud
-                    sidebar.use(control.engineSource())
+                    settingsView.use(control.engineSource())
                 }
-                sidebar.setName(title)
-                if !isChief, slide.isOpen { toggleSidebar() }
-                if slide.isOpen { sidebar.refresh() }
+                settingsView.setName(title)
+                if !isChief, settings.isShown { settings.close() }
+                if settings.isShown { settingsView.refresh() }
             }
         }
         // Settings > Home: whether attached photos and videos keep their location.
@@ -178,8 +173,6 @@ final class HomeHostView: NSView {
             self?.transcript.holdsFirstRun = false
         }
         wantsLayer = true
-        // The sidebar slides in from beyond the right edge: never draw it
-        // over the pane next to Home.
         clipsToBounds = true
         message.alignment = .center
         // A long reason (a migration notice) wraps in a narrow pane instead of clipping.
@@ -189,8 +182,6 @@ final class HomeHostView: NSView {
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
-        // Above the transcript, so it slides in over it.
-        addSubview(sidebar)
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
             // Usable when its own owner answers: a cloud conversation (a Chief
@@ -224,7 +215,7 @@ final class HomeHostView: NSView {
             engineWatch?.cancel()
             agentsWatch?.cancel()
             shortcutsWatch?.cancel()
-            slideClient?.deactivate()
+            settings.close()
             if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
             if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
             firstPage?.cancel()
@@ -244,9 +235,7 @@ final class HomeHostView: NSView {
 
     override func layout() {
         super.layout()
-        // A layout pass mid-slide (a resize, a notice) keeps the presented
-        // place: it never snaps the slide to its end.
-        placeSidebar()
+        transcript.frame = bounds
         let inset: CGFloat = 24
         let width = max(0, bounds.width - 2 * inset)
         message.preferredMaxLayoutWidth = width
@@ -254,43 +243,14 @@ final class HomeHostView: NSView {
         message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
     }
 
-    /// The header avatar's click: the sidebar slides in from the right
-    /// while the transcript narrows in the same frames, or out again (the
-    /// Messages details panel). A click mid-slide reverses from where the
-    /// panel is. Only over the Chief.
-    func toggleSidebar() {
-        guard isChief || slide.isOpen else { return }
-        let open = !slide.isOpen
-        if open { sidebar.refresh() }
-        slide.setOpen(open, animated: window != nil && Motion.animatesMovement)
-        placeSidebar()
-        guard slide.isMoving else {
-            slideClient?.deactivate()
-            return
-        }
-        let client = slideClient ?? FrameClient(owner: "HomeHostView.sidebarSlide", view: self) { [weak self] tick in
-            self?.stepSlide(tick.elapsed) ?? false
-        }
-        slideClient = client
-        client.activate()
-    }
-
-    private func stepSlide(_ dt: Double) -> Bool {
-        let moving = slide.advance(dt, policy: Motion.policy)
-        placeSidebar()
-        return moving
-    }
-
-    /// Places the transcript and the sidebar for the presented slide (no
-    /// AppKit animator: each frame sets both frames in one transaction, so
-    /// the transcript re-lays out at each width as in a live resize).
-    private func placeSidebar() {
-        let scale = window?.backingScaleFactor ?? 2
-        let frames = slide.frames(in: bounds, sidebarWidth: HomeChiefSidebar.width, scale: scale)
-        if transcript.frame != frames.transcript { transcript.frame = frames.transcript }
-        if sidebar.frame != frames.sidebar { sidebar.frame = frames.sidebar }
-        let hidden = !slide.isVisible
-        if sidebar.isHidden != hidden { sidebar.isHidden = hidden }
+    /// The name pill's click (or `home.toggleChiefSettings`): the Chief's
+    /// settings open under the pill, or close again. Only over the Chief.
+    func toggleChiefSettings() {
+        if settings.isShown { return settings.close() }
+        // The press that just closed it (on the header avatar) does not open it again.
+        guard !settings.closedByCurrentEvent, isChief, window != nil, !isHiddenOrHasHiddenAncestor else { return }
+        settingsView.refresh()
+        settings.show(relativeTo: transcript.namePill)
     }
 
     /// The shared stop action reached this view: only the Home in the key
@@ -313,14 +273,16 @@ final class HomeHostView: NSView {
             let avatar = await Task.detached { files.headerAvatar() }.value
             // A read for the Chief shown before (the conversation's Chief came in since) is dropped.
             guard let self, control.brainHome == home else { return }
-            transcript.avatarPicture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? Self.defaultAvatar : nil)
+            let picture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? Self.defaultAvatar : nil)
+            transcript.avatarPicture = picture
             transcript.avatarText = avatar.text
+            settingsView.setAvatar(picture: picture, text: avatar.text)
         }
     }
 
     #if DEBUG
     /// `debug.home.drive` engine_set: one pick in this view's Chief settings panel, as its popup does.
-    func debugPickEngine(_ key: String, _ value: String?) { sidebar.pick(key, value) }
+    func debugPickEngine(_ key: String, _ value: String?) { settingsView.pick(key, value) }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif

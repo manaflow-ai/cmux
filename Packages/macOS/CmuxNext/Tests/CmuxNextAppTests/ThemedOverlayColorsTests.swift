@@ -22,12 +22,12 @@ import Testing
 
     @Test func homeChiefSettingsDrawInTheTheme() throws {
         let scope = try Self.purpleRoom()
-        let sidebar = HomeChiefSidebar(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
-        scope.root(sidebar)
+        let settings = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
+        scope.root(settings)
 
-        let fill = try #require(sidebar.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
-        #expect(Self.same(fill, scope.perform { Palette.fill(for: .sidebar, default: Palette.sidebarStep) }))
-        let labels = Self.labels(in: sidebar)
+        // The popover's glass card is the surface (HomeChiefSettingsPopover): the content paints none.
+        #expect(settings.layer?.backgroundColor == nil)
+        let labels = Self.labels(in: settings)
         #expect(labels.count > 4)
         for label in labels {
             #expect(Self.isThemeInk(label.textColor, scope), "\(label.stringValue)")
@@ -71,19 +71,21 @@ import Testing
 
     @Test func buttonsAndPickersDrawTheThemeBezel() throws {
         let scope = try Self.purpleRoom()
-        let sidebar = HomeChiefSidebar(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
+        let settings = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
         let restart = TerminalRestartButton()
         let placeholder = RemoteTerminalPlaceholderView(frame: .zero)
         let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Move Tab", fields: [
             .choice(id: "window", label: nil, options: [.init(label: "Window A", value: "a")], selected: "a"),
         ], buttons: [.ok()]))
         let compose = HomeComposeSheet(contacts: [])
-        let views: [NSView] = [sidebar, restart, placeholder, dialog, compose.view]
+        let views: [NSView] = [settings, restart, placeholder, dialog, compose.view]
         for view in views { scope.root(view) }
 
         // The sheets' factory-made buttons keep the system's automatic style, so they are named.
         let found = views.flatMap(Self.pushButtons(in:))
-        #expect(found.count >= 7)
+        // The Chief settings' Harness, Model and Effort pickers; its other buttons are links.
+        #expect(Self.pushButtons(in: settings).count == 3)
+        #expect(found.count >= 5)
         let buttons = found + [compose.cancelButton, compose.inviteButton]
         let fill = scope.perform { Palette.selectionFill }
         for button in buttons {
