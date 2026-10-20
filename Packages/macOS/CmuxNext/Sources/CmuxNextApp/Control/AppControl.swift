@@ -45,6 +45,7 @@ final class AppControl {
         let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
+        services.restartControlListener = { [weak service] in try service?.restartListener() }
         registerSyncBarrier(service.router, daemon: services.daemon)
         service.router.register(renderPreview.methods(pane: { [weak services] session in services?.agentTabs.tab(showing: session).flatMap { services?.agentTabs.existingView($0) } }, park: { webView in
             let panel = AgentRenderPanel(viewport: webView.bounds.size, screens: NSScreen.screens.map(\.frame), privateCalls: WebKitPrivateCalls())
