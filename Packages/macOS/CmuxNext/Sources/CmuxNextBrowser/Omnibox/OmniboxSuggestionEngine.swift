@@ -128,20 +128,16 @@ public final class OmniboxSuggestionEngine {
         let probe = IntranetHostProbe.candidate(text) == nil ? nil : intranetProbe
         let intranetHosts = resolver.intranetHosts
         let task = Task {
-            func localRows() async -> [BrowserSuggestion]? {
-                guard var rows = await local.run(query) else { return nil }
-                if !hidden.isEmpty { rows.removeAll { $0.kind == .history && hidden.contains(BrowserHistoryRanker.dedupeKey(for: $0.url)) } }
-                if !providers.isEmpty, !text.isEmpty {
-                    var extra: [BrowserSuggestion] = []
-                    for provider in providers {
-                        if Task.isCancelled { return nil }
-                        extra += await provider.suggestions(for: text)
-                    }
-                    rows = OmniboxPhaseA.merging(rows, extra, maxRows: maxRows)
+            guard var rows = await local.run(query) else { return continuation.finish() }
+            if !hidden.isEmpty { rows.removeAll { $0.kind == .history && hidden.contains(BrowserHistoryRanker.dedupeKey(for: $0.url)) } }
+            var extra: [BrowserSuggestion] = []
+            if !providers.isEmpty, !text.isEmpty {
+                for provider in providers {
+                    if Task.isCancelled { return continuation.finish() }
+                    extra += await provider.suggestions(for: text)
                 }
-                return rows
+                rows = OmniboxPhaseA.merging(rows, extra, maxRows: maxRows)
             }
-            guard var rows = await localRows() else { return continuation.finish() }
             guard !Task.isCancelled, request.gate.isCurrent(request.generation) else { return continuation.finish() }
             continuation.yield(.local(rows))
             // A bare word: ask DNS (bounded by the probe's timeout); when the
@@ -150,10 +146,11 @@ public final class OmniboxSuggestionEngine {
                 let resolves = await probe.resolves(text)
                 if resolves != intranetHosts.isIntranetHost(text) {
                     intranetHosts.record(text, resolves: resolves)
-                    guard let fresh = await localRows(), !Task.isCancelled, request.gate.isCurrent(request.generation) else {
+                    guard var fresh = await local.run(query), !Task.isCancelled, request.gate.isCurrent(request.generation) else {
                         return continuation.finish()
                     }
-                    rows = fresh
+                    if !hidden.isEmpty { fresh.removeAll { $0.kind == .history && hidden.contains(BrowserHistoryRanker.dedupeKey(for: $0.url)) } }
+                    rows = extra.isEmpty ? fresh : OmniboxPhaseA.merging(fresh, extra, maxRows: maxRows)
                     continuation.yield(.local(rows))
                 }
             }
