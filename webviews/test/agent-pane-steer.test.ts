@@ -7,7 +7,9 @@
 //   prompt shows there from the send on, never first as a transcript bubble.
 // - ⌘Enter steers, and an agent that cannot steer is told to stop the turn and run it next
 //   (`_meta.acpmux.interrupt`); the button says so.
-// - Esc on an empty composer stops the turn on a second press (escapeStop.ts); the first says so.
+// - Esc stops the turn on a second press (escapeStop.ts): the first turns Stop into an Esc hint,
+//   and typing, a click, focus moving or the window ending puts Stop back. An Esc nothing else took
+//   (focus outside the composer, as in a question card) counts too; with no turn, Esc does nothing.
 // - Stop always frees the chat: acpmux's forced end of a turn whose agent ignored the cancel says
 //   so, and a turn still open a few seconds after Stop stops showing as working (cosmic-gray,
 //   2026-10-14: a chat stuck "running" after `/permissions`, Stop doing nothing).
@@ -70,6 +72,25 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       msg: { prompt: turn.prompt, promptId: "p-turn", turnId: "turn-1" },
     },
   ];
+  /// Set while a test opens the chat with its turn already over (no Stop to arm).
+  let idleChat = false;
+  const idleSummary = () => ({ ...summary, status: "idle", turn: undefined });
+  const finished = [
+    {
+      sessionId: SESSION,
+      at: Date.now(),
+      dir: "mux",
+      kind: "turn_end",
+      msg: { stopReason: "end_turn", turnId: "turn-1" },
+    },
+    {
+      sessionId: SESSION,
+      at: Date.now(),
+      dir: "mux",
+      kind: "turn_result",
+      msg: { status: "completed", turnId: "turn-1" },
+    },
+  ];
   let seq = opening.length;
   const prompts: Record<string, any>[] = [];
   const cancels: Record<string, any>[] = [];
@@ -84,8 +105,12 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
           _meta: { acpmux: { origin: "local", extensions: [] } },
         };
       case "_acpmux/watch":
-        return { sessions: [summary] };
+        return { sessions: [idleChat ? idleSummary() : summary] };
       case "_acpmux/attach":
+        if (idleChat) {
+          const events = [...opening, ...finished.map((each, index) => ({ ...each, seq: opening.length + index + 1 }))];
+          return { session: idleSummary(), lastSeq: events.length, events };
+        }
         return { session: summary, lastSeq: opening.length, events: opening };
       case "_acpmux/events":
         eventReads += 1;
@@ -403,7 +428,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       // The send guard ignores a stop right after a send; nothing was sent here.
       await page.keyboard.press("Escape");
       await page.locator(".acpmux-md-placeholder", { hasText: "Press Esc again to stop" }).waitFor({ timeout: 2_000 });
-      // The second press must land inside the 800 ms window, so no long wait here.
+      // The second press must land inside the 1.6 s window, so no long wait here.
       expect(cancels.length).toBe(0);
       await page.keyboard.press("Escape");
       const deadline = Date.now() + 5_000;
@@ -424,6 +449,132 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.waitForTimeout(300);
       expect(cancels.length).toBe(0);
       await page.close();
+    });
+
+    const escHint = (page: Page) => page.getByRole("button", { name: "Press Esc again to stop" });
+    const stopButton = (page: Page) => page.getByRole("button", { name: "Stop", exact: true });
+    /// Arms the stop from the composer and waits for Stop to turn into the Esc hint.
+    async function arm(page: Page): Promise<void> {
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.press("Escape");
+      await escHint(page).waitFor({ timeout: 1_000 });
+    }
+
+    test("the first Esc turns Stop into an Esc hint, and the window ending puts Stop back", async () => {
+      const page = await openChat();
+      await arm(page);
+      expect(await escHint(page).innerText()).toBe("Esc");
+      expect(await stopButton(page).count()).toBe(0);
+      await stopButton(page).waitFor({ timeout: 3_000 });
+      expect(await escHint(page).count()).toBe(0);
+      expect(cancels.length).toBe(0);
+      await page.close();
+    });
+
+    test("typing between the presses puts Stop back, and the next Esc only arms again", async () => {
+      const page = await openChat();
+      await arm(page);
+      // A typed character shows Send; deleting it shows Stop again, unarmed.
+      await page.keyboard.type("a");
+      await page.keyboard.press("Backspace");
+      // Well inside the window: only the typing can have disarmed it.
+      await stopButton(page).waitFor({ timeout: 500 });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      expect(cancels.length).toBe(0);
+      await page.close();
+    });
+
+    test("a key that types nothing between the presses puts Stop back too", async () => {
+      const page = await openChat();
+      await arm(page);
+      await page.keyboard.press("ArrowLeft");
+      await stopButton(page).waitFor({ timeout: 500 });
+      expect(cancels.length).toBe(0);
+      await page.close();
+    });
+
+    test("an Esc on another control (a header button) neither arms nor stops", async () => {
+      // Rows, tooltips and the minimap act on Esc without claiming it: only the composer, a
+      // question card and a page with nothing focused count it as a press.
+      const page = await openChat();
+      const focused = await page.evaluate(() => {
+        const control = [...document.querySelectorAll<HTMLElement>("button")].find(
+          (each) => !each.closest(".acpmux-composer") && each.offsetParent !== null,
+        );
+        control?.focus();
+        return document.activeElement === control && control !== undefined;
+      });
+      expect(focused).toBe(true);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+      expect(await escHint(page).count()).toBe(0);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      expect(cancels.length).toBe(0);
+      await page.close();
+    });
+
+    test("a click between the presses puts Stop back", async () => {
+      const page = await openChat();
+      await arm(page);
+      // A click in the prompt, which already has focus: no focus moves.
+      await page.locator(".acpmux-composer-prompt").click();
+      await stopButton(page).waitFor({ timeout: 500 });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      expect(cancels.length).toBe(0);
+      await page.close();
+    });
+
+    test("focus moving between the presses puts Stop back", async () => {
+      const page = await openChat();
+      await arm(page);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await stopButton(page).waitFor({ timeout: 500 });
+      expect(cancels.length).toBe(0);
+      await page.close();
+    });
+
+    test("an Esc no other control takes, with focus outside the composer, counts as a press", async () => {
+      // A question card leaves Esc to this double press: the key reaches the page, not the prompt.
+      const page = await openChat();
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await page.keyboard.press("Escape");
+      await escHint(page).waitFor({ timeout: 1_000 });
+      expect(cancels.length).toBe(0);
+      await page.keyboard.press("Escape");
+      const deadline = Date.now() + 5_000;
+      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      expect(cancels.map((c) => c.sessionId)).toEqual([SESSION]);
+      await page.close();
+    });
+
+    test("with no turn running, Esc neither arms nor stops", async () => {
+      idleChat = true;
+      try {
+        prompts.length = 0;
+        cancels.length = 0;
+        const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+        const { port } = vite!.httpServer!.address() as { port: number };
+        const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+        await page.goto(
+          `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`,
+        );
+        await page.locator(".acpmux-composer-prompt").click();
+        await page.getByRole("button", { name: "Send" }).waitFor({ timeout: 5_000 });
+        expect(await stopButton(page).count()).toBe(0);
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(200);
+        expect(await escHint(page).count()).toBe(0);
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+        expect(await escHint(page).count()).toBe(0);
+        expect(cancels.length).toBe(0);
+        await page.close();
+      } finally {
+        idleChat = false;
+      }
     });
   });
 });

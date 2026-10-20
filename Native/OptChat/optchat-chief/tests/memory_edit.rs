@@ -35,9 +35,9 @@ impl CompactModel for Echo {
         let kept: Vec<&str> = input
             .split_whitespace()
             .filter(|w| {
-                !matches!(*w, "filler" | "words" | "plain" | "message" | "user:")
-                    && !w.bytes().all(|b| b.is_ascii_digit())
-                    && !(w.starts_with('S') && w.contains('+'))
+                !(matches!(*w, "filler" | "words" | "plain" | "message" | "user:")
+                    || w.bytes().all(|b| b.is_ascii_digit())
+                    || (w.starts_with('S') && w.contains('+')))
             })
             .collect();
         let line = format!("S{} {}", request.node.name(), kept.join(" "));
