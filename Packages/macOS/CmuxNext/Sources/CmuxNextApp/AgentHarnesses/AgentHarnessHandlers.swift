@@ -42,7 +42,7 @@ enum AgentHarnessHandlers {
             }
             track(registry) { try await center.restore(backup: backup) }
         })
-        registry.bind("agent.harness.updateAll", run: { _ in track(registry) { try await updateAll(context, center) } })
+        center.updates?.bind(into: registry)
         registry.bind("agent.harness.doctor", run: { invocation in
             guard let id = nonEmpty(invocation.arguments["id"]?.stringValue) else {
                 guard invocation.origin == .user else { throw ActionFailure(message: AgentHarnessStrings.needsAgent) }
@@ -60,24 +60,6 @@ enum AgentHarnessHandlers {
                 return answer
             }
         })
-    }
-
-    /// Update Agent CLIs: the listed harnesses' health rows by id (as Settings > Agents lists
-    /// them), every outdated one's update typed into a new terminal tab of the focused pane
-    /// (`AgentCLIUpdates`, shared with Settings > Agents > Update All). Nothing to update, no
-    /// window, or no answer (no daemon, an acpmux without health) opens Settings > Agents, which
-    /// says which.
-    private static func updateAll(_ context: AppActionContext, _ center: AgentHarnessCenter) async throws -> JSONValue {
-        let listed = Set((try? await center.listed()) ?? [])
-        let rows = ((try? await center.health()) ?? [])
-            .filter { listed.contains($0["id"]?.stringValue ?? "") }
-            .sorted { ($0["id"]?.stringValue ?? "") < ($1["id"]?.stringValue ?? "") }
-        guard let line = AgentCLIUpdates.allLine(rows), let pane = context.services.windows.active?.focusedPane else {
-            try openSettings(context, panel: nil)
-            return .null
-        }
-        pane.newTerminalTab(typing: line + "\r")
-        return .null
     }
 
     /// Settings > Agents, with its Add panel (`add`) or registry list (`registry`) open.
@@ -115,6 +97,14 @@ nonisolated enum AgentHarnessStrings {
         text("handlers.agent.harness.needsCommand", "Name what to start: --arg command=<program>, --arg registry=<id> or --arg example=<id>.")
     }
     static var nothingRemoved: String { text("handlers.agent.harness.nothingRemoved", "No removed agent to restore. Name its backup file with --arg backup=<file>.") }
+
+    static var nothingToUpdate: String {
+        text("handlers.agent.harness.nothingToUpdate", "No agent CLI here has an update the app can run. Settings > Agents shows each one's update command.")
+    }
+
+    static func stillUpdating(_ cli: String) -> String {
+        String(format: text("handlers.agent.harness.stillUpdating", "%@ is still updating. Wait for that update to finish, then try again."), cli)
+    }
 
     static func doctorFailed(_ id: String, step: String, detail: String) -> String {
         String(format: text("handlers.agent.harness.doctorFailed", "%@ failed its check at %@: %@"), id, step, detail)

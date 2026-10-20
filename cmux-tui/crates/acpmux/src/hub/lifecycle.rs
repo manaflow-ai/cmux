@@ -177,6 +177,8 @@ impl Hub {
                             "session name {n:?} is taken"
                         )));
                     }
+                    // Named by the person: no generated title (`titles.rs`).
+                    meta.title_source = Some(super::titles::NAMED.to_owned());
                     n
                 }
                 // A pooled harness was started under its name: keep it.

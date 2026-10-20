@@ -252,6 +252,12 @@ pub fn left_out(remote_origin: bool, env: &BTreeMap<String, String>, args: &[Str
 /// Anthropic's (our routers), and then sends every schema in every turn.
 pub const TOOL_SEARCH_ENV: &str = "ENABLE_TOOL_SEARCH";
 
+/// The profile env that opts a harness in to cmux's code mode (two tools, `cmux_docs` and
+/// `cmux_exec`) instead of every tool: `1` turns it on. Off by default: on the agent evals
+/// (tests/agent-evals RESULTS, codemode-vs-all) every tool passed 8/12 Claude Code tasks to code
+/// mode's 6/12 at about half the cost, and tied for Codex.
+pub const CODE_MODE_ENV: &str = "CMUX_MCP_CODE_MODE";
+
 /// Whether a harness defers MCP tools behind its own tool search, so its
 /// cmux server lists every tool (`cmux mcp serve --all-tools`) and the
 /// harness loads the ones a turn needs. Every other harness gets cmux's
@@ -270,7 +276,7 @@ pub fn lists_all_tools(
     profile: &crate::config::HarnessProfile,
     env: &BTreeMap<String, String>,
 ) -> bool {
-    if !own_provider(env) {
+    if !own_provider(env) || env.get(CODE_MODE_ENV).is_some_and(|v| v.trim() == "1") {
         return false;
     }
     if is_claude_code(name, profile) {
@@ -342,7 +348,11 @@ pub fn claude_args_for(
             .for_session(session_id)
             // Claude Code has tool search unless its env turns it off or
             // sends it to another provider.
-            .listing(tool_search_on(env) && own_provider(env))
+            .listing(
+                tool_search_on(env)
+                    && own_provider(env)
+                    && env.get(CODE_MODE_ENV).is_none_or(|v| v.trim() != "1"),
+            )
             .claude_args(&mcp_config_path(&crate::config::home(), session_id))
     }
 }
