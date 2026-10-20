@@ -84,9 +84,12 @@ extension HistoryService {
     func seedFromDaemon(_ history: InMemoryBrowserHistory, profile: BrowserProfileID, _ daemon: DaemonHistoryClient) {
         let wireID = BrowserProfileRecord.wireID(for: profile)
         let legacy = supportDirectory.map { BrowserVisitLog.fileURL(profile: wireID, supportDirectory: $0) }
+        let supportDirectory = supportDirectory
         // task-owner: one-shot import and read of the profile's visit summaries
         Task { [weak history] in
-            if let legacy { await Self.handOver(legacy, profile: wireID, to: daemon) }
+            if let legacy, let supportDirectory {
+                await Self.handOver(legacy, supportDirectory: supportDirectory, profile: wireID, to: daemon)
+            }
             let summaries = (try? await daemon.summaries(profile: wireID)) ?? []
             let entries = summaries.compactMap { summary in
                 URL(string: summary.url).map {
@@ -103,17 +106,19 @@ extension HistoryService {
     /// import leaves the file for the next launch; the key (path, size, time) makes a retry of the
     /// same file replay, and the daemon also records each imported file, so no session imports it
     /// twice.
-    static func handOver(_ log: URL, profile: String, to daemon: DaemonHistoryClient) async {
+    static func handOver(_ log: URL, supportDirectory: URL, profile: String, to daemon: DaemonHistoryClient) async {
         let files = FileManager.default
-        guard let attributes = try? files.attributesOfItem(atPath: log.path) else { return }
+        guard let source = LegacyHistoryFile(url: log, supportDirectory: supportDirectory),
+              let attributes = try? files.attributesOfItem(atPath: source.url.path) else { return }
+        let cleanup = [source] + ["-wal", "-shm"].compactMap {
+            LegacyHistoryFile(url: URL(fileURLWithPath: source.url.path + $0), supportDirectory: supportDirectory)
+        }
         let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
         let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-        let digest = SHA256.hash(data: Data(log.path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+        let digest = SHA256.hash(data: Data(source.url.path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
         let key = "cmux-next-history-import-\(digest)-\(size)-\(Int64(modified * 1_000))"
-        guard (try? await daemon.importVisits(profile: profile, path: log.path, key: key)) != nil else { return }
-        for suffix in ["", "-wal", "-shm"] where files.fileExists(atPath: log.path + suffix) {
-            try? files.removeItem(atPath: log.path + suffix)
-        }
+        guard (try? await daemon.importVisits(profile: profile, path: source.url.path, key: key)) != nil else { return }
+        for file in cleanup { file.removeIfUnchanged() }
     }
 }
 
