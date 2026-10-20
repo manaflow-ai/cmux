@@ -27,15 +27,28 @@ public struct FolderWatcher: FolderWatching {
     /// The coalescing latency in seconds.
     public var latency: CFTimeInterval
 
+    /// Changes held for a reader that lags; past this the oldest is dropped and a rescan follows.
+    static let bufferLimit = 64
+
     /// Makes a watcher. `latency` defaults to 50 ms.
     public init(latency: CFTimeInterval = 0.05) { self.latency = latency }
 
     public func changes(in folder: URL) -> AsyncStream<FolderChange> {
-        AsyncStream { continuation in
-            let box = FolderWatchStream(folder: folder.standardizedFileURL.resolvingSymlinksInPath(),
-                                        latency: latency, continuation: continuation)
+        // Bounded: when the reader lags so far that a change is dropped, a rescan follows it.
+        AsyncStream(bufferingPolicy: .bufferingNewest(Self.bufferLimit)) { continuation in
+            let box = FolderWatchStream(folder: Self.realFolder(folder), latency: latency, continuation: continuation)
             continuation.onTermination = { _ in box.stop() }
             box.start()
         }
+    }
+
+    /// The kernel's path for `folder` (`realpath(3)`), as FSEvents reports paths: /private/var/...
+    /// for the temp directory. `resolvingSymlinksInPath()` would give /var/..., and every child
+    /// event would then fail the parent check. A folder that does not resolve keeps its path.
+    static func realFolder(_ folder: URL) -> URL {
+        let standard = folder.standardizedFileURL
+        guard let resolved = realpath(standard.path, nil) else { return standard }
+        defer { free(resolved) }
+        return URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
     }
 }

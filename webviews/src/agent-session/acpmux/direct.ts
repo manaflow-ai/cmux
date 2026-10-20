@@ -26,7 +26,9 @@ import { postNative } from "./native";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
-import { questionFromPermission } from "./question/model";
+import { questionFromPermission, questionSummary, summaryLines, type AgentQuestion } from "./question/model";
+import { decidedQuestion, QUESTION_RECORD } from "./question/record";
+import { DECISION_TEXT, PERMISSION_RECORD, permissionDecision } from "./permissions/record";
 import { isNotification, typedRequest } from "./protocol/client";
 import type { SessionChanged, SessionSummary } from "./protocol/generated/types";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
@@ -42,11 +44,12 @@ import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { SubagentFold } from "./subagents/subagentFold";
+import { SubagentFold, subagentsLeft } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
+import { reduceAgentPair } from "./conversation/agentPairs";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -170,6 +173,14 @@ const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
+/// Each chat's slash commands from its last attach on this page (a few dozen chats): back on a
+/// chat, `/` lists them at once instead of "No commands" until the attach (Leo 2026-10-19).
+const knownCommands = new Map<string, SlashCommand[]>();
+function rememberCommands(sessionId: string, commands: SlashCommand[]) {
+  knownCommands.delete(sessionId);
+  knownCommands.set(sessionId, commands);
+  while (knownCommands.size > 32) knownCommands.delete(knownCommands.keys().next().value!);
+}
 /// The longest a chat switch keeps the chat before on screen while the new one attaches.
 const SWITCH_HOLD_MS = 400;
 /// The longest a connect keeps the pane's last snapshot on screen while it reads the chat.
@@ -223,14 +234,11 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
     title: raw.toolCall?.title,
+    // A string, or an argv array read the way the transcript's Shell block reads it (`sh -lc` unwrapped).
     command:
       typeof raw.toolCall?.command === "string"
         ? raw.toolCall.command
-        : typeof raw.toolCall?.rawInput?.command === "string"
-          ? raw.toolCall.rawInput.command
-          : typeof raw.command === "string"
-            ? raw.command
-            : undefined,
+        : (shellCommand(raw.toolCall?.rawInput) ?? (typeof raw.command === "string" ? raw.command : undefined)),
     description:
       typeof claudeMeta?.description === "string"
         ? claudeMeta.description
@@ -695,12 +703,22 @@ export class AcpmuxDirectClient {
   private configSeq = 0;
   private queue: QueuedPrompt[] = [];
   private pendingPermission?: AcpmuxPermission;
+  /// Asks that came while `pendingPermission` waits, oldest first, by permission id: acpmux keeps
+  /// every pending ask (a question beside a command, two subagents asking), and the card answers
+  /// them one at a time.
+  private waitingPermissions = new Map<string, AcpmuxPermission>();
   private pendingSecret?: AcpmuxSecretAsk;
   private groupedPermissions = new Map<string, AcpmuxPermission>();
   /// The turn's open permission questions, and the edits that wait on one (cx-p5fgx): an edit
   /// is "pending" from its question, or from arriving while one is open, until it completes.
   private openQuestions = new Set<string>();
   private heldEdits = new Set<string>();
+  /// The questions asked and not yet decided, by permission id: a decision draws a record of what
+  /// was chosen where the card was (`questionRecord`, question/record.ts).
+  private askedQuestions = new Map<string, AgentQuestion>();
+  /// The single permission cards asked and not yet answered, by permission id: an answer draws a
+  /// receipt (`permissionRecord`, permissions/record.ts).
+  private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
   private usage: { used: number; size: number } | undefined;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
@@ -1084,11 +1102,15 @@ export class AcpmuxDirectClient {
     this.planRow = undefined;
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
+    this.waitingPermissions.clear();
     this.pendingSecret = undefined;
     this.groupedPermissions.clear();
     this.openQuestions.clear();
+    this.askedQuestions.clear();
+    this.askedPermissions.clear();
     this.heldEdits.clear();
-    this.commands = [];
+    // The chat's commands from its last visit on this page, so `/` lists them before the attach.
+    this.commands = (this.selectedSessionId && knownCommands.get(this.selectedSessionId)) || [];
     this.commandsApplied = false;
     this.handoff.select(this.selectedSessionId);
     this.permissions.select(this.selectedSessionId);
@@ -1161,9 +1183,13 @@ export class AcpmuxDirectClient {
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
-    else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
-    // A new chat's start mode may have changed (a pick in any pane, a config reload): pending
-    // chats ask acpmux again (startMode.ts).
+    // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
+    else if (notification.method === "_acpmux/harnesses_changed") {
+      this.onHarnessesChanged?.();
+      startModeChanged();
+    }
+    // A new chat's start mode may have changed (a pick in any pane, a config reload, the
+    // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
   }
 
@@ -1586,12 +1612,22 @@ export class AcpmuxDirectClient {
           ? this.permissions.state.groups.flatMap((group) => group.items.map((item) => item.permissionId))
           : [],
       );
-      this.pendingPermission = detail.pending
+      const asks: AcpmuxPermission[] = detail.pending
         .map((item: any) => permissionFromMessage({ ...item, sessionId }, sessionId))
-        .find(
-          (item: AcpmuxPermission | undefined) =>
-            item && (!this.permissions.state.supported || (!item.groupId && !groupedIds.has(item.permissionId))),
+        .filter(
+          (item: AcpmuxPermission | undefined): item is AcpmuxPermission =>
+            !!item && (!this.permissions.state.supported || (!item.groupId && !groupedIds.has(item.permissionId))),
         );
+      // acpmux lists them in no order: oldest first, by the record that asked (else by id, a
+      // time-ordered UUIDv7), so the card keeps the ask the replay showed.
+      const asked = new Map<string, number>();
+      for (const event of this.events)
+        if (event.kind === "permission_request" && event.msg?.permissionId)
+          asked.set(String(event.msg.permissionId), event.seq);
+      const at = (ask: AcpmuxPermission) => asked.get(ask.permissionId) ?? Number.POSITIVE_INFINITY;
+      asks.sort((a, b) => at(a) - at(b) || (a.permissionId < b.permissionId ? -1 : 1));
+      this.pendingPermission = asks[0];
+      this.waitingPermissions = new Map(asks.slice(1).map((item) => [item.permissionId, item]));
     }
     if (this.handoffSupported) {
       this.handoff.select(sessionId);
@@ -1619,6 +1655,7 @@ export class AcpmuxDirectClient {
     const commands = event ? commandsFromUpdate(sessionUpdate(event)) : undefined;
     if (!commands) return;
     this.commands = commands;
+    rememberCommands(sessionId, commands);
     this.emit("commands");
   }
 
@@ -1654,8 +1691,19 @@ export class AcpmuxDirectClient {
       this.groupedPermissions.set(permission.permissionId, permission);
       return;
     }
-    this.pendingPermission = permission;
+    const shown = this.pendingPermission;
+    if (shown?.pending && shown.permissionId !== permission.permissionId) {
+      // Another ask is on the card: this one waits its turn (a repeat keeps its place).
+      this.waitingPermissions.set(permission.permissionId, permission);
+    } else this.pendingPermission = permission;
     this.emit("permission");
+  }
+
+  /// Takes the oldest ask waiting behind the card, for the card once its ask is answered.
+  private nextWaitingPermission(): AcpmuxPermission | undefined {
+    const [next] = this.waitingPermissions.values();
+    if (next) this.waitingPermissions.delete(next.permissionId);
+    return next;
   }
 
   /// A live event's stamp, to tell the session's clock from this computer's.
@@ -1708,6 +1756,7 @@ export class AcpmuxDirectClient {
     this.planCalls.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
+    this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
     const events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
@@ -1731,11 +1780,13 @@ export class AcpmuxDirectClient {
     const summary = this.summary;
     const queue = this.queue;
     const permission = this.pendingPermission;
+    const waiting = this.waitingPermissions;
     const secret = this.pendingSecret;
     this.rebuild();
     this.summary = summary;
     this.queue = queue;
     this.pendingPermission = permission;
+    this.waitingPermissions = waiting;
     this.pendingSecret = secret;
     if (replayAfterSeq !== undefined)
       for (const event of this.events)
@@ -1776,18 +1827,34 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
     else if (event.kind === "permission_request") {
+      const asked = msg.permissionId
+        ? questionFromPermission({
+            permissionId: String(msg.permissionId),
+            session: event.sessionId ?? "",
+            request: msg.request,
+          })
+        : undefined;
+      if (asked) this.askedQuestions.set(asked.id, asked);
       this.openQuestions.add(String(msg.permissionId ?? `permission-${event.seq}`));
       this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
       this.applyPermission({ ...msg, sessionId: event.sessionId });
+      // A single card (not the grouped panel's, not a question's) leaves a receipt once answered.
+      const card = this.pendingPermission;
+      if (!asked && card && card.permissionId === String(msg.permissionId ?? ""))
+        this.askedPermissions.set(card.permissionId, card);
     } else if (event.kind === "permission_decision") {
+      this.recordQuestion(event, msg);
+      this.recordPermission(event, msg);
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
       else this.groupedPermissions.clear();
       if (msg.permissionId) this.openQuestions.delete(String(msg.permissionId));
       else this.openQuestions.clear();
+      if (msg.permissionId) this.waitingPermissions.delete(String(msg.permissionId));
+      else this.waitingPermissions.clear();
       if (!msg.permissionId || this.pendingPermission?.permissionId === msg.permissionId)
-        this.pendingPermission = this.permissions.state.supported
-          ? undefined
-          : [...this.groupedPermissions.values()].at(-1);
+        this.pendingPermission =
+          this.nextWaitingPermission() ??
+          (this.permissions.state.supported ? undefined : [...this.groupedPermissions.values()].at(-1));
     } else if (event.kind === "secret_request")
       this.pendingSecret = {
         secretId: String(msg.secretId ?? ""),
@@ -1807,6 +1874,80 @@ export class AcpmuxDirectClient {
     clearTimeout(this.stopTimer);
     this.stopGaveUp = false;
     this.stopAfterSeq = undefined;
+  }
+
+  /// A decided question stays in the transcript as a compact record where its card was: what was
+  /// chosen, or that it went unanswered. acpmux's log holds both records, so a reload draws it again.
+  private recordQuestion(event: EventRecord, msg: any): void {
+    const id = msg.permissionId ? String(msg.permissionId) : undefined;
+    const asked = id ? this.askedQuestions.get(id) : undefined;
+    if (!id || !asked) return;
+    this.askedQuestions.delete(id);
+    const rowId = `question-${id}`;
+    // Drawn already: a resync replays the live records after its rebuild drew them, and closing
+    // the stream again then would split the reply that streams on.
+    if (this.rows.has(rowId)) return;
+    const question = decidedQuestion(asked, msg.outcome);
+    this.closeSegment();
+    this.rows.set(rowId, {
+      id: rowId,
+      version: 1,
+      at: event.at,
+      kind: QUESTION_RECORD,
+      question,
+      // What Copy reads.
+      text:
+        question.state.kind === "answered"
+          ? summaryLines(question, question.state.answer).join("\n")
+          : translate("question.cancelled", { prompt: questionSummary(question) }),
+    });
+  }
+
+  /// A single permission card, answered, leaves a one-line receipt where it was answered: "Allowed:
+  /// Run npm test", or Denied, Always allowed, Not answered. The grouped panel keeps its own.
+  private recordPermission(event: EventRecord, msg: any): void {
+    const id = msg.permissionId ? String(msg.permissionId) : undefined;
+    const asked = id ? this.askedPermissions.get(id) : undefined;
+    if (!id || !asked) return;
+    this.askedPermissions.delete(id);
+    const rowId = `permission-${id}`;
+    // Drawn already: a resync replays the live records after its rebuild drew them, and closing
+    // the stream again then would split the reply that streams on.
+    if (this.rows.has(rowId)) return;
+    const decision = permissionDecision(asked, msg.outcome);
+    this.closeSegment();
+    this.rows.set(rowId, {
+      id: rowId,
+      version: 1,
+      at: event.at,
+      kind: PERMISSION_RECORD,
+      permission: asked,
+      decision,
+      // What Copy reads; the row draws its words in the pane's language as it is then.
+      text: translate(DECISION_TEXT[decision.kind], {
+        action: asked.title?.trim() || translate("permission.required"),
+        option: decision.kind === "answered" ? decision.option : "",
+      }),
+    });
+  }
+
+  /// The text and tool fold before a record close, as a tool call's would: the work after an answer
+  /// draws below its record, never in the row above it.
+  private closeSegment(): void {
+    this.endAssistantSegment();
+    this.streamingActivity = undefined;
+  }
+
+  /// The subagent group rows that changed, into the transcript.
+  private takeSubagentRows(): void {
+    for (const row of this.subagents.takeRows()) {
+      // A new group ends the text and tool calls before it, like a tool call does.
+      if (!this.rows.has(row.id)) {
+        this.endAssistantSegment();
+        this.streamingActivity = undefined;
+      }
+      this.rows.set(row.id, row);
+    }
   }
 
   private reduce(event: EventRecord): void {
@@ -1857,6 +1998,9 @@ export class AcpmuxDirectClient {
       return;
     }
     if (event.dir === "mux") {
+      // A stopped turn or a gone agent ends the subagents it would never report again.
+      const left = subagentsLeft(event.kind, msg);
+      if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
       if (event.kind === BOOKMARKS_KIND) {
         // Another pane (or the TUI) marked a prompt: the minimap shows acpmux's marks.
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
@@ -1944,6 +2088,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
+        this.subagents.startTurn();
         this.settleCompactions(event.seq);
         // A Stop before this turn never judges it.
         this.stopAnswered(event);
@@ -1964,6 +2109,7 @@ export class AcpmuxDirectClient {
         // Stop was answered: its grace must not judge the next turn.
         this.stopAnswered(event);
         this.pendingPermission = undefined;
+        this.waitingPermissions.clear();
         this.groupedPermissions.clear();
         this.openQuestions.clear();
         this.heldEdits.clear();
@@ -1996,25 +2142,19 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
-      } else this.reduceLiveState(event);
+      } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
     if (!update) return;
     if (this.subagents.reduce(event, update)) {
-      for (const row of this.subagents.takeRows()) {
-        // A new group ends the text and tool calls before it, like a tool call does.
-        if (!this.rows.has(row.id)) {
-          this.endAssistantSegment();
-          this.streamingActivity = undefined;
-        }
-        this.rows.set(row.id, row);
-      }
+      this.takeSubagentRows();
       return;
     }
     const commands = commandsFromUpdate(update);
     if (commands) {
       this.commands = commands;
       this.commandsApplied = true;
+      if (this.selectedSessionId) rememberCommands(this.selectedSessionId, commands);
       return;
     }
     const text = textFromContent(update.content);
@@ -2325,6 +2465,9 @@ export class AcpmuxDirectClient {
       permissionGroups: this.permissions.state,
       queue: this.shownQueue(),
       permission: this.pendingPermission,
+      ...(this.pendingPermission && this.waitingPermissions.size > 0
+        ? { permissionsWaiting: this.waitingPermissions.size }
+        : {}),
       secret: this.pendingSecret,
       catalog: [],
       commands: this.commands,
@@ -2646,8 +2789,16 @@ export class AcpmuxDirectClient {
   }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
-    if (!this.selectedSessionId) return { removed: false };
-    return this.request("_acpmux/queue_remove", { sessionId: this.actingSessionId, promptId });
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return { removed: false };
+    return this.request("_acpmux/queue_remove", { sessionId, promptId });
+  }
+  /// Resumes the shown chat's paused messages with `peer` (acpmux `hub/agent_pairs.rs`): acpmux
+  /// delivers what the pair held, and its `agent_pair_resumed` record ends the pause.
+  resumeAgentPair(peer: string): Promise<{ resumed?: number; delivered?: number }> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/agent_pair_resume", { sessionId, peerSessionId: peer });
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
@@ -2914,6 +3065,10 @@ export class AcpmuxDirectClient {
     }
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
+    // During a switch's hold the card drawn is the chat before's, while the group client already
+    // reads the next chat: refuse here, so the next chat's permission state gets no error.
+    if (this.snapshotHold && this.shownSessionId !== this.selectedSessionId)
+      throw new Error(translate("permission.error.selectionChanged"));
     await this.permissions.respond(groupId, revision, decision);
   }
   async select(sessionId: string): Promise<string | undefined> {
@@ -3277,13 +3432,16 @@ export class AcpmuxDirectClient {
   async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
     const sessionId = this.actingSessionId;
     if (!sessionId) return;
+    const generation = this.selectionGeneration;
     const result = await this.request("session/set_config_option", {
       sessionId,
       configId,
       value,
       ...gestureMeta(ticket),
     });
-    if (sessionId !== this.actingSessionId || !Array.isArray(result?.configOptions)) return;
+    // `summary` is the selected chat's: during a hold that is already the next chat, not the one acted on.
+    if (generation !== this.selectionGeneration || sessionId !== this.selectedSessionId) return;
+    if (!Array.isArray(result?.configOptions)) return;
     this.summary = { ...this.summary, configOptions: result.configOptions };
     this.emit();
   }
@@ -3392,6 +3550,7 @@ export class AcpmuxDirectClient {
       summary: this.summary,
       queue: this.queue,
       pendingPermission: this.pendingPermission,
+      waitingPermissions: this.waitingPermissions,
       pendingSecret: this.pendingSecret,
       groupedPermissions: this.groupedPermissions,
       openQuestions: this.openQuestions,
@@ -3413,6 +3572,7 @@ export class AcpmuxDirectClient {
     this.planCalls = new Set();
     this.subagents = new SubagentFold();
     this.groupedPermissions = new Map();
+    this.waitingPermissions = new Map();
     this.openQuestions = new Set();
     this.heldEdits = new Set();
     // An older prompt never settles one still sending, however alike their text.

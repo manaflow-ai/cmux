@@ -20,13 +20,16 @@ public struct Metrics {
     /// Active density, read from `DesignSettings.shared`. Reading any metric
     /// inside an Observation-tracked scope (view layout, `withObservationTracking`)
     /// registers a dependency, so a density or override change re-lays out live.
-    public static var density: Density { DesignSettings.shared.density }
+    public static var density: Density { tokens.family }
+    /// The active density's token set (`DensityTokens.active`): a scoped one while a preview
+    /// draws, else the app's.
+    public static var tokens: DensityTokens { DensityTokens.active }
 
-    /// The density preset, or the user's `appearance.metrics.*` override.
-    /// Debug Settings overrides apply on top (`MetricTunable`).
-    static func pick(_ compact: CGFloat, _ comfortable: CGFloat, _ key: MetricKey? = nil) -> CGFloat {
+    /// The user's `appearance.metrics.*` override, else the density's value for this metric
+    /// (`DensityTokens.resolve`). Debug Settings overrides apply on top (`MetricTunable`).
+    static func pick(_ compact: CGFloat, _ comfortable: CGFloat, _ key: MetricKey? = nil, token: String? = nil) -> CGFloat {
         if let key, let value = DesignSettings.shared.overrides[key] { return value }
-        return density == .compact ? compact : comfortable
+        return tokens.resolve(compact: compact, comfortable: comfortable, token: token)
     }
 
     // MARK: Window chrome
@@ -72,12 +75,12 @@ public struct Metrics {
 
     // MARK: Spacing (2 pt grid)
 
-    public static var space1: CGFloat { scale(ChromeTunables.space1.value) }
-    public static var space2: CGFloat { scale(ChromeTunables.space2.value) }
-    public static var space3: CGFloat { scale(ChromeTunables.space3.value) }
-    public static var space4: CGFloat { scale(ChromeTunables.space4.value) }
-    public static var space5: CGFloat { scale(ChromeTunables.space5.value) }
-    public static var space6: CGFloat { scale(ChromeTunables.space6.value) }
+    public static var space1: CGFloat { scale(tokens.space(ChromeTunables.space1.value)) }
+    public static var space2: CGFloat { scale(tokens.space(ChromeTunables.space2.value)) }
+    public static var space3: CGFloat { scale(tokens.space(ChromeTunables.space3.value)) }
+    public static var space4: CGFloat { scale(tokens.space(ChromeTunables.space4.value)) }
+    public static var space5: CGFloat { scale(tokens.space(ChromeTunables.space5.value)) }
+    public static var space6: CGFloat { scale(tokens.space(ChromeTunables.space6.value)) }
 
     /// Inset between the window edge and floating glass panels.
     public static var panelInset: CGFloat { MetricTunables.panelInset.value }
@@ -124,7 +127,7 @@ public struct Metrics {
     /// `layout.panePadding`, else the density default (no Debug Settings override).
     static var codePanePadding: CGFloat {
         let chrome = DesignSettings.shared.paneChrome
-        return chrome.padding ?? paneSeparation.impliedPadding ?? (density == .compact ? 2 : 4)
+        return chrome.padding ?? paneSeparation.impliedPadding ?? tokens.resolve(compact: 2, comfortable: 4, token: "panePadding")
     }
 
     // MARK: Pane alignment
@@ -145,8 +148,10 @@ public struct Metrics {
     /// The opt-in tight tab strip (`ChromeTunables.compactTabs`), at compact density only.
     public static var compactTabs: Bool { density == .compact && ChromeTunables.compactTabs.value }
     /// The chrome line: tab pills and toolbar button shapes, from the
-    /// content border's left edge.
-    public static var paneChromeInset: CGFloat { PaneChromeMetrics.pillLeading }
+    /// strip's leading edge (`PaneChromeMetrics.pillLeading`: the pills' top
+    /// inset, 0 for outlined panes). On the 2x pixel grid, where every
+    /// density's default is whole points.
+    public static var paneChromeInset: CGFloat { PaneChromeMetrics.current.pillLeading(scale: 2) }
 
     // MARK: Shape
 
@@ -207,17 +212,16 @@ public struct Metrics {
     public static var statusMarkSize: CGFloat { smallIconSize - space1 }
 }
 
-/// Type scale. Compact uses 12 pt body in chrome (terminal fonts come from
+/// Type scale, from the active density (`DensityTokens.textSize`). Compact uses 12 pt body in chrome (terminal fonts come from
 /// the Ghostty config and are not affected).
 public struct Typography {
     public init() {}
-    private static var compact: Bool { Metrics.density == .compact }
     /// User override for chrome body size; other styles scale from it.
     private static var scale: CGFloat {
         let interfaceScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
         let configuredScale: CGFloat
         if let body = DesignSettings.shared.overrides[.chromeFontSize] {
-            configuredScale = body / (compact ? 12 : 13)
+            configuredScale = body / Metrics.tokens.bodySize
         } else {
             configuredScale = 1
         }
@@ -227,8 +231,10 @@ public struct Typography {
     /// Interface Size is not overridden). Surfaces with their own type scale
     /// (the Home transcript's `textScale`) follow it.
     public static var userScale: CGFloat { scale }
+    /// A style's size: the density's (`DensityTokens.textSize`, which follows its level and its
+    /// own font size), times the user's text scale.
     private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {
-        (compact ? compactSize : comfortableSize) * scale
+        Metrics.tokens.textSize(compact: compactSize, comfortable: comfortableSize) * scale
     }
     /// The system font designs chrome uses.
     public enum Design: Hashable, Sendable {

@@ -32,12 +32,17 @@ enum ServerHandlers {
         registry.bind("server.showPanel", run: { _ in menuBar.open(.panel(nil)) })
         registry.bind("server.showHealth", run: { _ in menuBar.open(.health(nil)) })
         registry.bind("server.addServer", run: { invocation in
-            // No code: the sheet. A code: the same lookup and approve, headless (scripts, a Mac nobody watches).
+            // No code: the sheet. A code may come only from an in-process person action; the
+            // descriptor's person-only gate refuses every CLI, MCP, script, page and remote run.
             guard let code = invocation["code"]?.stringValue, !code.isEmpty else { return menuBar.open(.approver) }
+            guard ServerHeadlessApproval.allows(origin: invocation.origin) else {
+                throw ActionFailure(message: ServerHeadlessApproval.notFromThisMac)
+            }
             let services = context.services
             registry.track(Task { @MainActor in
                 let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
-                let reject = await ServerHeadlessApproval.run(source: source, code: code, name: invocation["name"]?.stringValue,
+                let reject = await ServerHeadlessApproval.run(source: source, code: code, words: invocation["words"]?.stringValue,
+                                                              name: invocation["name"]?.stringValue,
                                                               runChief: invocation["chief"]?.boolValue)
                 return reject.map { ActionWorkFailure($0) }
             })

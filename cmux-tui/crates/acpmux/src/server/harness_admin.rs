@@ -1,4 +1,4 @@
-//! `_acpmux/harness/add|remove|restore|doctor` and `_acpmux/registry`
+//! `_acpmux/harness/add|remove|restore|doctor|secret/set` and `_acpmux/registry`
 //! (BRING-YOUR-OWN-HARNESS H2): the app's Settings, palette and MCP tools add
 //! and check a user's own harness through the daemon. The work is
 //! `crate::harness_admin`, shared with the CLI. Also Update Everything's
@@ -8,10 +8,12 @@
 //!
 //! Who may call them (coordinator decision 2026-10-08): `add` writes a
 //! profile that runs a program and `doctor` starts a harness, so only the
-//! unix socket may call them; LocalApp, Web and peer are refused, keeping
-//! remote_guard's rule that LocalApp never makes this machine spawn a
-//! process it chooses. The local app may `remove`, `restore` (recoverable),
-//! read the `registry` and ask for `health`, which runs only the configured
+//! unix socket may call them (`secret/set` too: it runs the secret store's
+//! program and changes what a harness signs in with, u2586); LocalApp, Web
+//! and peer are refused, keeping remote_guard's rule that LocalApp never
+//! makes this machine spawn a process it chooses. The local app may
+//! `remove`, `restore` (recoverable), read the `registry` and ask for
+//! `health`, which runs only the configured
 //! harnesses' `--version` and `auth.check`, as the daemon does every few
 //! hours; a Web page may read `health` as last checked (nothing runs); peer
 //! may call none of them. The daemon cannot see
@@ -64,6 +66,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_HARNESS_REMOVE,
     method::MUX_HARNESS_RESTORE,
     method::MUX_HARNESS_DOCTOR,
+    method::MUX_HARNESS_SECRET_SET,
     method::MUX_REGISTRY,
     method::MUX_HARNESS_HEALTH,
     method::MUX_HARNESS_INVENTORY_REFRESH,
@@ -116,6 +119,7 @@ pub(super) async fn handle(
         m,
         method::MUX_HARNESS_ADD
             | method::MUX_HARNESS_DOCTOR
+            | method::MUX_HARNESS_SECRET_SET
             | method::MUX_HARNESS_UPDATE
             | method::MUX_SESSIONS_RESTART_HARNESS
     );
@@ -219,7 +223,10 @@ pub(super) async fn handle(
             let opts = DoctorOptions {
                 // Catalog harnesses only: a folder profile is checked from its folder (CLI).
                 folder: None,
-                prompt: !params.get("noPrompt").and_then(Value::as_bool).unwrap_or(false),
+                // `prompt: true` (the contract's name) or the older `noPrompt`.
+                prompt: params.get("prompt").and_then(Value::as_bool).unwrap_or_else(|| {
+                    !params.get("noPrompt").and_then(Value::as_bool).unwrap_or(false)
+                }),
                 timeout: Duration::from_secs(secs),
                 lookup_env: Box::new(|var| {
                     crate::login_env::allowed_var(var).or_else(|| std::env::var(var).ok())
@@ -227,6 +234,30 @@ pub(super) async fn handle(
                 lookup_keychain: Box::new(profiles::keychain_lookup),
             };
             admin::doctor_value(&doctor(&cfg, &id, &opts).await)
+        }
+        method::MUX_HARNESS_SECRET_SET => {
+            let id =
+                text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
+            let key =
+                text("key").ok_or_else(|| RpcError::invalid_params("key is required"))?.to_owned();
+            // The value lives only here and on the store command's stdin.
+            let value = params
+                .get("value")
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+                .map(|v| zeroize::Zeroizing::new(v.to_owned()))
+                .ok_or_else(|| RpcError::invalid_params("value is required"))?;
+            let cfg = hub.config.read().await.clone();
+            let stored = tokio::task::spawn_blocking(move || {
+                admin::secret_set(&id, &key, value.as_str(), &cfg, &|cmd| {
+                    crate::cli::harness_secret::run_store(cmd)
+                })
+            })
+            .await
+            .map_err(joined)?
+            .map_err(rpc_error)?;
+            hub.reload_and_announce().await;
+            serde_json::to_value(&stored).map_err(|e| RpcError::internal(e.to_string()))?
         }
         method::MUX_REGISTRY => {
             let refresh = params.get("refresh").and_then(Value::as_bool).unwrap_or(false);
