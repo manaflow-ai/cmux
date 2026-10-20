@@ -572,6 +572,29 @@ export default agentPaneEntry({
       note: "Another harness and model in the chips.",
       snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
     },
+    "codex-composer-reference": {
+      note: "Canonical Composer reference: GPT-6.1 Sol, High effort, and Full access in the shipped footer ordering.",
+      snapshot: withSummary(
+        chat(finished, { harness: "codex", model: "gpt-6.1-sol", title: "Codex Composer reference" }),
+        {
+          configOptions: [
+            {
+              id: "reasoning_effort",
+              category: "thought_level",
+              currentValue: "high",
+              options: ["minimal", "low", "medium", "high", "xhigh"].map((value) => ({ value })),
+            },
+          ],
+          modes: {
+            currentModeId: "bypassPermissions",
+            availableModes: [
+              { id: "ask", name: "Ask before edits", description: "Review changes before they run" },
+              { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+            ],
+          },
+        },
+      ),
+    },
     // The location row is a new chat's only (locationRow.ts): these show it before the first send.
     "tray-long-branch": {
       note: "A new chat's location row keeps a long branch readable without moving the composer.",

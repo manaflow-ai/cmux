@@ -10,6 +10,7 @@ import { CopyButton } from "./CopyButton";
 import { CodeBrackets } from "./icons";
 import { useT } from "../i18n";
 import { menuPartRef } from "./menuParts";
+import { isAgentMotionOff } from "../../shared/motion";
 
 /// An open fence: the card's chrome over plain lines.
 export function PlainCode({ code, lang, open = false }: { code: string; lang: string; open?: boolean }) {
@@ -52,14 +53,26 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
     let frame = 0;
     const started = performance.now();
     const check = () => {
+      if (isAgentMotionOff()) {
+        setStage("done");
+        return;
+      }
       const host = ref.current?.querySelector("diffs-container");
       if (host?.shadowRoot?.querySelector("[data-line]") || performance.now() - started > HANDOFF_LIMIT_MS)
         // Under Reduce Motion nothing fades: the highlighted card replaces the plain one at once.
-        setStage(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "done" : "fading");
+        setStage(
+          isAgentMotionOff() || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "done" : "fading",
+        );
       else frame = requestAnimationFrame(check);
     };
     check();
     return () => cancelAnimationFrame(frame);
+  }, [stage]);
+  // `ui.animationSpeed: off` removes CSS animations globally, so the fading card never emits its
+  // animationend event. Finish on the next render as well as on the event to avoid leaving the
+  // transparent highlighted card permanently mounted when the setting changes mid-handoff.
+  useLayoutEffect(() => {
+    if (stage === "fading" && isAgentMotionOff()) setStage("done");
   }, [stage]);
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>

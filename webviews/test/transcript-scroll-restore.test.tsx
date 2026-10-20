@@ -189,3 +189,79 @@ test("switching chats opens the new chat at latest instead of the old chat's scr
     await act(async () => root.unmount());
   }
 });
+
+test("older history prefetch waits for a new page before asking again", async () => {
+  const rowsA = turnView(turns, new Set());
+  const rowsB = turnView(
+    turns.map((one, index) => (index === 0 ? { ...one, id: `older-${one.id}` } : one)),
+    new Set(),
+  );
+  const rowsC = turnView(
+    turns.map((one, index) => (index === 0 ? { ...one, id: `oldest-${one.id}` } : one)),
+    new Set(),
+  );
+  let release!: () => void;
+  let calls = 0;
+  const firstPage = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const loadOlder = () => {
+    calls += 1;
+    return calls === 1 ? firstPage : Promise.resolve();
+  };
+  const flushEffects = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={rowsA}
+          canLoadOlder
+          onLoadOlder={loadOlder}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
+    await act(async () => {
+      dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!.dispatchEvent(new dom.window.Event("scroll"));
+      await flushEffects();
+    });
+    expect(calls).toBe(1);
+
+    // A streaming/render update while the page is still in flight must not enqueue another request.
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={rowsB}
+          canLoadOlder
+          onLoadOlder={loadOlder}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    await act(flushEffects);
+    expect(calls).toBe(1);
+    release();
+    await act(async () => await firstPage);
+
+    // Once the host exposes a new first row, the next page is eligible exactly once.
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={rowsC}
+          canLoadOlder
+          onLoadOlder={loadOlder}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    await act(flushEffects);
+    expect(calls).toBe(2);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
