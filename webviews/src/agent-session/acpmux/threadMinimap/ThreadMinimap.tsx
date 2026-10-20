@@ -134,13 +134,16 @@ export function ThreadMinimap({
   const domTop = useRef<{ sessionId?: string; top: number } | undefined>(undefined);
   /// The band's first turn as of the last commit (the older-turns effect below keeps it).
   const anchor = useRef<Anchor | undefined>(undefined);
-  /// This commit adds turns above the anchored one: the rows' offsets moved by how far its prompt
-  /// did, and the transcript restores the reader's place only after this render, so the band reads
-  /// the offset as it will be.
+  /// When a commit adds turns above the anchored one, the rows' offsets move by how far its prompt
+  /// did, and the transcript restores the reader's place only after that commit, with a scroll. Until
+  /// that scroll arrives, the band reads the offset as it will be.
+  const restoring = useRef<{ from: number; by: number } | undefined>(undefined);
   const added = prependedBy(anchor.current, turns);
   const anchored = added === undefined ? undefined : turns[anchor.current!.index + added];
   const seen = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : undefined;
-  const shift = anchored && seen !== undefined ? (layout.tops[anchored.index] ?? 0) - anchor.current!.layoutTop : 0;
+  if (anchored && seen !== undefined)
+    restoring.current = { from: seen, by: (layout.tops[anchored.index] ?? 0) - anchor.current!.layoutTop };
+  const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
   const shown = turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
@@ -169,6 +172,7 @@ export function ThreadMinimap({
     const scrolled = () => {
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
       domTop.current = { sessionId: session, top: node.scrollTop };
+      restoring.current = undefined;
       const next = visibleTurns(all, tops, total, node.scrollTop, height);
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
     };
@@ -301,6 +305,14 @@ export function ThreadMinimap({
     let scrolled = listTop;
     if (added !== undefined && was) {
       holding.current = true;
+      // A transcript that does not restore the reader's place (no scroll by the next frame): the
+      // offset is what it was, and the band reads it again.
+      if (restoring.current)
+        requestAnimationFrame(() => {
+          if (!restoring.current) return;
+          restoring.current = undefined;
+          setBandMoves((count) => count + 1);
+        });
       const index = was.index + added;
       const node = list.current;
       const shell = rail.current;
