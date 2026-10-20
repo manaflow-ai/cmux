@@ -222,3 +222,32 @@ jobs:
       # the registered action; new ones fail here.
       - name: Menu rows run registered actions, not inline selectors
         run: python3 scripts/cmux-next/check-menu-actions.py
+
+  # Every web bundle build runs gen-strings.mjs strict, but only pull requests
+  # that touch webviews/ run its tests. 2c661dec960b renamed a setting in Swift
+  # and the catalogs, the committed settings schema kept the old keys, and the
+  # first red was the bundle build on every later push and webviews/ pull request
+  # (10-20, "settings: 63 strings missing"). This runs the same strict generation
+  # on every pull request and push, with no path filter, so a catalog edit or a
+  # renamed setting is red where it lands.
+  page-strings:
+    name: cmux-next page strings generate
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      # No install: the generator reads only the catalogs and the settings schema.
+      - name: Every page's strings generate with no missing translation
+        env:
+          CMUX_STRINGS_BEST_EFFORT: ""
+        run: node webviews/scripts/pages/gen-strings.mjs

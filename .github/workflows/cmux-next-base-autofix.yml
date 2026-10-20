@@ -202,7 +202,13 @@ jobs:
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
+      # These bundles only build the test host that regenerates the exports;
+      # nothing ships them. A missing translation warns instead of failing:
+      # strict, a renamed setting's stale schema stopped this job before the
+      # export that refreshes it (10-20, run 39424689785), so nothing could.
       - name: Build the web bundles
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Regenerate the action exports
