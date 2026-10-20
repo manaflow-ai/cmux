@@ -4,7 +4,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   MARKDOWN_READING,
+  MARKDOWN_STYLE_DEFAULTS,
+  MARKDOWN_WIDTH_PRESETS,
   applyMarkdownLook,
+  clampWidth,
+  markdownWidthPreset,
+  parseWidthInput,
   markdownBehavior,
   markdownReadingValues,
   markdownStyleVariables,
@@ -66,14 +71,102 @@ describe("reading settings to CSS", () => {
       fontPreset: "system",
       lineHeight: 1.6,
       paragraph: 1,
-      codeSize: 14,
+      codeScale: 0.875,
       tables: "scroll",
       theme: "app",
     });
-    const values = markdownReadingValues({ layout: { width: 999 }, font: { size: "18px", lineHeight: "2" } });
+    const values = markdownReadingValues({ layout: { width: 5000 }, font: { size: "18px", lineHeight: "2" } });
     expect(values.width).toBe(MARKDOWN_READING.width.max);
     expect(values.fontSize).toBe(18);
     expect(values.lineHeight).toBe(2);
+  });
+});
+
+describe("text width (user 2026-10-19: super wide for a big monitor, but not full width)", () => {
+  test("the range reaches an ultrawide monitor; full width is its own key, not the top of it", () => {
+    expect(MARKDOWN_READING.width.min).toBe(30);
+    expect(MARKDOWN_READING.width.max).toBe(1000);
+    expect(MARKDOWN_READING.width.default).toBe(72);
+    // 1000ch of a 16px body is about 8,800 CSS pixels: wider than a 5K or 32:9 screen.
+    expect(markdownStyleVariables({ layout: { width: 1000 } })["--cmux-md-content-width"]).toBe("1000ch");
+    expect(markdownStyleVariables({ layout: { width: 1000 } })["--cmux-md-content-width"]).not.toBe("none");
+  });
+
+  test("an out-of-range width takes the nearest end, rounded; it never turns into full width", () => {
+    expect(clampWidth(5000)).toBe(1000);
+    expect(clampWidth(4)).toBe(30);
+    expect(clampWidth(120.4)).toBe(120);
+    expect(markdownStyleVariables({ layout: { width: 2400 } })["--cmux-md-content-width"]).toBe("1000ch");
+    expect(markdownStyleVariables({ layout: { width: 10 } })["--cmux-md-content-width"]).toBe("30ch");
+    expect(markdownReadingValues({ layout: { width: 5000 } })).toMatchObject({ width: 1000, fullWidth: false });
+    expect(markdownReadingValues({ layout: { width: 250.6 } }).width).toBe(251);
+  });
+
+  test("typed widths: characters, points or pixels, and simple arithmetic", () => {
+    const ch = 8;
+    expect(parseWidthInput("120", ch)).toBe(120);
+    expect(parseWidthInput(" 120ch ", ch)).toBe(120);
+    expect(parseWidthInput("1600pt", ch)).toBe(200);
+    expect(parseWidthInput("1600 px", ch)).toBe(200);
+    expect(parseWidthInput("72*2", ch)).toBe(144);
+    expect(parseWidthInput("72 × 2", ch)).toBe(144);
+    expect(parseWidthInput("(100 + 60) / 2", ch)).toBe(80);
+    expect(parseWidthInput("1200pt + 10ch", ch)).toBe(160);
+    expect(parseWidthInput("90,5", ch)).toBe(90.5);
+    expect(parseWidthInput("1,600pt", ch)).toBe(200);
+    for (const bad of ["", "wide", "12;", "1/0", "(1+2", "1 2", "100em", "alert(1)"])
+      expect(parseWidthInput(bad, ch)).toBeNull();
+  });
+
+  test("presets: each a width, full width its own; anything else is custom", () => {
+    const widths = MARKDOWN_WIDTH_PRESETS.flatMap((preset) => ("width" in preset ? [preset.width] : []));
+    expect(widths).toEqual([...widths].sort((a, b) => a - b));
+    for (const width of widths) expect(clampWidth(width)).toBe(width);
+    expect(markdownWidthPreset({ width: 72, fullWidth: false })).toBe("comfortable");
+    expect(markdownWidthPreset({ width: 300, fullWidth: false })).toBe("ultraWide");
+    expect(markdownWidthPreset({ width: 72, fullWidth: true })).toBe("fullWidth");
+    expect(markdownWidthPreset({ width: 640, fullWidth: false })).toBe("custom");
+  });
+
+  test("a wide width persists through the one write path and survives a stale look event", () => {
+    const calls: Array<{ op: string; params: unknown }> = [];
+    const client = {
+      call: async (op: string, params: unknown) => {
+        calls.push({ op, params });
+        return null;
+      },
+    } as unknown as PageClient;
+    const store = new MarkdownStore(client, () => () => {});
+    store.setPreference("markdown.layout.fullWidth", false);
+    store.setPreference("markdown.layout.width", 640);
+    store.lookChanged({ settings: { layout: { width: 72, fullWidth: true } } } as never);
+    expect(markdownReadingValues(store.getState().look.settings)).toMatchObject({ width: 640, fullWidth: false });
+    expect(markdownStyleVariables(store.getState().look.settings)["--cmux-md-content-width"]).toBe("640ch");
+    store.flushPreferences();
+    expect(calls.map((call) => call.params)).toEqual([
+      { key: "markdown.layout.fullWidth", value: false },
+      { key: "markdown.layout.width", value: 640 },
+    ]);
+  });
+});
+
+describe("code size (user 2026-10-19: code blocks look too big)", () => {
+  test("code is a share of the body text, a little smaller, by default", () => {
+    const scale = Number(MARKDOWN_STYLE_DEFAULTS["--cmux-md-code-scale"]);
+    expect(scale).toBeGreaterThanOrEqual(0.85);
+    expect(scale).toBeLessThanOrEqual(0.9);
+    expect(scale).toBe(MARKDOWN_READING.codeScale.default);
+    // Relative to the body size, so a smaller body never leaves code bigger than the text.
+    expect(MARKDOWN_STYLE_DEFAULTS["--cmux-md-code-block-size"]).toContain("var(--cmux-md-font-size)");
+    expect(MARKDOWN_STYLE_DEFAULTS["--cmux-md-code-inline-size"]).toContain("var(--cmux-md-code-scale)");
+  });
+
+  test("markdown.code.scale sets the share, clamped; a fixed blockSize still wins for blocks", () => {
+    expect(markdownStyleVariables({ code: { scale: 0.8 } })["--cmux-md-code-scale"]).toBe("0.8");
+    expect(markdownStyleVariables({ code: { scale: 4 } })["--cmux-md-code-scale"]).toBe("1.25");
+    expect(markdownStyleVariables({ code: { scale: "big" } })["--cmux-md-code-scale"]).toBeUndefined();
+    expect(markdownStyleVariables({ code: { scale: 0.8, blockSize: 13 } })["--cmux-md-code-block-size"]).toBe("13px");
+    expect(markdownReadingValues({ code: { scale: 0.3 } }).codeScale).toBe(0.6);
   });
 });
 
