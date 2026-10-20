@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "715870fa73660ff3ba21639227a28405afab7f3e1e2ae4d58fb18ae76aedba93",
+  "catalog_sha256": "d7860a1c315db68840c73b110be40a98b6c4434c34968403be38b27bab15799a",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -118,8 +118,14 @@
     "chief.profile.get": {
       "class": "read"
     },
+    "chief.profile.history": {
+      "class": "read"
+    },
     "chief.profile.list": {
       "class": "read"
+    },
+    "chief.profile.undo": {
+      "class": "mutation"
     },
     "chief.profile.update": {
       "class": "mutation"
