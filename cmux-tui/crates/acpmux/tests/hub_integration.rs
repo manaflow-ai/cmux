@@ -17,6 +17,8 @@ use tokio::sync::mpsc;
 
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
+#[path = "hub_integration/busy_prompt.rs"]
+mod busy_prompt;
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
