@@ -40,8 +40,7 @@ extension AgentPaneTransport {
         var handoffId: String?
         /// `_acpmux/harness_enable`: the native sheet decides it (``confirmHarnessEnable(_:)``).
         var harnessEnable = false
-        /// A `session/new` on this Mac: it takes the person's send gesture, if any, for the new
-        /// chat's first prompt (``AgentPaneTransport/startCredit``).
+        /// A `session/new` on this Mac: a send's gesture goes on to its first prompt (``startCredit``).
         var startsLocalSession = false
 
         /// No main-actor state decides this frame: it is checked, encoded and sent in one step.
@@ -230,21 +229,6 @@ extension AgentPaneTransport {
         entry.reply(entry.firstError)
     }
 
-    /// One remote start right after the person's Trust on that connection, in a gesture's lifetime.
-    private func takeRemoteTrustCredit(connection id: Int) -> Bool {
-        guard let credit = remoteTrustCredit else { return false }
-        remoteTrustCredit = nil
-        return credit.connection == id && ProcessInfo.processInfo.systemUptime - credit.at <= AgentPaneUserGestures.lifetime
-    }
-
-    /// The first prompt after a start that took the person's gesture, on the same connection and
-    /// in time: uses the start's credit.
-    private func takeStartCredit(_ facts: Facts, connection id: Int) -> Bool {
-        guard facts.method == "session/prompt", let credit = startCredit, credit.connection == id else { return false }
-        startCredit = nil
-        return gestures.uptime - credit.at <= Self.startCreditLifetime
-    }
-
     /// The frame's paths against the pane's roots and the folders the user added.
     private func checkPathsInScope(_ box: FrameBox) async -> Result<[String], AcpmuxPathPolicy.Refusal> {
         let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
@@ -254,8 +238,7 @@ extension AgentPaneTransport {
 
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
-        // The person's gesture this frame's folder check used (a typed or picked folder): a new
-        // chat's start carries it to its first prompt, as it carries an unused one.
+        // A gesture the folder check below uses: a new chat's start carries it to its first prompt.
         var startGesture = false
         if facts.needsPathCheck, !remoteWire {
             var result = await checkPathsInScope(box)
@@ -310,27 +293,28 @@ extension AgentPaneTransport {
                 // with that ticket (gap 4); a CLI, MCP or script seed has none and is refused.
                 if gestures.consume() {
                     granted = true
-                    startCredit = (id, gestures.uptime)
-                } else if takeRemoteTrustCredit(connection: id) {
+                    startCredit.give(connection: id, at: gestures.uptime)
+                } else if remoteTrustCredit.take(connection: id, now: ProcessInfo.processInfo.systemUptime,
+                                                 lifetime: AgentPaneUserGestures.lifetime, dropOthers: true) == true {
                     // The person's Trust click on that machine's folder question re-runs the start
                     // it held (cx-1bhjj), as a held prompt goes after Trust on this Mac.
                     granted = true
-                    startCredit = (id, gestures.uptime)
+                    startCredit.give(connection: id, at: gestures.uptime)
                 } else {
                     granted = gestures.takeSeedStart()
                 }
             } else {
                 // The start's credit is spent by the first prompt, whatever grants it.
-                let credit = takeStartCredit(facts, connection: id)
+                let credit = facts.method == "session/prompt"
+                    && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
                 granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures) && gestures.consume()) || credit
-                // A new chat on this Mac needs no gesture, but one its send made (or the folder
-                // pick above used) goes with its first prompt, however long the harness takes to
-                // start: the gesture itself lives ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
+                // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
+                // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
                 if facts.startsLocalSession, startGesture || gestures.consume() {
-                    startCredit = (id, gestures.uptime)
+                    startCredit.give(connection: id, at: gestures.uptime)
                 }
                 if granted, facts.needsGesture, remoteWire, facts.method == "acp.trust.set" {
-                    remoteTrustCredit = (id, ProcessInfo.processInfo.systemUptime)
+                    remoteTrustCredit.give(connection: id, at: ProcessInfo.processInfo.systemUptime)
                 }
             }
             if !granted {
@@ -389,9 +373,8 @@ extension AgentPaneTransport {
         } else {
             noteSent(facts, relayID: relayID)
             // The switch's queued prompt goes out: the switch has ended, its tickets with it.
-            // A prompt went out: a seeded prompt's ticket that it did not redeem ends too.
-            // A start's credit belongs to the chat's first prompt, whatever granted that prompt.
-            if facts.method == "session/prompt" { gestures.clearTickets(); gestures.dropSeedTicket(); startCredit = nil }
+            // A prompt went out: a seed ticket it did not redeem and the start's credit end too.
+            if facts.method == "session/prompt" { gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear() }
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             if let relayID { ids.cancel(relayID) }

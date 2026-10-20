@@ -71,13 +71,13 @@ import CmuxNextCompat
     /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
     /// its own folder trust, cx-k21v).
     private(set) var remoteWire = false
-    /// A `session/new` took the person's send gesture (connection, uptime): the first
-    /// `session/prompt` on that connection goes with it, however long the start took. On another
-    /// machine the start needs that gesture; on this Mac it needs none but carries one it finds.
-    var startCredit: (connection: Int, at: TimeInterval)?
+    /// A `session/new` took the person's send gesture: the first `session/prompt` on that
+    /// connection goes with it within ``startCreditLifetime``. On another machine the start needs
+    /// that gesture; on this Mac it needs none but carries one it finds.
+    var startCredit = AgentPaneGestureCredit()
     /// A trusting `acp.trust.set` on a remote wire took the person's Trust click: it also allows
     /// one `session/new` on that connection (the start the trust question held, cx-1bhjj).
-    var remoteTrustCredit: (connection: Int, at: TimeInterval)?
+    var remoteTrustCredit = AgentPaneGestureCredit()
     /// Home folders of the chat's machine the person chose by Use Home Folder (cx-1bhjj): only
     /// these may be trusted or started in there. Never this Mac's roots (``addedRoots``).
     public internal(set) var remoteHomeChosen: Set<String> = []
@@ -175,7 +175,7 @@ import CmuxNextCompat
         remoteApprovals = connection.remote?.approvals
         remoteWire = connection.remote != nil
         if !remoteWire { remoteHomeChosen = [] }
-        startCredit = nil
+        startCredit.clear()
         decisions.reset()
         sentFirst = false
         let ids = AcpmuxRequestIds()
@@ -269,10 +269,9 @@ import CmuxNextCompat
         }
         // A prompt held for the folder trust answer right after a new chat's start: the start took
         // the send's gesture, and its credit becomes the prompt's ticket (the ticket outlives it).
-        if intent.method == "session/prompt", !gestures.isAvailable, let credit = startCredit, credit.connection == current {
-            startCredit = nil
-            guard gestures.uptime - credit.at <= Self.startCreditLifetime else { return nil }
-            return gestures.reserve(connection: current, intent: intent, paid: true)
+        if intent.method == "session/prompt", !gestures.isAvailable,
+           let fresh = startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime) {
+            return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
         return gestures.reserve(connection: current, intent: intent)
     }
