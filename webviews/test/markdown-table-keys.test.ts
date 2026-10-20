@@ -300,15 +300,18 @@ async function openWithWidths(text: string, widths: TableWidths) {
     scope.removeEventListener = dom.window.removeEventListener.bind(dom.window);
     const wrapper = view.dom.querySelector(".tableWrapper")!;
     const cell = wrapper.querySelectorAll("tr")[0]!.children[column]!;
-    cell.dispatchEvent(new dom.window.MouseEvent("mousemove", { bubbles: true, clientX: CELL - 2 }));
+    const edge = (column + 1) * CELL - 2;
+    cell.dispatchEvent(new dom.window.MouseEvent("mousemove", { bubbles: true, clientX: edge, clientY: 5 }));
     const handle = wrapper.querySelector(".md-col-resize")!;
     handle.dispatchEvent(
-      new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0, detail: 1, clientX: CELL - 2 }),
+      new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0, detail: 1, clientX: edge, clientY: 5 }),
     );
     for (let step = 1; step <= steps; step++) {
-      dom.window.dispatchEvent(new dom.window.MouseEvent("mousemove", { clientX: CELL - 2 + (dx * step) / steps }));
+      dom.window.dispatchEvent(
+        new dom.window.MouseEvent("mousemove", { clientX: edge + (dx * step) / steps, clientY: 5 }),
+      );
     }
-    dom.window.dispatchEvent(new dom.window.MouseEvent("mouseup", { clientX: CELL - 2 + dx }));
+    dom.window.dispatchEvent(new dom.window.MouseEvent("mouseup", { clientX: edge + dx, clientY: 5 }));
     [scope.addEventListener, scope.removeEventListener] = saved;
   };
   return { editor, view, columns, drag, markdown: () => editor.snapshot().text };
@@ -320,9 +323,28 @@ describe("markdown table width memory", () => {
   beforeAll(() => {
     const prototype = dom.window.Element.prototype as unknown as Record<string, unknown>;
     boxed = prototype.getBoundingClientRect;
+    // Column c spans [c*100, (c+1)*100), rows 30px; the table and its box are as wide as the columns.
+    const rect = (left: number, top: number, width: number, height: number) => ({
+      left,
+      top,
+      right: left + width,
+      bottom: top + height,
+      width,
+      height,
+      x: left,
+      y: top,
+      toJSON: () => ({}),
+    });
     prototype.getBoundingClientRect = function (this: Element) {
-      const width = this.tagName === "TD" || this.tagName === "TH" ? CELL : 0;
-      return { left: 0, top: 0, right: width, bottom: 0, width, height: 0, x: 0, y: 0, toJSON: () => ({}) };
+      if (this.tagName === "TD" || this.tagName === "TH") {
+        const cell = this as HTMLTableCellElement;
+        return rect(cell.cellIndex * CELL, (cell.parentElement as HTMLTableRowElement).rowIndex * 30, CELL, 30);
+      }
+      if (this.tagName === "TABLE" || this.classList.contains("tableWrapper")) {
+        const columns = this.querySelector("tr")?.children.length ?? 0;
+        return rect(0, 0, columns * CELL, (this.querySelectorAll("tr").length || 1) * 30);
+      }
+      return rect(0, 0, 0, 0);
     };
   });
   afterAll(() => {

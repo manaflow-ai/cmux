@@ -220,7 +220,12 @@ export function tableViewAt(target: Element | null): ResizableTableView | null {
 /** The narrowest a column can be dragged to, in CSS pixels. */
 export const MIN_COLUMN_WIDTH = 40;
 
-/** How close to a cell's right edge, in pixels, the pointer shows that column's handle. */
+/**
+ * How close to a column boundary, in pixels either side, the pointer shows that column's line. The
+ * handle (the element that carries `cursor: col-resize` and takes the press) covers exactly this
+ * zone, so the line, the cursor and the drag always agree (user 2026-10-20: the line showed while
+ * the cursor stayed a text cursor).
+ */
 const EDGE = 5;
 
 /**
@@ -248,15 +253,13 @@ export class ResizableTableView extends TableView {
     this.handle.setAttribute("aria-hidden", "true");
     this.dom.append(this.handle);
     this.dom.addEventListener("mousemove", this.hover);
-    this.dom.addEventListener("mouseleave", () => {
-      if (!this.dragging) this.hide();
-    });
+    this.dom.addEventListener("mouseleave", this.leave);
     this.handle.addEventListener("mousedown", this.startDrag);
     this.handle.addEventListener("dblclick", this.fit);
-    this.dom.addEventListener("scroll", this.markOverflow, { passive: true });
+    this.dom.addEventListener("scroll", this.layoutChanged, { passive: true });
     this.dom.addEventListener("wheel", this.shiftWheel, { passive: false });
     // The box and the table change size with the pane, the text width, an edit and a column drag.
-    this.resize = new ResizeObserver(this.markOverflow);
+    this.resize = new ResizeObserver(this.layoutChanged);
     this.resize.observe(this.dom);
     this.resize.observe(this.table);
     this.unsubscribe = widths?.subscribe(() => this.applySaved()) ?? (() => {});
@@ -267,6 +270,22 @@ export class ResizableTableView extends TableView {
   private readonly unsubscribe: () => void;
 
   private readonly resize: ResizeObserver;
+  /** Where the pointer last was over the table's box (client coordinates); null once it left. */
+  private pointer: { x: number; y: number } | null = null;
+
+  /**
+   * A scroll or a size change moved the boundaries under a still pointer: the line follows the
+   * pointer (shown only if it is on a boundary now), never stays where the pointer no longer is.
+   */
+  private readonly layoutChanged = (): void => {
+    this.markOverflow();
+    if (!this.dragging) this.refresh();
+  };
+
+  private readonly leave = (): void => {
+    this.pointer = null;
+    if (!this.dragging) this.hide();
+  };
 
   /**
    * Marks which edges have more table past them (`data-overflow`: "start", "end" or both; absent
@@ -378,30 +397,69 @@ export class ResizableTableView extends TableView {
   }
 
   private readonly hover = (event: MouseEvent): void => {
-    if (this.dragging || event.target === this.handle) return;
-    const cell = (event.target as Element | null)?.closest?.("td, th") as HTMLTableCellElement | null;
-    if (!cell || !this.table.contains(cell)) return this.hide();
-    const rect = cell.getBoundingClientRect();
-    let column = -1;
-    if (event.clientX >= rect.right - EDGE) column = cell.cellIndex;
-    else if (event.clientX <= rect.left + EDGE && cell.cellIndex > 0) column = cell.cellIndex - 1;
-    if (column < 0) return this.hide();
-    this.show(column);
+    this.pointer = { x: event.clientX, y: event.clientY };
+    if (!this.dragging) this.refresh();
   };
 
-  /** Shows the handle on the right edge of `column`. */
-  private show(column: number): void {
+  /** Shows the line of the boundary under the pointer, or hides it. */
+  private refresh(): void {
+    const hit = this.pointer && this.hit(this.pointer.x, this.pointer.y);
+    if (hit) this.place(hit);
+    else this.hide();
+  }
+
+  /**
+   * The zone of each column's right boundary in client x: `EDGE` either side of the line, kept
+   * inside the box's visible width and the table's right edge (the last column's handle never
+   * sticks out of the scroll box). The one hit test and the one handle geometry use it.
+   */
+  private zones(): Array<{ column: number; line: number; start: number; end: number }> {
     const row = this.table.querySelector("tr");
-    const cell = row?.children[column] as HTMLElement | undefined;
-    if (!cell) return this.hide();
-    this.column = column;
-    const wrapper = this.dom.getBoundingClientRect();
+    if (!row) return [];
+    const box = this.dom.getBoundingClientRect();
+    const visibleStart = box.left + this.dom.clientLeft;
+    const visibleEnd = visibleStart + (this.dom.clientWidth || box.width);
+    const tableEnd = this.table.getBoundingClientRect().right;
+    return [...row.children].map((cell, column) => {
+      const line = cell.getBoundingClientRect().right;
+      const start = Math.max(line - EDGE, visibleStart);
+      const end = Math.min(line + EDGE, visibleEnd, tableEnd);
+      return { column, line, start, end };
+    });
+  }
+
+  /** The zone the point is in (the nearest boundary when two overlap), within the table's height. */
+  private hit(x: number, y: number): { column: number; line: number; start: number; end: number } | null {
     const table = this.table.getBoundingClientRect();
-    const right = cell.getBoundingClientRect().right;
-    this.handle.style.left = `${right - wrapper.left + this.dom.scrollLeft}px`;
-    this.handle.style.top = `${table.top - wrapper.top}px`;
+    if (y < table.top || y >= table.bottom) return null;
+    let best: ReturnType<ResizableTableView["zones"]>[number] | null = null;
+    for (const zone of this.zones()) {
+      if (x < zone.start || x >= zone.end || zone.end <= zone.start) continue;
+      if (!best || Math.abs(x - zone.line) < Math.abs(x - best.line)) best = zone;
+    }
+    return best;
+  }
+
+  /** Shows the handle over exactly `zone`, its line on the boundary. */
+  private place(zone: { column: number; line: number; start: number; end: number }): void {
+    this.column = zone.column;
+    const box = this.dom.getBoundingClientRect();
+    const table = this.table.getBoundingClientRect();
+    const origin = box.left + this.dom.clientLeft - this.dom.scrollLeft;
+    this.handle.style.left = `${zone.start - origin}px`;
+    this.handle.style.width = `${zone.end - zone.start}px`;
+    this.handle.style.marginLeft = "0px";
+    this.handle.style.setProperty("--md-col-line", `${zone.line - zone.start}px`);
+    this.handle.style.top = `${table.top - box.top - this.dom.clientTop}px`;
     this.handle.style.height = `${table.height}px`;
     this.handle.hidden = false;
+  }
+
+  /** Shows the handle on the right boundary of `column` (during a drag and after a fit). */
+  private show(column: number): void {
+    const zone = this.zones()[column];
+    if (zone && zone.end > zone.start) this.place(zone);
+    else this.hide();
   }
 
   private hide(): void {
@@ -428,6 +486,7 @@ export class ResizableTableView extends TableView {
     const up = (next: MouseEvent) => {
       move(next);
       this.dragging = false;
+      this.pointer = { x: next.clientX, y: next.clientY };
       this.dom.classList.remove("md-col-resizing");
       removeEventListener("mousemove", move, true);
       removeEventListener("mouseup", up, true);
@@ -469,7 +528,8 @@ export class ResizableTableView extends TableView {
 
   destroy(): void {
     this.dom.removeEventListener("mousemove", this.hover);
-    this.dom.removeEventListener("scroll", this.markOverflow);
+    this.dom.removeEventListener("mouseleave", this.leave);
+    this.dom.removeEventListener("scroll", this.layoutChanged);
     this.dom.removeEventListener("wheel", this.shiftWheel);
     this.resize.disconnect();
     this.unsubscribe();
