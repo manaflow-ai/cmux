@@ -1,13 +1,16 @@
-/// Where Cmd-T and the strip's + put a new tab (cx-d0d.58). Chrome and Edge append it, and so does
-/// cmux by default; the tab menu's New Tab to the Right always puts it right after that tab.
+/// Where Cmd-T and the strip's + put a new tab (cx-d0d.58). Right after the current tab by
+/// default (Lawrence 2026-10-20, was the end as in Chrome); New Tab After Current Tab, New Tab
+/// at Start and New Tab at End (and the tab menu's New Tab to the Right) ignore the setting.
 public nonisolated enum NewTabPosition: String, Sendable, Hashable, CaseIterable {
+    /// Right after the selected tab (after its tab group), the default.
+    case afterCurrent
     /// At the end of the pane's tabs.
     case end
-    /// Right after the selected tab.
-    case afterCurrent
+    /// First, right after the pinned tabs.
+    case start
 }
 
-/// `tabs.newTabPosition` in cmux.json: "end" (default) or "afterCurrent".
+/// `tabs.newTabPosition` in cmux.json: "afterCurrent" (default), "end" or "start".
 nonisolated extension NewTabPosition {
     public static let configPath = ["tabs", "newTabPosition"]
     public static let fallback: NewTabPosition = .end
@@ -25,6 +28,6 @@ nonisolated extension NewTabPosition {
 }
 
 extension CmuxConfigSnapshot {
-    /// `tabs.newTabPosition`; "end" when unset or invalid (the diagnostic is in `diagnostics`).
+    /// `tabs.newTabPosition`; "afterCurrent" when unset or invalid (the diagnostic is in `diagnostics`).
     public var newTabPosition: NewTabPosition { NewTabPosition.parse(root).0 }
 }

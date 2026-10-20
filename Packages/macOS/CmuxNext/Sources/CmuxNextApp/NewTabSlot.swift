@@ -3,49 +3,92 @@ import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
 
-/// Where a new tab the user opens goes (cx-d0d.58). As in Chrome and Edge,
-/// Cmd-T and the strip's + append it; `tabs.newTabPosition: afterCurrent`
-/// puts it right after the selected tab, and the tab menu's New Tab to the
-/// Right right after that tab. The tab is made where it always is (the
-/// end), then moves into its slot (`TabMoves.move`, optimistic) as soon as
-/// the anchor's pane lists it. A tab made in another pane (the docked chat's
-/// strip) stays where it lands. What a New Tab page turns into takes the
-/// page's slot.
+/// Where a new tab the user opens goes (cx-d0d.58). Cmd-T and the strip's
+/// + follow `tabs.newTabPosition`: right after the selected tab by default
+/// (Lawrence 2026-10-20), else at the end or the start (after the pinned
+/// tabs). New Tab After Current Tab, at Start, at End and the tab menu's
+/// New Tab to the Right name their place whatever the setting says. The
+/// tab is made where it always is (the end), then moves into its slot
+/// (`TabMoves.move`, optimistic) as soon as its pane lists it. A tab made in
+/// another pane (the docked chat's strip) stays where it lands. What a New
+/// Tab page turns into takes the page's slot.
 @MainActor
 enum NewTabSlot {
     /// How long the move waits for the pane to list the new tab.
     static let listLimit: Duration = .seconds(10)
 
-    /// The tab a new tab goes right after, nil for the end: `tab` (the
-    /// selected or named one) for New Tab to the Right, and for a person's
-    /// Cmd-T or + under `afterCurrent`.
-    static func anchor(after tab: TabModel?, toRight: Bool, user: Bool, position: NewTabPosition?) -> TabModel? {
-        toRight || (user && position == .afterCurrent) ? tab : nil
+    /// A slot other than the end (the end is nil: the daemon appends).
+    enum Target: Equatable {
+        /// Right after this tab, after its tab group.
+        case after(TabModel)
+        /// First after the pinned tabs of the pane this tab is in.
+        case start(TabModel)
+
+        /// The tab that names the pane.
+        var anchor: TabModel {
+            switch self { case .after(let tab), .start(let tab): tab }
+        }
+
+        static func == (lhs: Target, rhs: Target) -> Bool {
+            switch (lhs, rhs) {
+            case (.after(let a), .after(let b)), (.start(let a), .start(let b)): a === b
+            default: false
+            }
+        }
+    }
+
+    /// Where a new tab goes, nil for the end. `explicit` (the position actions, New Tab to the
+    /// Right) wins for anyone; otherwise a person's Cmd-T or + follows `setting` (unset is
+    /// ``NewTabPosition/fallback``) and a script's `tab new` appends. `current` is the selected or
+    /// named tab, `pane` the pane's tabs (for the start with no current tab).
+    static func target(current: TabModel?, pane: [TabModel], explicit: NewTabPosition?, user: Bool,
+                       setting: NewTabPosition?) -> Target? {
+        explicit == .afterCurrent || (user && setting == .afterCurrent) ? current.map(Target.after) : nil
     }
 
     /// `then` for a new tab's surface that first moves the tab right after `anchor`.
     static func placing(after anchor: TabModel?, services: AppServices,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
-        guard let anchor else { return then }
-        let pane = home(of: anchor, services)
-        let open = pane.flatMap { NewTabSuccession.begin(after: anchor.id, in: $0, services: services) } // shown in its slot at once
-        return { surface in
-            if let pane { NewTabSuccession.made(surface, in: pane, by: open) }
-            then?(surface)
-            place(in: { home(of: anchor, services) }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(after: anchor, in: $0) }
-        }
+        placing(anchor.map(Target.after), services: services, then: then)
     }
 
     /// Same for a tab named by its id (agent tabs and the New Tab page).
     static func placing(after anchor: TabModel?, services: AppServices,
                         then: (@MainActor (String) -> Void)?) -> (@MainActor (String) -> Void)? {
-        guard let anchor else { return then }
-        if let pane = home(of: anchor, services) { NewTabSuccession.begin(after: anchor.id, in: pane, services: services) } // shown in its slot at once
+        placing(anchor.map(Target.after), services: services, then: then)
+    }
+
+    /// `then` for a new tab's surface that first moves the tab into `target`'s slot.
+    static func placing(_ target: Target?, services: AppServices,
+                        then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
+        guard let target else { return then }
+        let pane = home(of: target.anchor, services)
+        let open = pane.flatMap { begin(target, in: $0, services: services) } // shown in its slot at once
+        return { surface in
+            if let pane { NewTabSuccession.made(surface, in: pane, by: open) }
+            then?(surface)
+            place(in: { home(of: target.anchor, services) }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(for: target, in: $0) }
+        }
+    }
+
+    /// Same for a tab named by its id (agent tabs and the New Tab page).
+    static func placing(_ target: Target?, services: AppServices,
+                        then: (@MainActor (String) -> Void)?) -> (@MainActor (String) -> Void)? {
+        guard let target else { return then }
+        if let pane = home(of: target.anchor, services) { begin(target, in: pane, services: services) } // shown in its slot at once
         return { key in
             then?(key)
-            place(in: { home(of: anchor, services) }, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) {
-                slot(after: anchor, in: $0)
+            place(in: { home(of: target.anchor, services) }, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) {
+                slot(for: target, in: $0)
             }
+        }
+    }
+
+    @discardableResult
+    private static func begin(_ target: Target, in pane: PaneModel, services: AppServices) -> DemandTimer? {
+        switch target {
+        case .after(let anchor): NewTabSuccession.begin(after: anchor.id, in: pane, services: services)
+        case .start: NewTabSuccession.begin(atStartOf: pane, services: services)
         }
     }
 
@@ -99,6 +142,15 @@ enum NewTabSlot {
             TabMoves.move(tab, to: pane, index: final, services: services)
             return nil
         })
+    }
+
+    /// The final index for `target` among `others` (the pane's tabs but the new one); nil when
+    /// an after-anchor left. The start is right after the pinned tabs.
+    static func slot(for target: Target, in others: [TabModel]) -> Int? {
+        switch target {
+        case .after(let anchor): slot(after: anchor, in: others)
+        case .start: others.prefix { $0.pinned }.count
+        }
     }
 
     /// The final index right after `anchor` among `others` (the pane's tabs
