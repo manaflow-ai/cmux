@@ -23,6 +23,14 @@ nonisolated enum BrowserSettingsSchema {
                 default: .string(BrowserDefaultEngine.fallback.rawValue), keywords: ["chrome", "safari", "cef"]
             ),
             SettingDescriptor(
+                BrowserSiteEngines.configPath, section: .browser, group: engine,
+                title: SettingsText.keyed("settings.browser.siteEngines", "Site Engines"),
+                help: SettingsText.keyed("settings.browser.siteEngines.help",
+                                         "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."),
+                kind: .stringMap, default: BrowserSiteEngines.fallback.jsonValue,
+                keywords: ["drm", "widevine", "spotify", "netflix", "site", "webkit", "chromium"]
+            ),
+            SettingDescriptor(
                 BrowserNewTabPage.configPath, section: .browser, group: engine,
                 title: SettingsText.keyed("settings.browser.newTabPage", "New Tab Page"),
                 help: SettingsText.keyed("settings.browser.newTabPage.help", "An address such as https://example.com. Empty opens a blank page."),
