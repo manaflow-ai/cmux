@@ -1,4 +1,5 @@
 public import AppKit
+import AVFoundation
 import IOSurface
 
 /// The phone's screen inside a phone tab. It shows either the simulator's
@@ -9,6 +10,8 @@ import IOSurface
 @MainActor
 public final class PhoneScreenView: NSView {
     private let content = CALayer()
+    /// Hardware-decoded H.264 frames (Android live screens), shown over `content` while streaming.
+    private var video: AVSampleBufferDisplayLayer?
     private var contentSize: CGSize = .zero
     private var occlusion: Task<Void, Never>?
     private var lastVisible: Bool?
@@ -51,6 +54,37 @@ public final class PhoneScreenView: NSView {
         }
     }
 
+    /// Shows one compressed video frame (Android live screens); the layer decodes it.
+    func show(sample: CMSampleBuffer) {
+        let layer = video ?? {
+            let made = AVSampleBufferDisplayLayer()
+            made.videoGravity = .resizeAspect
+            made.cornerRadius = 18
+            made.masksToBounds = true
+            self.layer?.addSublayer(made)
+            video = made
+            needsLayout = true
+            return made
+        }()
+        if layer.status == .failed { layer.flush() }
+        layer.enqueue(sample)
+        if let format = CMSampleBufferGetFormatDescription(sample) {
+            let dims = CMVideoFormatDescriptionGetDimensions(format)
+            let size = CGSize(width: Int(dims.width), height: Int(dims.height))
+            if size != contentSize {
+                contentSize = size
+                needsLayout = true
+            }
+        }
+    }
+
+    /// Ends the video layer (the stream stopped); the still frame shows again.
+    func endVideo() {
+        video?.flushAndRemoveImage()
+        video?.removeFromSuperlayer()
+        video = nil
+    }
+
     /// Shows a still frame (the `simctl` / `screencap` fallback).
     func show(image: NSImage?) {
         CATransaction.begin()
@@ -69,6 +103,7 @@ public final class PhoneScreenView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         content.frame = mapping.drawnRect == .zero ? bounds : mapping.drawnRect
+        video?.frame = content.frame
         CATransaction.commit()
     }
 

@@ -19,6 +19,8 @@ public final class PhoneTabView: NSView {
     let screen = PhoneScreenView(frame: .zero)
     /// The simulator streaming into ``screen`` now, if any.
     private var liveUDID: String?
+    /// The Android phone streaming into ``screen`` now, if any.
+    private var androidStream: (id: PhoneDeviceID, stream: AndroidScreenStream)?
     /// Where and when a touch on a still frame began (sent as one tap or swipe when it ends).
     private var stillTouch: (point: CGPoint, time: ContinuousClock.Instant)?
     let status = NSTextField(labelWithString: "")
@@ -159,6 +161,7 @@ extension PhoneTabView {
 
     /// Streams a booted simulator into the screen while the tab is visible. False when it cannot.
     func startLiveIfPossible(_ device: PhoneDevice) -> Bool {
+        if device.mode.isAndroid { return startAndroidStream(device) }
         guard device.mode == .simulator, screen.isOnScreen, let live = service.live else { return false }
         if liveUDID == device.id.raw { return true }
         stopLive()
@@ -192,8 +195,34 @@ extension PhoneTabView {
     }
 
     func stopLive() {
+        if let android = androidStream {
+            android.stream.stop()
+            androidStream = nil
+            screen.endVideo()
+        }
         guard let udid = liveUDID else { return }
         service.live?.stopScreen(udid)
         liveUDID = nil
+    }
+
+    /// Streams an Android phone's screen; still frames keep showing under it until the first frame.
+    /// Returns false so the still frame loads too (touches go through adb either way).
+    private func startAndroidStream(_ device: PhoneDevice) -> Bool {
+        guard screen.isOnScreen else { return false }
+        if androidStream?.id == device.id { return true }
+        stopLive()
+        let id = device.id
+        Task { [weak self] in
+            guard let self, let target = try? await self.service.androidStreamTarget(id), self.deviceID == id, self.androidStream == nil else { return }
+            let stream = AndroidScreenStream(adb: target.adb, serial: target.serial)
+            stream.onSample = { [weak self] sample in self?.screen.show(sample: sample) }
+            stream.onError = { [weak self] error in
+                self?.show(error)
+                self?.screen.endVideo()
+            }
+            self.androidStream = (id, stream)
+            stream.start()
+        }
+        return false
     }
 }

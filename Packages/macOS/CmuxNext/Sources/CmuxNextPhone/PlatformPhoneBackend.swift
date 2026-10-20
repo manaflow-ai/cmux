@@ -70,6 +70,12 @@ public actor PlatformPhoneBackend: PhoneBackend {
         try await route(id).logCommand(id)
     }
 
+    /// The `adb` path and serial for an Android phone's live screen.
+    public func androidStreamTarget(_ id: PhoneDeviceID) async throws -> (adb: String, serial: String) {
+        guard id.mode.isAndroid, let android else { throw PhoneError.missingTool(.androidSDK) }
+        return try await android.streamTarget(id)
+    }
+
     /// Turns an Android emulator a quarter turn.
     public func rotate(_ id: PhoneDeviceID) async throws {
         guard id.mode.isAndroid, let android else { throw PhoneError.unsupported(mode: id.mode, what: "rotate") }

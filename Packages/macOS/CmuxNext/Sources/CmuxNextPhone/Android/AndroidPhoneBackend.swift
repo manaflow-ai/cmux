@@ -172,6 +172,11 @@ public actor AndroidPhoneBackend: PhoneBackend {
         [sdk.adb, "-s", try await serial(id), "logcat", "-v", "color"]
     }
 
+    /// The `adb` path and serial a live screen stream uses.
+    public func streamTarget(_ id: PhoneDeviceID) async throws -> (adb: String, serial: String) {
+        (sdk.adb, try await serial(id))
+    }
+
     /// Rotates an emulator a quarter turn (the console's `rotate`).
     public func rotate(_ id: PhoneDeviceID) async throws {
         guard id.mode == .emulator else { throw PhoneError.unsupported(mode: id.mode, what: "rotate") }

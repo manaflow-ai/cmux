@@ -103,6 +103,12 @@ public final class PhoneService {
         try await send(moved ? .swipe(from: a, to: b, seconds: max(0.1, seconds)) : .tap(a), to: id)
     }
 
+    /// The `adb` path and serial an Android phone's live screen streams from.
+    func androidStreamTarget(_ id: PhoneDeviceID) async throws -> (adb: String, serial: String) {
+        guard let platform = backend as? PlatformPhoneBackend else { throw PhoneError.missingTool(.androidSDK) }
+        return try await platform.androidStreamTarget(id)
+    }
+
     /// The developer tools the last device list found missing (Xcode, the Android SDK).
     public var missingTools: Set<PhoneTool> {
         get async { await (backend as? PlatformPhoneBackend)?.missingTools ?? [] }
