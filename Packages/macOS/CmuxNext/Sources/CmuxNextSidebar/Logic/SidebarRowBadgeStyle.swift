@@ -7,8 +7,8 @@ public import CmuxNextDesign
 /// (Lawrence 2026-10-19). `stack` is Leo's alternative, one
 /// glyph per pending item overlapping in the trailing slot; `trailing` keeps the count badge and
 /// the trailing status glyph (the look before); `status` is one status icon on the side
-/// `SidebarStatusIconSide` names, the default (Leo 2026-10-15 in #20900; Leo 2026-10-18: a running
-/// row's mark on the left).
+/// `SidebarStatusIconSide` names (the right unless Debug Settings say left), the default (Leo
+/// 2026-10-15 in #20900).
 public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// One glyph, the most urgent state, in the trailing slot (the case keeps its stored name).
     case corner
