@@ -66,11 +66,11 @@ import PackageDescription
 //     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
-//   CmuxNextFileGrid -> system frameworks only (the shared file grid core: listing, scanner,
-//     FSEvents watcher, thumbnail cache, drag out and drop in, Quick Look, file commands; the
-//     Screenshots pane uses it now and the full Finder pane reuses it)
-//   CmuxNextScreenshots -> FileGrid (the Screenshots pane: source detection for macOS and the
-//     screenshot tools, the live model and the pane view; no daemon; the App supplies the workspace)
+//   CmuxNextFileGrid -> system frameworks only (the thumbnail grid: tiles, thumbnail cache, drag
+//     out, drop reading, Quick Look and the command menu; it reads and changes no files)
+//   CmuxNextScreenshots -> FileGrid, Files (the Screenshots pane: source detection for macOS and the
+//     screenshot tools, reading, watching and file operations through CmuxNextFiles, the live model
+//     and the pane view; no daemon; the App supplies the workspace)
 //   CmuxNextAgentLanes -> AgentActivity, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
 //     states and lanes, and the sidebar's Lanes item; cx-v9k2f)
 //   CmuxNextApps -> Design, Icons, Wakeups (app platform: manifest model, scene store + native renderer, JavaScriptCore
@@ -720,9 +720,8 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // The file grid core: a newest-first listing, folder scanner, FSEvents watcher, thumbnail
-        // cache, drag out / drop in, Quick Look and the file commands. System frameworks only, so
-        // the Screenshots pane and the later Finder pane share it.
+        // The thumbnail grid: tiles, the thumbnail cache, drag out, drop reading, Quick Look and the
+        // command menu. It reads and changes no files (CmuxNextFiles does). System frameworks only.
         .target(
             name: "CmuxNextFileGrid",
             resources: [
