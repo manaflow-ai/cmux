@@ -138,7 +138,7 @@ public final class AgentPaneLoadingView: NSView {
         if !fades || !overImage { page.alphaValue = 1 }
         CATransaction.commit()
         guard fades else { return left(page) }
-        Motion.animate(.fadeIn, in: self, {
+        Motion.home.animate(.fadeIn, in: self, {
             if overImage { page.animator().alphaValue = 1 } else { animator().alphaValue = 0 }
         }, completion: { [weak self, weak page] in self?.left(page) })
     }

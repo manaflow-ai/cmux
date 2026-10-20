@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextTabs
 
@@ -68,34 +69,39 @@ enum TabGroupHandlers {
     // MARK: Membership
 
     private static func bindMembership(_ bind: Binder, _ ctx: AppActionContext) {
+        // Each acts on the targeted (or focused) tab and the rest of its strip's multi-selection
+        // (`AppActionContext.actionTabs`), the same tabs from the tab menu, the palette, a shortcut and the CLI.
         bind("tabGroup.create") { invocation in
-            guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            guard !tab.pinned else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
-            let surface = tab.surface, handle = pane.handle
+            guard let (selected, pane) = ctx.actionTabs(invocation) else { return }
+            let tabs = selected.filter { !$0.pinned }
+            guard !tabs.isEmpty else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
             let name = invocation["name"]?.stringValue
             // The same color rule as screen groups (`TabGroupOrdering.nextColor`).
             let color = invocation["color"]?.stringValue
                 ?? TabGroupOrdering.nextColor(used: pane.tabGroups.compactMap { $0.color.flatMap(GroupColor.init(rawValue:)) }).rawValue
-            run("create-tab-group", pane: pane, ctx) { c, t in
-                _ = try await c.createTabGroup(in: handle, tabs: [surface], name: name, color: color, transaction: t)
-            }
+            let writes = TabGroupWrites(pane: pane, daemon: ctx.services.daemon(for: pane))
+            run("create-tab-group", pane: pane, ctx, writes.create(tabs, name: name, color: color))
+            ctx.services.paneController(for: pane)?.stripModel.clearMultiSelection()
         }
         bind("tabGroup.addTab") { invocation in
-            guard let (tab, _) = ctx.daemonTab(invocation) else { return }
+            guard let (selected, _) = ctx.actionTabs(invocation) else { return }
             guard let ref = invocation["group"]?.targetValue ?? ctx.refuse(RefusalStrings.groupArgumentRequired) else { return }
-            guard !tab.pinned else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
-            let group = GroupID(rawValue: ref.id), surface = tab.surface
+            let tabs = selected.filter { !$0.pinned }
+            guard let first = tabs.first ?? ctx.refuse(RefusalStrings.pinnedCannotGroup) else { return }
+            let group = GroupID(rawValue: ref.id)
             guard let pane = pane(holding: group, ctx) ?? ctx.refuse(RefusalStrings.noOpenTabGroup(ref.id)) else { return }
-            // The tab must be on the group's machine (surface ids are per daemon).
-            guard GroupOwnership.owner(ofTabGroup: group, sameMachineAs: ctx.services.machines.daemon(forTab: tab),
+            // The tabs must be on the group's machine (surface ids are per daemon).
+            guard GroupOwnership.owner(ofTabGroup: group, sameMachineAs: ctx.services.machines.daemon(forTab: first),
                                        machines: ctx.services.machines) != nil else { return ctx.refuse(RefusalStrings.otherMachine) }
-            run("add-tabs-to-group", pane: pane, ctx) { c, t in _ = try await c.addTabs([surface], toGroup: group, transaction: t) }
+            let writes = TabGroupWrites(pane: pane, daemon: ctx.services.daemon(for: pane))
+            run("add-tabs-to-group", pane: pane, ctx, writes.add(tabs, to: group))
         }
         bind("tabGroup.removeTab") { invocation in
-            guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            guard tab.tabGroup != nil else { return ctx.refuse(RefusalStrings.tabNotInGroup) }
-            let surface = tab.surface
-            run("remove-tabs-from-group", pane: pane, ctx) { c, t in _ = try await c.removeTabsFromGroup([surface], transaction: t) }
+            guard let (selected, pane) = ctx.actionTabs(invocation) else { return }
+            let tabs = selected.filter { $0.tabGroup != nil }
+            guard !tabs.isEmpty else { return ctx.refuse(RefusalStrings.tabNotInGroup) }
+            let writes = TabGroupWrites(pane: pane, daemon: ctx.services.daemon(for: pane))
+            run("remove-tabs-from-group", pane: pane, ctx, writes.remove(tabs))
         }
         bind("tabGroup.newTab") { invocation in
             guard let (group, pane) = group(invocation, ctx) else { return }
