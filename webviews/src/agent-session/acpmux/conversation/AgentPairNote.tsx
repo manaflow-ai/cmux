@@ -4,10 +4,9 @@
 // "Show held messages" lists the held previews. Once the pair resumes the row is one line:
 // "Resumed messages with <peer>", with how many acpmux delivered, and apart, how many it dropped.
 import { useId, useRef, useState } from "react";
-import { useT, type Translate } from "../i18n";
+import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxAgentPair } from "../model";
 import { Envelope, PauseCircle } from "./icons";
-import { formatDuration } from "./turns";
 
 export type ResumeAgentPair = (peer: string) => Promise<unknown>;
 
@@ -17,12 +16,24 @@ const SHOWN_HELD = 20;
 const PREVIEW_CHARS = 200;
 const preview = (text: string) => (text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}…` : text);
 
-function reasonText(t: Translate, pair: AcpmuxAgentPair, peer: string): string {
+/// The cap's window in words, in the pane language: "10 minutes", "2 hours", "90 seconds" (the
+/// largest unit that divides it).
+export function spelledWindow(seconds: number, language: PaneLanguage): string {
+  const [unit, value] =
+    seconds >= 3600 && seconds % 3600 === 0
+      ? (["hour", seconds / 3600] as const)
+      : seconds >= 60 && seconds % 60 === 0
+        ? (["minute", seconds / 60] as const)
+        : (["second", seconds] as const);
+  return new Intl.NumberFormat(language, { style: "unit", unit, unitDisplay: "long" }).format(value);
+}
+
+function reasonText(t: Translate, language: PaneLanguage, pair: AcpmuxAgentPair, peer: string): string {
   switch (pair.reason) {
     case "repeating":
       return t("agentPair.paused.repeating", { peer, n: pair.count });
     case "cap":
-      return t("agentPair.paused.cap", { peer, n: pair.count, window: formatDuration((pair.windowSecs ?? 0) * 1000) });
+      return t("agentPair.paused.cap", { peer, n: pair.count, window: spelledWindow(pair.windowSecs ?? 0, language) });
     case "release_failed":
       return t("agentPair.paused.releaseFailed", { peer });
     default:
@@ -32,6 +43,7 @@ function reasonText(t: Translate, pair: AcpmuxAgentPair, peer: string): string {
 
 export function AgentPairNote({ pair, onResume }: { pair: AcpmuxAgentPair; onResume?: ResumeAgentPair }) {
   const t = useT();
+  const language = usePaneLanguage();
   const [state, setState] = useState<"idle" | "pending" | "failed">("idle");
   // A second click before React draws "pending" must not send a second resume.
   const sending = useRef(false);
@@ -80,7 +92,7 @@ export function AgentPairNote({ pair, onResume }: { pair: AcpmuxAgentPair; onRes
           <PauseCircle />
         </span>
         <span className="cv-tool__text cv-agent-pair__text" title={pair.error}>
-          {reasonText(t, pair, peer)}
+          {reasonText(t, language, pair, peer)}
         </span>
       </div>
       <div className="cv-agent-pair__detail">

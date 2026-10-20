@@ -55,7 +55,7 @@ export default agentPaneEntry({
       ]),
     },
     cap: {
-      note: "The pair passed acpmux's cap (more than 20 messages in 10 minutes with no prompt from the person).",
+      note: "The pair passed acpmux's cap (more than 20 messages within 10 minutes with no message from the person); the window is spelled out in the pane language.",
       snapshot: chat([
         ...before,
         row("agentPair", 3, { agentPair: pair({ reason: "cap", count: 21, windowSecs: 600 }) }),

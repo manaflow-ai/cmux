@@ -172628,7 +172628,7 @@
       }
     },
     "agentPair.paused.cap": {
-      "comment": "Agent pane: a paused agent pair note when the two agent chats exchanged more messages than the cap allows with no prompt from the person; {peer} is the other chat's name, {n} the messages exchanged, {window} the cap's time window (for example 10m)",
+      "comment": "Agent pane: a paused agent pair note when the two agent chats exchanged more messages than the cap allows with no prompt from the person; {peer} is the other chat's name, {n} the messages exchanged, {window} the cap's time window spelled out (for example 10 minutes)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -172637,37 +172637,37 @@
               "zero": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: أرسل الوكيلان {n} رسالة خلال {window} دونك"
+                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: تبادل الوكيلان {n} رسالة خلال {window} دون أي رسالة منك"
                 }
               },
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: أرسل الوكيلان رسالة واحدة خلال {window} دونك"
+                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: تبادل الوكيلان رسالة واحدة خلال {window} دون أي رسالة منك"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: أرسل الوكيلان رسالتين خلال {window} دونك"
+                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: تبادل الوكيلان رسالتين خلال {window} دون أي رسالة منك"
                 }
               },
               "few": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: أرسل الوكيلان {n} رسائل خلال {window} دونك"
+                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: تبادل الوكيلان {n} رسائل خلال {window} دون أي رسالة منك"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: أرسل الوكيلان {n} رسالة خلال {window} دونك"
+                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: تبادل الوكيلان {n} رسالة خلال {window} دون أي رسالة منك"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: أرسل الوكيلان {n} رسالة خلال {window} دونك"
+                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: تبادل الوكيلان {n} رسالة خلال {window} دون أي رسالة منك"
                 }
               }
             }
@@ -172679,19 +172679,19 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Poruke s {peer} pauzirane: dva agenta su poslala {n} poruku za {window} bez vas"
+                  "value": "Poruke s {peer} pauzirane: dva agenta su razmijenila {n} poruku unutar {window} bez ijedne vaše poruke"
                 }
               },
               "few": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Poruke s {peer} pauzirane: dva agenta su poslala {n} poruke za {window} bez vas"
+                  "value": "Poruke s {peer} pauzirane: dva agenta su razmijenila {n} poruke unutar {window} bez ijedne vaše poruke"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Poruke s {peer} pauzirane: dva agenta su poslala {n} poruka za {window} bez vas"
+                  "value": "Poruke s {peer} pauzirane: dva agenta su razmijenila {n} poruka unutar {window} bez ijedne vaše poruke"
                 }
               }
             }
@@ -172703,13 +172703,13 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Beskeder med {peer} er sat på pause: de to agenter sendte {n} besked på {window} uden dig"
+                  "value": "Beskeder med {peer} er sat på pause: de to agenter udvekslede {n} besked inden for {window} uden en besked fra dig"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Beskeder med {peer} er sat på pause: de to agenter sendte {n} beskeder på {window} uden dig"
+                  "value": "Beskeder med {peer} er sat på pause: de to agenter udvekslede {n} beskeder inden for {window} uden en besked fra dig"
                 }
               }
             }
@@ -172721,13 +172721,13 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Nachrichten mit {peer} pausiert: Die beiden Agents haben in {window} ohne dich {n} Nachricht gesendet"
+                  "value": "Nachrichten mit {peer} pausiert: Die beiden Agents haben innerhalb von {window} {n} Nachricht ausgetauscht, ohne eine Nachricht von dir"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Nachrichten mit {peer} pausiert: Die beiden Agents haben in {window} ohne dich {n} Nachrichten gesendet"
+                  "value": "Nachrichten mit {peer} pausiert: Die beiden Agents haben innerhalb von {window} {n} Nachrichten ausgetauscht, ohne eine Nachricht von dir"
                 }
               }
             }
@@ -172739,13 +172739,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Paused messages with {peer}: the two agents sent {n} message in {window} without you"
+                  "value": "Paused messages with {peer}: the two agents exchanged {n} message within {window} with no message from you"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Paused messages with {peer}: the two agents sent {n} messages in {window} without you"
+                  "value": "Paused messages with {peer}: the two agents exchanged {n} messages within {window} with no message from you"
                 }
               }
             }
@@ -172757,19 +172757,19 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Mensajes con {peer} en pausa: los dos agentes enviaron {n} mensaje en {window} sin ti"
+                  "value": "Mensajes con {peer} en pausa: los dos agentes intercambiaron {n} mensaje en {window} sin ningún mensaje tuyo"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Mensajes con {peer} en pausa: los dos agentes enviaron {n} mensajes en {window} sin ti"
+                  "value": "Mensajes con {peer} en pausa: los dos agentes intercambiaron {n} mensajes en {window} sin ningún mensaje tuyo"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Mensajes con {peer} en pausa: los dos agentes enviaron {n} mensajes en {window} sin ti"
+                  "value": "Mensajes con {peer} en pausa: los dos agentes intercambiaron {n} mensajes en {window} sin ningún mensaje tuyo"
                 }
               }
             }
@@ -172781,19 +172781,19 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Messages avec {peer} en pause : les deux agents ont envoyé {n} message en {window} sans vous"
+                  "value": "Messages avec {peer} en pause : les deux agents ont échangé {n} message en {window} sans aucun message de votre part"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Messages avec {peer} en pause : les deux agents ont envoyé {n} messages en {window} sans vous"
+                  "value": "Messages avec {peer} en pause : les deux agents ont échangé {n} messages en {window} sans aucun message de votre part"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Messages avec {peer} en pause : les deux agents ont envoyé {n} messages en {window} sans vous"
+                  "value": "Messages avec {peer} en pause : les deux agents ont échangé {n} messages en {window} sans aucun message de votre part"
                 }
               }
             }
@@ -172805,19 +172805,19 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Messaggi con {peer} in pausa: i due agenti hanno inviato {n} messaggio in {window} senza di te"
+                  "value": "Messaggi con {peer} in pausa: i due agenti si sono scambiati {n} messaggio entro {window} senza alcun tuo messaggio"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Messaggi con {peer} in pausa: i due agenti hanno inviato {n} messaggi in {window} senza di te"
+                  "value": "Messaggi con {peer} in pausa: i due agenti si sono scambiati {n} messaggi entro {window} senza alcun tuo messaggio"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Messaggi con {peer} in pausa: i due agenti hanno inviato {n} messaggi in {window} senza di te"
+                  "value": "Messaggi con {peer} in pausa: i due agenti si sono scambiati {n} messaggi entro {window} senza alcun tuo messaggio"
                 }
               }
             }
@@ -172829,7 +172829,7 @@
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "{peer} とのメッセージを一時停止しました: 2 つのエージェントがあなたを介さずに {window} で {n} 件のメッセージを送りました"
+                  "value": "{peer} とのメッセージを一時停止しました: あなたからのメッセージがないまま、2 つのエージェントが {window} 以内に {n} 件のメッセージをやり取りしました"
                 }
               }
             }
@@ -172841,7 +172841,7 @@
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "បានផ្អាកសារជាមួយ {peer}៖ ភ្នាក់ងារទាំងពីរបានផ្ញើសារ {n} ក្នុងរយៈពេល {window} ដោយគ្មានអ្នក"
+                  "value": "បានផ្អាកសារជាមួយ {peer}៖ ភ្នាក់ងារទាំងពីរបានផ្លាស់ប្តូរសារ {n} ក្នុងរយៈពេល {window} ដោយគ្មានសារពីអ្នក"
                 }
               }
             }
@@ -172853,7 +172853,7 @@
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "{peer}와(과)의 메시지를 일시 중지함: 두 에이전트가 사용자 없이 {window} 동안 메시지 {n}개를 보냈습니다"
+                  "value": "{peer}와(과)의 메시지를 일시 중지함: 사용자의 메시지 없이 두 에이전트가 {window} 안에 메시지 {n}개를 주고받았습니다"
                 }
               }
             }
@@ -172865,13 +172865,13 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Meldinger med {peer} er satt på pause: de to agentene sendte {n} melding på {window} uten deg"
+                  "value": "Meldinger med {peer} er satt på pause: de to agentene utvekslet {n} melding innen {window} uten en melding fra deg"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Meldinger med {peer} er satt på pause: de to agentene sendte {n} meldinger på {window} uten deg"
+                  "value": "Meldinger med {peer} er satt på pause: de to agentene utvekslet {n} meldinger innen {window} uten en melding fra deg"
                 }
               }
             }
@@ -172883,25 +172883,25 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Wstrzymano wiadomości z {peer}: agenci wysłali {n} wiadomość w {window} bez Ciebie"
+                  "value": "Wstrzymano wiadomości z {peer}: agenci wymienili {n} wiadomość w ciągu {window} bez żadnej wiadomości od Ciebie"
                 }
               },
               "few": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Wstrzymano wiadomości z {peer}: agenci wysłali {n} wiadomości w {window} bez Ciebie"
+                  "value": "Wstrzymano wiadomości z {peer}: agenci wymienili {n} wiadomości w ciągu {window} bez żadnej wiadomości od Ciebie"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Wstrzymano wiadomości z {peer}: agenci wysłali {n} wiadomości w {window} bez Ciebie"
+                  "value": "Wstrzymano wiadomości z {peer}: agenci wymienili {n} wiadomości w ciągu {window} bez żadnej wiadomości od Ciebie"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Wstrzymano wiadomości z {peer}: agenci wysłali {n} wiadomości w {window} bez Ciebie"
+                  "value": "Wstrzymano wiadomości z {peer}: agenci wymienili {n} wiadomości w ciągu {window} bez żadnej wiadomości od Ciebie"
                 }
               }
             }
@@ -172913,19 +172913,19 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Mensagens com {peer} pausadas: os dois agentes enviaram {n} mensagem em {window} sem você"
+                  "value": "Mensagens com {peer} pausadas: os dois agentes trocaram {n} mensagem em {window} sem nenhuma mensagem sua"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Mensagens com {peer} pausadas: os dois agentes enviaram {n} mensagens em {window} sem você"
+                  "value": "Mensagens com {peer} pausadas: os dois agentes trocaram {n} mensagens em {window} sem nenhuma mensagem sua"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Mensagens com {peer} pausadas: os dois agentes enviaram {n} mensagens em {window} sem você"
+                  "value": "Mensagens com {peer} pausadas: os dois agentes trocaram {n} mensagens em {window} sem nenhuma mensagem sua"
                 }
               }
             }
@@ -172937,25 +172937,25 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Сообщения с {peer} приостановлены: агенты отправили {n} сообщение за {window} без вас"
+                  "value": "Сообщения с {peer} приостановлены: агенты обменялись {n} сообщением за {window} без единого сообщения от вас"
                 }
               },
               "few": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Сообщения с {peer} приостановлены: агенты отправили {n} сообщения за {window} без вас"
+                  "value": "Сообщения с {peer} приостановлены: агенты обменялись {n} сообщениями за {window} без единого сообщения от вас"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Сообщения с {peer} приостановлены: агенты отправили {n} сообщений за {window} без вас"
+                  "value": "Сообщения с {peer} приостановлены: агенты обменялись {n} сообщениями за {window} без единого сообщения от вас"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Сообщения с {peer} приостановлены: агенты отправили {n} сообщения за {window} без вас"
+                  "value": "Сообщения с {peer} приостановлены: агенты обменялись {n} сообщения за {window} без единого сообщения от вас"
                 }
               }
             }
@@ -172967,7 +172967,7 @@
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "หยุดข้อความกับ {peer} ชั่วคราวแล้ว: เอเจนต์ทั้งสองส่ง {n} ข้อความใน {window} โดยไม่มีคุณ"
+                  "value": "หยุดข้อความกับ {peer} ชั่วคราวแล้ว: เอเจนต์ทั้งสองส่งข้อความโต้ตอบกัน {n} ข้อความภายใน {window} โดยไม่มีข้อความจากคุณ"
                 }
               }
             }
@@ -172979,13 +172979,13 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "{peer} ile mesajlar duraklatıldı: iki ajan sizsiz {window} içinde {n} mesaj gönderdi"
+                  "value": "{peer} ile mesajlar duraklatıldı: iki ajan sizden hiç mesaj gelmeden {window} içinde {n} mesaj alışverişi yaptı"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "{peer} ile mesajlar duraklatıldı: iki ajan sizsiz {window} içinde {n} mesaj gönderdi"
+                  "value": "{peer} ile mesajlar duraklatıldı: iki ajan sizden hiç mesaj gelmeden {window} içinde {n} mesaj alışverişi yaptı"
                 }
               }
             }
@@ -172997,25 +172997,25 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Повідомлення з {peer} призупинено: агенти надіслали {n} повідомлення за {window} без вас"
+                  "value": "Повідомлення з {peer} призупинено: агенти обмінялися {n} повідомленням за {window} без жодного повідомлення від вас"
                 }
               },
               "few": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Повідомлення з {peer} призупинено: агенти надіслали {n} повідомлення за {window} без вас"
+                  "value": "Повідомлення з {peer} призупинено: агенти обмінялися {n} повідомленнями за {window} без жодного повідомлення від вас"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Повідомлення з {peer} призупинено: агенти надіслали {n} повідомлень за {window} без вас"
+                  "value": "Повідомлення з {peer} призупинено: агенти обмінялися {n} повідомленнями за {window} без жодного повідомлення від вас"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Повідомлення з {peer} призупинено: агенти надіслали {n} повідомлення за {window} без вас"
+                  "value": "Повідомлення з {peer} призупинено: агенти обмінялися {n} повідомлення за {window} без жодного повідомлення від вас"
                 }
               }
             }
@@ -173027,7 +173027,7 @@
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "Đã tạm dừng tin nhắn với {peer}: hai tác tử đã gửi {n} tin nhắn trong {window} mà không có bạn"
+                  "value": "Đã tạm dừng tin nhắn với {peer}: hai tác tử đã trao đổi {n} tin nhắn trong vòng {window} mà không có tin nhắn nào từ bạn"
                 }
               }
             }
@@ -173039,7 +173039,7 @@
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "已暂停与 {peer} 的消息：两个智能体在 {window} 内未经你发送了 {n} 条消息"
+                  "value": "已暂停与 {peer} 的消息：两个智能体在 {window}内互发了 {n} 条消息，期间你没有发送任何消息"
                 }
               }
             }
@@ -173051,7 +173051,7 @@
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "已暫停與 {peer} 的訊息：兩個代理程式在 {window} 內未經你傳送了 {n} 則訊息"
+                  "value": "已暫停與 {peer} 的訊息：兩個代理程式在 {window}內互傳了 {n} 則訊息，期間你沒有傳送任何訊息"
                 }
               }
             }
