@@ -73,7 +73,7 @@ public final class HomeChiefSettingsView: NSView {
     /// Codex; the CodeRouter route (`claude-cr`) only when this Chief's
     /// acpmux has one configured. The subrouter pool (`claude-sr`) is never a
     /// default item; a current choice of it still shows (`fill`).
-    static func harnesses(routeConfigured: Bool) -> [String] {
+    nonisolated static func harnesses(routeConfigured: Bool) -> [String] {
         routeConfigured ? ["claude", "claude-cr", "codex"] : ["claude", "codex"]
     }
 
