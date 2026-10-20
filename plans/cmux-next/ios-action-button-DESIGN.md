@@ -13,8 +13,8 @@ chief ... save it as a voice note ... start recording you and then we can transc
 | Control Center and Lock Screen | iOS 18 "Shortcuts" control > cmux > "Call Chief" (v1); our own control widget (v2, section 7) | Same. |
 | Pressing the Action Button again during a call | The same intent arrives while recording | Ends the call (toggle), so one button starts and stops. |
 
-The call screen (UIKit, full screen, HIG "Audio" and "Playing audio" pages): Chief name, a
-monogram, elapsed time, a live level meter, the state line ("Recording", "Transcribing",
+The call screen (UIKit, full screen; HIG pages "Playing audio", "Buttons", "Modality"): Chief
+name, a monogram, elapsed time, the state line ("Recording", "Transcribing",
 "Sent to Chief", "Saved; sends when Chief is reachable"), and one red End button. VoiceOver
 reads the state line on every change.
 
@@ -34,8 +34,8 @@ is a one-way call that always ends as a voice note:
    leaves the audio on disk.
 4. End (button, second Action Button press, or an audio-session interruption such as a phone
    call or Siri): stop, save the note into the outbox, transcribe on device
-   (`SFSpeechRecognizer` with `requiresOnDeviceRecognition` when supported; no network
-   recognizer, no paid API), then send audio plus transcript to the Chief conversation through
+   (`SFSpeechRecognizer` with `requiresOnDeviceRecognition`; a locale without an on-device
+   model gets no transcript rather than Apple's server recognizer; no paid API), then send audio plus transcript to the Chief conversation through
    `HomeStore.send(conversation:text:attachments:)`. The transcript is the message text; the M4A
    is an `audio/mp4` attachment (already accepted by `HomeAttachmentPolicy`).
 5. Chief unreachable (no Chief conversation, store stopped, upload or send fails): the note stays
@@ -114,6 +114,7 @@ recording) cannot run in CI; section 6 lists what was and was not checked.
   automatically, but the TestFlight/App Store lane (`ios/scripts/upload-testflight.sh`) re-signs
   only NotificationService.appex and needs an App Store profile for the new id. That is a
   provisioning step for the user. Until then the iOS 18 Shortcuts control covers both places.
+- Live level meter on the call screen; `SpeechAnalyzer` (iOS 26) for long notes.
 - Two-way call (section 2, v2), Live Activity with an End button on the Lock Screen, choosing
   which Chief when there are several (v1 takes the pinned Chief, else the first).
 - Real Home backend: today delivery reaches the mock owner, like every other Home send on iOS.
