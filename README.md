@@ -1,3 +1,9 @@
+> [!NOTE]
+> **This is lawmux, an unofficial personal fork of [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux).**
+> It ships no binaries, sends no telemetry, and keeps its settings separate from cmux.
+> See [LAWMUX.md](LAWMUX.md) for the differences and build-from-source instructions (in Japanese).
+> The rest of this README is upstream's, unchanged.
+
 <h1 align="center">cmux</h1>
 <p align="center">A Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents</p>
 

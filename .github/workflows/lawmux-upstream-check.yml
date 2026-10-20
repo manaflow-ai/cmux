@@ -1,0 +1,73 @@
+# Weekly: disable every workflow inherited from upstream (they target
+# Manaflow's runners and secrets), then open or update an issue when
+# manaflow-ai/cmux main has commits lawmux has not merged yet.
+# Merging itself is done locally with scripts/lawmux-sync-upstream.sh.
+name: lawmux-upstream-check
+
+on:
+  schedule:
+    - cron: "0 0 * * 1" # Monday 09:00 JST
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  issues: write
+  contents: read
+
+concurrency:
+  group: lawmux-upstream-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      UPSTREAM: manaflow-ai/cmux
+      ISSUE_TITLE: "lawmux: upstream updates pending"
+    steps:
+      - name: Disable workflows inherited from upstream
+        run: |
+          gh workflow list --all --limit 500 --json path,state \
+            --jq '.[] | select(.state == "active") | .path | select(test("/lawmux-[^/]+\\.ya?ml$") | not)' |
+          while read -r path; do
+            echo "disable $path"
+            gh workflow disable "$(basename "$path")"
+          done
+
+      - name: Report pending upstream commits
+        run: |
+          set -euo pipefail
+          ahead="$(gh api "repos/$GH_REPO/compare/main...${UPSTREAM%%/*}:main" --jq '.ahead_by')"
+          issue="$(gh issue list --state open --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')"
+          echo "upstream commits not in lawmux main: $ahead"
+
+          if [[ "$ahead" == 0 ]]; then
+            if [[ -n "$issue" ]]; then
+              gh issue close "$issue" --comment "Up to date with $UPSTREAM."
+            fi
+            exit 0
+          fi
+
+          body="$(cat <<EOF
+          [$UPSTREAM](https://github.com/$UPSTREAM) main has **$ahead** commit(s) that lawmux main does not.
+
+          Compare: https://github.com/$GH_REPO/compare/main...${UPSTREAM%%/*}:main
+
+          Merge locally:
+
+          \`\`\`sh
+          ./scripts/lawmux-sync-upstream.sh
+          \`\`\`
+
+          _Updated $(date -u +%Y-%m-%dT%H:%MZ) by lawmux-upstream-check._
+          EOF
+          )"
+
+          if [[ -n "$issue" ]]; then
+            gh issue edit "$issue" --body "$body"
+          else
+            gh issue create --title "$ISSUE_TITLE" --body "$body"
+          fi
