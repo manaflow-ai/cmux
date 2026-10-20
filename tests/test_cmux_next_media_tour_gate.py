@@ -199,9 +199,11 @@ def main():
     tour_env = jobs["tour"]["env"]
     _check(expression(tour_env["BASE_SHA"], push_event()) == "f" * 40, "a merge tour compares against the previous head")
     _check(expression(tour_env["HEAD_SHA"], push_event()) == "a" * 40, "a merge tour tours the merged head")
-    _check(expression(tour_env["TOUR_TAG"], pr_event("synchronize", [LABEL])) == "ci-media-pr-42",
-           "a pull request keeps its own tag")
-    _check(expression(tour_env["TOUR_TAG"], push_event()) == "ci-media-feat-cmux-next", "merges share one warm tag")
+    # The tag comes from the slot the tour claims on its Mac (tests/test_media_tag_lock.py), not from the
+    # pull request, so a Mac keeps K warm pairs instead of one per pull request it toured.
+    _check("TOUR_TAG" not in tour_env, "no per-pull-request tag")
+    _check(str(expression(tour_env["CMUX_MEDIA_TOUR_SLOTS"], push_event())) == "2",
+           "two warm tour slots per Mac unless vars.CMUX_MEDIA_TOUR_SLOTS says otherwise")
     _check(expression(tour_env["BASE_SHA"], dispatch_event("d" * 40)) == "d" * 40,
            "a batch tour compares against the stack's base, so it maps the union of the group's tours")
     _check(expression(tour_env["HEAD_SHA"], dispatch_event("d" * 40)) == "c" * 40, "a batch tour tours the group branch")
@@ -211,8 +213,6 @@ def main():
            "a batch dispatch gets the PR Xcode pin")
     _check(not expression(jobs["publish"]["if"], dispatch_event("d" * 40)),
            "a batch dispatch publishes nothing; the queue reads the tour's artifact")
-    _check(expression(tour_env["TOUR_TAG"], dispatch_event("d" * 40)) == "ci-media-batch",
-           "batch tours keep their own tag, apart from the merge tours' DerivedData")
 
     # The publish job comments on the merged pull request for a merge tour.
     publish = jobs["publish"]

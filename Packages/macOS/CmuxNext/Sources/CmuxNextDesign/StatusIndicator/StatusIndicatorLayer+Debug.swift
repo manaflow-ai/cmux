@@ -17,7 +17,7 @@ public extension StatusIndicatorLayer {
     /// How far the spinning glyph is through its turn now, 0..<1, from its presentation (debug
     /// reports: synced spinners read the same value at the same moment); nil when it is still.
     var debugRotationPhase: Double? {
-        guard let running = runningAnimation, [.spin, .spinBackward, .step].contains(running),
+        guard let running = runningAnimation, [.spin, .step].contains(running),
               let target = running == .step ? nativeLayer : glyphLayer,
               let transform = target.presentation()?.transform else { return nil }
         let angle = Double(atan2(transform.m12, transform.m11))

@@ -1062,7 +1062,9 @@ def cloud_chief():
         start([os.path.join(bins, "optchat-chief"), "cloud", "pair", "--install", install_file, "--api-base",
                "https://cloud-api-staging.cmux.dev", "--name", name, "--wait-chief", "900"], {}, "pair.log")
         code = wait(lambda: (re.search(r"pairing code: (\S+)", open(pair_log).read()) or [None, None])[1], 120)
-        approved = rpc("action.run", {"action": "server.addServer", "args": {"code": code, "name": name, "chief": False},
+        words = wait(lambda: (re.search(r"check words:\s+(.+)", open(pair_log).read()) or [None, None])[1], 120)
+        approved = rpc("action.run", {"action": "server.addServer",
+                                      "args": {"code": code, "words": (words or "").strip(), "name": name, "chief": False},
                                       "wait": True}, timeout=120)
         paired = wait(lambda: re.search(r"paired: host (\S+) \(install (\S+)\)", open(pair_log).read()), 180)
         host, install = (paired.group(1), paired.group(2)) if paired else (None, None)
