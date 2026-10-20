@@ -397,6 +397,22 @@
    "family": "browser"
   },
   {
+   "name": "browser.menu.cast",
+   "meaning": "Page menu Cast (Chrome kCastChromeRefreshOldIcon)",
+   "sf": "airplayvideo",
+   "family": "browser.menu",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.menu.translate",
+   "meaning": "Page menu Translate (Chrome kGTranslateIcon)",
+   "sf": "translate",
+   "family": "browser.menu",
+   "source": "chromium",
+   "alias": false
+  },
+  {
    "name": "browser.new",
    "meaning": "New browser tab / browser toggle",
    "sf": "globe",

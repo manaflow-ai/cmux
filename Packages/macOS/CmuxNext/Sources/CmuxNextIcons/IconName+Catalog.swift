@@ -68,6 +68,8 @@ extension IconName {
         .browserFindNext,
         .browserFindPrevious,
         .browserIncognito,
+        .browserMenuCast,
+        .browserMenuTranslate,
         .browserNew,
         .browserOmniboxDangerous,
         .browserOmniboxNotsecure,

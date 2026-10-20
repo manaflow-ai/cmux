@@ -8,10 +8,10 @@ import Testing
 /// forward, and refresh icons, and all the extension icons, and all the icons, ideally we can
 /// just use the same exact icons that Chrome uses"). Chromium's vector icons are vendored in
 /// design/icons/chromium and generated into the pack as `browser.toolbar.*`, `browser.omnibox.*`,
-/// `browser.find.*`, `browser.extensions.*` and `browser.tab.*`.
+/// `browser.find.*`, `browser.extensions.*`, `browser.tab.*` and `browser.menu.*`.
 @MainActor @Suite struct BrowserChromeIconsTests {
     /// The pack families generated from Chromium's icons.
-    private static let chromiumFamilies = ["browser.toolbar.", "browser.omnibox.", "browser.find.", "browser.extensions.", "browser.tab."]
+    private static let chromiumFamilies = ["browser.toolbar.", "browser.omnibox.", "browser.find.", "browser.extensions.", "browser.tab.", "browser.menu."]
 
     /// Chrome has no Design mode or Theme toolbar button; those keep cmux's icons.
     private static let cmuxOnlyButtons: Set<String> = ["button:designMode", "button:theme"]
@@ -83,6 +83,15 @@ import Testing
         for (key, icon) in icons where !Self.cmuxOnlyButtons.contains(key) {
             #expect(isChromiumIcon(icon), "\(key) draws \(icon.rawValue)")
         }
+    }
+
+    /// The page menu's Translate and Cast rows and an extension without its own image draw
+    /// Chrome's icons.
+    @Test func pageMenuIconsAreChromes() {
+        for symbol in BrowserContextMenuItem.chromeIcons.values {
+            #expect(isChromiumIcon(IconName(symbol)), "\(symbol)")
+        }
+        #expect(isChromiumIcon(IconName(BrowserContextMenuIcon.defaultExtensionSymbol)))
     }
 
     /// A Chromium icon names its SF Symbol fallback without taking that symbol over: the rest of

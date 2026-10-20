@@ -233,6 +233,20 @@
    "canvas": 48,
    "meaning": "Media controls Pause (Chrome kPauseOldIcon)",
    "sf": "pause.fill"
+  },
+  {
+   "name": "browser.menu.translate",
+   "file": "components/vector_icons/g_translate.icon",
+   "canvas": 20,
+   "meaning": "Page menu Translate (Chrome kGTranslateIcon)",
+   "sf": "translate"
+  },
+  {
+   "name": "browser.menu.cast",
+   "file": "chrome/app/vector_icons/cast_chrome_refresh_old.icon",
+   "canvas": 16,
+   "meaning": "Page menu Cast (Chrome kCastChromeRefreshOldIcon)",
+   "sf": "airplayvideo"
   }
  ]
 }

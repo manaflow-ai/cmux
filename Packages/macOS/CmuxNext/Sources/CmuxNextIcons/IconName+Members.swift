@@ -66,6 +66,8 @@ extension IconName {
     nonisolated public static let browserFindNext = IconName("browser.find.next")
     nonisolated public static let browserFindPrevious = IconName("browser.find.previous")
     nonisolated public static let browserIncognito = IconName("browser.incognito")
+    nonisolated public static let browserMenuCast = IconName("browser.menu.cast")
+    nonisolated public static let browserMenuTranslate = IconName("browser.menu.translate")
     nonisolated public static let browserNew = IconName("browser.new")
     nonisolated public static let browserOmniboxDangerous = IconName("browser.omnibox.dangerous")
     nonisolated public static let browserOmniboxNotsecure = IconName("browser.omnibox.notsecure")
