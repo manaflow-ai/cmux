@@ -46,10 +46,13 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const base = makeMemoryMeshStore();
   /** The next N rule records fail (the provider rule exists, its row does not). */
   let recordFailures = 0;
+  let inventoryRead: (() => void) | null = null;
   const failingLayer = Layer.effect(
     MeshStore,
     Effect.map(MeshStore, (inner) => ({
       ...inner,
+      listDevices: (tenantId: Parameters<typeof inner.listDevices>[0], meshId: string) =>
+        inner.listDevices(tenantId, meshId).pipe(Effect.tap(() => Effect.sync(() => { inventoryRead?.(); }))),
       recordRule: (tenantId: Parameters<typeof inner.recordRule>[0], rule: Parameters<typeof inner.recordRule>[1]) => {
         if (recordFailures > 0) {
           recordFailures -= 1;
@@ -287,6 +290,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     upstream,
     layer,
     store,
+    onDeviceInventoryRead(hook: () => void) { inventoryRead = hook; },
     failNetworkCreates(status: number | null) { networkCreateStatus = status; },
     loseNetworkReplies(times: number) { networkLostReplies = times; },
     hideNetworks(on: boolean) { hideNetworks = on; },
