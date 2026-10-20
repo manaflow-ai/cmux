@@ -170,7 +170,8 @@ extension SessionPersistencePolicy {
                 result.append(window)
                 continue
             }
-            if let existingIndex = seenFingerprints[fingerprint] {
+            if let existingIndex = seenFingerprints[fingerprint],
+               crashWindowsMayShareIdentity(result[existingIndex], window) {
                 // Equal fingerprints identify a shared checkpoint manifest,
                 // not necessarily identical workspace contents. Merge both
                 // generations so identity-less workspaces are retained while
@@ -205,11 +206,32 @@ extension SessionPersistencePolicy {
         return (result, removedAny)
     }
 
+    /// A persisted window identity is stronger than a shared title/checkpoint
+    /// fingerprint. Distinct windows can contain overlapping agent sessions
+    /// while representing different user layouts; merging them would move
+    /// sessions between worktrees and silently discard one layout. Only merge
+    /// windows when their persisted identities agree, or when both are legacy
+    /// snapshots that have no window identity to contradict the fingerprint.
+    private static func crashWindowsMayShareIdentity(
+        _ lhs: SessionWindowSnapshot,
+        _ rhs: SessionWindowSnapshot
+    ) -> Bool {
+        switch (lhs.windowId, rhs.windowId) {
+        case let (lhsID?, rhsID?):
+            return lhsID == rhsID
+        case (nil, nil):
+            return true
+        default:
+            return false
+        }
+    }
+
     private static func areCrashDuplicateWindows(
         _ lhs: SessionWindowSnapshot,
         _ rhs: SessionWindowSnapshot
     ) -> Bool {
-        guard lhs.tabManager.workspaces.count == rhs.tabManager.workspaces.count,
+        guard crashWindowsMayShareIdentity(lhs, rhs),
+              lhs.tabManager.workspaces.count == rhs.tabManager.workspaces.count,
               lhs.tabManager.workspaces.count > 1 else {
             return false
         }

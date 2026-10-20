@@ -1054,6 +1054,66 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func sessionSnapshotKeepsDistinctPersistedWindowsWithOverlappingAgentsSeparate() {
+        func workspace(_ directory: String, checkpoint: String) -> SessionWorkspaceSnapshot {
+            let panelID = UUID()
+            let terminal = SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                agent: SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: checkpoint,
+                    workingDirectory: directory
+                ),
+                wasAgentRunning: true
+            )
+            return SessionWorkspaceSnapshot(
+                workspaceId: nil,
+                processTitle: "Terminal",
+                customTitle: nil,
+                customColor: nil,
+                isPinned: false,
+                currentDirectory: directory,
+                focusedPanelId: panelID,
+                layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID)),
+                panels: [terminalPanelSnapshot(id: panelID, directory: directory, terminal: terminal)],
+                statusEntries: [],
+                logEntries: [],
+                progress: nil,
+                gitBranch: nil
+            )
+        }
+        func window(_ id: UUID, directory: String) -> SessionWindowSnapshot {
+            SessionWindowSnapshot(
+                windowId: id,
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(
+                    selectedWorkspaceIndex: 0,
+                    workspaces: [workspace(directory, checkpoint: "shared")]
+                ),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+            )
+        }
+
+        let firstWindowID = UUID()
+        let secondWindowID = UUID()
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                window(firstWindowID, directory: "/work/first-window"),
+                window(secondWindowID, directory: "/work/second-window"),
+            ]
+        ))
+
+        #expect(!pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 2)
+        #expect(Set(pruned.snapshot?.windows.flatMap { $0.tabManager.workspaces.map(\.currentDirectory) } ?? []) == [
+            "/work/first-window", "/work/second-window",
+        ])
+    }
+
+    @Test
     func sessionSnapshotKeepsSameTitleWorkspacesWithDifferentDirectoriesSeparate() {
         func workspace(
             title: String?,
