@@ -192,7 +192,7 @@ import Testing
     /// material, through the one install path every main window takes.
     @Test func aNewSecondaryWindowHasTheMainWindowsBackdrop() throws {
         try translucent {
-            func open() -> (NSWindow, WindowRootView, ThemeScope) {
+            @MainActor func open() -> (NSWindow, WindowRootView, ThemeScope) {
                 let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()),
                                           reduceTransparency: { false }, applyWindowBlur: { _, _ in })
                 let window = NSWindow(contentRect: root.frame,
