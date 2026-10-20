@@ -110,19 +110,28 @@ Touch ID. So the first step needs the password manager's autofill or the
 user's typing; only the 2FA step is one touch. The skill says so and posts
 `Needs you: sign in to SITE in the right pane` when no passkey step exists.
 
-### WebAuthn in cmux panes
+### WebAuthn in cmux panes (checked live 2026-10-20)
 
-- The macOS app needs `com.apple.developer.web-browser.public-key-credential`
-  for WebKit to offer passkeys as a browser. cmux NIGHTLY
-  (`com.cmuxterm.app.nightly`) has it; cmux NEXT
-  (`com.cmuxterm.app.nightly.cmux-next`) is signed without it, and
-  `cmux.next-dev.entitlements` lacks it, so WebKit panes in that build fail
-  passkeys with NotAllowedError. Follow-up: add the entitlement to the NEXT
-  signing (needs the provisioning profile to carry it; Apple grants it on
-  request for browsers).
-- CEF (Chromium) panes use Chromium's own macOS WebAuthn (Touch ID through
-  the keychain access group of the app); see the live check in the report
-  of a352.
+- cmux NIGHTLY (`com.cmuxterm.app.nightly`, the cmux-next app the user
+  runs, build 1.0.0-nightly.3939068198101) has
+  `com.apple.developer.web-browser.public-key-credential`. In a WebKit pane
+  on webauthn.io, `PublicKeyCredential` exists and
+  `isUserVerifyingPlatformAuthenticatorAvailable()` is true.
+- A WebAuthn request from a tab behind other tabs fails at once: "The
+  document is not focused." After `cmux browser <tab> select` the same
+  Authenticate click raised no error and stayed pending (the system sheet's
+  wait), but the sheet could not be seen from the agent: no system window
+  showed in the on-screen window list and screen capture is not permitted
+  to agents. So the skill shows the tab first.
+- cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`) is signed without the
+  entitlement, and `cmux.next-dev.entitlements` lacks it: its WebKit panes
+  cannot offer passkeys. Follow-up: add it to that signing (the
+  provisioning profile must carry it).
+- CEF (Chromium) panes: not checked yet.
+- Follow-up test: an app-level UI test that loads a local WebAuthn page in
+  a WebKit pane, selects the tab and asserts the request reaches the
+  authenticator (not NotAllowedError), on a fleet Mac with a virtual
+  authenticator.
 
 ## Tests
 

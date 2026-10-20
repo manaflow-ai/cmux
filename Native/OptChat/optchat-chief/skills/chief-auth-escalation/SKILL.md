@@ -46,7 +46,14 @@ password) or `oauth` (a "Sign in with ..." page).
 
 ## 4. Trigger the Touch ID sheet
 
-Click the passkey, security-key or Touch ID button, or, when the page has
+First show the tab: `cmux browser <tab_…> select`. WebAuthn runs only in a
+shown, focused page; in a tab behind others WebKit refuses at once with
+"The document is not focused" (checked live 2026-10-20 on webauthn.io).
+Showing the sign-in tab is the one focus change this flow makes. If the
+page still says it is not focused, the user is not at the cmux window:
+post the line from step 5 and press the button again when they answer.
+
+Then click the passkey, security-key or Touch ID button, or, when the page has
 already started WebAuthn, leave it waiting. macOS then shows its Touch ID
 sheet over cmux. Check that the page waits on the authenticator (snapshot:
 "Waiting for your security key", a passkey sheet, or the page's own
@@ -81,9 +88,11 @@ the line is `Needs you: sign in to SITE in the right pane` instead.
 
 ## Where passkeys work in cmux-next
 
-- CEF (Chromium) panes: WebAuthn with the platform authenticator (Touch ID
-  and iCloud Keychain passkeys) and USB or NFC security keys.
-- WebKit panes: WebAuthn needs the app's web-browser entitlement
-  (`com.apple.developer.web-browser.public-key-credential`); without it
-  `navigator.credentials.get` fails with NotAllowedError, so use a CEF
-  pane for passkey sites.
+- WebKit panes of the cmux NIGHTLY app (`com.cmuxterm.app.nightly`): it
+  has the `com.apple.developer.web-browser.public-key-credential`
+  entitlement, and `PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()`
+  answers true there (Touch ID). Checked live 2026-10-20.
+- The cmux NEXT app (`com.cmuxterm.app.nightly.cmux-next`) is signed
+  without that entitlement, so its WebKit panes cannot offer the user's
+  passkeys; use the NIGHTLY app or a CEF pane.
+- CEF (Chromium) panes use Chromium's own macOS WebAuthn; not checked yet.
