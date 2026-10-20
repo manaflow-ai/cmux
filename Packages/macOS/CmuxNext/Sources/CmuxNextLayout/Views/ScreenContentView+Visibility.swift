@@ -65,11 +65,15 @@ extension ScreenContentView {
 
     /// The pane under `localPoint`: a docked column's pane above the strip.
     func pane(at localPoint: NSPoint) -> PaneID? {
+        // Canvas panes overlap: the front-most one under the point.
+        if let canvas = canvasState.canvas { return canvas.pane(at: localPoint) }
+        // A pane scrolled out of its scroll area's window takes no click there.
+        func shown(_ pane: PaneID) -> Bool { displayedAreaWindow(of: pane)?.contains(localPoint) ?? true }
         if geometry.dock.contains(where: { $0.cover.contains(localPoint) }) {
-            return geometry.panes.first { !geometry.scrolls(pane: $0.key) && $0.value.contains(localPoint) }?.key
+            return geometry.panes.first { !geometry.scrolls(pane: $0.key) && $0.value.contains(localPoint) && shown($0.key) }?.key
         }
         let content = CGPoint(x: localPoint.x - stripShift, y: localPoint.y)
-        return geometry.panes.first { geometry.scrolls(pane: $0.key) && $0.value.contains(content) }?.key
+        return geometry.panes.first { geometry.scrolls(pane: $0.key) && $0.value.contains(content) && shown($0.key) }?.key
     }
 
     /// Displayed frame of `pane` in local coordinates: its host's frame (on the pixel grid, `applyPresentation`).

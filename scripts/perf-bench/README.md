@@ -36,6 +36,50 @@ Local, against bundles you have: `python3 scripts/perf-bench/xbench.py run --out
 --app cmux=/path/cmux.app --app chrome=/path/Chrome.app --browsers cmux-chromium,chrome`,
 then `xbench.py report --out /tmp/xb --md BENCH.md --json results.json`.
 
+## Tab switch in a real window
+
+By default the step also builds a tagged Debug app and runs
+`scripts/cmux-next/tab-switch-matrix.py` (a118's): one pane holding 2, 10 and 30 tabs of
+each kind (browser Chromium and WebKit, Markdown, chat), warm, switched with Ctrl-Tab,
+Cmd-Shift-] and strip clicks through the app's real key and mouse paths. Each row is end to
+end: OS input event age + intent to the Core Animation commit that shows the tab (p50 / p90
+ms), with frames missed. BENCH.md gets a "Tab switch" section and the gate gets
+`tab-switch-<kind>-<count>-<input>` rows. `--arg=tabswitch=off` skips it;
+`--arg=tabswitch=chromium,markdown --arg=tabcounts=2,30` narrows it.
+
+## For the tab switch rewrite (a168) and other perf agents
+
+- Tab switch only, fastest loop: `cmux-ci run --class exclusive --measurement --label measure
+  --script scripts/measure/perf-bench.sh --ref SHA --target-worker <owned mini> --arg=browsers=cmux-terminal
+  --arg=rounds=1 --arg=launches=0 --arg=tabswitch=chromium,webkit,markdown,chat --arg=tabcounts=2,10,30
+  --artifact artifacts/perf-bench/tab-switch.json`. a118's direct entry
+  `scripts/measure/tab-switch.sh --arg=--matrix ...` is allowlisted too.
+- The matrix reads `debug.key`, `debug.mouse`, `debug.tab_switch` and `debug.window_snapshot`. A rewrite
+  that changes those hooks keeps their reply shape, or updates `tab-switch-matrix.py` in the same
+  commit, so before and after numbers compare.
+- Before/after: `xbench.py report --out RUN --tabswitch tab-switch.json`, then
+  `xbench.py gate --results new.json --baseline old.json`.
+
+## Hosts
+
+The step needs a logged-in console user: `open` fails on the AWS workers (aws-m4pro-*, no console
+login; xbench exits 3 with `PERF-BENCH-NO-GUI`). The bench host is **cmux20-bench** (cmux20, Apple M6,
+macOS 27.0, user `cmux` at the console): a controller worker that advertises only `bench`, so it takes
+no CI step and no build (hq `build-fleet/mini-ops/bench-worker/bench-worker.sh`). Submit with
+`--label bench --target-worker cmux20-bench`; the nightly job does. It has bun and node under
+`~cmux` for the Debug build. The owned M4 Pro minis (cmux7s-13s) can open apps too, but they are busy
+CI hosts. cmux11s had its glaeda runner LaunchAgents disabled for benchmarks (2026-10-20); undo with
+`launchctl enable gui/501/com.teamleaderleo.glaeda.cmux-runner*` and
+`launchctl bootstrap gui/501 ~/Library/LaunchAgents/<plist>`.
+
+Baselines: `baseline/apple-m6-macos27.json` (the gate's rows), `baseline/BENCH-apple-m6-macos27.md`,
+`baseline/tab-switch-apple-m6-macos27.json` (the matrix's full report).
+
+A fleet ref must have a published cmux-tui tree for the Debug build. feat-cmux-next moves faster than
+the publisher, so pin the ref first: `git push origin SHA:refs/heads/cmux-tui-pin-<sha12>` and wait
+until `files.cmux.com/cmux-tui/tree/<key>/cmux-tui-aarch64-apple-darwin.sha256` answers 200
+(`pin-cmux-tui.sh key --rev SHA`).
+
 ## Method
 
 Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:

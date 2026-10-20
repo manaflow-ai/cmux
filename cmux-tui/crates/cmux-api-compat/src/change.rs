@@ -15,7 +15,8 @@ use crate::pointer::{self, WILDCARD};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Change {
-    /// The member at `path` is now called `to` (same parent object).
+    /// The member at `path` is now called `to` (same parent object). It
+    /// replaces any member already called `to`.
     Rename { path: String, to: String },
     /// The value at `from` now lives at `path`. Missing parents of `path` are created.
     Move { from: String, path: String },
@@ -192,6 +193,62 @@ impl Op {
     }
 }
 
+impl Op {
+    /// The paths (relative to the node the op is applied at) this op reads or writes.
+    fn touched(&self) -> [Vec<String>; 2] {
+        let join = |a: &[String], b: &[String]| [a, b].concat();
+        match self {
+            Self::Rename { parent, from, to } => {
+                [join(parent, std::slice::from_ref(from)), join(parent, std::slice::from_ref(to))]
+            }
+            Self::Delete { parent, key } | Self::Insert { parent, key, .. } => {
+                let path = join(parent, std::slice::from_ref(key));
+                [path.clone(), path]
+            }
+            Self::Convert { path, .. } => [path.clone(), path.clone()],
+            Self::Move { lca, from, to } => [join(lca, from), join(lca, to)],
+        }
+    }
+
+    /// The parent path a move creates when it is missing.
+    fn created_parent(&self) -> Option<Vec<String>> {
+        match self {
+            Self::Move { lca, to, .. } => Some([lca.as_slice(), &to[..to.len() - 1]].concat()),
+            _ => None,
+        }
+    }
+
+    /// The path that must exist for this op to act (it does nothing otherwise).
+    fn needs_existing(&self) -> Option<&[String]> {
+        match self {
+            Self::Insert { parent, .. } => Some(parent),
+            Self::Convert { path, .. } => Some(path),
+            _ => None,
+        }
+    }
+
+    /// True when applying `self` and `other` in either order gives the same
+    /// result: no path one touches is a prefix of (or equal to) a path the
+    /// other touches, with `*` matching any token.
+    pub(crate) fn commutes_with(&self, other: &Op) -> bool {
+        let overlaps = |a: &[String], b: &[String]| {
+            a.iter().zip(b).all(|(x, y)| x == y || x == WILDCARD || y == WILDCARD)
+        };
+        // A move can create a parent that an insert or a retype needs.
+        let creates_for = |a: &Op, b: &Op| match (a.created_parent(), b.needs_existing()) {
+            (Some(created), Some(needed)) => {
+                needed.len() <= created.len() && overlaps(needed, &created)
+            }
+            _ => false,
+        };
+        if creates_for(self, other) || creates_for(other, self) {
+            return false;
+        }
+        let theirs = other.touched();
+        !self.touched().iter().any(|p| theirs.iter().any(|q| overlaps(p, q)))
+    }
+}
+
 fn split_last(path: &str) -> Result<(Vec<String>, String), CompatError> {
     let mut tokens = pointer::parse(path)?;
     let Some(last) = tokens.pop() else {
@@ -324,11 +381,17 @@ impl Change {
 /// streaming rewriter must produce exactly this result; tests check it.
 pub(crate) fn apply_op(value: &mut Value, op: &Op) {
     match op {
+        // A rename replaces its target, even when the source is missing, so
+        // the streaming trie never has to look ahead for the source.
         Op::Rename { parent, from, to } => for_each_mut(value, parent, &mut |v| {
             if let Value::Object(map) = v
-                && let Some(inner) = map.remove(from)
+                && from != to
             {
-                map.insert(to.clone(), inner);
+                let moved = map.remove(from);
+                map.remove(to);
+                if let Some(inner) = moved {
+                    map.insert(to.clone(), inner);
+                }
             }
         }),
         Op::Delete { parent, key } => for_each_mut(value, parent, &mut |v| {

@@ -150,7 +150,7 @@ import Testing
         let age = rise.map { CACurrentMediaTime() - $0.beginTime }
         return "shown \(presenter.shown?.text ?? "nil"), visible \(presenter.panel.isVisible), fadingOut \(presenter.panel.isFadingOut), "
             + "same layer \(before === layer), keys \(layer.animationKeys() ?? []), rise age \(age.map { "\($0)" } ?? "nil"), "
-            + "opacity \(layer.opacity), presented \(layer.presentation()?.opacity ?? -1), fadeIn \(Motion.duration(.fadeIn)), "
+            + "opacity \(layer.opacity), presented \(layer.presentation()?.opacity ?? -1), fadeIn \(Motion.hoverCards.duration(.fadeIn)), "
             + "speed \(Motion.speed), reduce \(Motion.reduceMotion), active \(NSApp.isActive), screens \(NSScreen.screens.count)"
     }
 
@@ -200,7 +200,7 @@ import Testing
             window.orderOut(nil)
         }
         try #require(window.screen != nil, "the window has no screen")
-        try #require(Motion.duration(.fadeIn) > 0, "fades are off on this host")
+        try #require(Motion.hoverCards.duration(.fadeIn) > 0, "fades are off on this host")
         let before = presenter.panel.surface.layer
         try await Self.rest(on: buttons[0], presenter, clock, watch: watch)
         let layer = try #require(presenter.panel.surface.layer)
@@ -236,7 +236,7 @@ import Testing
         presenter.exit(try Self.tracker(buttons[1]))
         #expect(presenter.shown == nil)
         let out = try #require(layer.animation(forKey: "opacity") as? CABasicAnimation, "the tooltip vanished with no fade")
-        #expect(out.duration == Motion.duration(.fadeOut))
+        #expect(out.duration == Motion.hoverCards.duration(.fadeOut))
         #expect(out.duration < fade.duration)
         #expect((out.toValue as? NSNumber)?.doubleValue == 0)
         #expect(abs(try Self.value(of: out, at: out.duration * 1000)) < 0.01)

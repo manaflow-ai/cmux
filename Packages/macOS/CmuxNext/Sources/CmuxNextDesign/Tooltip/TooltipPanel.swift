@@ -164,8 +164,8 @@ final class TooltipPanel: NSPanel {
             return
         }
         if fade, !isVisible {
-            Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
-            Motion.set(layer, "transform.translation.y", to: CGFloat(0), movementFade: .fadeIn, from: -Self.rise)
+            Motion.hoverCards.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
+            Motion.hoverCards.set(layer, "transform.translation.y", to: CGFloat(0), movementFade: .fadeIn, from: -Self.rise)
         } else {
             layer.removeAllAnimations()
             Motion.withoutAnimation { layer.opacity = 1 }
@@ -178,7 +178,7 @@ final class TooltipPanel: NSPanel {
         guard isVisible, !isFadingOut else { return }
         generation += 1
         let fading = generation
-        guard let layer = surface.layer, Motion.duration(.fadeOut) > 0 else {
+        guard let layer = surface.layer, Motion.hoverCards.duration(.fadeOut) > 0 else {
             orderOut(nil)
             return
         }
@@ -188,7 +188,7 @@ final class TooltipPanel: NSPanel {
         CATransaction.setCompletionBlock { [weak self] in
             MainActor.assumeIsolated { self?.fadedOut(fading) } // main-proof: CATransaction.h: the completion block is called on the main thread
         }
-        Motion.set(layer, "opacity", to: Float(0), fade: .fadeOut, from: layer.presentation()?.opacity ?? layer.opacity)
+        Motion.hoverCards.set(layer, "opacity", to: Float(0), fade: .fadeOut, from: layer.presentation()?.opacity ?? layer.opacity)
         CATransaction.commit()
     }
 

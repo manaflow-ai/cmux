@@ -7,6 +7,7 @@
 // fades and drops the slides (rule 7): its move token is 0.
 import { type RefObject, useLayoutEffect, useRef } from "react";
 import { isAgentMotionOff } from "../../shared/motion";
+import { entranceAllowed } from "../../shared/pageReveal";
 
 type Places = Map<string, { x: number; y: number }>;
 
@@ -80,14 +81,22 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   keysRef.current = keys;
   const signature = JSON.stringify(keys);
   const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
-  useLayoutEffect(
-    () => () => {
+  useLayoutEffect(() => {
+    // A page hidden mid-motion (another New Tab opened over it) ends its motion there: WebKit
+    // suspends a hidden page's animations, and this one would finish when the page shows again.
+    const doc = list.current?.ownerDocument ?? (typeof document === "undefined" ? undefined : document);
+    const hid = () => {
+      if (doc?.visibilityState === "hidden") cancelRunning(running);
+    };
+    doc?.addEventListener("visibilitychange", hid);
+    return () => {
+      doc?.removeEventListener("visibilitychange", hid);
       observed.current?.observer.disconnect();
       observed.current = null;
       cancelRunning(running);
-    },
-    [],
-  );
+    };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the list's document, read once at mount.
+  }, []);
   // The key signature is the invalidation boundary for list motion. The callers derive `keys`
   // from their snapshots and may allocate a fresh array on every render; depending on that array
   // would put the measurement work back on every render. ResizeObserver remains responsible for
@@ -117,7 +126,12 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       shownKeys.current = [];
       return;
     }
-    if (isAgentMotionOff()) {
+    // A hidden page (an earlier New Tab page parked behind a newer one, Leo 2026-10-19; a tab in
+    // another workspace) moves nothing either: its rows take their new places at once. WebKit
+    // suspends a hidden page's animations, so a slide or fade started now would play when the page
+    // shows again. A change landing before the first frame back was made while the user was away
+    // (Leo 2026-10-20), so it takes its places at once too (shared/pageReveal.ts).
+    if (isAgentMotionOff() || !entranceAllowed(root.ownerDocument)) {
       cancelRunning(running);
       places.current = measure(root, elements, currentKeys);
       shown.current = signature;

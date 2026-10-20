@@ -20,4 +20,7 @@ extension Strings {
     nonisolated static var netErrorGeneric: String {
         String(localized: "browser.netError.generic", defaultValue: "The page could not be loaded.", bundle: .module)
     }
+    nonisolated static var netErrorBlockedByAdministrator: String {
+        String(localized: "browser.netError.blockedByAdministrator", defaultValue: "Your organization blocked this page.", bundle: .module)
+    }
 }

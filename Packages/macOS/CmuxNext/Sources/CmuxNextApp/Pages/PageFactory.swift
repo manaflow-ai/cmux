@@ -2,11 +2,13 @@ import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextApps
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
 import Foundation
 import UniformTypeIdentifiers
+import CmuxNextMobileHost
 
 /// Builds the app's React pages with their routes (its own type, not an `AppServices` member:
 /// that type's line budget is frozen).
@@ -78,11 +80,14 @@ struct PageFactory {
     }
 
     /// The Cloud app page (cmux.cloud) with the machine list layout from Debug Settings. Its
-    /// namespace answers "not available yet" until the app supervisor (apps-v1) runs the Cloud app
-    /// server; then the route goes to the supervisor relay.
+    /// namespace runs on the Cloud app server through the local daemon (``CloudPageProvider``);
+    /// sign-in and sign-out run the app's own account flow after the native sheet.
     func cloudWebPage() -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .cloud)
-        let cloud = UnavailablePageProvider(code: "cmux.cloud.unsupported")
+        let account = services.cloud
+        let cloud = CloudPageProvider(op: account.appOps,
+                                      signIn: { [weak account] in await account?.auth.signIn() ?? false },
+                                      signOut: { [weak account] in await account?.signOut() })
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
         let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
@@ -119,7 +124,13 @@ struct PageFactory {
             openTerminal: { [weak services] line in
                 guard let pane = services?.windows.active?.focusedPane else { return }
                 pane.newTerminalTab(typing: line + "\r")
-            }
+            },
+            runUpdate: { [weak services] params, context in
+                guard let services, let updates = services.agentHarnesses.updates else { throw PageError.closed }
+                return try await updates.runPage(params, context: context, registry: services.registry)
+            },
+            updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
+            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() }
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
@@ -175,7 +186,11 @@ struct PageFactory {
             BackdropImagesPageProvider(images: images.images, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
                                        inUse: { [weak services] in services?.settings?.snapshot.backdropSelection })
         }
-        let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native),
+                      // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
+                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
+                      PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
+                      PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone))]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,

@@ -20,10 +20,8 @@ extension BrowserPageService {
                 BrowserPageScripts.hover(try Self.string($0, "selector"))
             },
             input("scroll_into_view", engine: engine) { BrowserPageScripts.scrollIntoView(try Self.string($0, "selector")) },
-            input("scroll", engine: engine, announce: { _, answer in
-                // A page scroll (no selector) has no element to point at.
-                answer["at"] == nil ? nil : .from(kind: .scroll, answer: answer)
-            }) { call in
+            // A page scroll (no selector) points at the viewport's middle.
+            input("scroll", engine: engine, announce: { _, answer in .from(kind: .scroll, answer: answer) }) { call in
                 let params = call.request.params
                 let dx = try Self.offset(call, "dx"), dy = try Self.offset(call, "dy")
                 guard params["dx"] != nil || params["dy"] != nil else {
@@ -65,12 +63,19 @@ extension BrowserPageService {
                 throw ControlError(code: value["code"]?.stringValue ?? "not_found", message: error, data: .object(data))
             }
             if let input = announce(call, value) {
-                await engine.announce(input, tabID: tab.id)
+                await engine.announce(Self.attributed(input, call), tabID: tab.id)
             }
             var result = Self.base(tab)
             result["value"] = value["value"] ?? .null
             return .object(result)
         }
+    }
+
+    /// `input` as its agent sent it: `params.agent`'s name, from the
+    /// request's caller (``BrowserPageAgentOrigin``).
+    static func attributed(_ input: BrowserPageAgentInput, _ call: ControlCall) -> BrowserPageAgentInput {
+        input.by(optionalString(call, "agent"),
+                 from: BrowserPageAgentOrigin.resolve(params: call.request.params, topology: call.snapshot.topology))
     }
 
     static func optionalString(_ call: ControlCall, _ key: String) -> String? {

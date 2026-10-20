@@ -272,6 +272,9 @@ export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: strin
 /// changes as the reply streams (a note's definition usually arrives last). Code is skipped, and
 /// so is a label shaped like a regex class (`[^a-z]`), which prose writes outside code too.
 export function footnoteOrder(source: string): string[] {
+  // A reference needs "[" and "^"; the scan below only deletes text, so without both there is none.
+  // A streaming reply runs this on every reveal frame, and most replies have no footnote.
+  if (!source.includes("^") || !source.includes("[")) return [];
   const prose = source.replace(/^\s*```[\s\S]*?(?:^\s*```|(?![\s\S]))/gm, "").replace(/(`+)[^`]*?\1/g, "");
   const ids: string[] = [];
   for (const match of prose.matchAll(/\[\^([\w-]+)\](?!:)/g)) {
@@ -665,7 +668,9 @@ function Block({
     case "code": {
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
-      if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
+      // A diagram draws once its fence closes; a Mermaid source still streaming stays code.
+      if (isChart(block.lang, block.code) && !(block.open && block.lang.toLowerCase() === "mermaid"))
+        return <DiagramBlock lang={block.lang} code={block.code} />;
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
       if (render) return <RenderCard call={render} />;
@@ -794,8 +799,9 @@ export function Markdown({
     streaming && fresh
       ? { steps: fresh, text: freshChars ? children.slice(children.length - freshChars) : "", now }
       : undefined;
-  // An odd number of fence lines: the last block is a fence still arriving.
-  const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
+  // An odd number of fence lines: the last block is a fence still arriving. The parser counts
+  // only the text it has not closed yet, so a reveal frame does not scan the whole reply.
+  const openFence = streaming && parser.current.fenceOpen;
   const draw = (entry: KeyedBlock, index: number) => {
     const live = !atMount.current!.has(entry.key);
     const open = openFence && index === blocks.length - 1;

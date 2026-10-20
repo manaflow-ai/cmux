@@ -2,16 +2,16 @@
 // (Appearance, where Change Background… lands), the terminal facts (Terminal) and the settings
 // file with its problems (Advanced). Data comes from the host lists; writes run host ops or
 // catalog actions, the palette's paths.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
-import { rowsByKey } from "../schema";
+import { rowsByKey, type SchemaRow } from "../schema";
 import { Icon } from "../icons";
 import { locale, t } from "../strings";
 import { ActionRow } from "./ActionRow";
 import { ArtBrowser } from "./ArtBrowser";
 import { BackdropLink, formatBytes } from "./BackdropLink";
-import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WindowGlass, WorkspaceOpacity } from "./BackdropScope";
+import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
 
 export const BACKGROUND_KEY = "appearance.background";
@@ -21,10 +21,48 @@ const DAILY_ID = "daily";
 /** The person's own images (BackdropUserImages.collection): removable, and shown in Finder. */
 const YOURS = "yours";
 /** The rows the picker draws, left out of their group while it shows. */
-export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY]);
-/** How long the pointer rests on a tile before the window shows it: sweeping across the grid
- * previews nothing, so it fetches no full-size art. */
+/** `appearance.backgroundBlur`: the window's Material, drawn in the card beside Opacity. */
+export const MATERIAL_KEY = "appearance.backgroundBlur";
+export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY, MATERIAL_KEY]);
+/** How long the pointer or keyboard focus rests on a tile before the window shows it: sweeping
+ * or tabbing across the grid previews nothing, so it fetches no full-size art. */
 const PREVIEW_DWELL_MS = 150;
+
+/** Over a picture the window at 100% shows the work's own tint instead (the theme's opacity is
+ * only the default there), so the slider's last step fell back to it: the slider stops below. */
+const ART_MAX_OPACITY = 0.95;
+const overArtRows = new WeakMap<SchemaRow, Map<number, SchemaRow>>();
+/**
+ * The Opacity row over a picture: it stops at 95%, and it starts at the legibility floor the app
+ * reports (`derived_min`), rounded up onto the step grid. The window never paints below that floor,
+ * so the slider's travel under it moved nothing (Leo, 10-19: "the slider still doesn't work"). The
+ * summary says where it starts and why.
+ */
+function overArt(row: SchemaRow, floor: number | undefined): SchemaRow {
+  const range = row.range;
+  if (!range) return row;
+  const max = Math.min(range.max, ART_MAX_OPACITY);
+  const min = floor === undefined ? range.min : Math.min(max, onStepGrid(floor, range.min, range.step));
+  let cache = overArtRows.get(row);
+  if (!cache) overArtRows.set(row, (cache = new Map()));
+  let capped = cache.get(min);
+  if (!capped) {
+    const summary =
+      min > range.min
+        ? { key: null, text: t("settingsWindow.backdropPicker.opacityFloor", `${Math.round(min * 100)}%`) }
+        : row.summary;
+    capped = { ...row, summary, range: { ...range, min, max } };
+    cache.set(min, capped);
+  }
+  return capped;
+}
+
+/** `value` rounded up to the next step from `origin`, to two decimals (0.62 is 0.65 in steps of 0.05). */
+function onStepGrid(value: number, origin: number, step: number): number {
+  if (!(step > 0)) return value;
+  const steps = Math.ceil((value - origin) / step - 1e-9);
+  return Math.round((origin + steps * step) * 100) / 100;
+}
 
 /** A tile's thumbnail; when the app answers none (a picture that is gone), an empty framed box
  * in place of the webview's broken-image mark. */
@@ -34,8 +72,8 @@ function BackdropThumb({ src }: { src: string }) {
   return <img className="backdrop-thumb" alt="" src={src} onError={() => setFailed(src)} />;
 }
 
-/** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focusing it previews
- * the saved background, so nothing changes. */
+/** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focus resting on it
+ * previews the saved background after the dwell, so nothing changes. */
 function revealTile(tile: HTMLElement | null): void {
   tile?.scrollIntoView?.({ block: "center" });
   tile?.focus();
@@ -47,7 +85,7 @@ export function useBackdropsShown(): boolean {
 }
 
 /**
- * Change Background… (cx-t2x.4): the art picker. Resting on a tile, or focusing it, shows that
+ * Change Background… (cx-t2x.4): the art picker. Resting on a tile with the pointer or focus shows that
  * background in every window without writing it; a click keeps it; leaving restores the saved one.
  * Below the art, the Opacity slider previews the glass over it the same way. Plain glass ("None")
  * stays the default. Opened for a workspace, This Workspace makes the tiles choose that
@@ -55,6 +93,10 @@ export function useBackdropsShown(): boolean {
  */
 export function Backdrops({ focus = null, workspace = null }: { focus?: string | null; workspace?: string | null }) {
   const store = useStore();
+  // What a tile's badges say to VoiceOver (the ▶ of a video, the cloud of a pending download).
+  // It stands in for the credit tooltip as VoiceOver's description; the credit stays the pointer's
+  // tooltip, and a video's title already names the wallpaper.
+  const describe = useId();
   const state = useSettingsState();
   const { host, rows } = state;
   const [browsing, setBrowsing] = useState(false);
@@ -109,10 +151,14 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   }, [store, ownCount]);
   if (backdrops.length === 0) return null;
   const background = rows.get(BACKGROUND_KEY);
-  const current = own
-    ? (own.value ?? FOLLOW_ID)
-    : (((background?.value ?? background?.default) as string | undefined) ?? "none");
+  const appCurrent = ((background?.value ?? background?.default) as string | undefined) ?? "none";
+  const current = own ? (own.value ?? FOLLOW_ID) : appCurrent;
+  // A workspace's tint is over its picture: with its own No wallpaper there is nothing for Opacity
+  // over Art to change. A workspace that follows may still show a picture the page does not see
+  // (a window's own, `appearance.set scope=window`), so it keeps the slider.
+  const ownPicture = own !== null && own.value !== "none";
   const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
+  const material = rowsByKey.get(MATERIAL_KEY);
   const choose = async (id: string) => {
     cancelDwell();
     if (own) {
@@ -152,6 +198,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         className={pending ? "backdrop-tile backdrop-pending" : "backdrop-tile"}
         aria-pressed={current === id}
         aria-label={title}
+        aria-describedby={
+          [choice?.video ? `${describe}-video` : null, pending ? `${describe}-pending` : null].filter(Boolean).join(" ") ||
+          undefined
+        }
         /* tooltip-allow: what a click on a cloud tile does, or the credit the one-line tile drops */ title={
           pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : credit
         }
@@ -159,7 +209,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
         onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
         onPointerLeave={pending ? undefined : endPreview}
-        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, 0)}
+        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, PREVIEW_DWELL_MS)}
         onBlur={pending ? undefined : endPreview}
       >
         {id === "none" || id === FOLLOW_ID ? (
@@ -198,6 +248,13 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
+      {/* Hidden: read only as a tile's description, never as text of their own in the card. */}
+      <span id={`${describe}-video`} hidden>
+        {t("settingsWindow.backdropPicker.video")}
+      </span>
+      <span id={`${describe}-pending`} hidden>
+        {t("settingsWindow.backdropPicker.downloadInSystemSettings")}
+      </span>
       {workspaceBackground && (
         <BackdropScopePicker
           title={workspaceBackground.title}
@@ -208,15 +265,20 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           }}
         />
       )}
-      {own && (
+      {own && ownPicture && (
         <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
       )}
-      {!own && (
-        <div className="rows">
-          {opacity && <SettingRow row={opacity} focused={focus === BACKGROUND_OPACITY_KEY} />}
-          <WindowGlass />
-        </div>
-      )}
+      <div className="rows">
+        {!own && opacity && (
+          <SettingRow
+            row={current === "none" ? opacity : overArt(opacity, host?.derived_min?.[BACKGROUND_OPACITY_KEY])}
+            focused={focus === BACKGROUND_OPACITY_KEY}
+          />
+        )}
+        {/* The window's other control, on either scope: Frosted, Glass, Clear Glass (the desktop
+          through the wallpaper) or None. It replaces the Window Glass switch, which set Clear Glass. */}
+        {material && <SettingRow row={material} focused={focus === MATERIAL_KEY} />}
+      </div>
       <div className="backdrop-grid">
         {own &&
           tile(

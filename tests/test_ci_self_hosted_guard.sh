@@ -1014,11 +1014,21 @@ EOF
 }
 
 check_no_github_hosted_runners() {
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
+  # GitHub-hosted images: they never route to Blacksmith (user decision
+  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
   # (Blacksmith by default), or owned pools reached through the pickers.
   # A `# github-hosted-required:` comment is no longer an exemption.
+  # The one live route to GitHub-hosted macOS is cmux-next.yml's
+  # needs.macos-placement.outputs.hosted_runner: next_macos_cascade.py names
+  # `macos-26` only for fast-tier and swift-canary overflow Blacksmith cannot
+  # take now (full or stalled). A hosted outage queues at most its
+  # HOSTED_CAPACITY; a failed hosted job falls back on the bot's attempt 3.
+  # tests/test_ci_next_macos_cascade.py keeps the output to those two jobs.
   # Allowed GitHub-hosted forms:
   #   - the fork branch `github.repository_owner != 'manaflow-ai' && '<label>'`
   #     (and `&& matrix.hosted_runner`), which never evaluates in manaflow-ai;
@@ -1045,13 +1055,16 @@ check_no_github_hosted_runners() {
     # PyPI trusted publishing accepts only GitHub-hosted runners too.
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
+    # A 3-second advisory lint (a159); the free hosted runner, not Blacksmith.
+    "cmux-next-web.yml:    runs-on: ubuntu-24.04 # github-hosted-required: small advisory lint on the free hosted runner"
+    # The NEXT nightly path (promotion requests and the tick) never waits on Blacksmith.
+    "cmux-next.yml:    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith"
+    "cmux-tui-artifacts.yml:    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith"
     # Detects a Blacksmith outage, so it must run where Blacksmith is not.
     "ci-cloud-overflow-probe.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing"
     # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands.
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
-    # pull_request_target with a write token (test_ci_fork_runner_routing).
-    "cmux-next-pr-merge-tree.yml:    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target write token"
     # Registry provenance and trusted publishing accept only GitHub-hosted runners.
     "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
@@ -1089,6 +1102,19 @@ check_no_github_hosted_runners() {
     file="${line%%:*}"
     content="${line#*:*:}"
     [[ "$content" =~ ^[[:space:]]*# ]] && continue
+    # Nightly workflows never run on Blacksmith (user decision 2026-10-19,
+    # tests/test_ci_nightly_off_blacksmith.py): compiles stay on the trusted
+    # minis, everything else takes an ephemeral GitHub-hosted image.
+    if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
+      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
+    # test-ios.yml's cmux-next lane (feat-cmux-next pushes and pull requests
+    # into it) never runs on Blacksmith either (user decision 2026-10-20): its
+    # small Linux helper jobs take hosted ubuntu-24.04, its Mac jobs the owned
+    # minis. Only this exact selector is read as allowed.
+    if [[ "$(basename "$file")" == test-ios.yml ]]; then
+      content="${content//"(github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || "/}"
+    fi
     # Fork-only matrix rows: read only through the fork branch above.
     [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
     stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
@@ -1120,6 +1146,10 @@ check_no_github_hosted_runners() {
 }
 
 check_no_self_hosted_fleet_runners() {
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
+  # GitHub-hosted images: they never route to Blacksmith (user decision
+  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # Required jobs route through repository variables. Forbid hardcoded fleet
   # labels so paid-provider fallback remains a configuration change and a
   # physical host label cannot bypass the routing rules. tart-* labels (the
@@ -1224,6 +1254,16 @@ check_no_self_hosted_fleet_runners() {
   # these workflows, may name glaeda-gui-std-xcode-26.6.
   local gui_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6'"
   local gui_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6'"
+  # #22035: session jobs take glaeda-session-std-xcode-26.6 once runners carry
+  # it (vars.CI_SESSION_LABEL), else the gui label, behind the same gates.
+  local session_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
+  local session_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
+  # The same labels as the last fallback of swift-test / daemon-test / generated-files with no
+  # placement result through the bot's attempt 3: it waits behind the fleet rather than in a
+  # Blacksmith queue (2026-10-20: 5+ hour waits on blacksmith-12vcpu-macos-26). A refused attempt
+  # 3 (owned_pool_rescue REFUSAL_RESCUE_ATTEMPT) still leaves the fleet on attempt 4.
+  local gui_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6'"
+  local session_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
   local gui_fork_pr_branch="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
@@ -1234,6 +1274,9 @@ check_no_self_hosted_fleet_runners() {
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
+    if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
+      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
       content="${content/"$next_trusted_selector"/}"
       # Repository identity is a trust predicate, never a runner label.
@@ -1243,10 +1286,15 @@ check_no_self_hosted_fleet_runners() {
     # request branch comes first on the line; base autofix runs on push only.
     case "${line%%:*}" in
       "$ROOT_DIR/.github/workflows/cmux-next.yml")
-        if [[ "${content%%"$gui_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_selector"/}"; fi ;;
+        if [[ "${content%%"$session_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_owned_selector"/}"; fi
+        if [[ "${content%%"$gui_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_selector"/}"; fi
+        if [[ "${content%%"$session_owned_rerun_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_owned_rerun_selector"/}"; fi
+        if [[ "${content%%"$gui_owned_rerun_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_rerun_selector"/}"; fi ;;
       "$ROOT_DIR/.github/workflows/cmux-next-pr-autofix.yml")
+        if [[ "${content%%"$session_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_autofix_selector"/}"; fi
         if [[ "${content%%"$gui_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_autofix_selector"/}"; fi ;;
       "$ROOT_DIR/.github/workflows/cmux-next-base-autofix.yml")
+        content="${content//"$session_autofix_selector"/}"
         content="${content//"$gui_autofix_selector"/}" ;;
     esac
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
@@ -1884,6 +1932,9 @@ check_background_macos_lane() {
     file="${line%%:*}"
     content="${line#*:*:}"
     rel="$(basename "$file")"
+    # Nightly workflows never run on Blacksmith (tests/test_ci_nightly_off_blacksmith.py):
+    # their hosted macos-15/26 jobs are the intended ephemeral route.
+    [[ "$rel" == *nightly*.yml || "$rel" == *notarization*.yml ]] && continue
     printf '%s\n' "$content" | strip_background_lane_expr | grep -Eq "$hosted_mac" || continue
     allowed=0
     for exception in "${hosted_exceptions[@]}"; do

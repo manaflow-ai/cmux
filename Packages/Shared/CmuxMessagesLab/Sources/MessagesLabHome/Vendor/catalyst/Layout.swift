@@ -19,7 +19,7 @@ enum RenderScaleScope {
     /// isolated deinit run inline under it (every main-actor class of a main-actor-default target
     /// has one) makes the macOS 15.4 to 15.x runtime free() a marker its task allocator made: cmux
     /// trapped under Chromium's allocator when Cmd-1 left Home (CMUXTERM-MACOS-44XN, macOS 15.8.1).
-    // Read and written only on the main thread (`with` and `current` check it).
+    // crash-allow: read and written only on the main thread (`with` and `current` check it).
     nonisolated(unsafe) static var mainThreadScoped: CGFloat? = nil
 
     /// The scale of the scope that runs now, nil outside any scope.
@@ -113,6 +113,8 @@ struct TextLayout: Hashable {
                 case "italic": traits.insert(.traitItalic)
                 case "underline": a.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
                 case "strikethrough": a.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+                // cmux: a quoted excerpt (Reply to Selection, a Markdown `>` line) in the text's own colour at 66 %.
+                case "quote": a.addAttribute(.foregroundColor, value: color.withAlphaComponent(color.alphaComponent * 0.66), range: range)
                 default: break
                 }
             }
@@ -131,6 +133,7 @@ struct TextLayout: Hashable {
             }
             if r.detected != nil { a.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
         }
+        HomeLinkChip.reserve(in: a, runs: runs, kern: kern)
         return a
     }
 
@@ -247,6 +250,9 @@ struct RowSpec: Hashable {
         /// above it (macOS 26): a mini card or thumbnail, a short stub, and
         /// "N Replies" when the thread has 2 or more replies.
         case threadPreview(ThreadPreview)
+        /// cmux: a group chat's sender name above the first bubble of another person's run (iMessage): small
+        /// secondary text at the incoming bubbles' text edge. Key "name:<message id>".
+        case senderName(String)
     }
     enum LabelColor: Hashable { case secondary, failure, link }
 }
@@ -309,6 +315,9 @@ struct ThreadPreview: Hashable {
     static let stubGap: CGFloat = 3.5, stubHeight: CGFloat = 12.5
     /// Space between the stub and the reply below.
     static let replyGap: CGFloat = 7
+    /// cmux: the quote is its source bubble (fill, text colour, rounding) drawn at this opacity, so it
+    /// reads as context under the live bubbles (plans/cmux-next/reply-thread-gallery.html, variant A).
+    static let quoteOpacity: CGFloat = 0.55
     /// Body bottom of the row above to the preview's top (measured 31.5).
     static let gap: CGFloat = 31.5
     var isThumbnail: Bool {
@@ -329,7 +338,7 @@ struct ThreadPreview: Hashable {
             p.textLines = ThreadPreview.wrap(t, maxWidth: maxBox - ThreadPreview.textPadX)
             let one = p.textLines.count == 1 ? p.textLines.first.map { TextDraw.width($0, font: ThreadPreview.textFont) } : nil
             p.box = CGSize(width: one.map { min(maxBox, ($0 + ThreadPreview.textPadX).rounded(.toNearestOrEven)) } ?? maxBox,
-                           height: 24.25 + ThreadPreview.textLinePitch * CGFloat(max(0, p.textLines.count - 1)))
+                           height: ThreadPreview.textHeight(lines: p.textLines.count))
         } else {
             let (title, sub) = p.lines
             let w = max(TextDraw.width(title, font: ThreadPreview.titleFont), TextDraw.width(sub, font: ThreadPreview.subFont))
@@ -337,25 +346,41 @@ struct ThreadPreview: Hashable {
         }
         return p
     }
-    /// A text root (measured, macOS 27, 2026-10-05 interaction references): a small
-    /// outlined bubble with a tail, the text in 10 pt regular, 8 pt in from
-    /// the outline; 24.25 pt tall for one line (outline outside to outside 24 pt); the stub 5.5 pt under it (the tail is between).
-    /// A long root wraps (measured, macOS 27, outgoing-thread-reply-take4 still-preview.png, my root
-    /// "there was recent blog post about building macos apps on linux help me find it" at 628 pt): 2 lines,
-    /// the second baseline 11 pt under the first (22 px at 2x), the outline 34.5 pt tall (one line + 11), the
-    /// outline outside 225.0-608.5 pt (383.5 pt: a wrapped preview takes the full column, it does not shrink
-    /// to its widest line, which ends at 597 pt). Not measured (no reference): more than 2 lines, an incoming
-    /// long root, other window widths. Decisions: the same rule on both sides, at most 3 lines with "…" at the
-    /// end of the last, the column scales with the bubble column (`Metrics.maxTextWidth`).
+    /// cmux: a text root (2026-10-20, plans/cmux-next/reply-thread-gallery.html variant A): a smaller copy of the
+    /// root's own bubble, its fill and text colour at `quoteOpacity`, 12 pt text a bubble's 12 pt in from each end, 28 pt
+    /// tall for one line (half-circle ends, as a real one-line bubble), 46 pt for 2 (a 2-line bubble's corners), at most 2 lines
+    /// with "…" at the end of the last, and no tail (a quote is never the last bubble of a run). A wrapped root
+    /// takes the full quote column; the column scales with the bubble column (`Metrics.maxTextWidth`). It
+    /// replaces the outlined 10 pt copy of macOS Messages' preview, which did not look like the quoted bubble.
     var isText: Bool { if case .text = part { return true }; return false }
-    static let textFont = UIFont.systemFont(ofSize: 10)
+    static let textFont = UIFont.systemFont(ofSize: 12)
     /// The text's lines as drawn (text roots only; one line when it fits).
     var textLines: [String] = []
-    /// Outline to text plus text to outline of a one-line preview (8.5 + 8 on my side, 8 + 8.5 on Instinct's).
-    static let textPadX: CGFloat = 16.5
-    /// Baseline to baseline of a wrapped root (measured 11 pt).
-    static let textLinePitch: CGFloat = 11
-    static let maxTextLines = 3
+    /// cmux: bubble edge to text plus text to bubble edge: a bubble's padding (`Fixture.bubblePadX`) on each side.
+    static let textPadX: CGFloat = 2 * Fixture.bubblePadX
+    /// cmux: a one-line quote's height (under 30 pt, so its ends are half circles as a 1-line bubble's).
+    static let textOneLineHeight: CGFloat = 28
+    /// Baseline to baseline of a wrapped root.
+    static let textLinePitch: CGFloat = 15
+    static let maxTextLines = 2
+    /// cmux: the quote's height for `lines` lines: 28 pt for one; a wrapped quote is at least 46 pt, a 2-line bubble's
+    /// height, so it keeps the bubbles' 15 pt continuous corner (a shorter body takes UIKit's pill corner).
+    static func textHeight(lines: Int) -> CGFloat {
+        lines <= 1 ? textOneLineHeight : max(46, textOneLineHeight + textLinePitch * CGFloat(lines - 1))
+    }
+    /// cmux: the first baseline under the quote's top: the lines centred in the quote.
+    func textFirstBaseline() -> CGFloat {
+        let f = ThreadPreview.textFont
+        let lineH = f.ascender - f.descender
+        let block = lineH + ThreadPreview.textLinePitch * CGFloat(max(0, textLines.count - 1))
+        return ((box.height - block) / 2 + f.ascender).rounded(.toNearestOrEven)
+    }
+    /// cmux: the quote's shape as a row: a part of the root's side, the quote's size, no tail (a quote is never the
+    /// last bubble of a run). `BubblePath.balloon` of this row is the quote's outline, the same rule as every bubble.
+    var shapeRow: PartRow {
+        PartRow(ref: root, part: part ?? .text("", runs: []), outgoing: outgoing, tail: false, reactions: [], failed: false,
+                size: box, text: nil, connectorRoot: nil)
+    }
     /// The widest text preview (outline outside): 383 pt at the 628 pt window (outside 225.0-608.5 pt
     /// measured; our outline's right edge is the bubbles' 608), with the bubble column at other widths.
     static func maxTextBoxWidth(width: CGFloat) -> CGFloat { Metrics(width: width).maxTextWidth + 24.6 }
@@ -456,6 +481,13 @@ struct PartRow: Hashable {
     /// The message is marked markdown (Message.format): a long text part takes the markdown
     /// tiles only then (LongTextStore.layout).
     var markdownFormat: Bool = false
+    /// cmux: the sender's avatar beside this bubble (a group chat, the last bubble of another person's run).
+    var cmuxAvatar: SenderAvatar? = nil
+    /// cmux: how far right of `Fixture.leftEdge` an incoming bubble sits (a group chat's avatar column,
+    /// `SenderAvatar.bubbleInset`; 0 elsewhere). Outgoing rows ignore it.
+    var cmuxIndent: CGFloat = 0
+    /// cmux: the body's left edge in row coordinates (`rightEdge`: the row's `Metrics.rightEdge`).
+    func cmuxBodyX(rightEdge: CGFloat) -> CGFloat { outgoing ? rightEdge - size.width : Fixture.leftEdge + cmuxIndent }
     /// The message format of this row (Message.format).
     var format: MessageFormat? { markdownFormat ? .markdown : nil }
     /// The drawn body: lines after a hard newline are 15.5 pt apart, so the
@@ -886,6 +918,8 @@ enum RowBuilder {
                      previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
                      scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
         let me = s.me
+        // cmux: a group chat names and draws the avatar of another person's runs (iMessage; `Conversation.cmuxGroup`).
+        let group = s.conversation.cmuxGroup == true
         var rows: [RowSpec] = []
         var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
         // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
@@ -1017,6 +1051,19 @@ enum RowBuilder {
                 let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                     || next.retractedAt != nil || next.replyTo != m.replyTo
                     || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
+                // cmux: a group chat's run of another person's messages (the rule of lastOfGroup, seen from the
+                // message above): its first bubble gets the sender's name, its last their avatar, and every
+                // incoming bubble moves right of the avatar column. A reply drawn with a thread connector
+                // has no name row (the connector's stroke runs through it); its avatar names it.
+                let inGroup = group && !outgoing
+                let sender = inGroup ? s.conversation.participants.first { $0.id == m.senderId } : nil
+                let startsRun = prev.map { p in p.senderId != m.senderId || m.date.timeIntervalSince(p.date) >= groupGap
+                    || p.retractedAt != nil || m.replyTo != p.replyTo
+                    || thread(m, at: idx) != thread(p, at: prevIndex) } ?? true
+                if let name = sender?.displayName, !name.isEmpty, startsRun, connector == nil {
+                    rows.append(RowSpec(key: "name:\(m.id)", kind: .senderName(name), gap: gap, height: 14))
+                    gap = 1
+                }
                 for (pi, part) in m.parts.enumerated() {
                     // A streaming bubble (past the loaded messages) is always measured: it draws now.
                     let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
@@ -1043,7 +1090,9 @@ enum RowBuilder {
                                       tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
                                       myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                       size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
-                                      markdownFormat: m.isMarkdown)
+                                      markdownFormat: m.isMarkdown,
+                                      cmuxAvatar: inGroup && lastOfGroup && pi == m.parts.count - 1 && !isCustom(part) ? SenderAvatar(sender?.avatar) : nil,
+                                      cmuxIndent: inGroup && !isCustom(part) ? SenderAvatar.bubbleInset : 0)
                     rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                         width: width, estimated: measured.estimated))
                 }
@@ -1153,6 +1202,8 @@ enum RowBuilder {
     }
 
     private static func isText(_ p: Part?) -> Bool { if case .text = p { return true } else { return false } }
+    /// cmux: a custom part keeps its own layout (a full-width row spans the transcript): no group avatar column.
+    private static func isCustom(_ p: Part) -> Bool { if case .custom = p { return true } else { return false } }
 
     /// "Read <time>" under my latest read message; "Delivered" under my
     /// latest delivered message when it is newer.
