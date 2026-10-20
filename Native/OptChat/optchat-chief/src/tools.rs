@@ -106,6 +106,158 @@ pub trait Orchestrator: Send + Sync {
         let _ = (id, text);
         Err("this Chief host cannot reply in a thread".into())
     }
+    /// `send(text, attachments, reply_to)`: one message posted now.
+    fn send(&self, call: SendCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host cannot send".into())
+    }
+    /// `stop()`: ends the running turn now; its final text is not posted.
+    fn stop_turn(&self) -> Result<String, String> {
+        Err("this Chief host cannot stop a turn".into())
+    }
+    /// `sleep(seconds, note, until)`: ends the turn and wakes the Chief later.
+    fn sleep(&self, call: SleepCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host cannot sleep".into())
+    }
+}
+
+/// One `send` call (plans/cmux-next/chief-tools-DESIGN.md).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SendCall {
+    /// The message's Markdown text.
+    pub text: Option<String>,
+    /// Local paths (`/abs`, `~/rel`, `file://`) uploaded as attachments, or
+    /// `http(s)` URLs added as their own lines.
+    pub attachments: Vec<String>,
+    /// The view line id of the user message whose thread it goes into.
+    pub reply_to: Option<u64>,
+}
+
+impl SendCall {
+    fn parse(args: &Value) -> Result<SendCall, String> {
+        let text = args
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned);
+        let attachments: Vec<String> = match args.get("attachments") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(items)) => items
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(str::trim)
+                        .filter(|t| !t.is_empty())
+                        .map(str::to_owned)
+                        .ok_or("send: each attachment must be a path or URL text")
+                })
+                .collect::<Result<_, _>>()?,
+            Some(Value::String(one)) if !one.trim().is_empty() => vec![one.trim().to_owned()],
+            Some(_) => return Err("send: `attachments` must be a list of paths or URLs".into()),
+        };
+        if attachments.len() > MAX_SEND_ATTACHMENTS {
+            return Err(format!(
+                "send: at most {MAX_SEND_ATTACHMENTS} attachments per message"
+            ));
+        }
+        if text.is_none() && attachments.is_empty() {
+            return Err("send: give `text`, `attachments` or both".into());
+        }
+        let reply_to = match args.get("reply_to") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                    .ok_or("send: `reply_to` must be a message's line id")?,
+            ),
+        };
+        Ok(SendCall {
+            text,
+            attachments,
+            reply_to,
+        })
+    }
+
+    fn to_json(&self) -> Value {
+        let mut v = json!({"tool": "send"});
+        if let Some(t) = &self.text {
+            v["text"] = json!(t);
+        }
+        if !self.attachments.is_empty() {
+            v["attachments"] = json!(self.attachments);
+        }
+        if let Some(id) = self.reply_to {
+            v["reply_to"] = json!(id);
+        }
+        v
+    }
+}
+
+/// Most attachments one `send` takes.
+pub const MAX_SEND_ATTACHMENTS: usize = 10;
+
+/// Shortest `sleep` (a turn costs more than a shorter wait saves).
+pub const SLEEP_MIN_SECONDS: u64 = 30;
+/// Longest `sleep`: a day.
+pub const SLEEP_MAX_SECONDS: u64 = 86_400;
+
+impl SleepCall {
+    fn parse(args: &Value) -> Result<SleepCall, String> {
+        let seconds = args
+            .get("seconds")
+            .and_then(|v| {
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+            })
+            .ok_or("sleep: `seconds` must be a non-negative integer")?;
+        if seconds != 0 && !(SLEEP_MIN_SECONDS..=SLEEP_MAX_SECONDS).contains(&seconds) {
+            return Err(format!(
+                "sleep: `seconds` is {SLEEP_MIN_SECONDS} to {SLEEP_MAX_SECONDS} (0 clears every pending wake)"
+            ));
+        }
+        let text = |key: &str| {
+            args.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned)
+        };
+        let until = text("until");
+        if let Some(u) = until.as_deref()
+            && !matches!(u, "time" | "event")
+        {
+            return Err("sleep: `until` is time or event".into());
+        }
+        Ok(SleepCall {
+            seconds,
+            note: text("note"),
+            until,
+        })
+    }
+
+    fn to_json(&self) -> Value {
+        let mut v = json!({"tool": "sleep", "seconds": self.seconds});
+        if let Some(n) = &self.note {
+            v["note"] = json!(n);
+        }
+        if let Some(u) = &self.until {
+            v["until"] = json!(u);
+        }
+        v
+    }
+}
+
+/// One `sleep` call.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SleepCall {
+    /// How long until the wake; 0 clears every pending wake.
+    pub seconds: u64,
+    /// Why: shown in the wake note.
+    pub note: Option<String>,
+    /// `time` (default) or `event`.
+    pub until: Option<String>,
 }
 
 /// What `chief zoom|date|spawn|tell WORDS` asks: the tool call, its usage
@@ -144,6 +296,21 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             "reply",
             &serde_json::json!({"id": id, "text": text.join(" ")}),
         ),
+        ("send", ["--reply-to", id, text @ ..]) if !text.is_empty() => Call::parse(
+            "send",
+            &serde_json::json!({"reply_to": id, "text": text.join(" ")}),
+        ),
+        ("send", text) if !text.is_empty() && text[0] != "--reply-to" => {
+            Call::parse("send", &serde_json::json!({"text": text.join(" ")}))
+        }
+        ("stop", []) => Call::parse("stop", &serde_json::json!({})),
+        ("sleep", [seconds, note @ ..]) => {
+            let mut v = serde_json::json!({"seconds": seconds});
+            if !note.is_empty() {
+                v["note"] = serde_json::json!(note.join(" "));
+            }
+            Call::parse("sleep", &v)
+        }
         ("profile", []) => Call::parse("profile", &serde_json::json!({})),
         ("profile", [args]) => match serde_json::from_str::<Value>(args) {
             Ok(v @ Value::Object(_)) => Call::parse("profile", &v),
@@ -200,6 +367,9 @@ pub fn usage(tool: &str) -> String {
             "date" => "ID",
             "react" => "ID like|love|laugh|emphasize|question|dislike|ack",
             "reply" => "ID \"text\"",
+            "send" => "[--reply-to ID] \"text\"",
+            "stop" => "",
+            "sleep" => "SECONDS [\"note\"]",
             "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
             "profile" => "['{\"role\": \"...\", \"avatar_path\": \"/path/pic.png\"}']",
             "chiefs" =>
@@ -361,6 +531,13 @@ pub enum Call {
         id: u64,
         text: String,
     },
+    /// `send` (brain/send.rs): one message now, with files, optionally in
+    /// a thread.
+    Send(SendCall),
+    /// `stop` (brain/wakes.rs): ends the running turn now.
+    Stop,
+    /// `sleep` (brain/wakes.rs): ends the turn and wakes the Chief later.
+    Sleep(SleepCall),
     /// `control` (brain/control.rs): subagent control.
     Control(ControlCall),
     /// `profile` (chief_profile.rs): read or change the Chief's own record.
@@ -496,6 +673,9 @@ impl Call {
                     text: text.to_owned(),
                 })
             }
+            "send" => SendCall::parse(args).map(Call::Send),
+            "stop" => Ok(Call::Stop),
+            "sleep" => SleepCall::parse(args).map(Call::Sleep),
             "control" => ControlCall::parse(args).map(Call::Control),
             "profile" => {
                 let mut args = args.as_object().cloned().unwrap_or_default();
@@ -531,6 +711,9 @@ impl Call {
             | Call::Tell { .. }
             | Call::React { .. }
             | Call::Reply { .. }
+            | Call::Send(_)
+            | Call::Stop
+            | Call::Sleep(_)
             | Call::Control(_)
             | Call::ZoomAgent { .. }
             | Call::Profile { .. }
@@ -583,6 +766,9 @@ impl Call {
                 json!({"tool": "react", "id": id, "reaction": reaction})
             }
             Call::Reply { id, text } => json!({"tool": "reply", "id": id, "text": text}),
+            Call::Send(c) => c.to_json(),
+            Call::Stop => json!({"tool": "stop"}),
+            Call::Sleep(c) => c.to_json(),
             Call::Control(c) => c.to_json(),
             Call::Profile { args } => {
                 let mut v = args.clone();
@@ -806,10 +992,16 @@ fn connection(conn: UnixStream, served: &Served) {
                 }
                 if tool == "inspect" {
                     let answer = match &served.inspector {
+                        // Changes only from a caller that is none of the
+                        // Chief's own sessions (the app through its daemon,
+                        // the owner's CLI): the Chief never rewrites its memory.
                         Some(inspector) => crate::inspect::tool_answer(
                             inspector,
                             &req,
                             crate::inspect::INSPECT_MAX_BYTES,
+                            role() == crate::turn_caller::Role::Other
+                                && req.get("from").and_then(Value::as_str) != Some("subagent")
+                                && !peer.is_some_and(crate::turn_caller::under_this_process),
                         ),
                         None => {
                             json!({"status": 503, "error": "the inspector is off on this host"})
@@ -852,11 +1044,14 @@ fn connection(conn: UnixStream, served: &Served) {
                         | Call::Tell { .. }
                         | Call::React { .. }
                         | Call::Reply { .. }
+                        | Call::Send(_)
+                        | Call::Stop
+                        | Call::Sleep(_)
                         | Call::Control(_)
                         | Call::Profile { .. }
                         | Call::Chiefs { .. },
                     ) if subagent => Err(
-                        "subagents have no spawn, tell, react, reply, control, profile or chiefs"
+                        "subagents have no spawn, tell, react, reply, send, stop, sleep, control, profile or chiefs"
                             .to_owned(),
                     ),
                     // `chiefs` only for this host's own turn: the turn key the
@@ -912,6 +1107,18 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Reply { id, text }) => match &served.orchestrator {
                         Some(o) => o.reply(id, &text),
                         None => Err("this Chief host has no conversation to reply in".to_owned()),
+                    },
+                    Ok(Call::Send(call)) => match &served.orchestrator {
+                        Some(o) => o.send(call),
+                        None => Err("this Chief host has no conversation to send in".to_owned()),
+                    },
+                    Ok(Call::Stop) => match &served.orchestrator {
+                        Some(o) => o.stop_turn(),
+                        None => Err("this Chief host runs no turns".to_owned()),
+                    },
+                    Ok(Call::Sleep(call)) => match &served.orchestrator {
+                        Some(o) => o.sleep(call),
+                        None => Err("this Chief host runs no turns".to_owned()),
                     },
                     Ok(Call::Control(request)) => match &served.orchestrator {
                         Some(o) => o.control(request),
