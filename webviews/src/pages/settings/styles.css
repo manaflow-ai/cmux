@@ -1133,7 +1133,7 @@ mark {
 .appearance-bar {
   position: sticky;
   bottom: 16px;
-  z-index: 5;
+  z-index: var(--layer-sticky);
   display: flex;
   align-items: center;
   gap: 4px;
