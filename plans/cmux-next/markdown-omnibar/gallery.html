@@ -74,18 +74,17 @@ Pick a number to change the default; <b>#1 is the Chief's default</b>.</p>
 <!-- 1 -->
 <div class="card rec">
   <div class="head"><span class="num">#1</span><span class="name">Path omnibar + repo chip</span><span class="badge">Recommended</span></div>
-  <div class="desc">Same omnibar as the browser. Leading chip = repo and branch with a git state dot. Path is <code>~</code>-shortened, file name bold. One Share button opens the share menu.</div>
+  <div class="desc">Same omnibar as the browser. Trailing chip = repo and branch with a git state glyph (✓ pushed, ↑2 unpushed, ● edited, ? untracked). The field shows the full path; the page-info chip and the repo chip open the Share menu (#5). <b>Shipped in v1</b> (the <code>~</code> form is in the menu for now).</div>
   <div class="win">
     <div class="tabs"><div class="tab">📝 markdown-omnibar-DESIGN.md</div><div class="tab off">google.com</div></div>
     <div class="bar">
       <span class="btn"><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></span>
       <span class="btn"><svg viewBox="0 0 16 16"><path d="M6 3l5 5-5 5"/></svg></span>
       <div class="field">
-        <span class="chip"><span class="dot g"></span>cmux · feat-cmux-next</span>
-        <span class="p">~/fun/cmux/plans/cmux-next/<b>markdown-omnibar-DESIGN.md</b></span>
+        <span class="btn" style="width:20px;height:20px">ⓘ</span>
+        <span class="p">/Users/lawrence/fun/cmux/plans/cmux-next/<b>markdown-omnibar-DESIGN.md</b></span>
+        <span style="margin-left:auto" class="chip">cmux · feat-cmux-next ✓</span>
       </div>
-      <span class="share primary"><svg viewBox="0 0 16 16"><path d="M8 10V2M5 5l3-3 3 3M3 9v4h10V9"/></svg>Share</span>
-      <span class="btn">⋯</span>
     </div>
     <div class="doc"><h2>Markdown omnibar</h2><p>Reuse the browser omnibar as the Markdown viewer's top bar…</p></div>
   </div>
