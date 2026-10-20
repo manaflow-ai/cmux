@@ -291,7 +291,7 @@ def drifted_runner_variables(
             reason = aws_side_reason(value.strip())
         elif name in (TRUSTED_POOL_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_POOL"):
             reason = trusted_pool_reason(value.strip())
-        elif name in (NIGHTLY_RUNNER_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_RUNNER"):
+        elif name in (NIGHTLY_RUNNER_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_RUNNER", "CI_IOS_INTERNAL_RUNNER"):
             reason = nightly_runner_reason(value.strip())
         elif "RUNNER" not in name:
             continue

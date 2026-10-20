@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
-import MessagesLabHome
+public import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
 /// own code and motion (`MessagesLabHome`, vendored at the MessagesLab
@@ -58,6 +58,19 @@ public final class HomeNativeTranscriptView: NSView {
     public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
         get { transcript.onOpenLink }
         set { transcript.onOpenLink = newValue }
+    }
+    /// A press on a link that moved past the drag slop (the pointer's screen point): true when the
+    /// host took it as a link drag (a split or pane drop zone opens it). Nil: the press selects text.
+    public var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)? {
+        get { transcript.onDragLink }
+        set { transcript.onDragLink = newValue }
+    }
+
+    /// Where an attachment opens and what its right-click menu offers (held weakly; the host
+    /// keeps it). Nil: the system opens it.
+    public var fileHost: HomeFileHost? {
+        get { transcript.fileHost }
+        set { transcript.fileHost = newValue }
     }
     /// The host's shared stop action.
     public var onStop: () -> Void = {} {
@@ -211,6 +224,10 @@ public final class HomeNativeTranscriptView: NSView {
     public override func becomeFirstResponder() -> Bool {
         window?.makeFirstResponder(primaryInput) ?? false
     }
+
+    /// The person opened this conversation: the message box takes the keyboard now, or once the
+    /// first page installs it if nothing else took the keyboard in between.
+    public func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
 
     /// Whether Home getting focus should move the keyboard from `responder`
     /// to ``primaryInput``: yes, unless a text view or field has it, the

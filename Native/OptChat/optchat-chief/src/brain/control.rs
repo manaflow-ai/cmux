@@ -166,6 +166,9 @@ impl Brain {
         if call.action == "cap" {
             return self.control_cap(call.n.unwrap_or(0) as usize);
         }
+        if call.action == "cloud" {
+            return self.control_cloud(call.peer.as_deref());
+        }
         if call.action == "status" && call.id.is_none() {
             return Ok(self.status_all());
         }
@@ -581,6 +584,41 @@ impl Brain {
         self.save();
         self.start_queued();
         outcome("done", format!("{id} starts next"))
+    }
+
+    /// `control cloud [PEER|off]`: shows or sets the acpmux peer new
+    /// subagents run on by default (plans/cmux-next/cloud-subagents-DESIGN.md).
+    fn control_cloud(&mut self, peer: Option<&str>) -> Result<String, String> {
+        let now = |p: Option<&str>| {
+            match p {
+            Some(p) => format!("new subagents run on the cloud peer {p} (spawn place \"local\" keeps one here)"),
+            None => "new subagents run on this host (spawn place \"cloud\" needs a peer: control cloud PEER)".to_owned(),
+        }
+        };
+        let current = self.state.cloud_peer.clone();
+        let effective = |saved: &Option<String>| match saved.as_deref() {
+            Some("") => None,
+            Some(p) => Some(p.to_owned()),
+            None => None,
+        };
+        let Some(peer) = peer.map(str::trim).filter(|p| !p.is_empty()) else {
+            return outcome("noop", now(effective(&current).as_deref()));
+        };
+        let next = if peer == "off" {
+            String::new()
+        } else {
+            peer.to_owned()
+        };
+        if current.as_deref() == Some(next.as_str()) {
+            return outcome(
+                "noop",
+                format!("{} already", now(effective(&current).as_deref())),
+            );
+        }
+        self.state.cloud_peer = Some(next);
+        self.save();
+        (self.log)(&format!("control cloud: {peer}"));
+        outcome("done", now(effective(&self.state.cloud_peer).as_deref()))
     }
 
     fn control_cap(&mut self, n: usize) -> Result<String, String> {

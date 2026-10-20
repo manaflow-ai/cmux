@@ -20,10 +20,13 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
     public var state: String?
     /// Cloud, a large group: how many members it has (`participants` is then a roster).
     public var memberCount: Int?
+    /// Cloud: the head's `settings.wake_policy` (`auto`, `mentions`, `all`): when the Chiefs answer.
+    public var wakePolicy: String?
 
     public init(id: String, owner: String = "local", title: String, participants: [ConversationParticipant], lastSeq: UInt64,
                 rev: UInt64, createdAt: String, updatedAt: String, lastMessage: ConversationMessage? = nil,
-                readCursors: [String: UInt64] = [:], kind: String? = nil, state: String? = nil, memberCount: Int? = nil) {
+                readCursors: [String: UInt64] = [:], kind: String? = nil, state: String? = nil, memberCount: Int? = nil,
+                wakePolicy: String? = nil) {
         self.id = id
         self.owner = owner
         self.title = title
@@ -37,6 +40,7 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         self.kind = kind
         self.state = state
         self.memberCount = memberCount
+        self.wakePolicy = wakePolicy
     }
 
     enum CodingKeys: String, CodingKey {
@@ -47,6 +51,13 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         case lastMessage = "last_message"
         case readCursors = "read_cursors"
         case memberCount = "member_count"
+        case settings
+    }
+
+    /// The part of the head's `settings` the app reads.
+    private struct Settings: Codable {
+        var wakePolicy: String?
+        enum CodingKeys: String, CodingKey { case wakePolicy = "wake_policy" }
     }
 
     public init(from decoder: any Decoder) throws {
@@ -64,6 +75,25 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         state = try c.decodeIfPresent(String.self, forKey: .state)
         memberCount = try c.decodeIfPresent(Int.self, forKey: .memberCount)
+        wakePolicy = (try? c.decodeIfPresent(Settings.self, forKey: .settings))?.wakePolicy
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(owner, forKey: .owner)
+        try c.encode(title, forKey: .title)
+        try c.encode(participants, forKey: .participants)
+        try c.encode(lastSeq, forKey: .lastSeq)
+        try c.encode(rev, forKey: .rev)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(updatedAt, forKey: .updatedAt)
+        try c.encodeIfPresent(lastMessage, forKey: .lastMessage)
+        try c.encode(readCursors, forKey: .readCursors)
+        try c.encodeIfPresent(kind, forKey: .kind)
+        try c.encodeIfPresent(state, forKey: .state)
+        try c.encodeIfPresent(memberCount, forKey: .memberCount)
+        try c.encodeIfPresent(wakePolicy.map { Settings(wakePolicy: $0) }, forKey: .settings)
     }
 
     /// Messages after `participant`'s read cursor.

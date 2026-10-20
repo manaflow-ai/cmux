@@ -78,7 +78,7 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.workspaceGroup.copyID", defaultValue: "Copy Workspace Group ID", bundle: .module),
                 keywords: ["group", "identifier", "id"], category: .workspace, symbol: "doc.on.doc", surfaces: [.palette, .contextMenu],
                 targets: [.workspaceGroup],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.workspaceGroup, .inspect, 401, folder: .copy)])
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.workspaceGroup, .identity, 140, folder: .options)])
             ),
             ActionDescriptor(
                 id: "workspaceGroup.addToSection",

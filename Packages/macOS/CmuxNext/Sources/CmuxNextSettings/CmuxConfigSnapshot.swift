@@ -8,8 +8,16 @@ public import CmuxNextDesign
 public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// The whole document, for `settings.get`.
     public var root: JSONValue
-    /// `appearance.density`, when present and valid.
+    /// `appearance.density`, when present and valid: a built-in density's id.
     public var density: String?
+    /// `appearance.customDensities` (``CustomDensitiesSetting``), in file order.
+    public var customDensities: [DensityTokens] = []
+    /// `appearance.customDensity` when it names one of `customDensities`: it wins over `density`.
+    public var customDensity: String?
+    /// The density the file selects: the custom one, else the built-in, else Compact.
+    public var selectedDensity: DensityTokens {
+        DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: []) ?? .compact
+    }
     /// `app.uiScale` (first-party page scale) and `appearance.interfaceScale` (chrome, only with Labs on).
     public var uiScale: Double = UIScaleSetting().fallback
     public var interfaceScale: Double = InterfaceScaleSetting().fallback
@@ -31,6 +39,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var commandActions: [ConfigCommandAction] = []
     /// `browser.defaultEngine`; Chromium when unset or invalid.
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
+    /// `browser.siteEngines`; the protected-media sites on WebKit when unset.
+    public var browserSiteEngines: BrowserSiteEngines = .fallback
     /// `browser.newTabPage`; nil opens a blank page.
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
@@ -149,6 +159,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var spacesVisibility: SpacesVisibilityMode = .hover
     /// `tabs.barPosition` (R109).
     public var tabBarPosition: TabBarPosition = .top
+    /// `appearance.paneBackgrounds`: one background for the window or one per pane.
+    public var paneBackgrounds: PaneBackgroundMode = .shared
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
     /// `app.quitBehavior`; "ask" when unset or invalid.
@@ -203,6 +215,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sessions = SessionSettings()
     /// `agents.subsessions.*`: sub-session limits; the acpmux daemon enforces them.
     public var subsessions = SubsessionSettings()
+    /// `mobile.*`: whether the app runs its iPhone host.
+    public var mobile = MobileSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -237,6 +251,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.showModifierHoldHints = hints
         if let hintsDiagnostic { snapshot.diagnostics.append(hintsDiagnostic) }
         snapshot.take(BrowserDefaultEngine.parse(root), \.browserDefaultEngine)
+        snapshot.take(BrowserSiteEngines.parse(root), \.browserSiteEngines)
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
@@ -310,6 +325,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.plusButton = plusButton
         if let plusButtonDiagnostic { snapshot.diagnostics.append(plusButtonDiagnostic) }
         ChromePlacementSetting.parse(root, into: &snapshot)
+        let (paneBackgrounds, paneBackgroundsDiagnostic) = PaneBackgroundsSetting.parse(root)
+        snapshot.paneBackgrounds = paneBackgrounds
+        if let paneBackgroundsDiagnostic { snapshot.diagnostics.append(paneBackgroundsDiagnostic) }
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
@@ -346,6 +364,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)
         snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
         snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)
@@ -360,6 +379,15 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
         snapshot.uiScale = UIScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.interfaceScale = InterfaceScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.customDensities = CustomDensitiesSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        if let custom = root.value(at: CustomDensitySelectionSetting().configPath) {
+            if let id = custom.stringValue, snapshot.customDensities.contains(where: { $0.id == id }) {
+                snapshot.customDensity = id
+            } else {
+                snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.customDensity",
+                                                               message: "expected the id of one of appearance.customDensities"))
+            }
+        }
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {
                 if let density = members["density"] {
