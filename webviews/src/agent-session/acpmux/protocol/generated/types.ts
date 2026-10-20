@@ -401,6 +401,11 @@ export type SessionSummary = {
   pendingPermissions: number;
   policy?: (string | null);
   preview?: (string | null);
+  /**
+   * The pull request URLs its `gh pr create` calls printed, oldest first;
+   * absent from a peer on an older acpmux.
+   */
+  pullRequests?: string[];
   queue: QueuedPromptSummary[];
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;

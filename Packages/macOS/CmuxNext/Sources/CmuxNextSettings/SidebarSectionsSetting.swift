@@ -19,6 +19,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let groupByPath = ["sidebar", "groupBy"]
     public static let showChatsPath = ["sidebar", "showChats"]
+    public static let sessionTreePath = ["sidebar", "sessionTree"]
     public static let showSpacesPath = ["sidebar", "showSpaces"]
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
@@ -121,6 +122,15 @@ public nonisolated enum SidebarSectionsSetting {
         ]
     }
 
+    static func sessionTreeDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(sessionTreePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.sessionTree", "Session Tree"),
+                          help: SettingsText.keyed("settings.sidebar.sessionTree.help",
+                                                   "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.sessionTree),
+                          keywords: ["sidebar", "tree", "nested", "parent", "child", "pull request", "keycap", "sessions"])
+    }
+
     static func showChatsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(showChatsPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.showChats", "Show All Chats"),
@@ -177,6 +187,7 @@ public nonisolated enum SidebarSectionsSetting {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
             }
         }
+        result.sessionTree = flag(root, sessionTreePath, fallback: result.sessionTree, &diagnostics)
         if let value = root.value(at: tipsPath) {
             if let flag = value.boolValue {
                 result.showsTips = flag
