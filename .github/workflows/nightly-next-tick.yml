@@ -31,7 +31,7 @@ concurrency:
 jobs:
   request:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith
+    runs-on: ubuntu-24.04 # nightly path never waits on Blacksmith
     timeout-minutes: 15
     permissions:
       # actions: read finds the Release compile; actions: write dispatches
