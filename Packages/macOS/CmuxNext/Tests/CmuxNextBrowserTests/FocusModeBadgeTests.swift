@@ -13,6 +13,8 @@ import Testing
         let tab = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
         let chrome = BrowserChromeView(tab: tab)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        // The test owns the window; closing must not also release it (an over-release crashed the suite).
+        window.isReleasedWhenClosed = false
         chrome.frame = window.contentView!.bounds
         window.contentView!.addSubview(chrome)
         chrome.layoutSubtreeIfNeeded()
