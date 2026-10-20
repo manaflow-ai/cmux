@@ -35,7 +35,14 @@ test("a wallpaper macOS has not downloaded says where a click takes you", async 
       ...page.provider.host,
       backdrops: [
         ...(page.provider.host.backdrops ?? []),
-        { id: "system:/S/Grid Green.madesktop", title: "Grid Green", attribution: "", collection: "apple", collection_title: "Apple Wallpapers", downloaded: false },
+        {
+          id: "system:/S/Grid Green.madesktop",
+          title: "Grid Green",
+          attribution: "",
+          collection: "apple",
+          collection_title: "Apple Wallpapers",
+          downloaded: false,
+        },
       ],
     }),
   );
