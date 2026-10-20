@@ -31,9 +31,20 @@ fn png(width: u32, height: u32) -> Vec<u8> {
     out.into_inner()
 }
 
-fn reply_script(text: String) -> Script {
-    let text: &'static str = Box::leak(text.into_boxed_str());
-    Box::new(move |_, _| {
+fn reply_script(make_reply: impl FnOnce(&Path) -> String + Send + 'static) -> Script {
+    let make_reply = Mutex::new(Some(make_reply));
+    Box::new(move |_, blocks| {
+        let prompt = blocks
+            .iter()
+            .filter_map(|block| block["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let outbox = prompt
+            .split_once("<cmux-media-outbox>")
+            .and_then(|(_, tail)| tail.split_once("</cmux-media-outbox>"))
+            .map(|(path, _)| std::path::PathBuf::from(path.trim()))
+            .expect("the turn names its media outbox");
+        let text = make_reply.lock().unwrap().take().unwrap()(&outbox);
         vec![
             json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
             update(
@@ -65,16 +76,8 @@ fn sent_reply(h: &mut Harness) -> Vec<Part> {
     }
 }
 
-fn turn(make_reply: impl FnOnce(&Path) -> String) -> (Vec<Part>, Harness) {
-    let dir = tempfile::tempdir().unwrap();
-    let outbox =
-        optchat_chief::brain::media::prepare_turn_outbox(&dir.path().join("session"), 0).unwrap();
-    let reply = make_reply(&outbox);
-    let owner = Arc::new(Mutex::new(Owner {
-        summary: Some(summary()),
-        ..Owner::default()
-    }));
-    let mut h = Harness::in_dir(dir, reply_script(reply), owner);
+fn turn(make_reply: impl FnOnce(&Path) -> String + Send + 'static) -> (Vec<Part>, Harness) {
+    let mut h = Harness::new(reply_script(make_reply));
     h.connect();
     h.say("user_local", "send me the screenshot and the video");
     h.settle();
@@ -224,11 +227,20 @@ fn security_a_symlinked_media_outbox_cannot_escape_to_another_directory() {
     use std::os::unix::fs::symlink;
 
     let private = tempfile::tempdir().unwrap();
-    std::fs::write(private.path().join("private.png"), png(8, 8)).unwrap();
     let target = private.path().to_owned();
+    let escaped = Arc::new(Mutex::new(None));
+    let wrote = escaped.clone();
     let (parts, h) = turn(move |outbox| {
+        let base = outbox.parent().unwrap();
+        let name = outbox.file_name().unwrap();
         std::fs::remove_dir(outbox).unwrap();
-        symlink(&target, outbox).unwrap();
+        std::fs::remove_dir(base).unwrap();
+        symlink(&target, base).unwrap();
+        let redirected = target.join(name);
+        std::fs::create_dir(&redirected).unwrap();
+        let private = redirected.join("private.png");
+        std::fs::write(&private, png(8, 8)).unwrap();
+        *wrote.lock().unwrap() = Some(private);
         format!("![private]({})", outbox.join("private.png").display())
     });
 
@@ -236,5 +248,9 @@ fn security_a_symlinked_media_outbox_cannot_escape_to_another_directory() {
     assert!(
         h.owner.lock().unwrap().uploads.is_empty(),
         "the media reader followed a symlinked outbox parent"
+    );
+    assert!(
+        escaped.lock().unwrap().as_ref().unwrap().exists(),
+        "outbox cleanup followed a symlinked parent and deleted another directory's file"
     );
 }

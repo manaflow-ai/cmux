@@ -8,7 +8,10 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use cmux_conversation::{Change, Participant, ParticipantKind};
 use common::*;
+use optchat_chief::brain::Input;
+use optchat_chief::daemon::DaemonEvent;
 use optchat_chief::state::{HostState, StateFile};
 use optchat_host::FAULT_ENV;
 use serde_json::{Value, json};
@@ -261,7 +264,16 @@ fn a_pending_turn_and_its_items_survive_a_restart_in_the_database() {
     // The turn is running: its pending record is in the database.
     let rows = h.chat.state_prefix("host/turn").unwrap();
     let turn: serde_json::Value = serde_json::from_str(&rows[0].1).unwrap();
-    assert_eq!(turn["items"], json!([{"seq": 1, "child": null}]), "{turn}");
+    assert_eq!(
+        turn["items"],
+        json!([{
+            "seq": 1,
+            "child": null,
+            "requires_approval": false,
+            "conversation_scoped": false
+        }]),
+        "{turn}"
+    );
     assert!(turn["key"].as_str().unwrap().starts_with("turn:optchat:0:"));
     let Harness {
         dir,
@@ -282,4 +294,76 @@ fn a_pending_turn_and_its_items_survive_a_restart_in_the_database() {
     // The cut turn is resumed and answers once (E23).
     assert_eq!(sends.len(), 1, "{sends:?}");
     assert!(!sends[0].1.starts_with("(interrupted"), "{sends:?}");
+}
+
+#[test]
+fn security_a_shared_pending_turn_resumes_without_private_memory() {
+    const PRIVATE: &str = "PRIVATE-BEFORE-GROUP-RESTART-91a2";
+    const GROUP_REQUEST: &str = "finish the group request";
+
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", PRIVATE);
+    h.settle();
+
+    let mut shared = h.owner.lock().unwrap().summary.clone().unwrap();
+    shared.last_seq = 1;
+    shared.participants.push(Participant {
+        id: "user_teammate".into(),
+        kind: ParticipantKind::Human,
+        display_name: "Teammate".into(),
+        agent_class: None,
+        acp_session: None,
+        person: None,
+    });
+    h.owner.lock().unwrap().summary = Some(shared.clone());
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Conversation {
+            conversation: Box::new(shared),
+        },
+    }));
+    h.agents.hold(true);
+    h.say("user_local", GROUP_REQUEST);
+    while h.agents.inner.lock().unwrap().prompts.len() < 2 {
+        h.step();
+    }
+    assert!(
+        h.brain.state().turn.as_ref().unwrap().items[0].conversation_scoped,
+        "the disclosure scope must commit with the pending turn"
+    );
+
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+
+    // Even if the summary is unavailable/stale-private on reconnect, the
+    // pending record itself keeps the stricter scope.
+    owner.lock().unwrap().summary = Some(summary());
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.connect();
+    h.settle();
+
+    let agents = h.agents.inner.lock().unwrap();
+    let prompt = Value::Array(agents.prompts[0].clone()).to_string();
+    assert!(
+        !prompt.contains(PRIVATE),
+        "private memory reached resume: {prompt}"
+    );
+    assert!(
+        prompt.contains(GROUP_REQUEST),
+        "resume lost its request: {prompt}"
+    );
+    assert_eq!(
+        agents.specs[0].cwd,
+        h.dir.path().join("session-shared"),
+        "the resumed group turn used the private session pool"
+    );
 }

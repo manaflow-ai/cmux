@@ -521,6 +521,10 @@ pub struct Item {
     /// resumed turn otherwise required approval for effects.
     #[serde(default = "legacy_requires_approval")]
     pub requires_approval: bool,
+    /// The turn was scoped away from the Chief's private cross-conversation
+    /// context. Older pending records fail closed.
+    #[serde(default = "legacy_requires_approval")]
+    pub conversation_scoped: bool,
     /// The resume note of a cut turn: a cut resume turn resumes again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resume: bool,
@@ -543,6 +547,9 @@ pub struct Resume {
     /// The cut turn required approval independently of remote.autoApprove.
     #[serde(default = "legacy_requires_approval")]
     pub requires_approval: bool,
+    /// The cut turn used shared-conversation scope. Older resumes fail closed.
+    #[serde(default = "legacy_requires_approval")]
+    pub conversation_scoped: bool,
     /// The full text of the cut turn's human messages, in log order: the
     /// resume turn's new messages carry them after the note (they are in
     /// the log already and are not logged again).
@@ -959,17 +966,23 @@ mod security_tests {
         let old_item: Item = serde_json::from_str(r#"{"seq":1}"#).unwrap();
         let old_resume: Resume = serde_json::from_str(r#"{"messages":["continue"]}"#).unwrap();
         assert!(old_item.requires_approval);
+        assert!(old_item.conversation_scoped);
         assert!(old_resume.requires_approval);
+        assert!(old_resume.conversation_scoped);
 
         let item = Item::default();
         let resume = Resume::default();
         assert!(!item.requires_approval);
+        assert!(!item.conversation_scoped);
         assert!(!resume.requires_approval);
+        assert!(!resume.conversation_scoped);
         let item_again: Item = serde_json::from_slice(&serde_json::to_vec(&item).unwrap()).unwrap();
         let resume_again: Resume =
             serde_json::from_slice(&serde_json::to_vec(&resume).unwrap()).unwrap();
         assert!(!item_again.requires_approval);
+        assert!(!item_again.conversation_scoped);
         assert!(!resume_again.requires_approval);
+        assert!(!resume_again.conversation_scoped);
 
         let old_spawn: SpawnRef =
             serde_json::from_str(r#"{"spawn":"spawn-1","subs":[],"quiet":false}"#).unwrap();

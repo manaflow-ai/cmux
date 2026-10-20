@@ -593,6 +593,8 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     // A status left by a host that crashed mid-wait says nothing true now.
     let settle = crate::settle_status::SettleStatus::new(&paths.settle_status);
     settle.clear();
+    crate::brain::media::cleanup_stale_outboxes(&paths.session);
+    crate::brain::media::cleanup_stale_outboxes(&paths.root.join("session-shared"));
     // The start-up probe says again when the compactor cannot work.
     settle.compactor_fault(None);
     let started = start(&paths, &home, &daemon_socket, source);
@@ -890,6 +892,19 @@ fn start(
         chiefs_tool: chief_tools.grant().allows("chiefs"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
+    // Shared/group turns use a different cwd, which is also part of acpmux's
+    // pool key. A process initialized with private AGENTS.md/CLAUDE.md can
+    // therefore never be adopted by a shared turn.
+    let mut shared_paths = paths.clone();
+    shared_paths.session = paths.root.join("session-shared");
+    let shared_setup = SessionSetup {
+        instructions: None,
+        profile_tool: false,
+        chiefs_tool: false,
+        ..setup.clone()
+    };
+    session_dir::write(&shared_paths, &shared_setup)
+        .map_err(|e| format!("writing the shared-turn session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.
     let sub_tools = if sub_family == Family::Claude {
         crate::prompt::Tools::Mcp
@@ -1438,6 +1453,7 @@ fn start(
         .unwrap_or(DEFAULT_TURN_LIMIT_MIN);
     let settings = Settings {
         session_dir: paths.session.clone(),
+        shared_session_dir: shared_paths.session,
         harness,
         policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
         model: env("OPTCHAT_CHIEF_MODEL"),

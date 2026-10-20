@@ -64,12 +64,7 @@ impl Brain {
         };
         // Pictures and videos go only from this turn's fresh, private outbox.
         // Model-authored paths elsewhere are text, never implicit file reads.
-        let media_root = self
-            .state
-            .turn
-            .as_ref()
-            .and_then(|turn| turn.first_id)
-            .map(|first| super::media::turn_outbox(&self.settings.session_dir, first));
+        let media_root = self.media_outbox.clone();
         let media = super::media::media_refs(&reply, media_root.as_deref());
         let fetcher = self.previewer.clone().filter(|_| {
             daemon.supports(LINK_PREVIEW_CAPABILITY)
@@ -90,10 +85,13 @@ impl Brain {
         );
         let thread_reply = reply.clone();
         let hold = if media.is_empty() { HOLD } else { MEDIA_HOLD };
+        let cleanup = (!media.is_empty()).then_some(media_root).flatten();
+        let thread_cleanup = cleanup.clone();
         let spawned = std::thread::Builder::new()
             .name("optchat-link-previews".into())
             .spawn(move || {
                 let parts = filled(port, fetcher, &conversation, &thread_reply, &media, &log);
+                super::media::cleanup_turn_outbox(thread_cleanup);
                 let _ = tx.send(Input::Previews {
                     key: owned_key,
                     parts,
@@ -101,10 +99,16 @@ impl Brain {
             });
         match spawned {
             Ok(_) => {
+                if cleanup.is_some() {
+                    self.media_outbox = None;
+                }
                 entry.plain_text = Some(reply);
                 entry.previews_until = Some(now_ms() + hold.as_millis() as u64);
             }
-            Err(e) => (self.log)(&format!("starting the link previews failed: {e}")),
+            Err(e) => {
+                super::media::cleanup_turn_outbox(cleanup);
+                (self.log)(&format!("starting the link previews failed: {e}"));
+            }
         }
         entry
     }

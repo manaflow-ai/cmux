@@ -394,7 +394,7 @@ mod tests {
             note: None,
         };
         assert_eq!(
-            logged_text("look", &[file.clone()]),
+            logged_text("look", std::slice::from_ref(&file)),
             "look\n[file sha256:ffffffffffff \"Makefile\" 3 bytes text/plain at /tmp/x/Makefile]"
         );
         assert_eq!(

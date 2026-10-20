@@ -9,7 +9,8 @@
 //! read; anything else stays text.
 
 use std::io::Read;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use cmux_conversation::Part;
@@ -43,38 +44,63 @@ pub fn media_type(path: &Path) -> Option<&'static str> {
     })
 }
 
-/// The private folder a turn may attach files from. Its name is a log id, so a
-/// later turn cannot reuse a path a previous prompt named.
-pub fn turn_outbox(session_dir: &Path, first: u64) -> PathBuf {
-    session_dir
-        .join(".cmux-media")
-        .join(format!("turn-{first}"))
-}
+/// Makes a fresh, unguessable owner-only outbox for one turn. Existing names
+/// are never reused after a history rollback.
+pub fn prepare_turn_outbox(session_dir: &Path) -> Option<PathBuf> {
+    use ring::rand::SecureRandom as _;
+    let session = open_directory_chain(session_dir).ok()?;
+    let base_name = c".cmux-media";
+    // SAFETY: `session` and `base_name` are valid descriptors/strings. A
+    // pre-existing entry is opened below with O_NOFOLLOW before it is used.
+    let made = unsafe { libc::mkdirat(session.as_raw_fd(), base_name.as_ptr(), 0o700) };
+    if made < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists {
+        return None;
+    }
+    let base = open_child_directory(session.as_raw_fd(), base_name).ok()?;
+    // SAFETY: `base` is the directory descriptor just opened without
+    // following a symlink. A failure leaves media disabled for this turn.
+    if unsafe { libc::fchmod(base.as_raw_fd(), 0o700) } < 0 {
+        return None;
+    }
 
-/// Makes this turn's outbox owner-only, refusing an unexpected non-directory
-/// or symlink. None keeps media attachment disabled for the turn.
-pub fn prepare_turn_outbox(session_dir: &Path, first: u64) -> Option<PathBuf> {
-    let base = session_dir.join(".cmux-media");
-    let turn = turn_outbox(session_dir, first);
-    for path in [&base, &turn] {
-        if let Ok(meta) = std::fs::symlink_metadata(path)
-            && (!meta.file_type().is_dir() || meta.file_type().is_symlink())
-        {
-            return None;
+    let random = ring::rand::SystemRandom::new();
+    for _ in 0..4 {
+        let mut nonce = [0u8; 16];
+        random.fill(&mut nonce).ok()?;
+        let name = nonce.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let c_name = std::ffi::CString::new(name.as_bytes()).ok()?;
+        // SAFETY: `base` and `c_name` are valid; mkdirat creates only a
+        // direct child of the verified outbox directory.
+        if unsafe { libc::mkdirat(base.as_raw_fd(), c_name.as_ptr(), 0o700) } == 0 {
+            return Some(session_dir.join(".cmux-media").join(name));
         }
-        if std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(path)
-            .is_err()
-        {
-            return None;
-        }
-        if std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).is_err() {
+        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists {
             return None;
         }
     }
-    Some(turn)
+    None
+}
+
+/// Removes one generated outbox without following any component. Best effort:
+/// attachment delivery must not fail on cleanup.
+pub fn cleanup_turn_outbox(path: Option<PathBuf>) {
+    let Some(path) = path else { return };
+    let Some(parent) = path.parent() else { return };
+    let Some(name) = path.file_name() else { return };
+    let Ok(parent) = open_directory_chain(parent) else {
+        return;
+    };
+    let Ok(name) = std::ffi::CString::new(name.as_bytes()) else {
+        return;
+    };
+    remove_child(parent.as_raw_fd(), &name, 0);
+}
+
+/// A stopped/crashed host owns no live turn outbox. Called only after taking
+/// the per-Chief host lock.
+pub fn cleanup_stale_outboxes(session_dir: &Path) {
+    let base = session_dir.join(".cmux-media");
+    cleanup_turn_outbox(Some(base));
 }
 
 /// The absolute local path a Markdown link target names, in `<…>` or not.
@@ -186,10 +212,7 @@ pub fn upload(
     let mut sent = Vec::new();
     for media in refs {
         let bytes = match (|| {
-            let mut file = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&media.path)?;
+            let mut file = open_media_file(&media.path)?;
             let meta = file.metadata()?;
             if !meta.file_type().is_file() || meta.len() == 0 || meta.len() > MAX_MEDIA_BYTES {
                 return Ok::<_, std::io::Error>(Vec::new());
@@ -256,6 +279,140 @@ pub fn upload(
         }
     }
     sent
+}
+
+/// Opens every directory component and then the file with `O_NOFOLLOW`, using
+/// descriptor-relative `openat` so swapping an outbox parent to a symlink
+/// cannot redirect the read between validation and open.
+fn open_media_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    let directory = open_directory_chain(parent)?;
+    let leaf = path
+        .file_name()
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    let leaf = std::ffi::CString::new(leaf.as_bytes())
+        .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    // SAFETY: `directory` is open, `leaf` is NUL-terminated, and flags request
+    // a read-only descriptor without following the final component.
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            leaf.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `openat` returned a new owned descriptor.
+    Ok(std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }))
+}
+
+/// Deletes a direct child through an already-open parent. Directories are
+/// traversed through their descriptors, so a concurrent rename or symlink
+/// replacement can at worst leave an entry behind, never redirect deletion.
+fn remove_child(parent: RawFd, name: &std::ffi::CStr, depth: usize) {
+    match open_child_directory(parent, name) {
+        Ok(directory) => {
+            if depth < 32 {
+                remove_directory_contents(directory.as_raw_fd(), depth + 1);
+            }
+            drop(directory);
+            // SAFETY: this removes only `name` relative to the open parent.
+            let _ = unsafe { libc::unlinkat(parent, name.as_ptr(), libc::AT_REMOVEDIR) };
+        }
+        Err(_) => {
+            // SAFETY: unlinkat without AT_REMOVEDIR removes a file/symlink
+            // itself and never follows it.
+            let _ = unsafe { libc::unlinkat(parent, name.as_ptr(), 0) };
+        }
+    }
+}
+
+fn remove_directory_contents(directory: RawFd, depth: usize) {
+    // `fdopendir` takes ownership of its descriptor, so duplicate ours.
+    // SAFETY: `directory` is open for the duration of this function.
+    let duplicate = unsafe { libc::dup(directory) };
+    if duplicate < 0 {
+        return;
+    }
+    // SAFETY: `duplicate` is a newly owned directory descriptor.
+    let stream = unsafe { libc::fdopendir(duplicate) };
+    if stream.is_null() {
+        // SAFETY: fdopendir did not take ownership on failure.
+        let _ = unsafe { libc::close(duplicate) };
+        return;
+    }
+    // Cleanup is best effort and must not let an adversarial producer keep the
+    // host in an unbounded loop. Anything beyond this cap stays for startup.
+    for _ in 0..4096 {
+        // SAFETY: `stream` remains live until closed below. readdir's entry
+        // is valid until the next readdir call, and d_name is NUL-terminated.
+        let entry = unsafe { libc::readdir(stream) };
+        if entry.is_null() {
+            break;
+        }
+        // SAFETY: POSIX guarantees d_name is a NUL-terminated byte array.
+        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+        if matches!(name.to_bytes(), b"." | b"..") {
+            continue;
+        }
+        remove_child(directory, name, depth);
+    }
+    // SAFETY: `stream` is live and owns `duplicate`.
+    let _ = unsafe { libc::closedir(stream) };
+}
+
+fn open_child_directory(parent: RawFd, name: &std::ffi::CStr) -> std::io::Result<OwnedFd> {
+    // SAFETY: `parent` is open and `name` is NUL-terminated. O_NOFOLLOW
+    // rejects a symlink in the child position.
+    let fd = unsafe {
+        libc::openat(
+            parent,
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: openat returned a new owned descriptor.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+fn open_directory_chain(path: &Path) -> std::io::Result<OwnedFd> {
+    if !path.is_absolute() {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+    }
+    let root = c"/";
+    // SAFETY: `root` is a valid C string and the flags have no pointer output.
+    let root_fd = unsafe {
+        libc::open(
+            root.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+        )
+    };
+    if root_fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `open` returned a new owned descriptor.
+    let mut current = unsafe { OwnedFd::from_raw_fd(root_fd) };
+    for component in path.components() {
+        use std::path::Component;
+        let name = match component {
+            Component::RootDir | Component::CurDir => continue,
+            Component::Normal(name) => name,
+            Component::ParentDir | Component::Prefix(_) => {
+                return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+            }
+        };
+        let name = std::ffi::CString::new(name.as_bytes())
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+        current = open_child_directory(current.as_raw_fd(), &name)?;
+    }
+    Ok(current)
 }
 
 #[cfg(test)]
