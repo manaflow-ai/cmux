@@ -255,7 +255,7 @@ public final class HostBrowserSignInFlow {
     }
 
     /// Sign out and prevent a late callback from resurrecting the session.
-    public func signOut() async {
+    public func signOut(ifGeneration expectedGeneration: UInt64? = nil) async {
         if await signOutCoordinator.joinActive() { return }
         log.log("auth.browser.signOut.begin signingIn=\(isSigningIn) activeAttempt=\(activeAttemptID.map(String.init) ?? "nil") generation=\(signOutGeneration)")
         signOutGeneration &+= 1

@@ -542,6 +542,7 @@ public final class AuthCoordinator {
     ///   can't hold `signOut()` open. Sleeps on the injected clock so tests
     ///   drive the deadline with virtual time. Defaults to 5 seconds.
     public func signOut(
+        ifGeneration expectedGeneration: UInt64? = nil,
         onSignedOut: @escaping @Sendable (_ accessToken: String?, _ refreshToken: String?) async -> Void = { _, _ in },
         teardownTimeout: Duration = .seconds(5)
     ) async {

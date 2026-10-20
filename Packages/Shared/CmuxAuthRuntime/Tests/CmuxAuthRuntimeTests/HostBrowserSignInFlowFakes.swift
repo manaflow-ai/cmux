@@ -29,6 +29,7 @@ actor FlowFakeAuthClient: AuthClient {
     }
 
     func setCurrentUserError(_ error: (any Error)?) { currentUserError = error }
+    func setUser(_ user: CMUXAuthUser) { self.user = user }
 
     func closeUserGate() { userGateClosed = true }
 
