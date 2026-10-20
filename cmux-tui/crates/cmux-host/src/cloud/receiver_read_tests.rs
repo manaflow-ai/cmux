@@ -322,6 +322,17 @@ fn vm_receiver_client_read_projects_only_public_generated_fields() {
 #[cfg(target_os = "linux")]
 #[test]
 fn vm_receiver_client_read_rechecks_private_files_after_network_without_rebinding() {
+    rechecks_files(false);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn native_receiver_private_bootstrap_rechecks_original_files_around_cloud_read() {
+    rechecks_files(true);
+}
+
+#[cfg(target_os = "linux")]
+fn rechecks_files(private: bool) {
     use super::wire::{BOUND_FILE, INSTALL_KEY_FILE, STATE_DIR, WG_KEY_FILE};
     use crate::config::Paths;
     use std::fs;
@@ -369,7 +380,18 @@ fn vm_receiver_client_read_rechecks_private_files_after_network_without_rebindin
                 _ => {}
             })),
         );
-        let result = super::receiver_files::reply(&paths, "instance-a", &mut client, NOW);
+        let result = if private {
+            super::receiver_files::bootstrap(&paths, "instance-a", &mut client, NOW).map(|b| {
+                assert_eq!(b.binding().machine, MACHINE);
+                assert!(!b.keys().keys.is_empty());
+                let encoded = b.encode().unwrap();
+                let decoded = super::private_bootstrap::NativeBootstrap::decode(&encoded).unwrap();
+                assert_eq!(*decoded.into_parts().2, [9; 32]);
+                json!({"value":{"policy":{"machine":b.binding().machine}}})
+            })
+        } else {
+            super::receiver_files::reply(&paths, "instance-a", &mut client, NOW)
+        };
         assert_eq!(result.is_ok(), change == "unchanged", "{change}");
         if let Ok(reply) = result {
             assert_eq!(reply["value"]["policy"]["machine"], MACHINE);

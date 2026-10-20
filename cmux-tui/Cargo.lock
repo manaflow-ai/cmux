@@ -1133,6 +1133,7 @@ dependencies = [
  "tempfile",
  "url",
  "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

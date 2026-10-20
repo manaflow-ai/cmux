@@ -147,3 +147,15 @@ pub(super) fn reply<H: Http>(
     }
     snapshot.public_reply(std::time::Instant::now())
 }
+
+/// Kept separate from the public agent reply: private bootstrap is available
+/// only to the root role's authenticated child chain.
+#[cfg(test)]
+pub(super) fn bootstrap<H: Http>(
+    _paths: &Paths,
+    _instance: &str,
+    _client: &mut CloudClient<H>,
+    _now_wall_ms: u64,
+) -> Result<super::private_bootstrap::NativeBootstrap, String> {
+    Err(UNAVAILABLE.into())
+}
