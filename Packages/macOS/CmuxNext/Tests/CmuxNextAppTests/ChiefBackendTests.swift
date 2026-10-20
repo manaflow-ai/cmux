@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxNextDaemon
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+@testable import CmuxNextApp
 import Foundation
 import Testing
 
@@ -93,6 +94,31 @@ import Testing
         #expect(dm.participants.last?.kind == .agent)
         #expect(dm.participants.last?.agentClass == "mux")
         #expect(dm.idempotencyKey != sent.key)
+    }
+
+    /// New Chief on the default engine (Claude) went to the signed-in account's cloud `chief.create`:
+    /// signed out it answered "You're offline", while `cmux chief new` made the Chief on this Mac.
+    /// Every engine's Chief is made on this Mac's Chief owner, the registry Home lists Chiefs from.
+    @MainActor @Test func aNewChiefOnTheDefaultEngineIsMadeOnThisMacsChiefOwner() async throws {
+        let calls = Calls()
+        let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.home.localChiefCreator = {
+            HomeLocalChiefCreator(me: me, send: { operation, params, key in
+                await calls.sent(operation, params, key)
+                return .object(["value": .object(["id": .string("agent_scout01"), "display_name": .string("Scout")])])
+            }, open: { request in
+                await calls.opened(request)
+                return "conv_scout"
+            })
+        }
+        let outcome = await services.home.createChief(named: "Scout")
+        #expect(outcome == .opened(ConversationID("conv_scout")))
+        let sent = try #require(await calls.sends.first)
+        #expect(sent.operation == "chief.profile.create")
+        #expect(sent.params == ["display_name": .string("Scout")])
+        #expect(await calls.opens.count == 1)
+        #expect(services.home.pendingSelection == ConversationID("conv_scout"))
     }
 
     @Test func theDefaultEngineIsNotNamedInALocalCreate() {

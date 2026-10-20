@@ -98,6 +98,12 @@ final class HomeService {
             guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
             return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
         })
+    /// New Chief's maker on this Mac's Chief owner (`chief.profile.create`), nil while the owner
+    /// is not connected. Tests give it a fake owner.
+    @ObservationIgnored lazy var localChiefCreator: @MainActor () -> HomeLocalChiefCreator? = { [weak self] in
+        guard let connection = self?.connection else { return nil }
+        return HomeLocalChiefCreator(connection: connection, me: Self.localUser)
+    }
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?

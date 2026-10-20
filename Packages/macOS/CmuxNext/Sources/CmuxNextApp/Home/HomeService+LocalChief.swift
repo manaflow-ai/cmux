@@ -10,9 +10,9 @@ extension HomeService {
     /// A Chief of this Mac's Chief owner that starts on `backend` (`chief.profile.create` with
     /// `harness`), and the person's direct message with it, which the page then shows.
     func createLocalChief(named name: String, backend: ChiefBackend) async -> HomeComposeOutcome {
-        guard let connection else { return .offline }
+        guard let creator = localChiefCreator() else { return .offline }
         do {
-            let made = try await HomeLocalChiefCreator(connection: connection, me: Self.localUser).create(name: name, backend: backend)
+            let made = try await creator.create(name: name, backend: backend)
             pendingSelection = made.conversation
             refreshChiefHarnesses()
             return .opened(made.conversation)
