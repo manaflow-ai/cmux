@@ -140,11 +140,17 @@ What was not true, and its state on 2026-10-19:
 
 Plan:
 
-- H1. A cron (`backend/apps/api/src/cron.ts`, every 5 min) runs a synthetic round trip on a
-  dedicated probe user pair in each environment: `dm.open` by user id, `message.send`, read back
-  through the peer's `inbox.list`, and `invite` dry-run. It records latency and result in
-  Workers Analytics, and posts to the ops channel on two failures in a row. No email is sent
-  (probe addresses are on a never-send list).
+- H1 (built). A Worker cron (`*/5 * * * *`, `backend/apps/api/src/home-health.ts`, wired in
+  `index.ts` `scheduled`) sends one message between two probe users (`user_homeprobesender`,
+  `user_homeprobepeer`: not Stack-derived ids, no email, no device) through the real owners:
+  `dm.open` by id on the pair's ConversationDO, `message.send`, then the message must reach the
+  peer's UserDO inbox within 20 s. The DM keeps 30 days of history (the shortest retention), so it
+  stays bounded. Each run logs `home.health.ok` / `home.health.failed` (step, latency, code) and
+  sends one Sentry Cron check-in (monitor `cloud-home-<environment>`, secret `SENTRY_DSN`; without
+  it the run only logs). Sentry opens one issue after 2 failed check-ins in a row
+  (`failure_issue_threshold: 2`), also when check-ins stop (Worker or cron down, which an
+  in-Worker counter cannot report), and resolves it on the next good one (`recovery_threshold: 1`).
+  The cron runs on development, staging and production (Lawrence approved the production deploy 2026-10-19).
 - H2. Client: the Home list shows "Offline. Messages send when you're back" instead of an error
   when the Worker is unreachable; sends stay in the intent log (already true) and retry with
   backoff (already true for ops; add jitter and a cap of 5 min).

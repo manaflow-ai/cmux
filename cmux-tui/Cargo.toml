@@ -38,6 +38,7 @@ members = [
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
+    "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
@@ -101,6 +102,7 @@ default-members = [
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
+    "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
@@ -144,6 +146,11 @@ default-members = [
 exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 
 [workspace.package]
+# The cmux-next version: the one source of truth for every version surface
+# (bundled CLIs, app CFBundleShortVersionString, nightly 1.0.0-nightly.<build>).
+# Read by scripts/ci/nightly_version.py next-base; checked on every built app by
+# scripts/cmux-next/check-version-surfaces.sh.
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
@@ -184,6 +191,7 @@ cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
+cmux-api-compat = { path = "crates/cmux-api-compat" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
 cmux-build-identity = { path = "crates/cmux-build-identity" }
@@ -284,7 +292,8 @@ quick-xml = { version = "0.41", default-features = false }
 # Ed25519 verification of the signed channel manifest (cmux-server-core).
 # ring is already in the graph through rustls; this adds no new code.
 ring = "0.17"
-socket2 = { version = "0.5", features = ["all"] }
+# TCP keepalive on accepted daemon WebSocket sockets (cmux-tui-core).
+socket2 = { version = "0.6", features = ["all"] }
 snow = "0.10"
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
@@ -334,3 +343,8 @@ opt-level = 3
 # before it joins this list.
 [profile.dev.package.acpmux]
 opt-level = 0
+
+# The JSON rewriter sits on every translated daemon message; tests and the
+# Rex parity bench (tests/rex_parity_bench.rs) measure it optimized.
+[profile.dev.package.cmux-api-compat]
+opt-level = 3

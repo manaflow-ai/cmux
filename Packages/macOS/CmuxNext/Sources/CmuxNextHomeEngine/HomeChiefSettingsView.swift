@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHome
 import Foundation
 import CmuxNextCompat
 import UniformTypeIdentifiers
@@ -42,6 +43,9 @@ public final class HomeChiefSettingsView: NSView {
     let harness = ThemedPopUpButton(frame: .zero, pullsDown: false)
     let model = ThemedPopUpButton(frame: .zero, pullsDown: false)
     let effort = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    /// UniiChat's one-line sign-in note under the Harness row (``ChiefBackend/hint``);
+    /// hidden for every other harness.
+    let harnessHint = ThemedLabel(wrappingLabelWithString: "")
     /// Why the engine could not be read or set, or a picture could not be used.
     let failure = ThemedLabel(wrappingLabelWithString: "")
     let appearanceHeader = ThemedLabel(labelWithString: HomeEngineStrings.appearanceSection)
@@ -64,6 +68,8 @@ public final class HomeChiefSettingsView: NSView {
     public var onAvatar: () -> Void = {}
     /// Show Memory: runs "Chief: Open Memory Inspector".
     public var onShowMemory: () -> Void = {}
+    /// The brain took a pick (harness, model or effort): the Home list reads the Chiefs' engines again.
+    public var onEngineChanged: () -> Void = {}
     /// The content's height changed (the disclosure, a failure note, new stats):
     /// the popover resizes to `fittingSize`.
     public var onResize: () -> Void = {}
@@ -71,12 +77,20 @@ public final class HomeChiefSettingsView: NSView {
     /// parent), since the popover closes when the panel takes the keys.
     public var pictureWindow: () -> NSWindow? = { nil }
 
-    /// The harness items the picker offers: the user's own Claude login and
-    /// Codex; the CodeRouter route (`claude-cr`) only when this Chief's
-    /// acpmux has one configured. The subrouter pool (`claude-sr`) is never a
-    /// default item; a current choice of it still shows (`fill`).
+    /// The harness items the picker offers: the official engines (``ChiefBackend/official``:
+    /// the user's own Claude login, Codex, and UniiChat, acpmux's built-in `unii`); the
+    /// CodeRouter route (`claude-cr`) after Claude only when this Chief's acpmux has one
+    /// configured. The subrouter pool (`claude-sr`) is never a default item; a current choice
+    /// of it still shows (`fill`).
     nonisolated static func harnesses(routeConfigured: Bool) -> [String] {
-        routeConfigured ? ["claude", "claude-cr", "codex"] : ["claude", "codex"]
+        let official = ChiefBackend.official.map(\.id)
+        guard routeConfigured else { return official }
+        return [ChiefBackend.claude.id, "claude-cr"] + official.filter { $0 != ChiefBackend.claude.id }
+    }
+
+    /// The harness picker's items: each harness with the name the app shows for it.
+    nonisolated static func harnessItems(routeConfigured: Bool) -> [(value: String, title: String)] {
+        harnesses(routeConfigured: routeConfigured).map { ($0, ChiefBackend.title(for: $0)) }
     }
 
     public init(muxHome: URL, source: any HomeChiefEngineSource) {
@@ -111,6 +125,13 @@ public final class HomeChiefSettingsView: NSView {
             button.font = Typography.body
             button.setAccessibilityLabel(label)
             addFullWidth(Self.row(label, button))
+            if button === harness {
+                harnessHint.font = Typography.caption
+                harnessHint.ink = .secondary
+                harnessHint.isHidden = true
+                harnessHint.setAccessibilityIdentifier("cmux.home.chief.harnessHint")
+                addFullWidth(harnessHint)
+            }
         }
         let note = Self.footnote(HomeEngineStrings.nextTurn)
         addFullWidth(note)
@@ -267,7 +288,9 @@ public final class HomeChiefSettingsView: NSView {
             // A pick for the Chief shown before (another conversation) is not shown.
             guard let self, muxHome == home else { return }
             switch result {
-            case .success(let snapshot): show(snapshot)
+            case .success(let snapshot):
+                show(snapshot)
+                onEngineChanged()
             case .failure(let error): say(error, readable: true)
             }
         }
@@ -285,7 +308,8 @@ public final class HomeChiefSettingsView: NSView {
         failure.isHidden = true
         for button in [harness, model, effort] { button.isEnabled = true }
         let shown = HomeChiefEngineTitles(snapshot)
-        fill(harness, shown.harnesses, current: snapshot.harness, defaultTitle: shown.defaultHarness)
+        fill(harness, shown.harnesses, current: snapshot.harness, defaultTitle: shown.defaultHarness, title: ChiefBackend.title(for:))
+        showHarnessHint()
         fill(model, shown.models, current: snapshot.model, defaultTitle: shown.defaultModel)
         fill(effort, shown.efforts, current: snapshot.effort, defaultTitle: shown.defaultEffort)
         stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
@@ -297,13 +321,14 @@ public final class HomeChiefSettingsView: NSView {
     }
 
     /// `values` (value, title) after a "Default" item that names what it runs,
-    /// and the current value kept even when it is not one of them.
-    func fill(_ button: NSPopUpButton, _ values: [(value: String, title: String)], current: String?, defaultTitle: String) {
+    /// and the current value kept even when it is not one of them (titled by `title`).
+    func fill(_ button: NSPopUpButton, _ values: [(value: String, title: String)], current: String?, defaultTitle: String,
+              title: (String) -> String = { $0 }) {
         button.removeAllItems()
         button.addItem(withTitle: defaultTitle)
         button.lastItem?.representedObject = nil
         var all = values
-        if let current, !all.contains(where: { $0.value == current }) { all.append((current, current)) }
+        if let current, !all.contains(where: { $0.value == current }) { all.append((current, title(current))) }
         for item in all {
             button.addItem(withTitle: item.title)
             button.lastItem?.representedObject = item.value
@@ -317,6 +342,18 @@ public final class HomeChiefSettingsView: NSView {
 
     @objc func picked(_ sender: NSPopUpButton) {
         let key = sender === harness ? "harness" : sender === model ? "model" : "effort"
+        if sender === harness { showHarnessHint() }
         pick(key, sender.selectedItem?.representedObject as? String)
+    }
+
+    /// The hint under the Harness row: only UniiChat's (sign in with `unii login` first), since
+    /// the other engines' sign-in is the brain host's own (a cloud Chief's runs on its server).
+    func showHarnessHint() {
+        let unii = harness.selectedItem?.representedObject as? String == ChiefBackend.unii.id
+        let hint = unii ? ChiefBackend.unii.hint : nil
+        harnessHint.stringValue = hint ?? ""
+        let changed = harnessHint.isHidden != (hint == nil)
+        harnessHint.isHidden = hint == nil
+        if changed { onResize() }
     }
 }

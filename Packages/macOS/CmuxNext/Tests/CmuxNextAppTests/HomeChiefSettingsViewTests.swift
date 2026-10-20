@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDaemon
+import CmuxNextHome
 @testable import CmuxNextHomeEngine
 import Testing
 
@@ -16,7 +17,7 @@ import Testing
         snapshot.efforts = ["low", "high"]
         snapshot.effective = ChiefEngineReport.Engine(harness: "claude", model: "claude-opus-5-5", effort: "high")
         let titles = HomeChiefEngineTitles(snapshot)
-        #expect(titles.defaultHarness == Self.named("claude"))
+        #expect(titles.defaultHarness == Self.named(ChiefBackend.claude.title))
         // The model shows by the name acpmux offers, and acpmux's own "default" is not an item.
         #expect(titles.defaultModel == Self.named("Opus 5.5"))
         #expect(titles.models.map(\.value) == ["claude-opus-5-5"])
@@ -31,7 +32,7 @@ import Testing
         snapshot.effective = ChiefEngineReport.Engine(harness: "claude", model: "claude-opus-5-5", effort: "high")
         let titles = HomeChiefEngineTitles(snapshot)
         #expect(titles.defaultModel == HomeEngineStrings.defaultValue)
-        #expect(titles.defaultHarness == Self.named("claude"))
+        #expect(titles.defaultHarness == Self.named(ChiefBackend.claude.title))
     }
 
     @Test func defaultStaysPlainUntilTheBrainAnswers() {

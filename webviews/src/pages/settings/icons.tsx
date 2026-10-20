@@ -54,7 +54,9 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   // The code editor category (Settings > Code Editor).
-  "chevron.left.forwardslash.chevron.right": <path d="M5.2 4.4 1.8 8l3.4 3.6M10.8 4.4 14.2 8l-3.4 3.6M9.2 2.8 6.8 13.2" />,
+  "chevron.left.forwardslash.chevron.right": (
+    <path d="M5.2 4.4 1.8 8l3.4 3.6M10.8 4.4 14.2 8l-3.4 3.6M9.2 2.8 6.8 13.2" />
+  ),
   curlybraces: (
     <path d="M5.6 2.2c-1.6 0-2 .7-2 2v1.4c0 1-.5 1.9-1.6 2.4 1.1.5 1.6 1.4 1.6 2.4v1.4c0 1.3.4 2 2 2M10.4 2.2c1.6 0 2 .7 2 2v1.4c0 1 .5 1.9 1.6 2.4-1.1.5-1.6 1.4-1.6 2.4v1.4c0 1.3-.4 2-2 2" />
   ),
