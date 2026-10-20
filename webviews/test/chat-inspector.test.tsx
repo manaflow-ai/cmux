@@ -19,7 +19,11 @@ import {
   PUSH_MIN_CHAT,
   useChatInspector,
 } from "../src/agent-session/acpmux/inspector/ChatInspector";
-import { inspectorState, resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
+import {
+  inspectorState,
+  resetInspectorState,
+  setInspectorSection,
+} from "../src/agent-session/acpmux/inspector/inspectorState";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
@@ -90,12 +94,15 @@ afterEach(async () => {
 
 const noop = () => undefined;
 let paneWidth = 0;
+// The running line's counts call this (App.tsx `openAgents` / `openCommands`).
+let reveal: ((section: "subagents" | "tasks") => void) | undefined;
 
 /// The pane's pieces as App.tsx places them: the toggle last in the header's tools, the Inspector
 /// beside the chat column in the pane's shell.
 function Pane({ snapshot, onOpenOutput }: { snapshot: AcpmuxSnapshot; onOpenOutput: (path: string) => void }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const inspector = useChatInspector({ snapshot, machineName: "Studio", shell, onOpenOutput });
+  reveal = inspector.reveal;
   return (
     <section
       className="acpmux-shell"
@@ -239,6 +246,26 @@ test("with the Debug toggle off there is no toggle button and no Inspector", asy
   await render(container, localChat);
   expect(toggle(container)).toBeNull();
   expect(panel(container)).toBeNull();
+  // The running line's counts fall back to the summary card.
+  expect(reveal).toBeUndefined();
+});
+
+test("the running line's counts open a closed Inspector with Subagents or Background tasks unfolded", async () => {
+  const container = installDom(true);
+  await render(container, localChat);
+  await click(toggle(container)!);
+  await act(async () => {
+    setInspectorSection("tasks", false);
+    setInspectorSection("subagents", false);
+  });
+  expect(panel(container)).toBeNull();
+  await act(async () => reveal!("tasks"));
+  expect(panel(container)).not.toBeNull();
+  expect(inspectorState().open).toBe(true);
+  expect(inspectorState().sections.tasks).toBe(true);
+  expect(inspectorState().sections.subagents).toBe(false);
+  await act(async () => reveal!("subagents"));
+  expect(inspectorState().sections.subagents).toBe(true);
 });
 
 test("it pushes the chat aside unless the pane is too narrow for the chat, or Settings says Overlay", async () => {

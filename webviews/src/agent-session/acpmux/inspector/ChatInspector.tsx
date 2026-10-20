@@ -123,7 +123,13 @@ export function useChatInspector({
     asks: ReadonlySet<string>;
     onOpen: (id: string) => void;
   };
-}): { on: boolean; button?: ReactNode; panel?: ReactNode } {
+}): {
+  on: boolean;
+  button?: ReactNode;
+  panel?: ReactNode;
+  // Opens the Inspector with `section` unfolded (the running line's counts: App.tsx).
+  reveal?: (section: InspectorSectionId) => void;
+} {
   const t = useT();
   const { inspector: on, pullRequest } = useHeaderState();
   const { open, width, sections } = useInspectorState();
@@ -172,6 +178,11 @@ export function useChatInspector({
       setInspectorOpen(true);
     }
   };
+  const reveal = (section: InspectorSectionId) => {
+    setSuppressed(false);
+    setInspectorSection(section, true);
+    setInspectorOpen(true);
+  };
   const openOutput = onOpenOutput
     ? (path: string) => {
         openedOutputAt.current = Date.now();
@@ -180,6 +191,7 @@ export function useChatInspector({
     : undefined;
   return {
     on: true,
+    reveal,
     button: (
       <button
         type="button"

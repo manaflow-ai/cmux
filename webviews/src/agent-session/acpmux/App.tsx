@@ -4016,8 +4016,8 @@ function AcpmuxPane() {
     () => (snapshot.isWorking ? runningBackgroundTasks(snapshot.rows) : []),
     [snapshot.isWorking, snapshot.rows],
   );
-  const counted = useRef({ runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard });
-  counted.current = { runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard };
+  const counted = useRef({ runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard, inspector });
+  counted.current = { runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard, inspector };
   const workingCounts = useMemo<WorkingCounts>(() => {
     // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
     // holds the call. The reveal lets go after a moment, so the run closes again like any other.
@@ -4041,13 +4041,16 @@ function AcpmuxPane() {
       agents: runningAgents.length,
       commands: runningCommands.length,
       openAgents: () => {
-        const { runningAgents: agents, summaryCard: card } = counted.current;
+        const { runningAgents: agents, summaryCard: card, inspector: panel } = counted.current;
         if (agents.length === 1) showSubagent(agents[0]!.id);
+        // The Inspector takes the summary card's place while it is on (its panel is never drawn).
+        else if (panel.reveal) panel.reveal("subagents");
         else card.show();
       },
       openCommands: () => {
-        const { runningCommands: commands, summaryCard: card } = counted.current;
+        const { runningCommands: commands, summaryCard: card, inspector: panel } = counted.current;
         if (commands.length === 1) showToolRow(commands[0]!.id);
+        else if (panel.reveal) panel.reveal("tasks");
         else card.show();
       },
     };
