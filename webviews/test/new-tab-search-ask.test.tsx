@@ -168,3 +168,21 @@ test("Shift-Tab leaves the mode alone and is not consumed", async () => {
   await key(field, "Tab");
   expect(host.querySelector(".nt-mode output")?.textContent).toBe("Search");
 });
+
+// Review (PR 21817, Greptile): an arrow that lands while a switch is still rendering picks from the
+// rows on screen. The pick follows that row when the switch reorders the rows, so Return takes the
+// row that was highlighted, not whatever now sits at its index.
+test("an arrow pressed before a switch renders keeps its row through the reorder", async () => {
+  const calls: unknown[][] = [];
+  const field = await render(calls);
+  await type(field, "ff");
+  expect(selected()).toBe("Ask Claude Code");
+  await act(async () => {
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+  });
+  expect(pressed()).toEqual(["search"]);
+  expect(selected()).toBe("Search the web for ff");
+  await key(field, "Enter");
+  expect(calls).toEqual([["search", "ff"]]);
+});

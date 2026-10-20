@@ -2705,8 +2705,14 @@
     },
     "phone.allowConnections" : {
       "default" : false,
-      "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers.",
+      "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
       "title" : "Let Your Phone Use This Mac",
+      "type" : "boolean"
+    },
+    "phone.cloudReplica" : {
+      "default" : false,
+      "description" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy.",
+      "title" : "Show This Mac's Workspaces on Your Phone While It's Off",
       "type" : "boolean"
     },
     "phone.keepAwake" : {
@@ -2862,7 +2868,7 @@
       "type" : "string"
     },
     "sidebar.nowPlaying.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
       "title" : "Show Now Playing",
       "type" : "boolean"
