@@ -25,8 +25,34 @@ parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 
 | Env | Worker | URL | Database |
 | --- | --- | --- | --- |
-| `dev` | `cmux-mobile-api-dev` | https://cmux-mobile-api-dev.debussy.workers.dev | PlanetScale `cmux/cmux-next-ios`, branch `main`, role `cmux-next-ios-dev`, Hyperdrive `cmux-next-ios-dev` (`e4fd2e88cfcd4f00841ddc5b49c3ee06`) |
-| `prod` | `cmux-mobile-api-prod` | https://mobile-api.cmux.dev (custom domain; also https://cmux-mobile-api-prod.debussy.workers.dev) | PlanetScale `cmux/cmux-next-ios-prod` (its own database, PS-5 single node, us-east), branch `main`, role `cmux-next-ios-prod`, Hyperdrive `cmux-next-ios-prod` (`11158756425f41469964743aab2f6319`, caching disabled). Accepts only the production Stack project |
+| `dev` | `cmux-mobile-api-dev` | https://cmux-mobile-api-dev.debussy.workers.dev | PlanetScale Postgres `cmux/cmux-mobile-dev`, branch `main`, role `cmux-mobile-api`, Hyperdrive `cmux-mobile-dev` (`e4fd2e88cfcd4f00841ddc5b49c3ee06`, caching disabled) |
+| `prod` | `cmux-mobile-api-prod` | https://mobile-api.cmux.dev (custom domain; also https://cmux-mobile-api-prod.debussy.workers.dev) | PlanetScale Postgres `cmux/cmux-mobile-prod` (its own database, single node, us-east), branch `main`, role `cmux-mobile-api`, Hyperdrive `cmux-mobile-prod` (`11158756425f41469964743aab2f6319`, caching disabled). Accepts only the production Stack project |
+
+### Resource names
+
+Production naming (2026-10-20). "cnx" was a development tag; nothing ships under it.
+Durable Object namespaces carry the name the Worker had when the namespace was created
+(`<worker>_TeamHub`); Cloudflare keeps that label when a Worker is renamed and it is
+never shown to anyone. The class itself is `TeamHub`.
+
+| Resource | Before | Now |
+| --- | --- | --- |
+| Dev Worker | `cnx-ios-api-dev` | `cmux-mobile-api-dev` (renamed in place: same script id, secrets and hub namespace) |
+| Prod Worker | `cnx-ios-api-prod` | `cmux-mobile-api-prod` (renamed in place) |
+| Prod host | `cnx-ios-api.cmux.dev` | `mobile-api.cmux.dev` |
+| Dev Hyperdrive | `cnx-ios-dev`, then `cmux-next-ios-dev` | `cmux-mobile-dev` (same id) |
+| Prod Hyperdrive | `cnx-ios-prod`, then `cmux-next-ios` | `cmux-mobile-prod` (same id) |
+| Dev database | `cmux/cnx-ios`, then `cmux/cmux-next-ios-dev` | `cmux/cmux-mobile-dev` |
+| Prod database | `cmux/cnx-ios-prod`, then `cmux/cmux-next-ios` | `cmux/cmux-mobile-prod` |
+| Database role | `cnx-ios-dev` / `cnx-ios-prod`, then `cmux-next-ios-dev` / `cmux-next-ios` | `cmux-mobile-api` in each database |
+| Local wrangler name | `cnx-ios-api-local` | `cmux-mobile-api-local` (never deployed) |
+| npm package | `cnx-ios-api` | `cmux-mobile-api` |
+| APNs topics | `dev.cmux.cnx`, `dev.cmux.cnx.cnx`, `dev.cmux.cnx.prod` | `dev.cmux.mobile`, `dev.cmux.mobile.demo`, `dev.cmux.mobile.prod`; TestFlight stays `dev.cmux.app.internal` |
+| Rate limit namespaces | 4101-4105 (dev), 4201-4205 (prod) | unchanged (numeric ids, no names) |
+
+Rate limit namespaces are numbers, the TURN key and the APNs key are shared team
+credentials (1Password "Cloudflare TURN Server API Key" and "cmux-next iOS APNs Auth
+Key (dev.cmux.app.internal)"); none of them carried the dev tag.
 
 `STACK_PROJECTS` in `wrangler.jsonc` lists the Stack projects whose users an
 environment accepts, primary first (id, label, publishable key or `""`, invite
@@ -62,8 +88,8 @@ stores it.
 The database URL is only in the Hyperdrive config. To create one:
 
 ```bash
-pscale role create cmux-next-ios <branch> <role> --org cmux --inherited-roles postgres --format json > /private/path/role.json
-bunx wrangler@4 hyperdrive create cmux-next-ios-<env> --connection-string="$(jq -r '.database_url | split("?")[0]' /private/path/role.json)"
+pscale role create cmux-mobile-<env> main cmux-mobile-api --org cmux --inherited-roles postgres --format json > /private/path/role.json
+bunx wrangler@4 hyperdrive create cmux-mobile-<env> --connection-string="$(jq -r '.database_url | split("?")[0]' /private/path/role.json)"
 ```
 
 ## Migrations

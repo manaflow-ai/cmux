@@ -108,7 +108,7 @@ describe("APNs payload and sender", () => {
     const p = apnsPayload(event)
     expect(p.aps.alert).toEqual({ title: "Claude needs permission", body: "cmux · Studio" })
     expect(p.aps["interruption-level"]).toBe("time-sensitive")
-    expect(p.mobile).toEqual({ mac: "m1", kind: "permission", eventId: "e1", tabId: "t1", sessionId: "s1" })
+    expect(p.cmuxMobile).toEqual({ mac: "m1", kind: "permission", eventId: "e1", tabId: "t1", sessionId: "s1" })
     expect(apnsPayload({ ...event, kind: "chief" }).aps.alert.title).toBe("Chief replied")
     expect(apnsPayload({ ...event, kind: "completed", agent: "" }).aps.alert.title).toBe("Your agent finished")
     expect(clean("a\u0000b‮\nc", 40)).toBe("a b c")

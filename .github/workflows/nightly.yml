@@ -1978,7 +1978,7 @@ jobs:
       # copies it to Resources/bin, and sign-cmux-bundle-helpers.sh signs it
       # with the app's Developer ID, hardened runtime and the helper
       # entitlements before notarization, like every Mach-O there.
-      - name: Build the mobile iPhone host (cmux-next)
+      - name: Build the cmux-next iPhone host (cmux-mobile-host)
         if: needs.decide.outputs.track == 'nightly-next'
         run: |
           set -euo pipefail

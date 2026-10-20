@@ -3,6 +3,29 @@
 Shared by `cmux-next-ios/backend` (Cloudflare Worker), `cmux-next-ios/rust` (link, hostd,
 ffi) and the app. Change this file first, then the implementations.
 
+## Names (API 0.11.0)
+
+The app was built under the development tag "cnx". On 2026-10-20 every wire name moved to
+production naming in one step, with no period in which both are accepted: nothing had
+shipped outside internal TestFlight, and builds up to 1.2.0 stop connecting once the Worker
+and the Mac host run 0.11.0 (internal testers update to the next TestFlight build).
+
+| What | Up to 0.10.0 | From 0.11.0 |
+| --- | --- | --- |
+| WebSocket subprotocol | `cnx.v1` | `cmux-mobile.v1` |
+| Phone approval signature context | `cnx-link-auth-v1` | `cmux-mobile-link-auth-v1` |
+| Mac identity signature context | `cnx-mac-identity-v1` | `cmux-mobile-mac-identity-v1` |
+| Chief answer signature context | `cnx-chief-answer-v1` | `cmux-mobile-chief-answer-v1` |
+| Video tag context | `cnx-video-tag-v1` | `cmux-mobile-video-tag-v1` |
+| Worker to hub headers | `x-cnx-claim`, `x-cnx-subprotocol`, `x-cnx-attachment`, `x-cnx-owner-key` | `x-cmux-mobile-claim`, `x-cmux-mobile-subprotocol`, `x-cmux-mobile-attachment`, `x-cmux-mobile-owner-key` |
+| WebRTC data channel labels | `cnx-link`, `cnx-input` | `cmux-mobile-link`, `cmux-mobile-input` |
+| Push payload key, categories | `cnx`, `CNX_<KIND>` | `cmuxMobile`, `CMUX_MOBILE_<KIND>` |
+| Host supervision variable | `CNX_CONTROL=stdio` | `CMUX_MOBILE_CONTROL=stdio` |
+| Hosts | `cnx-ios-api.cmux.dev`, `cnx-ios-api-dev.debussy.workers.dev` | `mobile-api.cmux.dev`, `cmux-mobile-api-dev.debussy.workers.dev` |
+
+Signatures are made and checked over the new contexts only. A phone's identity and
+approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not signatures.
+
 ## Identity and auth
 
 - Every HTTP call and WebSocket carries `Authorization: Bearer <Stack access token>`

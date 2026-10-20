@@ -112,6 +112,12 @@ class PlanTests(unittest.TestCase):
         self.assertFalse(decision.build)
         self.assertIn("cmux-next-ios", decision.reason)
 
+    def test_skips_while_the_signing_branch_predates_the_rename(self):
+        decision = self.plan(builder_ready=False)
+        self.assertFalse(decision.build)
+        self.assertIn("fast-forwards", decision.reason)
+        self.assertEqual(decision.base, A)
+
     def test_skips_the_head_already_uploaded(self):
         decision = self.plan(runs=[run(C)])
         self.assertFalse(decision.build)

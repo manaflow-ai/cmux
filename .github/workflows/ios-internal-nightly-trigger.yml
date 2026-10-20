@@ -1,4 +1,4 @@
-name: cmux-next-ios INTERNAL builder trigger
+name: cmux-next iPhone INTERNAL builder trigger
 
 # Decides, on every feat-cmux-next push, whether the head ships to cmux INTERNAL
 # and dispatches ios-internal-nightly.yml on rc/cnx-ios-builder with the SHA.

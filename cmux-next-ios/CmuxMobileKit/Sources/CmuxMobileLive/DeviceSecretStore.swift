@@ -27,6 +27,21 @@ extension DeviceSecretStore {
         delete(service: service, account: legacy)
         return true
     }
+
+    /// Moves `account` from the `legacy` service to `service` when `service` has none (the
+    /// one-time move off the pre-rename Keychain service). Returns whether anything moved.
+    @discardableResult
+    func adopt(from legacy: String, account: String, to service: String) -> Bool {
+        do {
+            guard try read(service: service, account: account) == nil,
+                  let data = try read(service: legacy, account: account) else { return false }
+            try write(data, service: service, account: account)
+        } catch {
+            return false
+        }
+        delete(service: legacy, account: account)
+        return true
+    }
 }
 
 /// The Keychain: generic passwords, this device only, readable after the

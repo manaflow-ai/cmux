@@ -1,4 +1,4 @@
-name: cmux-next-ios INTERNAL builder (cmux-next)
+name: cmux-next iPhone INTERNAL builder
 run-name: ${{ github.event_name == 'push' && 'cmux-next-ios INTERNAL builder branch moved' || format('cmux-next-ios INTERNAL {0}', inputs.sha) }}
 
 # Continuous TestFlight builds of cmux-next's iPhone app (cmux-next-ios, App Store

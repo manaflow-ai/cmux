@@ -78,7 +78,7 @@ export const apnsPayload = (e: NotifyEvent) => {
       category: `CMUX_MOBILE_${e.kind.toUpperCase()}`,
       ...(ask ? { "interruption-level": "time-sensitive" } : {})
     },
-    mobile: {
+    cmuxMobile: {
       mac: e.macId,
       kind: e.kind,
       eventId: e.eventId,

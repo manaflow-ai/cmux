@@ -11,9 +11,6 @@ extension IPhoneHostService {
     /// Worker for development sign-in. `CMUX_NEXT_MOBILE_API_URL` (a launch variable; CMUX_NEXT_*
     /// survive the launch) points a Debug build at another one.
     static let productionAPI = URL(string: "https://mobile-api.cmux.dev")
-    /// The renamed production service (cmux-next-ios/verify/naming-migration.md). Not used yet: it
-    /// replaces ``productionAPI`` once its TURN and push secrets are installed.
-    static let renamedProductionAPI = URL(string: "https://cmux-next-ios-api.cmux.dev")
     static let developmentAPI = URL(string: "https://cmux-mobile-api-dev.debussy.workers.dev")
 
     /// Hands the host what it needs from the app: the bundled hostd, the account's tokens,
@@ -52,9 +49,8 @@ extension IPhoneHostService {
         let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         // Each Worker accepts only its own sign-in project's tokens.
         guard let base = serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
-        let state = DaemonLauncher.applicationSupportDirectory()
-            .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
-            .appendingPathComponent("cmux-mobile-host", isDirectory: true)
+        let state = MobileHostStateDirectory(parent: DaemonLauncher.applicationSupportDirectory()
+            .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)).resolve()
         // The phone's browser tabs stream from this build's own remote browser host
         // (Contents/Helpers, every configuration on arm64).
         let browserHosts: (any MobileHostBrowserHosting)? = IPhoneBrowserHosts.available()

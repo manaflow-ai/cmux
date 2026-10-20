@@ -36,6 +36,23 @@ import Testing
         #expect(DeviceIdentity.load(userID: "user-b", store: store, service: service).link != adopted.link)
     }
 
+    /// Builds up to 1.2.0 kept the ids under the pre-rename service: the first load moves them,
+    /// so the Macs that approved this phone still know it.
+    @Test func theIdsUnderThePreRenameServiceMoveToTheNewOne() throws {
+        let store = MemorySecretStore()
+        let legacy = DeviceIdentity.legacyService
+        try store.write(Data("11111111-1111-1111-1111-111111111111".utf8), service: legacy, account: "link.user-a")
+        try store.write(Data("22222222-2222-2222-2222-222222222222".utf8), service: legacy, account: "presence.user-a")
+        let moved = DeviceIdentity.load(userID: "user-a", store: store)
+        #expect(moved == DeviceIdentity(link: "11111111-1111-1111-1111-111111111111", presence: "22222222-2222-2222-2222-222222222222"))
+        #expect(store.accounts(service: legacy).isEmpty)
+        #expect(store.accounts(service: DeviceIdentity.defaultService) == ["link.user-a", "presence.user-a"])
+        #expect(DeviceIdentity.load(userID: "user-a", store: store) == moved)
+        // Another account's ids stay where they are until that account signs in.
+        try store.write(Data("33333333-3333-3333-3333-333333333333".utf8), service: legacy, account: "link.user-b")
+        #expect(DeviceIdentity.load(userID: "user-b", store: store).link == "33333333-3333-3333-3333-333333333333")
+    }
+
     /// A Keychain read that fails (say before the first unlock) never replaces the stored id.
     @Test func anUnreadableIdIsNeverReplaced() throws {
         final class Locked: DeviceSecretStore, @unchecked Sendable {

@@ -32,6 +32,7 @@ MIN_FREE_BYTES = 40 * 1024 ** 3
 FALLBACK_AFTER = dt.timedelta(hours=12)
 PACKAGE_SWIFT = "cmux-next-ios/CmuxMobileKit/Package.swift"
 PROJECT_YML = "cmux-next-ios/project.yml"
+BUILDER_SCRIPT = "cmux-next-ios/scripts/testflight-build.sh"
 
 # Paths that change the iPhone app besides the local packages CmuxMobileKit names.
 STATIC_PREFIXES = (
@@ -102,7 +103,7 @@ class Decision:
 
 
 def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_ios: bool,
-         now: dt.datetime, prefixes: tuple[str, ...]) -> Decision:
+         now: dt.datetime, prefixes: tuple[str, ...], builder_ready: bool = True) -> Decision:
     """Whether to dispatch a build of `head`.
 
     runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at}.
@@ -114,6 +115,10 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
     base = last_ok["sha"] if last_ok else None
     if not has_cmux_next_ios:
         return Decision(False, "cmux-next-ios/ is not on feat-cmux-next yet (a191's merge)", base)
+    if not builder_ready:
+        return Decision(False, f"{BUILDER_REF} has no {BUILDER_SCRIPT} (it predates the cnx-ios -> cmux-next-ios "
+                               "rename): an admin fast-forwards it to feat-cmux-next "
+                               "(plans/cmux-next/ios-testflight-builder-DESIGN.md, Operations)", base)
     if base == head:
         return Decision(False, f"{head[:12]} is already in cmux INTERNAL", base)
     if any(r["sha"] == head and r.get("status") != "completed" for r in runs):
@@ -197,13 +202,25 @@ def changed_files(repo: str, base: str | None, head: str) -> list[str] | None:
         return None
 
 
+def builder_has_script() -> bool:
+    """Whether the signing branch carries this layout's testflight-build.sh (fails open on API errors)."""
+    branch = BUILDER_REF.removeprefix("refs/heads/")
+    repo = os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
+    r = subprocess.run(["gh", "api", "-X", "GET", f"repos/{repo}/contents/{BUILDER_SCRIPT}", "-f", f"ref={branch}",
+                        "--jq", ".path"], capture_output=True, text=True)
+    if r.returncode == 0:
+        return True
+    return "Not Found" not in (r.stderr + r.stdout)
+
+
 def cmd_plan(head: str, repo: str) -> int:
     has_cmux_next_ios = _show(repo, head, PROJECT_YML) is not None
     runs = builder_runs()
-    first = plan(head, runs, [], has_cmux_next_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES)
+    ready = builder_has_script()
+    first = plan(head, runs, [], has_cmux_next_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES, ready)
     changed = changed_files(repo, first.base, head) if first.base else None
     decision = plan(head, runs, changed, has_cmux_next_ios, dt.datetime.now(dt.timezone.utc),
-                    relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)))
+                    relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)), ready)
     print(f"{'BUILD' if decision.build else 'skip'}: {decision.reason}")
     out = os.environ.get("GITHUB_OUTPUT")
     if out:

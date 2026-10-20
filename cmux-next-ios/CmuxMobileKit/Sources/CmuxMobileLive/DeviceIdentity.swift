@@ -23,6 +23,9 @@ public struct DeviceIdentity: Sendable, Equatable {
     }
 
     public static let defaultService = "dev.cmux.mobile.device"
+    /// The service builds up to 1.2.0 kept the ids under (the app was called cnx then). Read
+    /// once and moved to ``defaultService`` so the Macs that approved this phone still know it.
+    public static let legacyService = "dev.cmux.cnx.device"
 
     /// Reads (or creates and stores) both ids of `userID` on this phone.
     ///
@@ -53,6 +56,10 @@ public struct DeviceIdentity: Sendable, Equatable {
 
     static func id(userID: String, kind: String, store: any DeviceSecretStore, service: String) -> String {
         let account = account(kind, userID)
+        if service == defaultService {
+            store.adopt(from: legacyService, account: account, to: service)
+            store.adopt(from: legacyService, account: kind, to: service)
+        }
         store.adopt(service: service, from: kind, to: account)
         let stored: Data?
         do {

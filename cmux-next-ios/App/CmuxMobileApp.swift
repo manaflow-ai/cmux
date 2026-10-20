@@ -16,6 +16,8 @@ struct CmuxMobileApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // Settings, account and outboxes saved under the pre-rename (cnx) names move first.
+        LegacyStorage.migrate()
         #if !DEBUG
         // Release and Production have no Developer page: remove any developer
         // setting (mock data, a scripted demo, relay only) an earlier Debug
