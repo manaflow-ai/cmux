@@ -494,7 +494,8 @@ jobs:
   # the base autofix regenerates it after each merge. The check runs the base's
   # copy of the table on the files API's list and reads nothing from the head.
   # The `generated-drift-ok` label skips it, for a generator fix that ships its
-  # own regenerated output in a later commit.
+  # own regenerated output in a later commit. It takes effect on the next push
+  # (a re-run reuses the event's labels).
   generated-drift:
     name: generated drift
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
@@ -602,7 +603,7 @@ jobs:
           git config user.email "cmux-autofix[bot]@users.noreply.github.com"
           git add -A
           git commit --quiet -m "chore(next): PR autofix at ${HEAD_SHA:0:12}" \
-            -m "$(grep '^fixed: ' "$RUNNER_TEMP/pr-autofix/pr-autofix.txt" | sed 's/^fixed: /- /')" \
+            -m "$(git diff --cached --name-only | sed 's/^/- /')" \
             -m "Autofix-Run: $RUN_URL"
           test "$(git rev-parse HEAD^)" = "${HEAD_SHA}"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
