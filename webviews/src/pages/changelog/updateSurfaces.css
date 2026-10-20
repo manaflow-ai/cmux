@@ -170,6 +170,10 @@
   border-radius: 6px;
   box-shadow: inset 0 0 0 1px var(--page-separator);
 }
+/* The rest of the update's changes, after the numbered top three: one quiet line each, aligned
+   with the titles above (2026-10-20, the popover scrolls to the whole list). */
+.wn-pop-rest { list-style: none; margin: 2px 0 0; padding: 0 0 0 18px; }
+.wn-pop-rest li { padding: 3px 0; color: var(--page-text-2); }
 .wn-pop-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--page-separator); }
 .wn-pop-more { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
 .wn-pop-all {

@@ -52,27 +52,27 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.switchRightSidebarToSessions", defaultValue: "Show Vault", bundle: .module),
                 keywords: ["right sidebar", "sessions"],
                 category: .sidebar, symbol: "archivebox", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-vault"
+                cliName: "sidebar show-vault"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToFeed",
                 title: String(localized: "action.switchRightSidebarToFeed", defaultValue: "Show Feed", bundle: .module),
                 keywords: ["right sidebar", "activity"],
                 category: .sidebar, symbol: "dot.radiowaves.left.and.right", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-feed"
+                cliName: "sidebar show-feed"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToDock",
                 title: String(localized: "action.switchRightSidebarToDock", defaultValue: "Show Dock", bundle: .module),
                 keywords: ["right sidebar"], category: .sidebar,
-                symbol: "dock.rectangle", surfaces: [.palette, .keyboard], requires: [.rightSidebarFocused],
+                symbol: "dock.rectangle", surfaces: [.palette, .keyboard],
                 cliName: "sidebar show-dock"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToMachines",
                 title: String(localized: "action.switchRightSidebarToMachines", defaultValue: "Show Cloud", bundle: .module),
                 keywords: ["right sidebar", "machines"],
-                category: .sidebar, symbol: "cloud", surfaces: [.palette, .keyboard], requires: [.rightSidebarFocused],
+                category: .sidebar, symbol: "cloud", surfaces: [.palette, .keyboard],
                 cliName: "sidebar show-cloud"
             ),
             ActionDescriptor(
