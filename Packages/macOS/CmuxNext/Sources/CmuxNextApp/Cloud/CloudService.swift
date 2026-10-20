@@ -30,6 +30,7 @@ final class CloudService {
     @ObservationIgnored private let binary: URL?
     /// The selected team's app-owned Native link; the legacy configuration uses only its tunnel hub.
     @ObservationIgnored var nativeLink: NativeCloudLinkOwner?
+    @ObservationIgnored var sessionLifecycle: CloudSessionLifecycle?
     @ObservationIgnored var machineScope: String?
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
@@ -118,6 +119,7 @@ final class CloudService {
             })
         }
         credentialProvider = CloudCredentialOwner(auth: auth, identity: identity, scope: scope, transport: transport, native: nativeLink).provider
+        sessionLifecycle = makeSessionLifecycle()
     }
 
     var isSignedIn: Bool { auth.isSignedIn }
@@ -153,29 +155,12 @@ final class CloudService {
             })
         }
         observers.append(Task { [weak self] in
-            guard let self else { return }
+            guard let self, let lifecycle = self.sessionLifecycle else { return }
+            let identities = auth.coordinator.authenticatedSessionIdentities()
             await auth.awaitRestored()
-            for await signedIn in ObservationStream({ self.auth.isSignedIn }) {
-                if signedIn {
-                    await self.nativeLink?.resume()
-                    await self.beginCredentialSession()
-                    guard self.auth.isSignedIn, !self.isSigningOut, !Task.isCancelled else { continue }
-                    // Sign-out revoked the WireGuard peer and parked the hub.
-                    await self.hub?.resume()
-                    // The install first: the app server path's first list goes
-                    // through the credential relay, which sends the install token.
-                    await self.installSignedIn()
-                    self.hands.start()
-                    await self.refresh()
-                } else {
-                    self.dropAllMachines()
-                    await self.endCredentialSession()
-                    // The session ended (signed out here or elsewhere, or
-                    // expired): no link keeps running for it.
-                    await self.nativeLink?.end()
-                    await self.installIdentity.unbind()
-                    self.hands.stop()
-                }
+            for await identity in identities {
+                guard !Task.isCancelled else { return }
+                await lifecycle.update(identity).value
             }
         })
         observers.append(Task { [weak self] in
@@ -207,15 +192,13 @@ final class CloudService {
             // task-owner: one list fetch after the policy lifted
             Task { [weak self] in
                 guard let self, auth.isSignedIn else { return }
-                await hub?.resume()
-                await nativeLink?.resume()
-                await installSignedIn()
-                await refresh()
+                await sessionLifecycle?.refresh(auth.coordinator.authenticatedSessionIdentity).value
             }
         }
     }
 
     func stop() {
+        _ = sessionLifecycle?.stop()
         for observer in observers { observer.cancel() }
         observers.removeAll()
         if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
@@ -271,11 +254,13 @@ final class CloudService {
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
     /// gone machines disconnect, records update in place.
     func refresh() async {
-        guard auth.isSignedIn, unavailableReason == nil else { return }
+        guard let identity = auth.coordinator.authenticatedSessionIdentity,
+              isCloudSessionCurrent(identity), unavailableReason == nil else { return }
         lastRefresh = .now
         do {
             let scope: CloudTeamScope.Snapshot? = configuration.linkSource == .appServer ? try await teamScope.snapshot() : nil
             let list = if let scope { try await appServerMachines(scope: scope) } else { try await api.listMachines() }
+            guard isCloudSessionCurrent(identity) else { return }
             if let scope { try await scope.recheck(); try cloudTeam.check(scope) }
             if machineScope != scope?.id { dropAllMachines() }
             machineScope = scope?.id
@@ -372,9 +357,8 @@ final class CloudService {
         let stackUser = auth.user?.id, generation = auth.coordinator.authSessionGeneration
         isSigningOut = true
         defer { isSigningOut = false }
-        dropAllMachines()
-        await endCredentialSession()
-        await nativeLink?.end()
+        if let sessionLifecycle { await sessionLifecycle.suspend().value }
+        else { await retireCloudSession(.session) }
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser {
@@ -387,6 +371,8 @@ final class CloudService {
             })
         }
         await auth.signOut(ifGeneration: generation)
+        isSigningOut = false
+        await sessionLifecycle?.resume(auth.coordinator.authenticatedSessionIdentity).value
     }
 
     /// Ensures the selected team's owned child before a scoped connect.

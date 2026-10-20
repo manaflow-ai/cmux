@@ -21,10 +21,16 @@ extension CloudService {
     /// mints one token. A failure is logged: the relay mints again when it
     /// needs a token, and the hub path does not depend on it.
     func installSignedIn() async {
-        guard let stackUser = auth.user?.id, mayCallCloud else { return }
+        guard let identity = auth.coordinator.authenticatedSessionIdentity,
+              isCloudSessionCurrent(identity), mayCallCloud else { return }
         let auth = auth
         do {
-            try await installIdentity.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
+            try await installIdentity.signedIn(stackUser: identity.accountID, session: {
+                guard await auth.coordinator.isAuthenticatedSessionIdentityCurrent(identity) else { throw CancellationError() }
+                let token = try await auth.tokens().access
+                guard await auth.coordinator.isAuthenticatedSessionIdentityCurrent(identity) else { throw CancellationError() }
+                return token
+            })
         } catch {
             logger.error("install registration failed: \(String(describing: error), privacy: .public)")
         }
