@@ -39,8 +39,8 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
 
         #expect(repair == [
-            "NODE_OPTIONS": .some(nil),
-            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": .some(nil),
+            "NODE_OPTIONS": nil,
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": nil,
         ])
     }
 
@@ -54,8 +54,8 @@ struct AgentLaunchEnvironmentPolicyTests {
 
         #expect(repair == [
             "NODE_OPTIONS": .some("--trace-warnings --max-old-space-size=8192"),
-            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": .some(nil),
-            "CMUX_ORIGINAL_NODE_OPTIONS": .some(nil),
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": nil,
+            "CMUX_ORIGINAL_NODE_OPTIONS": nil,
         ])
     }
 
@@ -79,7 +79,7 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(policy.inheritedNodeOptionsRepair(from: [
             "NODE_OPTIONS": "--trace-warnings",
             "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "0",
-        ]) == ["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": .some(nil)])
+        ]) == ["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": nil])
     }
 
     @Test("Custom Codex executable remains scoped to Codex restores")
