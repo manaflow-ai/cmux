@@ -79,6 +79,10 @@ pub(super) fn handle_with(
     let line = tool_line(operation, &request.fields);
     let (mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
     let spawned = std::thread::Builder::new().name("mux-chief-control".into()).spawn(move || {
+        let chief = match &route {
+            Route::Default(_) => DEFAULT_CHIEF.to_owned(),
+            Route::Named(chief) => chief.clone(),
+        };
         let socket = match route {
             Route::Default(socket) => Ok(socket),
             Route::Named(chief) => named_socket(&mux, operation, &chief).map(Some),
@@ -86,12 +90,16 @@ pub(super) fn handle_with(
         let answer = socket.and_then(|socket| {
             disabled_unless_answered(operation, ask(operation, &line, socket.as_deref()))
         });
-        send_resource_response(
-            &thread_writer,
-            reply_id,
-            operation,
-            result(&mux, operation, answer),
-        );
+        let answer = result(&mux, operation, answer);
+        // The record is the backend's one source (u2586): a set the brain
+        // took is written into the Chief's record too.
+        if operation == ResourceOperation::ChiefEngineSet
+            && let Ok(value) = &answer
+            && let Some(choice) = value.pointer("/value/choice")
+        {
+            super::chief_registry_resource::record_brain_engine(&mux, &chief, choice);
+        }
+        send_resource_response(&thread_writer, reply_id, operation, answer);
     });
     spawned.is_ok()
         || send_resource_response(

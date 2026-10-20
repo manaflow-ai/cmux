@@ -31,7 +31,15 @@ extension HomeChiefSettingsView {
         place.ink = .secondary
         place.lineBreakMode = .byTruncatingTail
         place.stringValue = HomeEngineStrings.runsHere
-        let text = NSStackView(views: [box, place])
+        hostSwitch.isBordered = false
+        hostSwitch.bezelStyle = .inline
+        hostSwitch.font = Typography.caption
+        hostSwitch.contentTintColor = .controlAccentColor
+        hostSwitch.target = self
+        hostSwitch.action = #selector(switchHost)
+        hostSwitch.isHidden = true
+        hostSwitch.setAccessibilityIdentifier("cmux.home.chief.switchHost")
+        let text = NSStackView(views: [box, place, hostSwitch])
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = Metrics.space1

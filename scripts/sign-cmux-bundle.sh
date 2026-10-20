@@ -40,7 +40,8 @@
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
 #   4. The embedded Chromium engine (CEF framework, its libraries, the shim
 #      and the five helper apps with their own entitlements) through
-#      scripts/cmux-next/sign-cef.sh, then every other nested framework under
+#      scripts/cmux-next/sign-cef.sh, the remote browser host under
+#      Contents/Helpers (rbh_sign), then every other nested framework under
 #      Contents/Frameworks/* with --deep (covers Sparkle's XPCServices and
 #      Updater.app, and Iroh).
 #   5. The main app bundle with the effective app-level entitlements,
@@ -161,6 +162,15 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       echo "==> signing the Chromium engine (CEF framework, shim, helpers)"
       "$SCRIPT_DIR/cmux-next/sign-cef.sh" "$APP_PATH" "$IDENTITY"
     fi
+    # The remote browser host (Contents/Helpers, embed-remote-browser-host.sh), after
+    # the app's CEF framework, which it links through a symlink: its five helper apps
+    # with CEF's per-helper entitlements (allow-jit for GPU and Renderer), then the host
+    # app, all with the hardened runtime and a secure timestamp (rbh_sign).
+    for rb_host in "$APP_PATH/Contents/Helpers/"*.app; do
+      [[ -d "$rb_host" ]] || continue
+      echo "==> signing the remote browser host $(basename "$rb_host")"
+      ( source "$SCRIPT_DIR/cmux-next/remote-browser-host-layout.sh" && rbh_sign "$rb_host" "$IDENTITY" )
+    done
     while IFS= read -r -d '' framework; do
       case "$(basename "$framework")" in
         "$CEF_FRAMEWORK_NAME"|libcmux_cef_shim.dylib|*" Helper.app"|*" Helper ("*").app") continue ;;
