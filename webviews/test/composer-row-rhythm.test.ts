@@ -13,7 +13,7 @@
 //   - between the leading groups, every gap is the same, and larger than the in-group gap;
 //   - inside the chips (model, effort, permission mode, Interrupt), the text sits the same distance
 //     from the chip's leading and trailing edges, and an icon or chevron the same distance from the
-//     text, in every chip;
+//     text, in every chip of the same row;
 //   - the trailing cluster ends at the bar's content edge, so Send lines up with the row's padding.
 //
 // It renders the real composer (the gallery's `agent-pane.composer-row` entry, a running Claude chat
@@ -207,18 +207,20 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
         const spread = (values: number[]) => (values.length > 1 ? Math.max(...values) - Math.min(...values) : 0);
         const list = (gaps: { between: string; gap: number }[]) =>
           gaps.map(({ between, gap }) => `${between} ${gap.toFixed(1)}`).join(", ");
-        const insides: {
-          name: string;
-          lead: number;
-          trail: number;
-          iconGap?: number;
-          chevronGap?: number;
-          shape: string;
-        }[] = [];
-        const inGroup: { between: string; gap: number }[] = [];
-        const betweenGroups: { between: string; gap: number }[] = [];
+        // Each row keeps its own rhythm: the box's icon buttons and the quiet row's text chips
+        // are different sizes, as Claude Code's are, so gaps compare only within a row.
         for (const [rowName, measured] of Object.entries(rows)) {
           const { controls } = measured;
+          const insides: {
+            name: string;
+            lead: number;
+            trail: number;
+            iconGap?: number;
+            chevronGap?: number;
+            shape: string;
+          }[] = [];
+          const inGroup: { between: string; gap: number }[] = [];
+          const betweenGroups: { between: string; gap: number }[] = [];
           for (let index = 1; index < controls.length; index++) {
             const before = controls[index - 1]!;
             const after = controls[index]!;
@@ -262,10 +264,23 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
                 ),
             }),
           );
+          console.log(
+            JSON.stringify({ width, scheme, row: rowName, inGroup: list(inGroup), betweenGroups: list(betweenGroups), insides }),
+          );
+          if (spread(inGroup.map(({ gap }) => gap)) > 1) problems.push(`${rowName}: uneven gaps inside groups: ${list(inGroup)}`);
+          if (spread(betweenGroups.map(({ gap }) => gap)) > 1)
+            problems.push(`${rowName}: uneven gaps between groups: ${list(betweenGroups)}`);
+          const tight = Math.max(0, ...inGroup.map(({ gap }) => gap));
+          for (const { between, gap } of betweenGroups)
+            if (gap <= tight + 1) problems.push(`${rowName}: ${between} ${gap.toFixed(1)} is not wider than the in-group gap`);
+          for (const key of ["lead", "trail", "iconGap", "chevronGap"] as const) {
+            const values = insides.flatMap((inside) => (inside[key] === undefined ? [] : [inside[key]!]));
+            if (spread(values) > 1)
+              problems.push(
+                `${rowName}: chips' ${key} differs: ${insides.map((inside) => `${inside.name} ${inside[key]?.toFixed(1) ?? "-"}`).join(", ")}`,
+              );
+          }
         }
-        console.log(
-          JSON.stringify({ width, scheme, inGroup: list(inGroup), betweenGroups: list(betweenGroups), insides }),
-        );
         const names = (measured: Row) => measured.controls.map((control) => control.name);
         // The effort chip and the mic may leave a short row (or fold into the model chip); the
         // rest always shows, each in its row.
@@ -273,19 +288,6 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
           if (!names(rows.inner).includes(name)) problems.push(`${name} is not in the box's row`);
         for (const name of ["model", "mode"])
           if (!names(rows.foot).includes(name)) problems.push(`${name} is not in the quiet row`);
-        if (spread(inGroup.map(({ gap }) => gap)) > 1) problems.push(`uneven gaps inside groups: ${list(inGroup)}`);
-        if (spread(betweenGroups.map(({ gap }) => gap)) > 1)
-          problems.push(`uneven gaps between groups: ${list(betweenGroups)}`);
-        const tight = Math.max(...inGroup.map(({ gap }) => gap));
-        for (const { between, gap } of betweenGroups)
-          if (gap <= tight + 1) problems.push(`${between} ${gap.toFixed(1)} is not wider than the in-group gap`);
-        for (const key of ["lead", "trail", "iconGap", "chevronGap"] as const) {
-          const values = insides.flatMap((inside) => (inside[key] === undefined ? [] : [inside[key]!]));
-          if (spread(values) > 1)
-            problems.push(
-              `chips' ${key} differs: ${insides.map((inside) => `${inside.name} ${inside[key]?.toFixed(1) ?? "-"}`).join(", ")}`,
-            );
-        }
         // The + glyph and Send's disc sit the same distance from the box row's sides.
         const { inner } = rows;
         const send = inner.controls.find((control) => control.name === "send");

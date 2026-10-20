@@ -296,14 +296,18 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
           await page.mouse.move(1, 1);
           await settle(page);
         }
-        // Keyboard focus: Tab from the + button reaches the model chip.
-        await page.focus(".acpmux-composer-plus .acpmux-picker-button");
-        await page.keyboard.press("Tab");
-        await settle(page);
-        const focused = await page.evaluate(() =>
-          document.activeElement?.matches(".acpmux-model .acpmux-picker-button:focus-visible"),
-        );
-        if (!focused) problems.push("Tab from + does not give the model chip keyboard focus");
+        // Keyboard focus: Tab from the permission mode (the quiet row's first control) reaches the
+        // model chip, past Plan when it shows.
+        await page.focus(".acpmux-access-trigger");
+        let focused = false;
+        for (let step = 0; step < 3 && !focused; step++) {
+          await page.keyboard.press("Tab");
+          await settle(page);
+          focused = await page.evaluate(
+            () => document.activeElement?.matches(".acpmux-model .acpmux-picker-button:focus-visible") === true,
+          );
+        }
+        if (!focused) problems.push("Tab from the permission mode does not give the model chip keyboard focus");
         else if ((await wash("model")).background === CLEAR) problems.push("model draws no wash with keyboard focus");
         // An open menu: the permission mode's.
         await page.click(".acpmux-access-trigger");
