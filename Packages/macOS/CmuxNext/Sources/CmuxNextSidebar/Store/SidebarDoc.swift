@@ -46,6 +46,8 @@ public nonisolated struct SidebarDocSection: Hashable, Sendable, Identifiable {
     public var room: String?
     public var maxRows: Int?
     public var keepsClosed: Bool
+    /// A machine section made a remote group (remote-groups-DESIGN.md slice 4).
+    public var hostGroup = false
 
     public init(id: String, kind: SidebarDocSectionKind, title: String? = nil, showsTitle: Bool = false, region: SidebarRegion = .middle,
                 look: SectionLook = .list, arrangement: SectionArrangement = .list, room: String? = nil, maxRows: Int? = nil,

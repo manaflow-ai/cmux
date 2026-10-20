@@ -74,6 +74,18 @@ impl TurnBinding {
 }
 
 impl TurnBinding {
+    /// The subagent id (`a12`) of a subagent session name
+    /// (`<subagent prefix>a12`, and acpmux's `-<n>` for a taken name); None
+    /// for any other name.
+    pub fn subagent_id(&self, name: &str) -> Option<String> {
+        let id = name
+            .strip_prefix(&self.subagent_prefix)?
+            .split('-')
+            .next()?;
+        let digits = id.strip_prefix('a')?;
+        (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())).then(|| id.to_owned())
+    }
+
     /// The subagent id (`a<N>`) of the process `pid` when it runs under one
     /// of this Chief's subagent sessions; None for any other caller.
     pub fn subagent_of(&self, pid: i32) -> Option<String> {
