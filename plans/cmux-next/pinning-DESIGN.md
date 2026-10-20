@@ -25,11 +25,17 @@ pinned group is in the Pinned band, shows its pin, and its menu reads Unpin Grou
    - A top-level workspace or group in the Pinned band: back where it was pinned from, after the
      neighbor it sat after, while that neighbor still sits there. Otherwise the top of its machine
      section (Chief's default, 2026-10-20: as Move to Top). The old rule was the end of the section.
-6. **Pins survive restart.** Sidebar pins are rows of the daemon's sidebar document (`extra.pinned`,
+6. **Nested groups (a283, remote groups slice 1).** A top-level group pins and unpins with its whole
+   tree. A nested group, or a workspace in one, pins inside its own parent, first, like a workspace
+   in a group. A member of a pinned tree is not pinned itself: Unpin on it does nothing, and Pin pins
+   it inside its group. Pinned keeps closed workspaces and the groups that hold them. When Unpin moves
+   a tree back into its machine section, the daemon closes the workspaces that are not open, and the
+   groups that this empties go, as when the last workspace closes there.
+7. **Pins survive restart.** Sidebar pins are rows of the daemon's sidebar document (`extra.pinned`,
    `extra.unpin_to` on the item). Tab, screen and tab-group pins are daemon state. Home conversation
    pins are stored with the conversation's owner, or for this account on this Mac. Extension pins
    are Chromium profile state.
-7. **Undo.** A user's pin is one undo step (Edit > Undo). The document's inverse is the item's old
+8. **Undo.** A user's pin is one undo step (Edit > Undo). The document's inverse is the item's old
    row, so undo restores the pin mark and the order together.
 
 The reducer (`cmux-layout-reducer/src/sidebar_doc/reduce.rs`: `pin`, `unpin`, `place`) is the only
