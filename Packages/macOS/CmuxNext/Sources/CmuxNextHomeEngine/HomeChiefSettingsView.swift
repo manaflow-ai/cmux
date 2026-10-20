@@ -79,6 +79,10 @@ public final class HomeChiefSettingsView: NSView {
     public var checkHarness: @MainActor (String) async -> Bool = { _ in true }
     /// Renames the Chief conversation (the daemon's set-title op); false when it did not take.
     public var onRename: @MainActor (String) async -> Bool = { _ in true }
+    /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
+    /// registry for a Chief of this Mac (set by the header view); nil writes this panel's
+    /// mux home's files (a cloud Chief).
+    public var pictureStore: (avatars: HomeChiefAvatars, chief: String)?
     /// The Chief's avatar changed on disk (its picture): read it again.
     public var onAvatar: () -> Void = {}
     /// Show Memory: runs "Chief: Open Memory Inspector".
@@ -283,25 +287,35 @@ public final class HomeChiefSettingsView: NSView {
         panel.canChooseDirectories = false
         let use = { [weak self] (response: NSApplication.ModalResponse) in
             guard response == .OK, let url = panel.url else { return }
-            self?.usePicture { try $0.writePicture(from: url) }
+            self?.usePicture(url)
         }
         if let window = pictureWindow() ?? window { panel.beginSheetModal(for: window, completionHandler: use) } else { use(panel.runModal()) }
     }
 
     @objc func useDefaultPicture() {
-        usePicture { $0.clearPicture() }
+        usePicture(nil)
     }
 
-    /// Writes the picture off the main actor, then has the header (and this
-    /// panel's avatar) read it; a picture that could not be used says so, with
-    /// a beep, since the open panel closed the card (the note waits for its next open).
+    /// Makes `source` the shown Chief's picture (nil: the default again) through
+    /// ``pictureStore`` (the daemon's registry for a Chief of this Mac, else its files),
+    /// then has the header (and this panel's avatar) read it; a picture that could not be
+    /// used says so, with a beep, since the open panel closed the card (the note waits for its
+    /// next open).
     @discardableResult
-    func usePicture(_ write: @escaping @Sendable (HomeChiefFiles) throws -> Void) -> Task<Void, Never> {
-        let files = HomeChiefFiles(muxHome: muxHome)
+    func usePicture(_ source: URL?) -> Task<Void, Never> {
+        let store = pictureStore ?? (avatars: HomeChiefAvatars(muxHome: muxHome), chief: HomeChiefAvatars.defaultChief)
         changeFailed = false
-        // task-owner: one file write off the main actor, then the header reads it
+        // task-owner: one picture write (registry or files), then the header reads it
         return Task { [weak self] in
-            let written = await Task.detached { (try? write(files)) != nil }.value
+            let written: Bool
+            do {
+                if let source { try await store.avatars.setPicture(from: source, chief: store.chief) } else {
+                    try await store.avatars.clearPicture(chief: store.chief)
+                }
+                written = true
+            } catch {
+                written = false
+            }
             guard let self else { return }
             if written {
                 failure.isHidden = true

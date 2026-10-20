@@ -36,6 +36,26 @@ public final class HomeChiefSettingsPopover {
     /// The popover is on screen and not closing.
     public var isShown: Bool { popup.isShown }
 
+    /// The window whose Home answers `home.toggleChiefSettings` now: see ``toggleTarget(key:ordered:)``.
+    public static var frontToggleTarget: NSWindow? { toggleTarget(key: NSApp.keyWindow, ordered: NSApp.orderedWindows) }
+
+    /// The window whose Home answers `home.toggleChiefSettings`: the key window, else the frontmost
+    /// visible one (`ordered` front to back; a CLI run while another app is in front), else none.
+    /// A child panel with the keys (this popover itself, a feed or composer popup) stands for the
+    /// window it belongs to, so a second toggle closes the popover it opened.
+    public static func toggleTarget(key: NSWindow?, ordered: [NSWindow]) -> NSWindow? {
+        var window = key
+        while let parent = window?.parent { window = parent }
+        return window ?? ordered.first { $0.isVisible }
+    }
+
+    /// Whether the Home in `window` answers a toggle posted for `target` (``toggleTarget(key:ordered:)``'s
+    /// window): only that window's, and none when no window was in front.
+    public static func answersToggle(for target: ObjectIdentifier?, in window: NSWindow?) -> Bool {
+        guard let target, let window else { return false }
+        return target == ObjectIdentifier(window)
+    }
+
     /// Opens the card under `anchor` (the name pill), in its theme. A press on
     /// one of `toggles` (the pill, the header avatar) closes it through the
     /// toggle, not the click monitor, so that press never reopens it. Returns
@@ -54,7 +74,12 @@ public final class HomeChiefSettingsPopover {
             }
         }
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
-        return popup.show(size: size(), anchor: rect, in: window, preferred: .below, makeKey: true) != nil
+        guard popup.show(size: size(), anchor: rect, in: window, preferred: .below, makeKey: true) != nil else { return false }
+        // Like an NSPopover opened by a click: keys reach the card (Tab enters it, Escape closes
+        // it), but no control shows a focus ring until the keyboard moves there. A ring on the
+        // picture drew while open and vanished on the close's first frame (recording 2026-10-20).
+        popup.panel.makeFirstResponder(nil)
+        return true
     }
 
     /// Closes the card (fading toward the pill), keeping a name being edited.

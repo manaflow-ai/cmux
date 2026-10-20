@@ -19,6 +19,7 @@ extension SettingDescriptor {
     /// outside the range are refused here, although the parser clamps them,
     /// so the window never writes a value that loads with a warning.
     public func accepts(_ value: JSONValue) -> Bool {
+        if path == CustomDensitiesSetting().configPath { return CustomDensitiesSetting.accepts(value) }
         if path == ChatSettings.rootsPath {
             guard let items = value.arrayValue else { return false }
             let validator = ChatRootValidator()

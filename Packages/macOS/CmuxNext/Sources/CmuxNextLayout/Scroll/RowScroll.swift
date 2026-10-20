@@ -34,7 +34,9 @@ public nonisolated struct RowScroll: Hashable, Sendable {
             for pane in rowPanes { frames[pane] = panes[pane].map(transposed) }
             columns.append(ColumnStrip.Column(id: slot(for: row.id), frame: transposed(placed.frame), panes: rowPanes, paneFrames: frames))
         }
-        return ColumnStrip(columns: columns, viewportWidth: stack.frame.height, contentWidth: stack.contentHeight, gap: stack.gap)
+        var strip = ColumnStrip(columns: columns, viewportWidth: stack.frame.height, contentWidth: stack.contentHeight, gap: stack.gap)
+        strip.axis = .vertical
+        return strip
     }
 
     private mutating func slot(for row: RowID) -> ColumnID {

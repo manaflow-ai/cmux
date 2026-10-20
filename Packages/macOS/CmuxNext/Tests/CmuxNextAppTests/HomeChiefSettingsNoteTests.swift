@@ -51,7 +51,8 @@ import Testing
     @Test func aPictureThatCannotBeUsedStaysSaid() async {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: RefusingChief())
         await view.refresh().value
-        await view.usePicture { _ in throw CocoaError(.fileReadCorruptFile) }.value
+        // A file that is not there cannot be used.
+        await view.usePicture(FileManager.default.temporaryDirectory.appending(path: "no-such-picture-\(UUID().uuidString).png")).value
         #expect(!view.failure.isHidden)
         await view.refresh().value
         #expect(!view.failure.isHidden)

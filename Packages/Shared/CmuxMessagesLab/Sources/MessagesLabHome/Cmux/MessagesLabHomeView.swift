@@ -170,11 +170,26 @@ public final class MessagesLabHomeView: NSView {
         return hit
     }
 
+    /// cmux: a press on a link that moved past the drag slop, with the pointer's screen point; true
+    /// when the host took the drag (it drops the link into a split or a pane). Nil: such a press
+    /// selects text, as before.
+    public var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)? {
+        get { controller.onDragLink }
+        set { controller.onDragLink = newValue }
+    }
+
     /// cmux: a click on any other link in the transcript (`otherTarget`: Shift-Command held).
     /// Defaults to the system; the host routes it (cmux: its link setting).
     public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
         get { controller.onOpenLink }
         set { controller.onOpenLink = newValue }
+    }
+
+    /// cmux: where an attachment opens and what its right-click menu offers (held weakly).
+    /// Nil: the system opens it ("Open in Default App").
+    public var fileHost: HomeFileHost? {
+        get { controller.fileHost }
+        set { controller.fileHost = newValue }
     }
 
     /// A click (or Space/Return with the keyboard) on the header's name

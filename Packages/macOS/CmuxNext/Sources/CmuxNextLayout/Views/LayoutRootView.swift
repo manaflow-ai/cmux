@@ -54,6 +54,11 @@ public final class LayoutRootView: NSView {
     /// When the edge under a held pointer arms (a new split); nil when none is pending. The
     /// drag session hit-tests again then, so a still pointer sees the split preview.
     public internal(set) var tabDragDwellDeadline: CFTimeInterval?
+    /// A URL dragged in from another app or a web page over a drop zone no pane content took
+    /// (`perform` false: may it drop on `target`, for the preview; true: open it there). Nil: the
+    /// layout takes no link drops. Links dragged out of a Home chat track the mouse themselves and
+    /// use ``updateTabDrag(_:locationInWindow:removing:edgeDwell:)`` instead.
+    public var linkDropHandler: ((_ url: URL, _ target: DropTarget, _ perform: Bool) -> Bool)?
     /// Overlay sync observers by id (`observeOverlaySync`).
     var overlaySyncObservers: [Int: () -> Void] = [:]
     var nextOverlaySyncObserver = 0
@@ -112,7 +117,7 @@ public final class LayoutRootView: NSView {
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
-        registerForDraggedTypes([LayoutTabDrag.pasteboardType])
+        registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
         sync(snapshot())
         observe()
         #if DEBUG
@@ -460,6 +465,7 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
+        if !live { for view in screenViews.values { view.settleMotion() } }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
             self.planeHost = nil
@@ -472,6 +478,7 @@ public final class LayoutRootView: NSView {
                 host.adoptPlane(overlayPlane)
             }
             driver.attach(to: self)
+            if screenViews.values.contains(where: \.hasMotion) || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
                 self?.handleMonitored(event) ?? event
             }
