@@ -41,6 +41,12 @@ enum AgentCursorWiring {
             resolver: services.agentCursorVisibility.resolver(forWindow: controller.state.id),
             color: { [weak services] session in
                 AgentCursorPresenceColors.shared.color(for: session, store: services?.daemon.store)
+            },
+            label: { session in
+                AgentCursorSessionLabel(
+                    sessionID: session,
+                    unnamed: String(localized: "agentCursor.tag.unnamed", defaultValue: "Agent", bundle: .module)
+                ).text
             }
         ) { [weak controller] in (controller?.window as? ShellWindow)?.overlayLayer.agentCursorLayer ?? CALayer()
         }
