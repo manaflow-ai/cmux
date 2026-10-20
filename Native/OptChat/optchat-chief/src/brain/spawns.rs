@@ -827,7 +827,10 @@ impl Brain {
         };
         self.save();
         let text = inbox_text(&messages);
-        match self.tell(id, &text) {
+        // Held for a subagent that was starting, queued or paused: they were
+        // written to follow its task (or its resume), so they wait for that
+        // turn instead of cutting it.
+        match self.tell_mode(id, &text, true) {
             Ok(_) => {
                 self.trace
                     .emit("tell.delivered", json!({"id": id, "count": messages.len()}));
