@@ -37,7 +37,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-type Machine = { root: string; home: string; bin: string; calls: string; auth: string; config: string; kind: string; launchers: Record<Agent, string> };
+type Machine = { root: string; home: string; bin: string; calls: string; auth: string; config: string; kind: string; modelPlane: string; launchers: Record<Agent, string> };
 
 /**
  * A HOME; for each agent a fake executable that prints the env and arguments
@@ -57,8 +57,15 @@ function machine(): Machine {
   writeFileSync(kind, "owner\n");
   const auth = path.join(root, "agent-auth.sh");
   writeFileSync(auth, readFileSync(path.join(templateDir, "agent-auth.sh"), "utf8").replaceAll("/etc/cmux/vm-kind", kind));
+  const modelPlane = path.join(root, "model-plane.env");
+  writeFileSync(modelPlane, `export CMUX_CODEROUTER_URL='${ORIGIN}'\nexport OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\nexport ANTHROPIC_BASE_URL='${ORIGIN}'\nexport ANTHROPIC_API_KEY='${PLACEHOLDER}'\n`);
   const config = path.join(root, "agent-config.sh");
-  writeFileSync(config, readFileSync(path.join(templateDir, "agent-config.sh"), "utf8").replaceAll("/etc/cmux/vm-kind", kind));
+  writeFileSync(
+    config,
+    readFileSync(path.join(templateDir, "agent-config.sh"), "utf8")
+      .replaceAll("/etc/cmux/vm-kind", kind)
+      .replaceAll("/etc/cmux/model-plane.env", modelPlane),
+  );
   writeFileSync(
     path.join(bin, "curl"),
     [
@@ -100,7 +107,7 @@ function machine(): Machine {
     chmodSync(launcher, 0o755);
     launchers[agent] = launcher;
   }
-  return { root, home, bin, calls, auth, config, kind, launchers };
+  return { root, home, bin, calls, auth, config, kind, modelPlane, launchers };
 }
 
 /** The env a login shell on the machine starts from: the baked model plane. */
@@ -593,15 +600,9 @@ describe("cr use", () => {
 
   test("a shared-team machine never selects a personal agent login", async () => {
     const m = machine();
-    const kind = await resolveVmGuestKind(
-      { userId: "user-owner", ownerTeamId: "team-shared" },
-      { listMembers: async () => ({ memberIds: ["user-owner", "user-teammate"] }) },
-    );
+    const kind = resolveVmGuestKind({ userId: "user-owner", ownerTeamId: "team-shared" });
     expect(kind).toBe("team");
-    const soloTeamKind = await resolveVmGuestKind(
-      { userId: "user-owner", ownerTeamId: "team-solo" },
-      { listMembers: async () => ({ memberIds: ["user-owner"] }) },
-    );
+    const soloTeamKind = resolveVmGuestKind({ userId: "user-owner", ownerTeamId: "team-solo" });
     expect(soloTeamKind).toBe("team");
     const modelEnv = path.join(m.root, "model-plane.env");
     writeFileSync(modelEnv, `export CMUX_CODEROUTER_URL='${ORIGIN}'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
@@ -658,7 +659,8 @@ describe("cr use", () => {
     expect(forcedOpenCode.OPENAI_API_KEY).toBe(PLACEHOLDER);
     expect(forcedOpenCode.ANTHROPIC_API_KEY).toBe("<unset>");
     expect(forcedOpenCode.OPENCODE_CONFIG_DIR).toBe("<unset>");
-    const persistedPlane = readFileSync(path.join(m.home, ".config/cmux/model-plane.env"), "utf8");
+    const persistedPath = path.join(m.home, ".config/cmux/model-plane.env");
+    const persistedPlane = existsSync(persistedPath) ? readFileSync(persistedPath, "utf8") : "";
     expect(persistedPlane).not.toContain("personal-claude");
     expect(persistedPlane).not.toContain("personal-token");
     expect(persistedPlane).not.toContain("personal-codex");

@@ -345,18 +345,9 @@ export type ExistingVmAccessInput = {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly provider?: ProviderId;
-  /** Operator rollout: `creator` keeps shared-team guest access with the machine creator. */
-  readonly sharedAccessMode?: "team" | "creator";
   /** Caller's CURRENT billing plan; access verbs use it for the free window. */
   readonly callerPlanId?: string | null;
 };
-
-/** Backward-compatible until the owner rolls out creator-only shared machines; malformed values fail closed. */
-export function vmSharedAccessMode(value = process.env.CMUX_VM_SHARED_ACCESS_MODE): "team" | "creator" {
-  const normalized = value?.trim();
-  if (!normalized || normalized === "team") return "team";
-  return "creator";
-}
 
 export type VmProviderStatusReconcileResult = {
   readonly checked: number;
@@ -4507,8 +4498,6 @@ export function execVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
-  /** Internal test/rollout seam; routes use CMUX_VM_SHARED_ACCESS_MODE. */
-  readonly sharedAccessMode?: ExistingVmAccessInput["sharedAccessMode"];
   readonly providerVmId: string;
   /** Current billing-scope machine allowance; null means unlimited. */
   readonly maxActiveVms?: number | null;
@@ -5896,9 +5885,7 @@ function callerStillOwnsBillingScope(input: ExistingVmAccessInput, vm: CloudVmRo
   if (!billingTeamId) return false;
   if (billingTeamId === input.userId) return true;
   if (!input.teamIds) return false;
-  if (!new Set(input.teamIds).has(billingTeamId)) return false;
-  const access = input.sharedAccessMode ?? vmSharedAccessMode();
-  return access === "team" || vm.userId === input.userId;
+  return new Set(input.teamIds).has(billingTeamId);
 }
 
 function revokeActiveIdentities(

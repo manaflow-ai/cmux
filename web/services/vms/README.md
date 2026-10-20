@@ -326,10 +326,6 @@ Set these Vercel environment variables per production/staging environment:
   `CMUX_VM_ALLOW_FREE_PROVISIONING` is absent; prefer the clearly named allow switch for new
   deployments.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
-- `CMUX_VM_SHARED_ACCESS_MODE`, `team` by default for compatibility. Set it to `creator` to keep
-  exec, files, terminals and other guest access to a shared-team machine's creator. This is the
-  secure rollout mode before personal agent logins may be used: all teammates otherwise share the
-  same Unix HOME. Any nonempty value other than `team` fails closed as `creator`.
 - `CMUX_VM_DESKTOP_TRANSPORT`, which desktop a port open serves. Unset (the default) or any value
   but `screen` keeps noVNC on 6901. `screen` makes 4180 the desktop (the cmux-screen host's
   signaling WebSocket, opened as a `cmux://remote-view` tab) and 6901 an ordinary port. Leave it
