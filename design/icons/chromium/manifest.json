@@ -1,0 +1,252 @@
+{
+ "upstream": "https://chromium.googlesource.com/chromium/src",
+ "revision": "ae65a7090c7185668498f7f323680c1065ce98e3",
+ "license": "BSD-3-Clause (design/icons/chromium/src/LICENSE)",
+ "note": "Chrome's shipping (non-rounded) toolbar set: features::IsRoundedIconsEnabled() is off by default at this revision, so Chrome draws the *_chrome_refresh_old icons. `canvas` picks the representation when a file has several.",
+ "icons": [
+  {
+   "name": "browser.toolbar.back",
+   "file": "components/vector_icons/back_arrow_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser toolbar Back (Chrome kBackArrowChromeRefreshOldIcon)",
+   "sf": "chevron.backward"
+  },
+  {
+   "name": "browser.toolbar.forward",
+   "file": "components/vector_icons/forward_arrow_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser toolbar Forward (Chrome kForwardArrowChromeRefreshOldIcon)",
+   "sf": "chevron.forward"
+  },
+  {
+   "name": "browser.toolbar.reload",
+   "file": "components/vector_icons/reload_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser toolbar Reload (Chrome kReloadChromeRefreshOldIcon)",
+   "sf": "arrow.clockwise"
+  },
+  {
+   "name": "browser.toolbar.stop",
+   "file": "chrome/app/vector_icons/navigate_stop_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser toolbar Stop loading (Chrome kNavigateStopChromeRefreshOldIcon)",
+   "sf": "xmark"
+  },
+  {
+   "name": "browser.toolbar.more",
+   "file": "chrome/app/vector_icons/browser_tools_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser toolbar More / app menu, three vertical dots (Chrome kBrowserToolsChromeRefreshOldIcon)",
+   "sf": "ellipsis"
+  },
+  {
+   "name": "browser.toolbar.extensions",
+   "file": "components/vector_icons/extension_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser toolbar Extensions button, the puzzle (Chrome kExtensionChromeRefreshOldIcon)",
+   "sf": "puzzlepiece.extension",
+   "replaces": [
+    "puzzlepiece.extension"
+   ]
+  },
+  {
+   "name": "browser.toolbar.downloads",
+   "file": "chrome/app/vector_icons/download_toolbar_button_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser toolbar Downloads button (Chrome kDownloadToolbarButtonChromeRefreshOldIcon)",
+   "sf": "arrow.down.to.line",
+   "replaces": [
+    "arrow.down.to.line"
+   ]
+  },
+  {
+   "name": "browser.toolbar.downloads.active",
+   "file": "chrome/app/vector_icons/download_in_progress_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser toolbar Downloads while a download runs (Chrome kDownloadInProgressChromeRefreshOldIcon)",
+   "sf": "arrow.down"
+  },
+  {
+   "name": "browser.toolbar.extensions.crashed",
+   "file": "chrome/app/vector_icons/extension_crashed_custom.icon",
+   "canvas": 48,
+   "meaning": "An extension crashed (Chrome kExtensionCrashedCustomIcon)",
+   "sf": "exclamationmark.triangle"
+  },
+  {
+   "name": "browser.toolbar.media",
+   "file": "chrome/app/vector_icons/media_toolbar_button_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser toolbar media controls (Chrome kMediaToolbarButtonChromeRefreshOldIcon)",
+   "sf": "music.note.list"
+  },
+  {
+   "name": "browser.toolbar.zoom.in",
+   "file": "chrome/app/vector_icons/zoom_plus_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Page zoomed in (Chrome kZoomPlusChromeRefreshOldIcon)",
+   "sf": "plus.magnifyingglass"
+  },
+  {
+   "name": "browser.toolbar.zoom.out",
+   "file": "chrome/app/vector_icons/zoom_minus_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Page zoomed out (Chrome kZoomMinusChromeRefreshOldIcon)",
+   "sf": "minus.magnifyingglass"
+  },
+  {
+   "name": "browser.toolbar.bookmarks",
+   "file": "chrome/app/vector_icons/bookmarks_side_panel_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser toolbar Favorites / bookmarks panel (Chrome kBookmarksSidePanelRefreshOldIcon)",
+   "sf": "book"
+  },
+  {
+   "name": "browser.toolbar.profile",
+   "file": "chrome/app/vector_icons/account_circle_chrome_refresh_old.icon",
+   "canvas": 24,
+   "meaning": "Browser toolbar profile / avatar (Chrome kAccountCircleChromeRefreshOldIcon)",
+   "sf": "person.crop.circle"
+  },
+  {
+   "name": "browser.toolbar.devtools",
+   "file": "components/vector_icons/code_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser toolbar Developer tools (Chrome kCodeChromeRefreshOldIcon)",
+   "sf": "chevron.left.forwardslash.chevron.right"
+  },
+  {
+   "name": "browser.toolbar.close",
+   "file": "components/vector_icons/close_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Browser chrome close / dismiss (find bar, notices; Chrome kCloseChromeRefreshOldIcon)",
+   "sf": "xmark"
+  },
+  {
+   "name": "browser.omnibox.pageinfo",
+   "file": "components/omnibox/browser/vector_icons/secure_page_info_chrome_refresh_old.icon",
+   "canvas": 16,
+   "meaning": "Address bar site info on a secure page, the tune icon (Chrome kSecurePageInfoChromeRefreshOldIcon)",
+   "sf": "slider.horizontal.3"
+  },
+  {
+   "name": "browser.omnibox.notsecure",
+   "file": "components/vector_icons/not_secure_warning_chrome_refresh_old.icon",
+   "canvas": 16,
+   "meaning": "Address bar Not secure (Chrome kNotSecureWarningChromeRefreshOldIcon)",
+   "sf": "exclamationmark.triangle"
+  },
+  {
+   "name": "browser.omnibox.dangerous",
+   "file": "components/vector_icons/dangerous_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Address bar Dangerous site (Chrome kDangerousChromeRefreshOldIcon)",
+   "sf": "exclamationmark.triangle.fill"
+  },
+  {
+   "name": "browser.omnibox.search",
+   "file": "components/vector_icons/search_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Address bar search (Chrome kSearchChromeRefreshOldIcon)",
+   "sf": "magnifyingglass"
+  },
+  {
+   "name": "browser.omnibox.star",
+   "file": "components/omnibox/browser/vector_icons/star_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Address bar Bookmark this tab (Chrome kStarChromeRefreshOldIcon)",
+   "sf": "star"
+  },
+  {
+   "name": "browser.omnibox.star.active",
+   "file": "components/omnibox/browser/vector_icons/star_active_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Address bar page is bookmarked (Chrome kStarActiveChromeRefreshOldIcon)",
+   "sf": "star.fill"
+  },
+  {
+   "name": "browser.find.previous",
+   "file": "chrome/app/vector_icons/keyboard_arrow_up_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Find bar previous match (Chrome kKeyboardArrowUpChromeRefreshOldIcon)",
+   "sf": "chevron.up"
+  },
+  {
+   "name": "browser.find.next",
+   "file": "chrome/app/vector_icons/keyboard_arrow_down_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Find bar next match (Chrome kKeyboardArrowDownChromeRefreshOldIcon)",
+   "sf": "chevron.down"
+  },
+  {
+   "name": "browser.extensions.manage",
+   "file": "components/vector_icons/settings_chrome_refresh_old.icon",
+   "canvas": 16,
+   "meaning": "Extensions menu Manage extensions (Chrome kSettingsChromeRefreshOldIcon)",
+   "sf": "gearshape"
+  },
+  {
+   "name": "browser.tab.audio",
+   "file": "components/vector_icons/volume_up_chrome_refresh_old.icon",
+   "canvas": 16,
+   "meaning": "Tab is playing audio (Chrome kVolumeUpChromeRefreshOldIcon)",
+   "sf": "speaker.wave.2"
+  },
+  {
+   "name": "browser.tab.muted",
+   "file": "components/vector_icons/volume_off_chrome_refresh_old.icon",
+   "canvas": 16,
+   "meaning": "Tab audio is muted (Chrome kVolumeOffChromeRefreshOldIcon)",
+   "sf": "speaker.slash"
+  },
+  {
+   "name": "browser.toolbar.pin",
+   "file": "chrome/app/vector_icons/keep_old.icon",
+   "canvas": 20,
+   "meaning": "Pin (extensions menu, side panel; Chrome kKeepOldIcon)",
+   "sf": "pin"
+  },
+  {
+   "name": "browser.toolbar.unpin",
+   "file": "chrome/app/vector_icons/keep_off_old.icon",
+   "canvas": 16,
+   "meaning": "Unpin a pinned item (extensions menu, side panel; Chrome kKeepOffOldIcon)",
+   "sf": "pin.slash"
+  },
+  {
+   "name": "browser.toolbar.opennewtab",
+   "file": "chrome/app/vector_icons/open_in_new_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Open in a new tab (side panel; Chrome kOpenInNewChromeRefreshOldIcon)",
+   "sf": "arrow.up.forward.square"
+  },
+  {
+   "name": "browser.tab.play",
+   "file": "components/vector_icons/play_arrow_old.icon",
+   "canvas": 48,
+   "meaning": "Media controls Play (Chrome kPlayArrowOldIcon)",
+   "sf": "play.fill"
+  },
+  {
+   "name": "browser.tab.pause",
+   "file": "components/vector_icons/pause_old.icon",
+   "canvas": 48,
+   "meaning": "Media controls Pause (Chrome kPauseOldIcon)",
+   "sf": "pause.fill"
+  },
+  {
+   "name": "browser.menu.translate",
+   "file": "components/vector_icons/g_translate.icon",
+   "canvas": 20,
+   "meaning": "Page menu Translate (Chrome kGTranslateIcon)",
+   "sf": "translate"
+  },
+  {
+   "name": "browser.menu.cast",
+   "file": "chrome/app/vector_icons/cast_chrome_refresh_old.icon",
+   "canvas": 16,
+   "meaning": "Page menu Cast (Chrome kCastChromeRefreshOldIcon)",
+   "sf": "airplayvideo"
+  }
+ ]
+}
