@@ -5,7 +5,9 @@ cmux shows a small banner on that page with the code, or one button that
 opens the verification link. Opt-in. Like Apple's Security Code AutoFill.
 
 Status: slice 1 shipped (policy, parser, inbox, setting, prompt-bar UI,
-tests). No email source is connected yet: see "Open questions".
+tests). No email source and no page detector are connected yet, so the
+feature does nothing in the app today: see "Not in slice 1" and "Open
+questions".
 
 ## What Apple and Chrome do
 
@@ -129,15 +131,24 @@ Link**, and **Not Now**.
   rejection reason for each rule.
 - `VerificationInbox`: in-memory offers per tab, expiry, single use.
 - `BrowserPromptKind.verificationOffer` and its prompt-bar row.
-- Setting `browser.verificationAutofill.enabled` (off) in Settings > Browser.
+- Setting `browser.verificationAutofill.enabled` (off) under Browser >
+  Passwords. Its row is hidden from the Settings page and palette
+  (`hiddenFromSettingsPage`) until a source ships, so nobody sees a switch
+  that does nothing; the key works in cmux.json and agents cannot set it.
 - Strings in all 21 locales.
 - Tests that fail without the code (Swift Testing).
 
 ## Not in slice 1
 
-- A real email source (needs a decision: Mail.app first, Gmail later).
+- A real email source (needs a decision: Mail.app first, Gmail later),
+  behind a `VerificationEmailSource` seam that reads only while a page
+  waits.
 - The page-script detector for the page signal in WebKit and CEF.
-- Wiring Fill Code to a trusted insert in each engine.
+- Wiring Fill Code to a trusted insert in each engine, and Open Link to a
+  same-tab navigation.
+- A THIRD_PARTY_LICENSES entry for the bundled Public Suffix List (MPL-2.0;
+  the file carries the MPL notice). The notices are composed from
+  `scripts/cmux-next/notices/hand-written.md`, which the license review owns.
 
 ## Open questions
 

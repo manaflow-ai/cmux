@@ -123825,6 +123825,268 @@
           }
         }
       }
+    },
+    "settings.browser.verificationAutofill.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fill Codes from Verification Emails"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملء الرموز من رسائل التحقق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Popuni kodove iz verifikacijskih e-poruka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udfyld koder fra bekræftelsesmails"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codes aus Bestätigungs-E-Mails einsetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rellenar códigos de correos de verificación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remplir les codes des e-mails de vérification"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inserisci i codici dalle email di verifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "確認メールのコードを入力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំពេញលេខកូដពីអ៊ីមែលផ្ទៀងផ្ទាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "인증 이메일의 코드 입력"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fyll inn koder fra bekreftelses-e-poster"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wpisuj kody z e-maili weryfikacyjnych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preencher códigos de e-mails de verificação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вставлять коды из писем с подтверждением"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กรอกรหัสจากอีเมลยืนยัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Doğrulama e-postalarındaki kodları doldur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вставляти коди з листів підтвердження"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Điền mã từ email xác minh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "填充验证邮件中的验证码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "填入驗證郵件中的驗證碼"
+          }
+        }
+      }
+    },
+    "settings.browser.verificationAutofill.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما يرسل لك موقع رمزًا أو رابطًا بالبريد الإلكتروني، يعرضه تبويبه. فقط على موقع المرسل نفسه، ولا يُملأ أبدًا دون نقرتك، ولا يُحفظ أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada vam stranica pošalje kod ili link e-poštom, njena kartica ga ponudi. Samo na stranici pošiljaoca, nikad bez vašeg klika i nikad se ne čuva."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når et websted mailer dig en kode eller et link, tilbyder dets fane det. Kun på afsenderens eget websted, aldrig udfyldt uden dit klik og aldrig gemt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn dir eine Website einen Code oder Link per E-Mail schickt, bietet ihr Tab ihn an. Nur auf der eigenen Website des Absenders, nie ohne deinen Klick eingesetzt und nie gespeichert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando un sitio te envía un código o enlace por correo, su pestaña te lo ofrece. Solo en el propio sitio del remitente, nunca sin tu clic y nunca se guarda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand un site vous envoie un code ou un lien par e-mail, son onglet vous le propose. Uniquement sur le site de l’expéditeur, jamais rempli sans votre clic, jamais enregistré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando un sito ti invia un codice o un link via email, la sua scheda te lo propone. Solo sul sito del mittente, mai inserito senza il tuo clic e mai salvato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイトからコードやリンクがメールで届くと、そのサイトのタブに表示されます。送信元のサイトでのみ表示され、クリックしない限り入力されず、保存もされません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលគេហទំព័រផ្ញើលេខកូដ ឬតំណតាមអ៊ីមែល ផ្ទាំងរបស់វានឹងផ្ដល់ជូន។ តែលើគេហទំព័ររបស់អ្នកផ្ញើប៉ុណ្ណោះ មិនបំពេញដោយគ្មានការចុចរបស់អ្នក ហើយមិនរក្សាទុកឡើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이트가 이메일로 코드나 링크를 보내면 해당 탭에 표시합니다. 보낸 사이트에서만 표시되며, 클릭하지 않으면 입력되지 않고, 저장되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når et nettsted sender deg en kode eller lenke på e-post, tilbyr fanen den. Bare på avsenderens eget nettsted, aldri fylt inn uten klikket ditt og aldri lagret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy witryna wyśle Ci kod lub link e-mailem, jej karta go zaproponuje. Tylko w witrynie nadawcy, nigdy bez Twojego kliknięcia i nigdy nie jest zapisywany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando um site envia um código ou link por e-mail, a aba dele oferece. Só no próprio site do remetente, nunca preenchido sem seu clique e nunca salvo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Когда сайт присылает код или ссылку по почте, его вкладка предлагает их. Только на сайте отправителя, никогда без вашего нажатия и никогда не сохраняется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อเว็บไซต์ส่งรหัสหรือลิงก์ทางอีเมล แท็บของเว็บไซต์นั้นจะเสนอให้ เฉพาะบนเว็บไซต์ของผู้ส่งเท่านั้น ไม่กรอกโดยที่คุณไม่ได้คลิก และไม่บันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir site size e-postayla kod veya bağlantı gönderdiğinde sekmesi bunu önerir. Yalnızca gönderenin kendi sitesinde, tıklamanız olmadan asla doldurulmaz ve asla saklanmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли сайт надсилає код або посилання поштою, його вкладка пропонує їх. Лише на сайті відправника, ніколи без вашого натискання і ніколи не зберігається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi một trang web gửi mã hoặc liên kết qua email, thẻ của trang đó sẽ đề xuất. Chỉ trên chính trang của người gửi, không bao giờ điền khi bạn chưa nhấp và không bao giờ lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "网站通过邮件发来验证码或链接时，该网站的标签页会提供它。仅限发件网站本身，未经你点击绝不填充，也绝不保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網站以郵件寄來驗證碼或連結時，該網站的分頁會提供它。僅限寄件網站本身，未經你點按絕不填入，也絕不儲存。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

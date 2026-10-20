@@ -131,7 +131,7 @@ import Testing
         let email = Self.email(authenticated: nil, body: "Confirm your email.", links: ["https://github.com/confirm?t=1"])
         #expect(decide(email, Self.signal("https://github.com/signup")) == .failure(.nothingToOffer))
         let failed = Self.email(authenticated: false, body: "Confirm your email.", links: ["https://github.com/confirm?t=1"])
-        #expect(decide(failed, Self.signal("https://github.com/signup")) == .failure(.nothingToOffer))
+        #expect(decide(failed, Self.signal("https://github.com/signup")) == .failure(.senderFailedAuthentication))
     }
 
     /// A code from a sender that failed authentication is refused; an unknown result still offers a code.
