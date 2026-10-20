@@ -32,6 +32,8 @@ final class FocusCoordinator {
     weak var applier: (any FocusEffectApplying)?
     private var queue: [FocusEvent] = []
     private var isRunning = false
+    /// Tabs left while their address bar had the keyboard (Chrome restores it on return).
+    private var omnibarMemory = OmnibarFocusMemory()
     private(set) var isApplying = false
     /// The last events, newest last (for `debug.focus`).
     private(set) var recent: [String] = []
@@ -96,6 +98,10 @@ final class FocusCoordinator {
                 }
                 let effects = result.effects
                 record(event)
+                if omnibarMemory.note(event, before: previous.resolved, after: reduced.resolved) {
+                    // Runs after this event's effects moved the responder to the page.
+                    queue.append(.focusTarget(.addressBar, source: .programmatic))
+                }
                 observer?(.reduced(event, before: previous, after: reduced, changed: result.changed || !effects.isEmpty))
                 guard !effects.isEmpty, let applier else { continue }
                 isApplying = true

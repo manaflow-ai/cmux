@@ -1,6 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextLayout
+@testable import CmuxNextLayout
 @testable import CmuxNextTabs
 import Testing
 
@@ -62,6 +62,19 @@ struct PaneSwapDragTests {
             }
             send(.leftMouseUp, end)
         }
+
+        /// Presses at `start` and drags to `end` without releasing; `release()` ends it.
+        func hold(from start: CGPoint, to end: CGPoint) {
+            send(.leftMouseDown, start)
+            for step in 1...8 {
+                let t = CGFloat(step) / 8
+                send(.leftMouseDragged, CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t))
+            }
+            lastHeld = end
+        }
+
+        private var lastHeld: CGPoint = .zero
+        func release() { send(.leftMouseUp, lastHeld) }
 
         private func send(_ type: NSEvent.EventType, _ point: CGPoint) {
             guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
@@ -127,5 +140,19 @@ struct PaneSwapDragTests {
         #expect(intents.contains(.select(TabID("b"))), "the press did not select the tab before the release: \(intents)")
         try send(.leftMouseUp)
         #expect(intents.filter { $0 == .select(TabID("b")) }.count == 1, "one click selects the tab once: \(intents)")
+    }
+
+    /// The target pane previews as the pane drop zones do (a fill over its body), not as the 2 pt
+    /// tab bar caret: a pane drag and a tab drag share one preview (drop-zones DESIGN.md).
+    @Test func theTargetPanePreviewsItsBody() throws {
+        let window = Window()
+        defer { window.window.orderOut(nil) }
+        window.hold(from: try window.emptyStripPoint("p1"), to: try window.center("p2"))
+        let shown = window.root.highlight.destinationRect
+        let pane = try #require(window.root.frame(of: "p2"))
+        window.release()
+        #expect(shown.width > pane.width / 2)
+        #expect(shown.height > pane.height / 2)
+        #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
     }
 }

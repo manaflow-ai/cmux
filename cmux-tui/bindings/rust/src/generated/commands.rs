@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b.
+// cmux-tui mux protocol 12, IR 5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1853,6 +1853,8 @@ pub struct HomeInboxResult {
 pub struct IdentifyRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_metadata: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub revisions: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -2110,6 +2112,16 @@ pub struct MoveBrowserProfileRequest {
 
 #[rustfmt::skip]
 pub type MoveBrowserProfileResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveColumnRequest {
+    pub direction: T::ColumnMoveDirection,
+    pub pane: T::Id,
+}
+
+#[rustfmt::skip]
+pub type MoveColumnResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3707,6 +3719,17 @@ pub struct TerminalResourcesRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TerminalResumeCommandRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub command: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UndoLayoutRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -4633,6 +4656,9 @@ impl CmuxClient {
             self.require_protocol_field("identify", 12)?;
             self.require_capability_field("identify", "machine-identity-v1")?;
         }
+        if request.revisions.is_some() {
+            self.require_protocol_field("identify", 12)?;
+        }
         self.execute_identify(&IDENTIFY_METADATA, &request)
     }
 
@@ -4726,6 +4752,10 @@ impl CmuxClient {
 
     pub fn move_browser_profile(&mut self, request: MoveBrowserProfileRequest) -> Result<MoveBrowserProfileResult> {
         self.execute(&MOVE_BROWSER_PROFILE_METADATA, &request)
+    }
+
+    pub fn move_column(&mut self, request: MoveColumnRequest) -> Result<MoveColumnResult> {
+        self.execute(&MOVE_COLUMN_METADATA, &request)
     }
 
     pub fn move_personal_group(&mut self, request: MovePersonalGroupRequest) -> Result<MovePersonalGroupResult> {
@@ -5512,6 +5542,10 @@ impl CmuxClient {
 
     pub fn terminal_resources(&mut self, request: TerminalResourcesRequest) -> Result<T::TerminalResourcesResult> {
         self.execute(&TERMINAL_RESOURCES_METADATA, &request)
+    }
+
+    pub fn terminal_resume_command(&mut self, request: TerminalResumeCommandRequest) -> Result<T::TerminalResumeCommandResult> {
+        self.execute(&TERMINAL_RESUME_COMMAND_METADATA, &request)
     }
 
     pub fn undo_layout(&mut self, request: UndoLayoutRequest) -> Result<UndoLayoutResult> {

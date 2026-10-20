@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b'
+IR_SHA256 = '5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512'
 
 
 @dataclass(frozen=True)
@@ -1649,6 +1649,7 @@ COMMANDS = {
         None,
         {
             'machine_metadata': CommandFieldMetadata(12, 'machine-identity-v1'),
+            'revisions': CommandFieldMetadata(12, None),
         },
     ),
     'ids': CommandMetadata(
@@ -1910,6 +1911,18 @@ COMMANDS = {
         {
             'browser_profile': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-column': CommandMetadata(
+        'move-column',
+        'control',
+        12,
+        'column-move-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'direction': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
         },
     ),
     'move-personal-group': CommandMetadata(
@@ -3456,6 +3469,19 @@ COMMANDS = {
         None,
         {
             'surfaces': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-resume-command': CommandMetadata(
+        'terminal-resume-command',
+        'control',
+        12,
+        'resume-command',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'command': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
     'undo-layout': CommandMetadata(

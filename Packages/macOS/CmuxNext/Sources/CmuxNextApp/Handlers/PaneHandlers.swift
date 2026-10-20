@@ -114,6 +114,10 @@ enum PaneHandlers {
         let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID)
         // The provisional pane is in the store now, and the window lays it out and mounts it in this
         // turn, so it draws in the key's frame (instant-new-surfaces), not after a main-actor hop.
+        // The split and the even sizing of its chain are one gesture: both show in this frame, so
+        // every pane of the chain moves on one spring (split-spring-animation); the ratio intents
+        // go once the daemon made the split.
+        let shownSizing = provisional == nil ? nil : content?.layoutModel.showSplitSizing(sizing)
         let intended = provisional.map { provisional in
             defer { BenchSpans.measure("split.layout") { content?.applyCurrent() } }
             return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
@@ -130,9 +134,10 @@ enum PaneHandlers {
                 BenchSpans.mark(provisional == nil ? "split.reply" : "split.reply.optimistic")
                 if provisional == nil { content?.expectFocus(on: created.surface, generation: intent) }
                 landed = true
-                content?.layoutModel.applySplitSizing(sizing)
+                if let model = content?.layoutModel { model.commitSplitSizing(shownSizing ?? model.showSplitSizing(sizing)) }
                 return nil
             } catch {
+                if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
                 logger.error("split failed: \(String(describing: error), privacy: .public)")
                 return "split: \(error)"
             }
