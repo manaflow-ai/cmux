@@ -116,6 +116,9 @@ impl Daemon {
         let native = size == suffix.len() as isize && suffix == super::NATIVE;
         if native {
             input.read_exact(&mut suffix)?;
+            // This daemon retains the original private frame while supervising
+            // reception. Root startup must protect it before capability/keys.
+            crate::caller::protect_private_process()?;
         }
         parent.set_nonblocking(true)?;
         let (control, host) = UnixStream::pair()?;

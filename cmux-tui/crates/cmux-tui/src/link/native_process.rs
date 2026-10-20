@@ -30,6 +30,9 @@ impl Drop for Authority {
 pub(super) fn run(flags: &super::Flags) -> anyhow::Result<()> {
     let session = PathBuf::from(super::required(flags, "--session-socket")?);
     let parent = super::cloud_broker::inherited("0")?;
+    // The dedicated exec must protect its own address space before returning
+    // the endpoint over which its daemon will release private bootstrap data.
+    cmux_link::caller::protect_private_process()?;
     parent.set_write_timeout(Some(REQUEST_BUDGET))?;
     let (control, daemon) = StdStream::pair()?;
     // A child-created descriptor lets the daemon authenticate its exact owned
