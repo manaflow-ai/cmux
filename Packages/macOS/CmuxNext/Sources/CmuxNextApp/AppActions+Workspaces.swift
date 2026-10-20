@@ -145,13 +145,14 @@ extension AppActions {
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
            case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
-        // `offline`: a machine that is not connected (a paused Cloud VM). Its row leaves as any other, and the close waits for
-        // the machine outside the window's lane (later creates and closes never wait for it); a row that cannot hide says why.
-        let daemon = services.activeDaemon, offline = daemon.connection == nil, terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
+        // `offline`: a person's close on a machine that is not connected (a paused Cloud VM). Its row leaves as any other, and the
+        // close waits for the machine outside the window's lane (later creates and closes never wait for it) until it connects or
+        // leaves the app (the row then lists again); a row that cannot hide says why. CLI and socket closes still fail at once.
+        let daemon = services.activeDaemon, offline = daemon.connection == nil && invocation.origin == .user, terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass; the daemon request runs behind.
         guard case let hidden = InstantClose.begin(id, in: owner, windows: services.windows), hidden || !offline else { return services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)) }
         let close: @MainActor () async -> ActionWorkFailure? = {
-            let failure = await daemon.failureOnceConnected("close-workspace", waits: offline) { connection in
+            let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                 try await ClosingWorkspaces.shared.refusal()
                 try await WorkspaceClose.close(key, terminals: terminals, on: connection)
             }
