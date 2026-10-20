@@ -15,6 +15,18 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
+/* The words are text a person reads and quotes (u4466: "i cant select text in what's new"): a
+   drag selects, a double-click takes a word, Copy copies. pageBase.css makes the body desktop
+   chrome (user-select: none); the buttons stay chrome, so a click on one never starts a selection.
+   WebKit reads only the prefixed property. */
+:is(.wn-card, .wn-pop) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+:is(.wn-card, .wn-pop) button {
+  -webkit-user-select: none;
+  user-select: none;
+}
 .wn-card-eyebrow {
   padding-right: 20px;
   color: var(--page-text-3);
