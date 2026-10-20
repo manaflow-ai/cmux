@@ -13,7 +13,7 @@ import Observation
 /// strip intents into `ScreenCommands` / `ScreenGroupCommands`.
 @MainActor
 final class ScreenBarController {
-    let model = TabStripModel(style: .chrome, showsNewTabButton: true)
+    let model = TabStripModel(style: .chrome, showsNewTabButton: true, allowsMultiSelection: false) // screen actions take one screen
     let view: TabStripView
     private unowned let content: WorkspaceContentController
     private let preview: ScreenPreviewSource
@@ -147,7 +147,7 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn:
+        case .moveToNewSplit, .moveToNewColumn, .reorderTabs:
             break
         }
     }

@@ -67,6 +67,7 @@ export type CreateDecision<C, K extends ResourceKind> =
 export const tenantMayCreate = <C, const K extends "vm" | "snapshot">(
   caller: Named<C, Principal>,
   kind: K,
+  resume?: { readonly key: string; readonly vmId: string },
 ): Effect.Effect<
   CreateDecision<C, K>,
   EntitlementUnavailable | StoreError | LimitsUnavailable,
@@ -77,6 +78,13 @@ export const tenantMayCreate = <C, const K extends "vm" | "snapshot">(
     const entitlements = yield* Entitlements;
     if (!(yield* entitlements.mayCreate(tenantId, kind))) return { _tag: "not_entitled" };
     const policy = yield* TenantPolicy;
+    if (resume !== undefined && kind === "vm") {
+      const reservationId = yield* (yield* TenantLimits).creationReservation(tenantId, resume.key, resume.vmId);
+      if (reservationId === null) return yield* Effect.fail(new EntitlementUnavailable({ cause: "the retained allocation has no quota reservation" }));
+      const TenantMayCreate = defineProof(`TenantMayCreate:${kind}`);
+      const proof: TenantMayCreate<C, K> = Object.freeze({ ...TenantMayCreate.prove(caller), reservationId });
+      return { _tag: "granted", proof };
+    }
     // Each kind has its own budget: snapshots never consume the VM limit.
     const limit = kind === "snapshot" ? policy.maxSnapshots(tenantId) : policy.maxVms(tenantId);
     const live = yield* (yield* OwnershipStore).countLive(tenantId, kind);
