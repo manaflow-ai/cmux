@@ -140,6 +140,12 @@ pub fn live_tags(m: &SessionMeta) -> Value {
     Value::Object(out)
 }
 
+/// [`short_text`] of `s` with its secrets masked first (`secret_scan`), so a
+/// secret across the cut leaves no head: every prompt preview.
+pub(crate) fn masked_preview(s: &str, max: usize) -> String {
+    short_text(&crate::secret_scan::mask(s), max)
+}
+
 pub(crate) fn short_text(s: &str, max: usize) -> String {
     let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if s.chars().count() <= max {
