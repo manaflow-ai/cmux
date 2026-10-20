@@ -14,7 +14,7 @@ import Testing
 private let deviceID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
 /// A counter shared with a Sendable closure (tests).
-private final class Locked<Value: Sendable>: @unchecked Sendable {
+nonisolated private final class Locked<Value: Sendable>: @unchecked Sendable {
     // @unchecked: `stored` is behind `lock`.
     private let lock = NSLock()
     private var stored: Value

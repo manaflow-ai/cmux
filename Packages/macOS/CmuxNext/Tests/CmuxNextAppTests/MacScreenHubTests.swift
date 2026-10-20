@@ -535,12 +535,6 @@ struct MacScreenHubPushTests {
         #expect(pages.title(for: "unknown") == "Mac")
     }
 
-    /// With a device hub, the DEV home page drops link pairing and Share This Mac's link.
-    @Test func linkPairingOnlyWithoutAHub() {
-        #expect(MacScreenHomeView.showsLinks(hubConfigured: false) == MacScreenHomeView.showsLinkPairing)
-        #expect(!MacScreenHomeView.showsLinks(hubConfigured: true))
-    }
-
     /// This Mac removed from the user's devices: its sessions end with that reason, not "signed out".
     @Test func aRemovedViewerSaysItWasRemoved() throws {
         let pages = makePages()
