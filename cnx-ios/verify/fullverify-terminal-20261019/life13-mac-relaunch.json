@@ -1,0 +1,18 @@
+{
+ "t0": 1792463715.201231,
+ "launch_out": "{\"pid\": 3063, \"hostd\": true}",
+ "t_launch_cmd": 1792463717.207284,
+ "t_launch_ret": 1792463719.361995,
+ "pill_polls": [
+  [
+   5.1,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   6.42,
+   "e2e-t1, ~"
+  ]
+ ],
+ "after_tok_arrived": false,
+ "hostd_log_tail": "2026-10-20T02:11:13.381873Z  INFO cnx_hostd::host: link up session_id=\"3bbee049-5aa7-49ce-ba61-599418ef09a7\" kind=WebRtc path=Direct phone=\"8f5a4013-831f-4a35-a19f-30fd5f5fa236\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms pc_created=0.5ms answer_sent=1.3ms remote_host=1.3ms remote_srflx=1.4ms remote_relay=1.4ms ice_checking=1.5ms local_host=2.1ms local_srflx=39.9ms local_relay=52.3ms ice_connected=227.2ms dtls_connected=230.3ms video_lane=231.5ms channel_open=231.5ms pair_host-prflx=231.5ms link_ready=231.5ms\n2026-10-20T02:35:20.030354Z  INFO cnx_hostd::host: registered device={\"createdAt\":\"2026-10-20T01:57:37.554Z\",\"deviceId\":\"a858b84f-7a66-45fb-a611-93bb18396452\",\"kind\":\"mac\",\"lastSeenAt\":null,\"name\":\"cmux11\u2019s Mac mini\",\"ownerUserId\":\"4c3c1f89-a263-4381-b729-db4b6d389743\",\"teamId\":\"personal-4c3c1f89-a263-4381-b729-db4b6d389743\",\"updatedAt\":\"2026-10-20T02:35:19.835Z\",\"wgPublicKey\":null}\n2026-10-20T02:35:20.572561Z  INFO cnx_hostd::host: signaling connected device_id=\"a858b84f-7a66-45fb-a611-93bb18396452\"\n2026-10-20T02:35:21.181043Z  INFO cnx_hostd::host: link up session_id=\"a271b856-e6af-4003-bb3d-f9f91a45c23e\" kind=WebRtc path=Direct phone=\"8f5a4013-831f-4a35-a19f-30fd5f5fa236\" video=true timings=offer_received=0.0ms ice_servers_fetched=199.6ms pc_created=209.6ms answer_sent=212.0ms remote_host=212.0ms remote_srflx=212.0ms remote_relay=212.1ms ice_checking=213.2ms local_host=213.2ms local_srflx=240.2ms local_relay=256.0ms ice_connected=361.3ms dtls_connected=368.0ms video_lane=370.8ms channel_open=370.8ms pair_host-prflx=370.8ms link_ready=370.8ms\n"
+}
