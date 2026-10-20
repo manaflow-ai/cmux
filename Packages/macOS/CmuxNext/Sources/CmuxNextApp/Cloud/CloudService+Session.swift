@@ -5,6 +5,7 @@ extension CloudService {
     func makeSessionLifecycle() -> CloudSessionLifecycle {
         let auth = auth
         return CloudSessionLifecycle(current: { auth.coordinator.isAuthenticatedSessionIdentityCurrent($0) },
+            fence: { [weak self] in self?.fenceCloudSession() ?? Task {} },
             start: { [weak self] in await self?.startCloudSession($0) },
             retire: { [weak self] in await self?.retireCloudSession($0) })
     }
@@ -20,7 +21,8 @@ extension CloudService {
             await auth.awaitRestored()
             for await identity in identities {
                 guard !Task.isCancelled else { return }
-                await sessionLifecycle.update(identity).value
+                // The lifecycle owns and joins the worker; keep receiving identity changes during a held startup.
+                _ = sessionLifecycle.update(identity)
             }
         } else {
             // The frozen legacy route retains its existing hub/revoke lifetime.
@@ -39,6 +41,20 @@ extension CloudService {
                     hands.stop()
                 }
             }
+        }
+    }
+
+    /// Close admission synchronously; local transport stops while an old startup finishes draining.
+    private func fenceCloudSession() -> Task<Void, Never> {
+        credentialProvider?.suspend()
+        dropAllMachines()
+        hands.stop()
+        let native = nativeLink
+        let stopping = Task { await native?.suspend() }
+        // task-owner: the lifecycle's fencing task joins both local stop and credential work.
+        return Task { [weak self] in
+            await self?.endCredentialSession()
+            await stopping.value
         }
     }
 

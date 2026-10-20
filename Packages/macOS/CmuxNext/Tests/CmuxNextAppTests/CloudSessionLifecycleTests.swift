@@ -70,4 +70,24 @@ import Testing
         #expect(world.events.suffix(2) == ["begin a:1", "ready a:1"])
         await world.lifecycle.stop().value
     }
+
+    @Test func suspensionClosesAdmissionBeforeAHeldStartupDrains() async {
+        let world = CloudSessionLifecycleWorld()
+        let a = world.choose("a", generation: 1)
+        world.holdStart()
+        let starting = world.lifecycle.update(a)
+        await world.waitUntilHeld()
+        #expect(world.admissionOpen)
+        let ending = world.lifecycle.suspend()
+        #expect(!world.admissionOpen)
+        #expect(!world.lifecycle.isCurrent(a))
+        #expect(world.fences == 2)
+        world.release()
+        await starting.value; await ending.value
+        #expect(world.live == nil)
+        #expect(!world.events.contains("ready a:1"))
+        await world.lifecycle.resume(a).value
+        #expect(world.live == a)
+        await world.lifecycle.stop().value
+    }
 }

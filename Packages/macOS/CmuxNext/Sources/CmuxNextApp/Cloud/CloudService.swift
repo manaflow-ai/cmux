@@ -263,6 +263,7 @@ final class CloudService {
             reconcile(list, scope: scope)
             hasLoadedMachines = true
         } catch {
+            guard isCloudSessionCurrent(identity) else { return }
             lastError = String(describing: error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
         }

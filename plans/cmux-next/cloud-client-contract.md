@@ -343,6 +343,15 @@ token supplier and final local auth clear refuse a changed generation, including
 session for the same account. If the old session has expired, remote revocation can fail while
 local record removal and key rotation still run.
 
+The app-server path follows the coordinator's account/session-generation stream rather than the
+signed-in Boolean. A change closes credential admission immediately and stops local Native
+transport while startup drains. One owner joins the credential/transport fence and prior startup
+before revoking enrollments, unbinding the install, or starting the replacement. Every awaited
+startup stage and list result/error rechecks that identity. Explicit sign-out holds the latest
+identity behind a barrier and reconciles the current session when it releases; quit cannot reopen
+the owner. Policy refresh retries only the current identity. The legacy hub keeps its existing
+revoke sequence and is not converted to Native by this lifecycle.
+
 The parent and server paths are connected in source. Receiving/current-peer authorization, idle
 backend revocation/expiry, explicit selection of ambiguous meshes, offline cleanup recovery and
 live Cloud/paired-server/Keychain/GUI journeys remain unverified or incomplete. Earlier parents
