@@ -66,8 +66,13 @@ export function pageSwitch(window: DOMWindow): PageSwitch {
     const kinds = Array.isArray(keyframes) ? Object.keys(keyframes[0] ?? {}).join(",") : "";
     const name = `${label(this)}${kinds ? ` (${kinds})` : ""}`;
     entered.push(name);
+    let settle: (value: unknown) => void = () => {};
+    const finished = new Promise((resolve) => (settle = resolve));
     const animation = {
       label: name,
+      id: "",
+      currentTime: 0,
+      finished,
       playState: "running" as AnimationPlayState,
       onfinish: null as null | ((event?: unknown) => void),
       oncancel: null as null | ((event?: unknown) => void),
@@ -81,6 +86,7 @@ export function pageSwitch(window: DOMWindow): PageSwitch {
         if (!running.delete(animation as unknown as StubAnimation)) return;
         animation.playState = "finished";
         animation.onfinish?.();
+        settle(animation);
       },
     };
     running.add(animation as unknown as StubAnimation);
@@ -103,8 +109,15 @@ export function pageSwitch(window: DOMWindow): PageSwitch {
         for (const node of record.addedNodes) for (const element of matches(node)) entered.push(label(element));
       else if (record.type === "attributes" && record.target.nodeType === 1) {
         const element = record.target as Element;
-        if (element.matches(ENTRANCE_SELECTOR) && !String(record.oldValue ?? "").match(/cv-enter|row--enter/))
-          entered.push(label(element));
+        const before = record.oldValue ?? "";
+        // Counted when the changed attribute is what starts it: a class gaining an entrance class,
+        // or a `data-kind-switch` set where there was none.
+        const gained =
+          record.attributeName === "class"
+            ? /(^|\s)(cv-enter|acpmux-row--enter)(\s|$)/.test(element.className) &&
+              !/(^|\s)(cv-enter|acpmux-row--enter)(\s|$)/.test(before)
+            : element.hasAttribute("data-kind-switch") && record.oldValue === null;
+        if (gained) entered.push(label(element));
       }
     }
   });
@@ -168,6 +181,8 @@ export function pageSwitch(window: DOMWindow): PageSwitch {
       else delete proto.animate;
       if (!hadGetAnimations) delete docWithAnimations.getAnimations;
       visibility = "visible";
+      delete (doc as unknown as Record<string, unknown>).visibilityState;
+      delete (doc as unknown as Record<string, unknown>).hidden;
     },
   };
   return api;

@@ -84,5 +84,9 @@ test("motion turned off by the host allows no entrance", () => {
   const { doc } = page();
   doc.documentElement.dataset.agentMotion = "off";
   expect(entranceAllowed(doc)).toBe(false);
-  expect(finishPageAnimations(undefined)).toBe(0);
+});
+
+test("a document without getAnimations finishes nothing", () => {
+  const { window } = new JSDOM("<!doctype html>");
+  expect(finishPageAnimations(window.document)).toBe(0);
 });
