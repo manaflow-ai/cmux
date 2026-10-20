@@ -51,6 +51,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
     let keyboard: CGFloat
 
     @State private var chrome = ChromeState()
+    /// Close All Tabs is waiting for the person's answer.
+    @State private var confirmingCloseAll: CloseAllConfirmation?
     /// The page <-> grid transition (one interruptible progress value).
     @State private var zoomDriver = TabZoomDriver()
     /// Swipe-to-close offsets of the grid's cards.
@@ -154,7 +156,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onClose: { id in await closeFromGrid(id) },
                         onNewTab: newTabFromOverview,
                         onDone: { closeOverview(selecting: activeID) },
-                        onCloseAll: closeAll,
+                        onCloseAll: { confirmingCloseAll = CloseAllConfirmation(ids: tabs.map(\.id)) },
                         pending: newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil,
                         onScrolling: { source.overviewScrollingChanged($0) },
                         onQueueSelect: { queuedOpen = $0 },
@@ -162,6 +164,16 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 .opacity(overviewVisible ? 1 : 0)
                 .allowsHitTesting(overviewVisible)
                 .accessibilityHidden(!zoomState.gridInteractive)
+                // Close All Tabs asks first, as Safari does: every tab closes with no way back.
+                .confirmationDialog(confirmingCloseAll?.confirmTitle ?? "", isPresented: Binding(
+                    get: { confirmingCloseAll != nil }, set: { if !$0 { confirmingCloseAll = nil } }
+                ), titleVisibility: .hidden, presenting: confirmingCloseAll) { confirmation in
+                    Button(confirmation.confirmTitle, role: .destructive) { closeAll(confirmation.ids) }
+                        .accessibilityIdentifier("tabs.closeAll.confirm")
+                    Button("Cancel", role: .cancel) {}
+                } message: { confirmation in
+                    Text(confirmation.message)
+                }
 
             if chrome.swiping {
                 swipeNeighbor
@@ -378,7 +390,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
         // size (fading in with progress) and is the active card's close
         // button on the settled grid (this layer covers that card).
         .overlay(alignment: .topTrailing) {
-            if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, let id = activeID {
+            // Not on a settled page: it is invisible there (opacity 0) and
+            // its `accessibilityHidden` did not keep it out of the page's
+            // accessibility tree (full verify 2026-10-19 D7, T-TABS-14).
+            if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, !settled, let id = activeID {
                 Button {
                     if !UIAccessibility.isReduceMotionEnabled { cardSwipes.holdCountForTapClose(max(1, tabs.count)) }
                     Task { _ = await closeFromGrid(id) }
@@ -615,8 +630,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         zoomDriver.openNewTab(spring: newTabZoom.spring)
     }
 
-    private func closeAll() {
-        let ids = tabs.map(\.id)
+    private func closeAll(_ ids: [String]) {
         Task { for id in ids { _ = await source.close(id) } }
         if let option = source.newTabOptions.first { newTabFromOverview(option) }
     }

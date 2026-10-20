@@ -240,10 +240,14 @@ struct TabOverview<Source: TabsDataSource>: View {
             .allowsHitTesting(gridInteractive || swipeInteractive)
 
             // Glass ignores inherited opacity, so the hidden controls are
-            // parked off screen (and out of the accessibility tree) instead
-            // of leaving the hierarchy: building their glass in the zoom's
-            // first frames made those frames late.
+            // parked off screen instead of fading: building their glass in
+            // the zoom's first frames made those frames late. They leave the
+            // hierarchy only on a settled page (no zoom heading to the grid):
+            // parked there, `accessibilityHidden` did not keep controls drawn
+            // in glass or as menus out of the page's accessibility tree (full
+            // verify 2026-10-19 D7, T-TABS-14: "More", "New", "Done").
             let parked = shown <= 0
+            if !parked || controlsInteractive || swipeInteractive || gridInteractive {
             Group {
                 Group {
                     if selecting { selectControls } else { topControls }
@@ -256,6 +260,7 @@ struct TabOverview<Source: TabsDataSource>: View {
             }
             .offset(y: parked ? layout.size.height * 2 : 0)
             .accessibilityHidden(parked)
+            }
         }
         .frame(width: layout.size.width, height: layout.size.height)
     }
