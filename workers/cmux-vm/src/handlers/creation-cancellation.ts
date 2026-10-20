@@ -32,7 +32,12 @@ export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyH
     if (allocation !== "deleted") {
       const upstream = yield* UpstreamClient;
       const found = yield* upstream.inspectCancellingCreation(caller, vm, { cancelling, scope }).pipe(Effect.mapError(() => unavailable()));
-      if (found === null && allocation === "absent") return status;
+      // Nothing at the exact slug: settle only once no earlier send can still be allocating.
+      if (found === null && allocation === "absent") {
+        if (!(yield* limits.settleAbsentCancellation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(() => unavailable())))) return status;
+        if (retained.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, retained.snapshotId);
+        return yield* readVmCreation(caller, key);
+      }
       if (found !== null) {
         const receipt = retained.intent.receipt;
         yield* store.record({ tenantId: caller.value.tenantId, kind: "vm", cmuxId: vm.value, upstreamId: found.upstreamId,

@@ -52,11 +52,28 @@ Provisioning follows Cloud admission, approval, plan and bind-configuration
 checks. Reads, cleanup and sign-in never create an identity team. Concurrent
 creates share one owner flight. Once a POST may have happened, a restart or
 lost answer recovers by its exact marker; an empty lookup never resends it.
-Recovery alarms back off for at most 24 hours, then retain the unresolved intent
-for a later explicit retry. A confirmed no-mutation rejection waits for a new
+Recovery alarms back off for at most 24 hours, then retain the unresolved intent;
+the next admitted create after that window, once the marker lookup is still
+empty, starts over under a fresh nonce (a late answer for the old nonce is never
+adopted). A confirmed no-mutation rejection waits for a new
 admitted create. A cancellation committed during identity I/O is rechecked
 before VM creation. Mapping supplies routing, not a new VM grant; existing
 Stack tenant membership, scoped keys and VM policy still govern access.
+
+The tenant's Stack team is never mirrored as a cmux team: the Stack webhook
+sync ignores any team whose server metadata carries the personal tenant marker,
+so it cannot appear in team lists or invite members through cmux. New work
+(`operate`) also re-reads the tenant's membership (a confirmed solo answer is
+reused for 30 seconds) and fails closed when anyone besides the owner is a
+member or the read fails; cleanup routing is kept.
+
+The team is created with no Stack creator, so the owner never holds Stack's
+creator (admin, invite) defaults; the owner then joins as a plain member, and a
+team the owner could not join is deleted. The cmux-vm Worker is the access
+chokepoint: for a Stack team whose server metadata carries the marker, a Stack
+session is admitted only for the marker's `stack_user`, and an unreadable marker
+admits nobody. Another member (for example one invited through cmux.com) gets no
+VM access. cmux.com does not yet hide marked teams from its team and billing views.
 
 Hosted tests use fake identity/VM API responses with real owner RPCs and SQLite;
 they do not establish a live provider rollout or production billing integration.
