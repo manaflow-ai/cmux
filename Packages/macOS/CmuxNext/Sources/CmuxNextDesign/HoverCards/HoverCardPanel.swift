@@ -249,20 +249,12 @@ final class HoverCardPanel: NSPanel {
         // Whole device pixels, so the edge `origin(for:)` puts on the target stays there.
         let fitting = glass.fittingSize
         let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
-        var origin = Self.origin(for: placement, anchor: anchor, size: size, scale: scale)
-        isLeading = false
-        if let screen = parentWindowRef?.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            let margin = Metrics.space2
-            // Beside a target with no room on its right (a sidebar on the right): its left, so
-            // the card never covers what it describes (as NSPopover flipped).
-            if placement == .beside, origin.x + size.width > visible.maxX - margin {
-                origin.x = (anchor.minX * scale).rounded(.up) / scale - Self.targetGap - size.width
-                isLeading = true
-            }
-            origin.x = min(max(origin.x, visible.minX + margin), visible.maxX - size.width - margin)
-            origin.y = min(max(origin.y, visible.minY + margin), visible.maxY - size.height - margin)
-        }
+        let screen = parentWindowRef?.screen ?? NSScreen.main
+        let rest = Self.rest(for: placement, anchor: anchor, size: size, screen: screen?.frame,
+                             visible: screen?.visibleFrame, window: parentWindowRef?.frame,
+                             margin: Metrics.space2, scale: scale)
+        let origin = rest.origin
+        isLeading = rest.isLeading
         // R131: the window moves in the same frame (a window-frame slide restarted on every tab
         // trailed the pointer); a retarget's slide runs inside it (`slide(from:)`).
         let margin = Self.windowMargin
@@ -300,7 +292,35 @@ final class HoverCardPanel: NSPanel {
 
 extension HoverCardPanel: ThemeResponsive {}
 
+/// Where a card rests on screen and on which side of its target.
+struct HoverCardRest: Equatable {
+    var origin: CGPoint
+    var placement: HoverCardPlacement
+    /// The card's trailing edge is on its target's side: left of a row, or a tab card lined up
+    /// with its tab's trailing edge (the morph and the entrance grow from that side).
+    var isLeading = false
+}
+
 extension HoverCardPanel {
+    /// The card's rest place next to `anchor`, kept on `screen`: `visible` is the screen's
+    /// visible frame, `window` the parent window's frame (all screen coordinates, y up).
+    static func rest(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize, screen: CGRect?, visible: CGRect?,
+                     window: CGRect?, margin: CGFloat, scale: CGFloat = 2) -> HoverCardRest {
+        var origin = Self.origin(for: placement, anchor: anchor, size: size, scale: scale)
+        var isLeading = false
+        if let visible {
+            // Beside a target with no room on its right (a sidebar on the right): its left, so
+            // the card never covers what it describes (as NSPopover flipped).
+            if placement == .beside, origin.x + size.width > visible.maxX - margin {
+                origin.x = (anchor.minX * scale).rounded(.up) / scale - Self.targetGap - size.width
+                isLeading = true
+            }
+            origin.x = min(max(origin.x, visible.minX + margin), visible.maxX - size.width - margin)
+            origin.y = min(max(origin.y, visible.minY + margin), visible.maxY - size.height - margin)
+        }
+        return HoverCardRest(origin: origin, placement: placement, isLeading: isLeading)
+    }
+
     /// The room between a card and its target: none. The card touches its tab (or row), so the
     /// pointer never crosses empty space between them (Lawrence 2026-10-19: "there is a gap in
     /// between ... such that there is no gap in between").
