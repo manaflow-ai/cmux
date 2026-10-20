@@ -1,3 +1,4 @@
+import creationReceiptIndex from "../../migrations/0011_cmux_vm_creation_receipt_index.sql?raw";
 /**
  * The schema gate (cx-0op.6): a deploy must never run ahead of its migration.
  * The check lists every table, column and privilege this build needs that the
@@ -16,11 +17,13 @@ import meshM2 from "../../migrations/0005_cmux_vm_mesh_m2.sql?raw";
 import meshM3 from "../../migrations/0006_cmux_vm_mesh_m3.sql?raw";
 import meshM4 from "../../migrations/0007_cmux_vm_mesh_m4.sql?raw";
 import meshM4Retries from "../../migrations/0008_cmux_vm_mesh_m4_retries.sql?raw";
+import creationReceipts from "../../migrations/0010_cmux_vm_creation_receipts.sql?raw";
 import deviceAddress from "../../migrations/0009_cmux_vm_mesh_device_address.sql?raw";
+import uncommittedCreations from "../../migrations/0012_cmux_vm_uncommitted_creations.sql?raw";
 import { checkSchema, makeSchemaGate } from "../../src/db/schema-check.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
 
-const ALL = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries, deviceAddress];
+const ALL = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries, deviceAddress, creationReceipts, creationReceiptIndex, uncommittedCreations];
 
 const problemsOn = async (migrations: ReadonlyArray<string>) => {
   const db = new PGlite();
@@ -38,11 +41,23 @@ describe("checkSchema", () => {
   });
 
   it("names the table of a migration that was not applied (0008)", async () => {
-    expect(await problemsOn(ALL.slice(0, 7))).toEqual(["cmux_vm.stack_webhook_events: missing", "cmux_vm.mesh_devices.public_ipv6: missing"]);
+    expect(await problemsOn(ALL.slice(0, 7))).toEqual(["cmux_vm.resources.creation_key: missing", "cmux_vm.resources.creation_receipt: missing", "cmux_vm.resources_creation_key_idx: missing", "cmux_vm.resources.committed: missing", "cmux_vm.stack_webhook_events: missing", "cmux_vm.mesh_devices.public_ipv6: missing"]);
   });
 
   it("names the column of 0009 when only it was not applied", async () => {
-    expect(await problemsOn(ALL.slice(0, 8))).toEqual(["cmux_vm.mesh_devices.public_ipv6: missing"]);
+    expect(await problemsOn(ALL.slice(0, 8))).toEqual(["cmux_vm.resources.creation_key: missing", "cmux_vm.resources.creation_receipt: missing", "cmux_vm.resources_creation_key_idx: missing", "cmux_vm.resources.committed: missing", "cmux_vm.mesh_devices.public_ipv6: missing"]);
+  });
+
+  it("names the receipt columns before creation receipts are applied", async () => {
+    expect(await problemsOn(ALL.slice(0, 9))).toEqual(["cmux_vm.resources.creation_key: missing", "cmux_vm.resources.creation_receipt: missing", "cmux_vm.resources_creation_key_idx: missing", "cmux_vm.resources.committed: missing"]);
+  });
+
+  it("requires the concurrent receipt index before enabling this build", async () => {
+    expect(await problemsOn(ALL.slice(0, 10))).toEqual(["cmux_vm.resources_creation_key_idx: missing", "cmux_vm.resources.committed: missing"]);
+  });
+
+  it("requires the committed column of uncommitted creations (0012)", async () => {
+    expect(await problemsOn(ALL.slice(0, 11))).toEqual(["cmux_vm.resources.committed: missing"]);
   });
 
   it("names added columns and tables of older missing migrations (0007 and 0008)", async () => {

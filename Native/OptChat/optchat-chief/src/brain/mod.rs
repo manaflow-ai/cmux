@@ -113,8 +113,10 @@ pub enum Input {
     /// Section 9: a `spawn` asks for its spawn id and subagent ids.
     SpawnRegister {
         tasks: Vec<String>,
-        /// The acpmux peer the spawn's subagents run on (cloud); None: here.
+        /// The env's acpmux peer (`OPTCHAT_SUBAGENT_PEER`); None: none.
         peer: Option<String>,
+        /// `spawn(place)`: `cloud`, `local` or None (the saved default).
+        place: Option<String>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
     /// A queued subagent's launch, saved in its record.
@@ -892,8 +894,15 @@ impl Brain {
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),
-            Input::SpawnRegister { tasks, peer, reply } => {
-                let plan = self.register_spawn(&tasks, peer.as_deref());
+            Input::SpawnRegister {
+                tasks,
+                peer,
+                place,
+                reply,
+            } => {
+                let plan = self
+                    .spawn_peer(peer.as_deref(), place.as_deref())
+                    .and_then(|peer| self.register_spawn(&tasks, peer.as_deref()));
                 let _ = reply.send(plan);
             }
             Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
