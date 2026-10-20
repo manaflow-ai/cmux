@@ -74,6 +74,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
+      attestations: read
       contents: read
     steps:
       - name: Download the public-installed binary
