@@ -289,13 +289,13 @@ import Testing
     /// jump from 100% now starts where the window is.
     @Test func overArtTheUnsetSliderSitsOnTheShownTint() throws {
         let scope = ThemeScope(level: .room)
-        #expect(SettingsWindowService.shownOpacity(of: scope) == scope.input.backgroundOpacity)
+        #expect(scope.shownWindowOpacity == scope.input.backgroundOpacity)
         let work = try #require(BackdropSelection(id: "van-gogh-starry-night"))
         scope.setBackdropSelection(work)
         let shown = WindowBackdrop(scope.tokens, art: scope.backdropArt, selection: scope.backdropSelection,
                                    tuning: scope.appearanceTuning, tintOpacity: scope.backdropTintOpacity)
         #expect(!shown.isOpaque)
-        #expect(SettingsWindowService.shownOpacity(of: scope) == shown.tintOpacity)
-        #expect(SettingsWindowService.shownOpacity(of: scope) < 1)
+        #expect(scope.shownWindowOpacity == shown.tintOpacity)
+        #expect(scope.shownWindowOpacity < 1)
     }
 }
