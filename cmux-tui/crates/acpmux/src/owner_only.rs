@@ -521,6 +521,30 @@ mod tests {
         assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
     }
 
+    fn grant_everyone_read(path: &Path) {
+        let output = std::process::Command::new("icacls")
+            .arg(path)
+            .args(["/grant", "*S-1-1-0:(OI)(CI)R"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    #[test]
+    fn private_dir_refuses_an_existing_directory_another_sid_can_change() {
+        let root = std::env::temp_dir().join(format!(
+            "acpmux-owner-writable-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let checked = root.join("checked");
+        std::fs::create_dir_all(&checked).unwrap();
+        grant_everyone(&checked);
+        private_dir(&checked).expect_err("a directory writable by Everyone was trusted");
+        assert!(!only_owner_reads(&checked).unwrap(), "the unsafe DACL was silently erased");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn private_dir_normalizes_the_opened_directory_not_a_replacement_path() {
         let root = std::env::temp_dir().join(format!(
@@ -531,7 +555,7 @@ mod tests {
         let checked = root.join("checked");
         let moved = root.join("moved");
         std::fs::create_dir_all(&checked).unwrap();
-        grant_everyone(&checked);
+        grant_everyone_read(&checked);
 
         private_dir_after_open(&checked, || {
             std::fs::rename(&checked, &moved)?;
@@ -539,7 +563,7 @@ mod tests {
             grant_everyone(&checked);
             Ok(())
         })
-        .unwrap();
+        .expect_err("a replacement pathname was accepted");
 
         assert!(only_owner_reads(&moved).unwrap(), "the checked object stayed wide");
         assert!(!only_owner_reads(&checked).unwrap(), "the replacement path was changed");
