@@ -79,13 +79,27 @@ final class BrowserDesignModeController {
         }
     }
 
-    /// Gives the Home composer `card` as files, through its own intake (as a drop).
+    /// Where cards become files for the Home composer; each card's folder goes once Home has its
+    /// copy (``HomeNativeTranscriptView/attachmentsReady()``), the rest at quit.
+    nonisolated static let tempFiles = BrowserDesignModeTempFiles(
+        root: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-design-mode", isDirectory: true))
+
+    /// Gives the Home composer `card` as files, through its own intake (as a drop), then removes
+    /// them once the draft holds Home's own copies.
     private static func attach(_ card: BrowserDesignModeCard, png: Data?, to home: HomeNativeTranscriptView) {
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-design-mode", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: png) else { return }
-        _ = home.attachFiles(paths: files.map(\.path), via: .drop)
+        let folder = tempFiles.newFolder()
+        guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: png) else {
+            tempFiles.remove(folder)
+            return
+        }
+        guard home.attachFiles(paths: files.map(\.path), via: .drop) == .accepted else {
+            tempFiles.remove(folder)
+            return
+        }
+        Task { [weak home] in
+            await home?.attachmentsReady()
+            tempFiles.remove(folder)
+        }
     }
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.

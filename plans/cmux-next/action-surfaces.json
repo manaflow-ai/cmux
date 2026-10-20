@@ -734,6 +734,40 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "app search-chats",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "a",
+        "modifiers" : [
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "search.chats",
+      "main_menu" : "window",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Search Chats & Agents…",
+      "title_key" : "action.search.chats",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "app task-manager",
       "context_menu" : "noObject",
@@ -8630,13 +8664,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "a",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "tab.search",
       "main_menu" : "file",
       "mcp" : "offered",
