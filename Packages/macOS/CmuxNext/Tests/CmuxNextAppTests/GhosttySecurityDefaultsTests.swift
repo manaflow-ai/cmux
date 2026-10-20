@@ -16,12 +16,28 @@ struct GhosttySecurityDefaultsTests {
         #expect(try resolvedString("clipboard-write", configText: "clipboard-write = deny\n") == "deny")
     }
 
+    @Test func cmuxUsesABoundedViewerImageDefault() throws {
+        #expect(try resolvedUInt32("image-storage-limit", configText: "") == 5_000_000)
+    }
+
+    @Test func userConfigOverridesTheViewerImageDefault() throws {
+        #expect(try resolvedUInt32("image-storage-limit", configText: "image-storage-limit = 1234567\n") == 1_234_567)
+    }
+
     private func resolvedString(_ key: String, configText: String) throws -> String? {
         try withConfig(configText) { config in
             var value: UnsafePointer<CChar>?
             let found = GhosttyRuntime.configGet(config, &value, key: key)
             #expect(found)
             return value.map { String(cString: $0) }
+        }
+    }
+
+    private func resolvedUInt32(_ key: String, configText: String) throws -> UInt32 {
+        try withConfig(configText) { config in
+            var value: UInt32 = 0
+            #expect(GhosttyRuntime.configGet(config, &value, key: key))
+            return value
         }
     }
 
