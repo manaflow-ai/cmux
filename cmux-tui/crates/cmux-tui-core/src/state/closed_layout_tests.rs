@@ -357,6 +357,9 @@ fn layout_undo_after_a_reopen_leaves_the_reopened_splits() {
         let workspace = state.workspaces.iter().find(|workspace| workspace.name == "undo").unwrap();
         workspace.screens[0].active_pane
     });
-    assert!(mux.undo_layout(focused, None, true).is_err(), "nothing to undo");
+    // Unconfirmed, so a rebuilt split left on the stack would answer with a
+    // confirmation preview instead of this error.
+    let error = mux.undo_layout(focused, None, false).unwrap_err();
+    assert_eq!(error.downcast_ref::<LayoutUndoError>(), Some(&LayoutUndoError::Unavailable));
     assert_eq!(layout_of(&mux, "undo"), before);
 }
