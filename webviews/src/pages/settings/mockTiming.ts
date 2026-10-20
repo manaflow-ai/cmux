@@ -4,6 +4,8 @@
 // calls wait for the host's claim (pageClient.ts). test/settings-open-frames.test.ts records a
 // Settings open with both.
 import type { SettingsClient } from "./ops";
+import { holdPaintForClaim } from "../shared/paintGate";
+import { PARKED_NAME } from "../shared/pageClient";
 
 type Held = () => void;
 
@@ -11,11 +13,15 @@ export function withMockTiming(client: SettingsClient, search: URLSearchParams):
   const latency = Math.max(0, Number(search.get("latency") ?? 0) || 0);
   let parked = search.has("parked");
   const held: Held[] = [];
-  if (parked)
+  if (parked) {
+    // As the host parks a pooled document, and as pageClient.ts claims it.
+    (globalThis as Record<string, unknown>)[PARKED_NAME] = true;
     (globalThis as { __cmuxSettingsClaim?: () => void }).__cmuxSettingsClaim = () => {
       parked = false;
       for (const run of held.splice(0)) run();
+      holdPaintForClaim();
     };
+  }
   const wait = () =>
     new Promise<void>((resolve) => {
       const go = () => (latency ? setTimeout(resolve, latency) : resolve());
