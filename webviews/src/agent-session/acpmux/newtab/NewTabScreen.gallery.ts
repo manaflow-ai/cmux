@@ -291,9 +291,9 @@ export default agentPaneEntry({
       mockHarnesses: [],
       snapshot: { ...noChat(), catalog: [] },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-pickers .acpmux-add-harness") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-composer .acpmux-add-harness") !== null);
         if (ctx.document.querySelector(".nt-no-agent")) throw new Error("a No agent to ask line shows under the field");
-        const chip = ctx.document.querySelector(".nt-pickers .acpmux-add-harness")!.getBoundingClientRect();
+        const chip = ctx.document.querySelector(".nt-composer .acpmux-add-harness")!.getBoundingClientRect();
         if (chip.height > 32) throw new Error(`the Add harness chip is ${chip.height}px tall, not one chip`);
       },
     },

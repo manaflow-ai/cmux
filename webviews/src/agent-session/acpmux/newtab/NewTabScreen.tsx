@@ -241,7 +241,9 @@ export function NewTabScreen(props: Props) {
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
-  const envFolder = none ? undefined : (askFolder ?? (props.cwd && !folderless ? props.cwd : undefined));
+  const envFolder = none
+    ? undefined
+    : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   // A prompt's chat, in no project when that was the pick.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string) =>
     none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);

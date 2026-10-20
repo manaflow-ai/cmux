@@ -585,17 +585,17 @@
 .acpmux-composer-bar .acpmux-chips { flex: 0 1 auto; min-width: 0; }
 /* The New Tab row wraps (.nt-pickers): its chips take the free space from a zero basis, so they
    shrink before the mic and Send would wrap under them. */
-.nt-pickers .acpmux-chips { flex: 1 1 0%; min-width: 0; }
+:is(.nt-pickers, .nt-footer) .acpmux-chips { flex: 1 1 0%; min-width: 0; }
 .acpmux-composer-bar > :not(.acpmux-chips),
 :is(.acpmux-composer-bar, .nt-pickers, .nt-footer) .acpmux-chips > * { flex: none; }
 /* The New Tab card's model chip still gives way by shrinking (#20548); its effort chip steps whole,
    as the chat bar's does: "Med", never "M…" (the effortShort query below). */
-.nt-pickers .acpmux-chips > .acpmux-model { flex: 0 1 auto; min-width: 56px; }
-.nt-pickers .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
-.nt-pickers .acpmux-effort .acpmux-picker-button { position: relative; overflow: clip; }
-.nt-pickers .acpmux-effort .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
-.nt-pickers .acpmux-effort .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
-.nt-pickers .acpmux-picker-button > :not(span) { flex: none; }
+:is(.nt-pickers, .nt-footer) .acpmux-chips > .acpmux-model { flex: 0 1 auto; min-width: 56px; }
+:is(.nt-pickers, .nt-footer) .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
+:is(.nt-pickers, .nt-footer) .acpmux-effort .acpmux-picker-button { position: relative; overflow: clip; }
+:is(.nt-pickers, .nt-footer) .acpmux-effort .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
+:is(.nt-pickers, .nt-footer) .acpmux-effort .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
+:is(.nt-pickers, .nt-footer) .acpmux-picker-button > :not(span) { flex: none; }
 .acpmux-composer-bar .acpmux-picker-button > * { flex: none; }
 /* The row swaps whole units as the composer narrows (composerRowFit.ts COMPOSER_FIT_STEPS):
    labels shorten early and whole, effort's short name ("Med") at 470 px, the model's family at
@@ -626,7 +626,7 @@
   pointer-events: auto;
 }
 .acpmux-composer-bar [data-fit-part]:not([data-fit-forms~="full"]),
-.nt-pickers [data-fit-part="effort"]:not([data-fit-forms~="full"]),
+:is(.nt-pickers, .nt-footer) [data-fit-part="effort"]:not([data-fit-forms~="full"]),
 .acpmux-composer-bar[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
 .acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
 .acpmux-composer-bar[data-fit-speed="hidden"] [data-fit-part="speed"]:not([data-fit-forms~="hidden"]),
@@ -681,9 +681,9 @@
    the chat bar's is at its modelMark step. Shrinking further left a 56 px chip with a few px of name,
    and the permission mode was pushed over the mic (narrow-layouts at 280 px, Linux fonts). */
 @container composer (max-width: 297px) {
-  .nt-pickers .acpmux-chips > .acpmux-model { flex: none; min-width: 0; }
-  .nt-pickers .acpmux-model .acpmux-picker-button { position: relative; overflow: clip; }
-  .nt-pickers .acpmux-model :is([data-fit-part="model"], .acpmux-model-name) {
+  :is(.nt-pickers, .nt-footer) .acpmux-chips > .acpmux-model { flex: none; min-width: 0; }
+  :is(.nt-pickers, .nt-footer) .acpmux-model .acpmux-picker-button { position: relative; overflow: clip; }
+  :is(.nt-pickers, .nt-footer) .acpmux-model :is([data-fit-part="model"], .acpmux-model-name) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;

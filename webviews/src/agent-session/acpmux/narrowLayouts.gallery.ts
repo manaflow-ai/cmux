@@ -91,6 +91,7 @@ export function narrowProblems(document: Document): string[] {
   const rows: [string, string][] = [
     [".acpmux-composer-bar", "composer bar"],
     [".nt-pickers", "New Tab chips"],
+    [".nt-footer", "New Tab footer"],
     [".acpmux-composer-context", "location row"],
     [".acpmux-pr-dock", "pull request bar"],
   ];

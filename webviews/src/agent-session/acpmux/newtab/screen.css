@@ -726,7 +726,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 /* The strip is its own inline-size container, so its contents cannot size it: a basis reserves its
    room (its folder cuts in the middle past it), and the chips take the rest. */
-.nt-footer .acpmux-composer-strip {
+/* Over the plain strip rule (:root:not([data-top-strip]) .nt-screen .nt-composer, above). */
+:root .nt-screen[data-layout="stage"] .nt-composer .nt-footer .acpmux-composer-strip {
   --acpmux-strip-height: 28px;
   flex: 0 1 260px;
   min-width: 120px;
