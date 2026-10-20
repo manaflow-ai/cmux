@@ -52,7 +52,7 @@ struct FileExtrasTests {
         var info = try await reader.info(for: file)
         #expect(info.name == "data.bin")
         #expect(info.size == 4096)
-        #expect(info.folder == temp.url)
+        #expect(info.folder.path == temp.url.path)
         #expect(!info.isLocked)
         #expect(!info.kind.isEmpty)
         #expect(info.permissions & 0o600 == 0o600)

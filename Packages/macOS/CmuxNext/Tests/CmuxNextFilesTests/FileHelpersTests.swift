@@ -67,7 +67,7 @@ struct FileHelpersTests {
         let writer = Task {
             var n = 0
             while !Task.isCancelled {
-                try? temp.file("made-\(n)")
+                _ = try? temp.file("made-\(n)")
                 n += 1
                 // A bounded, cancelled pause between writes (the real signal is the stream below).
                 try? await Task.sleep(for: .milliseconds(200))

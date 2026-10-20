@@ -28,9 +28,9 @@ public final class SidebarModel {
         self.defaults = defaults
         self.volumes = volumes
         if let paths = defaults.stringArray(forKey: Self.favoritesKey) {
-            favorites = paths.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            favorites = paths.map { URL(filePath: $0, directoryHint: .notDirectory) }
         } else {
-            favorites = [GoPlace.applications, .desktop, .documents, .downloads, .home].map { $0.url(home: home) }
+            favorites = [GoPlace.applications, .desktop, .documents, .downloads, .home].map { Self.normalized($0.url(home: home)) }
         }
         isVisible = defaults.object(forKey: Self.visibleKey) as? Bool ?? true
         locations = volumes()
@@ -39,7 +39,7 @@ public final class SidebarModel {
     /// Adds `url` at `index` (dragging a folder in), or moves it there when it is already a Favorite.
     public func addFavorite(_ url: URL, at index: Int) {
         var list = favorites.filter { $0.path != url.path }
-        list.insert(url, at: max(0, min(index, list.count)))
+        list.insert(Self.normalized(url), at: max(0, min(index, list.count)))
         save(list)
     }
 
@@ -61,6 +61,11 @@ public final class SidebarModel {
     public func refreshLocations() {
         let now = volumes()
         if now != locations { locations = now }
+    }
+
+    /// One spelling per folder (no trailing slash), so saved and live Favorites compare equal.
+    private static func normalized(_ url: URL) -> URL {
+        URL(filePath: url.standardizedFileURL.path, directoryHint: .notDirectory)
     }
 
     private func save(_ list: [URL]) {

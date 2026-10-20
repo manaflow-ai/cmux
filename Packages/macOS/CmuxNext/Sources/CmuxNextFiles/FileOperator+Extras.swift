@@ -45,7 +45,10 @@ extension FileOperator {
         let target = folder.appendingPathComponent(namer.freeName(for: base + ".zip", style: .number,
                                                                   taken: Self.names(in: folder)))
         if urls.count == 1 {
-            try await Self.ditto(["-c", "-k", "--sequesterRsrc", "--keepParent", first.path, target.path])
+            // --keepParent names the archive's top folder after a folder source;
+            // for a file it would wrap the file in its containing folder.
+            let keepParent = first.hasDirectoryPath || (try? first.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            try await Self.ditto(["-c", "-k", "--sequesterRsrc"] + (keepParent ? ["--keepParent"] : []) + [first.path, target.path])
             return target
         }
         // ditto archives one source: clone the items (metadata-only on APFS)
