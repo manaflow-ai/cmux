@@ -89,6 +89,23 @@ extension AppActions {
             }
             runGroup(services) { await $0.setChiefReplies(policy, id) }
         })
+        // One pin path for a Home conversation: the row's Pin/Unpin and grid drags call it too.
+        registry.bind("home.togglePin", invoke: { invocation in
+            guard let id = conversation(invocation, services) else { return }
+            let source = pinSource(services)
+            let pinned = invocation["pinned"]?.boolValue ?? !source.isPinned(id)
+            source.setPinned(pinned, id)
+            shownPage(services)?.listPinsChanged()
+        })
+        ActionTargetTitles.set("home.togglePin", in: registry) { invocation in
+            let text = invocation["conversation"]?.stringValue?.trimmingCharacters(in: .whitespaces)
+            guard let id = text.flatMap({ $0.isEmpty ? nil : ConversationID($0) }) ?? shownPage(services)?.shown else { return nil }
+            return pinSource(services).isPinned(id) ? PinStrings.unpinConversation : PinStrings.pinConversation
+        }
+        ActionTargetTitles.setPaletteState("home.togglePin", in: registry) {
+            guard let id = shownPage(services)?.shown else { return false }
+            return pinSource(services).isPinned(id)
+        }
         registry.bind("home.sendMessage", invoke: { invocation in
             guard let id = conversation(invocation, services) else { return }
             let text = invocation["text"]?.stringValue ?? ""
@@ -112,6 +129,12 @@ extension AppActions {
     static func shownPage(_ services: AppServices) -> TopHomePageView? {
         if services.home.dock.isClassic { return services.windows.active?.topPages.views[.home] as? TopHomePageView }
         return HomeDockTab.view(services)?.messages
+    }
+
+    /// The pins a Home pin change goes to: the shown page's sidebar (its list redraws), else a
+    /// source over the same stores (pins live with the owner or in this account's store, not in a page).
+    private static func pinSource(_ services: AppServices) -> HomeSidebarSource {
+        shownPage(services)?.sidebar ?? services.home.makeSidebarSource()
     }
 
     /// Runs a group action; the caller that waits (socket, CLI) gets its refusal as the failure.

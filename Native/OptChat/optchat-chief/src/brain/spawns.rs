@@ -658,6 +658,7 @@ impl Brain {
         let Some(record) = self.state.spawns.get(spawn) else {
             return;
         };
+        let show = self.chief.show_after_report;
         let done: Vec<(String, String, u64, bool, bool)> = record
             .subs
             .iter()
@@ -665,9 +666,16 @@ impl Brain {
             .map(|s| {
                 let report = s.report.as_deref().unwrap_or("");
                 let footer = crate::agent_chat::footer(&s.id);
+                // What the work left to show, for the "After work" rule; a
+                // stopped run's quiet report shows nothing.
+                let block = (show && !s.stopped)
+                    .then(|| crate::show::block(report))
+                    .flatten()
+                    .map(|b| format!("\n{b}"))
+                    .unwrap_or_default();
                 (
                     s.id.clone(),
-                    format!("[{}] {report}\n{footer}", s.id),
+                    format!("[{}] {report}\n{footer}{block}", s.id),
                     s.floor,
                     report_requires_approval(s.policy.as_deref()),
                     s.stopped,

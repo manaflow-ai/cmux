@@ -111,7 +111,7 @@ public struct BrowserPageService: Sendable {
                 throw ControlError(code: "not_found", message: error, data: ["selector": .string(selector)])
             }
             if let input = Self.agentInput(element: name, answer: value, text: text) {
-                await engine.announce(input.by(Self.optionalString(call, "agent")), tabID: tab.id)
+                await engine.announce(Self.attributed(input, call), tabID: tab.id)
             }
             var result: [String: JSONValue] = Self.base(tab)
             result["value"] = value["value"] ?? .null
