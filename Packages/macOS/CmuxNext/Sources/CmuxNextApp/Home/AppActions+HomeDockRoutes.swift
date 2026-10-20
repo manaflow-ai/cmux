@@ -60,6 +60,29 @@ extension AppActions {
         }
     }
 
+    /// Opens `route` in the docked Home's Channels page, switching to Channels from Messages
+    /// first: New Chief is a page there (u2586), never the Messages sheet. `messages` runs only
+    /// while Channels is off.
+    static func openChannelsRoute(_ route: String, _ services: AppServices, messages: @escaping @MainActor (TopHomePageView) -> Void) {
+        withDock(services) { dock in
+            guard dock.mode == .messages else {
+                dock.open(route: route)
+                return dock.focusPrimaryInput()
+            }
+            guard HomeDockView.Mode.channels.isEnabled else {
+                if let page = dock.messages { messages(page) }
+                return
+            }
+            dock.switchTo(.channels)
+            // task-owner: one wait for the switch in flight (bounded by its selection deadline), then the route
+            Task { @MainActor [weak dock] in
+                await dock?.settled()
+                dock?.open(route: route)
+                dock?.focusPrimaryInput()
+            }
+        }
+    }
+
     /// `home.switchView {view?}`: selects the sidebar's Home entry (`messages`) or Channels entry
     /// (`channels`, the other one when absent): the docked Home shows that view, with the selection
     /// handed over. The one path of the sidebar's Channels entry, the palette, the CLI and MCP. Refused

@@ -131,7 +131,7 @@ public final class Commands {
     public static final CommandMetadata GET_SIZE_STATE = new CommandMetadata("get-size-state", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata HISTORY_SEARCH = new CommandMetadata("history-search", Authority.LOCAL_ADMIN, 12, "history-search-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata HOME_INBOX = new CommandMetadata("home-inbox", Authority.LOCAL_ADMIN, 12, "home-inbox-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("machine_metadata", 12L)), Map.ofEntries(Map.entry("machine_metadata", "machine-identity-v1")));
+    public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("machine_metadata", 12L), Map.entry("revisions", 12L)), Map.ofEntries(Map.entry("machine_metadata", "machine-identity-v1")));
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_BOOKMARKS = new CommandMetadata("import-bookmarks", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_SESSION_ORGANIZATION = new CommandMetadata("import-session-organization", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -155,6 +155,7 @@ public final class Commands {
     public static final CommandMetadata MINT_TERMINAL_RENDERER_BY_TERMINAL = new CommandMetadata("mint-terminal-renderer-by-terminal", Authority.FRONTEND, 11, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_BOOKMARK = new CommandMetadata("move-bookmark", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_BROWSER_PROFILE = new CommandMetadata("move-browser-profile", Authority.CONTROL, 12, "browser-profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata MOVE_COLUMN = new CommandMetadata("move-column", Authority.CONTROL, 12, "column-move-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_PERSONAL_GROUP = new CommandMetadata("move-personal-group", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_PROFILE = new CommandMetadata("move-profile", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_SCREEN = new CommandMetadata("move-screen", Authority.CONTROL, 12, "screen-metadata-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -264,6 +265,7 @@ public final class Commands {
     public static final CommandMetadata TERMINAL_HISTORY = new CommandMetadata("terminal-history", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_READ_RANGE = new CommandMetadata("terminal-read-range", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_RESOURCES = new CommandMetadata("terminal-resources", Authority.CONTROL, 12, "terminal-resources-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata TERMINAL_RESUME_COMMAND = new CommandMetadata("terminal-resume-command", Authority.CONTROL, 12, "resume-command", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNDO_LAYOUT = new CommandMetadata("undo-layout", Authority.CONTROL, 9, "layout-undo-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNGROUP_SCREEN_GROUP = new CommandMetadata("ungroup-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNGROUP_TAB_GROUP = new CommandMetadata("ungroup-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -437,6 +439,7 @@ public final class Commands {
         values.put("mint-terminal-renderer-by-terminal", MINT_TERMINAL_RENDERER_BY_TERMINAL);
         values.put("move-bookmark", MOVE_BOOKMARK);
         values.put("move-browser-profile", MOVE_BROWSER_PROFILE);
+        values.put("move-column", MOVE_COLUMN);
         values.put("move-personal-group", MOVE_PERSONAL_GROUP);
         values.put("move-profile", MOVE_PROFILE);
         values.put("move-screen", MOVE_SCREEN);
@@ -546,6 +549,7 @@ public final class Commands {
         values.put("terminal-history", TERMINAL_HISTORY);
         values.put("terminal-read-range", TERMINAL_READ_RANGE);
         values.put("terminal-resources", TERMINAL_RESOURCES);
+        values.put("terminal-resume-command", TERMINAL_RESUME_COMMAND);
         values.put("undo-layout", UNDO_LAYOUT);
         values.put("ungroup-screen-group", UNGROUP_SCREEN_GROUP);
         values.put("ungroup-tab-group", UNGROUP_TAB_GROUP);

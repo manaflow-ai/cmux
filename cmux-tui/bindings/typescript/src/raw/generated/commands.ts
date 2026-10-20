@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b. */
+/* cmux-tui mux protocol 12, IR 5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512. */
 
 
 import type * as T from "./types.js";
@@ -1297,6 +1297,7 @@ export type HomeInboxResult = {
 export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
   "machine_metadata"?: boolean;
+  "revisions"?: boolean;
 }
 
 /** Protocol v6; authority: control. */
@@ -1481,6 +1482,14 @@ export interface MoveBrowserProfileRequest extends CmuxRequestBase {
   "index": bigint;
 }
 export type MoveBrowserProfileResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface MoveColumnRequest extends CmuxRequestBase {
+  cmd: "move-column";
+  "direction": T.ColumnMoveDirection;
+  "pane": T.Id;
+}
+export type MoveColumnResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface MovePersonalGroupRequest extends CmuxRequestBase {
@@ -2596,6 +2605,14 @@ export interface TerminalResourcesRequest extends CmuxRequestBase {
   "surfaces"?: (Array<T.Id>) | null;
 }
 
+/** Protocol v12; authority: control. */
+export interface TerminalResumeCommandRequest extends CmuxRequestBase {
+  cmd: "terminal-resume-command";
+  "command"?: (string) | null;
+  "surface"?: (T.Id) | null;
+  "terminal_id"?: (string) | null;
+}
+
 /** Protocol v9; authority: control. */
 export interface UndoLayoutRequest extends CmuxRequestBase {
   cmd: "undo-layout";
@@ -2967,6 +2984,7 @@ export type CmuxRequest =
   | MintTerminalRendererByTerminalRequest
   | MoveBookmarkRequest
   | MoveBrowserProfileRequest
+  | MoveColumnRequest
   | MovePersonalGroupRequest
   | MoveProfileRequest
   | MoveScreenRequest
@@ -3076,6 +3094,7 @@ export type CmuxRequest =
   | TerminalHistoryRequest
   | TerminalReadRangeRequest
   | TerminalResourcesRequest
+  | TerminalResumeCommandRequest
   | UndoLayoutRequest
   | UngroupScreenGroupRequest
   | UngroupTabGroupRequest
@@ -4263,6 +4282,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "browser-profiles-v1";
     stream: null;
   };
+  "move-column": {
+    request: MoveColumnRequest;
+    result: MoveColumnResult;
+    authority: "control";
+    since: 12;
+    capability: "column-move-v1";
+    stream: null;
+  };
   "move-personal-group": {
     request: MovePersonalGroupRequest;
     result: MovePersonalGroupResult;
@@ -5133,6 +5160,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-resources-v1";
+    stream: null;
+  };
+  "terminal-resume-command": {
+    request: TerminalResumeCommandRequest;
+    result: T.TerminalResumeCommandResult;
+    authority: "control";
+    since: 12;
+    capability: "resume-command";
     stream: null;
   };
   "undo-layout": {

@@ -38,6 +38,7 @@ writes the same lines as plain text into the build's appcast <description>.
   release-notes.py since --index index.json [--not SHA]  prints the newest build's head commit (the next span's start)
   release-notes.py sign --key KEY.pem FILE...       writes FILE.sig
   release-notes.py verify --public-key BASE64 FILE  checks FILE.sig
+  release-notes.py check --notes DIR/B.json         the release gate: fails a build with no or bad What's New entries
 """
 import argparse, base64, json, os, re, subprocess, sys, tempfile
 from pathlib import Path
@@ -77,7 +78,9 @@ INTERNAL_AREA_SHAPE = re.compile(r"^(?:perf-[\w-]+|[\w-]+-(?:check|record|gate|b
 PRODUCT_WORDS = {"cmux", "next", "cmux-next", "cmuxnext"}
 # "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", anywhere in the subject, and a
 # bead reference cut off at the end.
-REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$", re.I)
+# Also "(a283)", "(u3320)", "(a121, a211)": the Chief's agent and prompt ids, never for users.
+REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$"
+                  r"|\s*\([au]\d+(?:\s*[,/]\s*[au]?\d+)*\)", re.I)
 
 def summary_entry(subject):
     """(group, title) for a user-facing commit subject, else None."""
@@ -236,6 +239,12 @@ def whats_new_digest(args):
     return document if document["entries"] else None
 
 
+def sentence(text):
+    """`text` as a whole sentence: the validator wants a summary to end one (WRITING.md)."""
+    text = text.strip()
+    return text if not text or text[-1] in ".!?。！？" else text + "."
+
+
 def summary_whats_new_digest(args, lines):
     """A validated nightly digest when there are summary lines but no highlight digest."""
     if not lines:
@@ -255,7 +264,7 @@ def summary_whats_new_digest(args, lines):
         # The summary says what the title leaves out, or repeats a title that is the whole line.
         full = " ".join(line["title"].split()).rstrip(". ")
         entry = {"id": f"summary-{index}", "category": categories[line["group"]],
-                 "title": {"en": title}, "summary": {"en": title_tail(full, title) if title != full else full},
+                 "title": {"en": title}, "summary": {"en": sentence(title_tail(full, title) if title != full else full)},
                  "platforms": ["macos"], "audience": "all", "docs": "https://cmux.com/docs/changelog"}
         problems = validate.validate_document(f"{args.short}.json", {**document, "entries": [entry]})
         if problems:
@@ -465,6 +474,29 @@ def verify(args):
     return 0 if ok else 1
 
 
+def check(args):
+    """The release gate (2026-10-20, Lawrence: "the change log needs to be better at all times";
+    a vague "What's new in this build" card must fail the release, not ship): the build's notes
+    carry at least one What's New entry, and the whole digest validates."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
+    import validate
+
+    notes = json.loads(Path(args.notes).read_text())
+    digest = notes.get("whatsNew") or {}
+    entries = digest.get("entries") or []
+    if not entries:
+        print(f"{args.notes}: no What's New entries for {notes.get('shortVersion')}: the update card would say only "
+              "\"What's new in this build\". Land a user-facing commit (feat/fix with a plain-English subject) or "
+              "add release-notes/next/highlights/<name>.md (see release-notes/next/WRITING.md).", file=sys.stderr)
+        return 1
+    problems = validate.validate_document(f"{digest.get('version')}.json", digest)
+    if problems:
+        print("\n".join(problems), file=sys.stderr)
+        return 1
+    print(f"ok: {len(entries)} What's New entries: " + "; ".join(e["title"]["en"] for e in entries[:3]))
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -507,8 +539,11 @@ def main():
     v = sub.add_parser("verify")
     v.add_argument("--public-key", required=True)
     v.add_argument("file")
+    c = sub.add_parser("check")
+    c.add_argument("--notes", required=True)
     args = parser.parse_args()
-    return {"build": build, "appcast": appcast, "prs": prs, "index": index, "since": since, "backfill": backfill, "sign": sign, "verify": verify}[args.cmd](args) or 0
+    return {"build": build, "appcast": appcast, "prs": prs, "index": index, "since": since, "backfill": backfill,
+            "sign": sign, "verify": verify, "check": check}[args.cmd](args) or 0
 
 
 if __name__ == "__main__":

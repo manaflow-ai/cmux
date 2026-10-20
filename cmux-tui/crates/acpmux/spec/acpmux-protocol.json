@@ -744,6 +744,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/secret/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/health",
       "params": true,
       "result": true

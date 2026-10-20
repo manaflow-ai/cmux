@@ -42,7 +42,7 @@ extension DaemonLanePolicy {
         "focus-pane": ["pane"],
         "get-cell-pixels": [],
         "get-frontend-projection": ["frontend", "scope", "subject_key"],
-        "identify": ["machine_metadata"],
+        "identify": ["machine_metadata", "revisions"],
         "ids": ["kind"],
         "list-agents": ["state", "surface"],
         "list-clients": [],
