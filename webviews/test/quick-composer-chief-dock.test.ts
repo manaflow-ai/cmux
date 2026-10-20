@@ -13,11 +13,10 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-/** QuickComposerPanel.swift's panel size. */
-const PANEL = { width: 680, height: 220 };
-
 await requireBrowserLane("quick-composer-chief-dock.test.ts", async () => {
   setDefaultTimeout(240_000);
+  /** QuickComposerPanel.swift's panel size. */
+  const PANEL = { width: 680, height: 220 };
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
