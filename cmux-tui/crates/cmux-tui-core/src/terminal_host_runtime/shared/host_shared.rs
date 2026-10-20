@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -376,7 +376,7 @@ impl HostShared {
             // Receipted input certifies delivery, so none of it is dropped. The master is
             // held only to read the queue, never across a write that can block.
             let admitted = request_id != 0 || {
-                let master = self.master.lock().unwrap_or_else(PoisonError::into_inner);
+                let master = self.master.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 crate::pty_input_room::admits(&**master, payload)
             };
             !admitted || writer.write_all(payload).and_then(|()| writer.flush()).is_ok()
