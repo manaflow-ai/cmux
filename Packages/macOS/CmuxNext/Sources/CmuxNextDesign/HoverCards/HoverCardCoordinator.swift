@@ -26,7 +26,9 @@ public final class HoverCardCoordinator {
     /// The source of each target the machine knows (the last hit, the active one).
     private var owners: [HoverTargetID: WeakSource] = [:]
     private let timer: DemandTimer
-    private(set) var panel: HoverCardPanel?
+    var panel: HoverCardPanel?
+    /// A card its owner shows in the one card window (`presentOwned`), nil while none does.
+    var owned: HoverCardOwned?
     private var activated: HoverTargetID?
     private var monitor: Any?
     /// Pointer moves while a card shows: the card ignores the mouse, so over it no source
@@ -99,8 +101,9 @@ public final class HoverCardCoordinator {
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismiss(.windowResignedKey) } // main-proof: observer on queue: .main
         })
-        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification] {
-            let ended = name == NSWindow.didEndLiveResizeNotification
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
+                     NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+            let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let number = (note.object as? NSWindow)?.windowNumber
                 MainActor.assumeIsolated { self?.windowGeometryChanged(number, liveResizeEnded: ended) } // main-proof: observer on queue: .main
@@ -180,7 +183,8 @@ public final class HoverCardCoordinator {
     public func geometryChanged(in window: NSWindow?) { geometryChanged(in: window, liveResizeEnded: false) }
 
     private func geometryChanged(in window: NSWindow?, liveResizeEnded: Bool) {
-        if !liveResizeEnded, window?.inLiveResize == true { return }
+        // A full screen transition too: AppKit animates a snapshot, the pointer is not over what it shows.
+        if !liveResizeEnded, Motion.isLiveResizing(window) { return }
         // Content moving under a held button (a click's relayout, a drag) changes nothing: a hit
         // of nil here would end the click's quiet, and the card would come back on release.
         if mouseButtonDown() { followShownTarget(); return }
@@ -198,7 +202,12 @@ public final class HoverCardCoordinator {
         followShownTarget()
     }
 
-    public func dismiss(_ reason: HoverDismissal) { send(.dismiss(reason)) }
+    public func dismiss(_ reason: HoverDismissal) {
+        // The app or its Space going away closes an owner's card too (it takes clicks, so it
+        // stays through key presses and clicks: its owner closes it then).
+        if reason == .appDeactivated || reason == .windowResignedKey, let owned { endOwned(owned.id) }
+        send(.dismiss(reason))
+    }
 
     /// Hover cards were turned off: a pending or shown card goes now, a
     /// pinned one (Show Resource Usage) too, since the user just asked for no
@@ -244,7 +253,7 @@ public final class HoverCardCoordinator {
     /// Feeds the machine. Events raised while effects run (a target that
     /// vanished before its card could show) queue behind the current one,
     /// so the reducer never re-enters.
-    private func send(_ event: HoverCardEvent) {
+    func send(_ event: HoverCardEvent) {
         queue.append(event)
         guard !draining else { return }
         draining = true
@@ -277,6 +286,8 @@ public final class HoverCardCoordinator {
         case .cancelTimer:
             timer.cancel()
         case .show(let target, let sliding):
+            // A target takes the card from its owner's content: the owner hears it ended.
+            finishOwned()
             guard let source = owners[target.id]?.source, let parent = source.hoverCardWindow, parent.isVisible,
                   let anchor = source.hoverCardAnchor(for: target.id), let body = source.hoverCardBody(for: target.id)
             else {
@@ -289,6 +300,8 @@ public final class HoverCardCoordinator {
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
                           themeAnchor: body.themeAnchor, sliding: sliding, applyTheme: body.applyTheme)
         case .hide:
+            // The machine's own card: an owner's card in the window stays.
+            guard owned == nil else { return }
             panel?.dismiss()
         }
     }
@@ -420,7 +433,8 @@ public final class HoverCardCoordinator {
         var bad: [String] = []
         if HoverCardPanel.liveInstances > 1 { bad.append("\(HoverCardPanel.liveInstances) hover card windows exist") }
         let showing = panel?.isShowingCard == true
-        if showing, machine.shownTarget == nil { bad.append("a card shows while the machine has none") }
+        if showing, machine.shownTarget == nil, owned == nil { bad.append("a card shows while the machine has none") }
+        if owned != nil, machine.shownTarget != nil { bad.append("an owner's card and \(machine.shownTarget?.id.rawValue ?? "-") share the window") }
         if !showing, let shown = machine.shownTarget, panel?.isVisible != true { bad.append("the machine shows \(shown.id) but no card is on screen") }
         return bad
     }
@@ -443,6 +457,7 @@ public final class HoverCardCoordinator {
             "monitor": "\(monitor != nil)",
             "sources": "\(sources.values.filter { $0.source != nil }.count)",
             "events": "\(eventCount)",
+            "owned": owned?.id.rawValue ?? "-",
             "card_text": panel.map { $0.isShowingCard ? $0.bodyLines.joined(separator: "\n") : "" } ?? "",
         ]
     }

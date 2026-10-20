@@ -1,0 +1,103 @@
+name: cmux-next terminal suites
+
+# The terminal stack's own tests on every feat-cmux-next push that touches it
+# (2026-10-20, terminal parity audit). Before this workflow none of them ran on a push:
+# - ghostty-vt (libghostty-vt from ghostty-next): the VT, tmux regress
+#   (tmux_conformance.rs, ported from tmux regress/), kitty graphics, unicode and
+#   corpus suites, with ghostty-vt-sys, cmux-pty, cmux-terminal-sizing,
+#   cmux-terminal-client and cmux-encode (the crates of
+#   scripts/ci/cmux-tui-rust-check.sh terminal, which a fleet step runs by hand).
+# - the shared Swift terminal packages (CmuxTerminalSizing, CmuxTerminalStream,
+#   CmuxTerminalClient), which ci-macos.yml tests on pull requests only.
+# Both jobs run on the owned Mac minis (CI_SIDE_LANE_RUNNER, as cmux-tui.yml's
+# macOS job), never on Blacksmith: without that variable they skip.
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - ghostty-next
+      - cmux-tui/crates/ghostty-vt/**
+      - cmux-tui/crates/ghostty-vt-sys/**
+      - cmux-tui/crates/cmux-pty/**
+      - cmux-tui/crates/cmux-terminal-sizing/**
+      - cmux-tui/crates/cmux-terminal-client/**
+      - cmux-tui/crates/cmux-encode/**
+      - cmux-tui/Cargo.lock
+      - Packages/Shared/CmuxTerminalSizing/**
+      - Packages/Shared/CmuxTerminalStream/**
+      - Packages/Shared/CmuxTerminalClient/**
+      - .github/workflows/cmux-next-terminal.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-terminal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-terminal:
+    name: terminal crates (ghostty-vt, tmux regress, PTY)
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != ''
+    runs-on: ${{ vars.CI_SIDE_LANE_RUNNER }}
+    timeout-minutes: 40
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # A mini reuses its workspace: drop submodule checkouts a previous job left.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
+      - name: Use short temporary directory for macOS socket tests
+        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+
+      - name: Init ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (retried)
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: cargo test (terminal crates)
+        working-directory: cmux-tui
+        run: |
+          cargo test --locked --no-fail-fast \
+            -p ghostty-vt -p ghostty-vt-sys -p cmux-pty -p cmux-terminal-sizing \
+            -p cmux-terminal-client -p cmux-encode
+
+  swift-terminal:
+    name: Swift terminal packages
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != ''
+    runs-on: ${{ vars.CI_SIDE_LANE_RUNNER }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: swift test (terminal packages)
+        run: |
+          status=0
+          for package in CmuxTerminalSizing CmuxTerminalStream CmuxTerminalClient; do
+            echo "::group::$package"
+            swift test --package-path "Packages/Shared/$package" || { echo "::error::$package failed"; status=1; }
+            echo "::endgroup::"
+          done
+          exit "$status"

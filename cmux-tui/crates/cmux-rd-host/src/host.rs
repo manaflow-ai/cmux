@@ -69,6 +69,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         consent: ConsentRule::AskOthers,
         unattended_allowed: true,
     };
+    // `--browser URL`: the cloud browser. Chromium runs full screen in the display and
+    // outlives viewers; the supervisor restarts it and stops it with the host.
+    let _browser = match opts.get("browser") {
+        Some(url) => Some(start_browser(opts, &cfg.display, url)?),
+        None => None,
+    };
     let mut table = SessionTable::new(policy);
     let listener = TcpListener::bind(SocketAddr::new(bind, port))?;
     let udp = UdpSocket::bind(SocketAddr::new(bind, port))?;
@@ -100,6 +106,28 @@ pub fn run(opts: &Opts) -> Res<()> {
         }
     }
     Ok(())
+}
+
+/// Starts the cloud browser at the display's full size (read from the X server).
+fn start_browser(opts: &Opts, display: &str, url: &str) -> Res<crate::browser::BrowserSupervisor> {
+    let (conn, screen_num) = x11rb::connect(Some(display))?;
+    let screen = &x11rb::connection::Connection::setup(&conn).roots[screen_num];
+    let (w, h) = (u32::from(screen.width_in_pixels), u32::from(screen.height_in_pixels));
+    drop(conn);
+    let program = opts.str_or("browser-bin", "google-chrome");
+    let profile = opts.str_or("browser-profile", "/tmp/cmux-rd-browser-profile");
+    let mut cmd = crate::browser::BrowserCommand::chrome(&program, display, url, w, h, &profile);
+    // `--browser-cdp-port N`: CDP on 127.0.0.1:N for an agent on this machine (off by default).
+    if let Some(port) = opts.get("browser-cdp-port") {
+        let port: u16 =
+            port.parse().map_err(|_| format!("invalid value for --browser-cdp-port: {port}"))?;
+        cmd = cmd.with_cdp_port(port);
+        eprintln!("cmux-rd host: browser CDP on 127.0.0.1:{port} (loopback only)");
+    }
+    let sup = crate::browser::BrowserSupervisor::start(cmd, crate::browser::Backoff::default())
+        .map_err(|e| format!("--browser: cannot start {program}: {e}"))?;
+    eprintln!("cmux-rd host: browser {program} ({w}x{h}, pid {}) showing {url}", sup.pid());
+    Ok(sup)
 }
 
 /// Which peers the host serves while hello claims are unauthenticated.
@@ -353,10 +381,6 @@ fn stream_session(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn ip(s: &str) -> IpAddr {
-        s.parse().expect("ip")
-    }
 
     #[test]
     fn a_real_loopback_connection_passes_the_default_check() {

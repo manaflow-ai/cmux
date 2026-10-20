@@ -14,6 +14,9 @@ same files the signed release notes use). Each file is one entry:
 
     One or two sentences for users, benefit first.
 
+How to write one (Conductor-quality, curated, never a commit subject):
+release-notes/next/WRITING.md.
+
 English only (nightly); stable and RC files are written by the release skill
 and reviewed. The result passes validate.py with channel nightly; a range with
 no highlight file gives a digest with no entries, which the app does not show.
