@@ -1,8 +1,15 @@
 import { reactWithCompiler } from "./reactCompiler.mjs";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
+import {
+  DEV_RENDER_FRAME_PATH,
+  LIVE_RENDER_FRAME_DOC,
+  RENDER_POLICY,
+} from "./src/agent-session/acpmux/conversation/renderFrameShell.ts";
 
 // Dev server for the real agent pane (src/agent-session/acpmux) with hot
 // reload. A Debug or tagged cmux-next launched with
@@ -34,6 +41,54 @@ export default defineConfig({
       transform(code, id) {
         if (id.split("?")[0] !== sharedStyles) return null;
         return { code: code.replace(/^@import .*$/gm, ""), map: null };
+      },
+    },
+    {
+      // The render frame (liveRender lab): served with its own policy, as cmux-agent://render/frame
+      // is in the app, because a srcdoc frame would also inherit this page's stricter one.
+      name: "cmux-agent-pane-render-frame",
+      configureServer(server) {
+        server.middlewares.use(DEV_RENDER_FRAME_PATH, (_request, response) => {
+          response.setHeader("Content-Type", "text/html; charset=utf-8");
+          response.setHeader("Content-Security-Policy", RENDER_POLICY);
+          response.setHeader("Cache-Control", "no-store");
+          response.setHeader("Referrer-Policy", "no-referrer");
+          response.end(LIVE_RENDER_FRAME_DOC);
+        });
+        // A pane render error the page posts (PaneBoundary.tsx), appended to a log a session can read.
+        server.middlewares.use("/__cmux-pane-error", (request, response) => {
+          if (request.method !== "POST") {
+            response.statusCode = 405;
+            response.end();
+            return;
+          }
+          if (request.headers["sec-fetch-site"] !== "same-origin") {
+            response.statusCode = 403;
+            response.end();
+            return;
+          }
+          const chunks = [];
+          let bytes = 0;
+          request.on("data", (chunk) => {
+            bytes += chunk.length;
+            if (bytes > 20000) {
+              response.statusCode = 413;
+              response.end();
+              request.destroy();
+              return;
+            }
+            chunks.push(chunk);
+          });
+          request.on("end", () => {
+            if (bytes > 20000) return;
+            fs.appendFileSync(
+              path.join(os.tmpdir(), "cmux-pane-errors.log"),
+              Buffer.concat(chunks).toString("utf8") + "\n",
+            );
+            response.statusCode = 204;
+            response.end();
+          });
+        });
       },
     },
     ...reactWithCompiler(),

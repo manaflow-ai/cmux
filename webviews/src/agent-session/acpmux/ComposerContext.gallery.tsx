@@ -86,6 +86,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
   area: "Agent pane",
   covers: [
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
+    "agent-session/acpmux/ComposerContext.tsx#ComputerIcon",
     "agent-session/acpmux/FolderPopover.tsx#FolderPopover",
     "agent-session/acpmux/EnvironmentPicker.tsx#EnvironmentPicker",
     "agent-session/acpmux/EnvironmentPicker.tsx#EnvironmentIcon",

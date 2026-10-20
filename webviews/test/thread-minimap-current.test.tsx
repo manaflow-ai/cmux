@@ -3,6 +3,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { LANDING_OFFSET, THREAD_PADDING_TOP } from "../src/agent-session/acpmux/threadMinimap/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -32,6 +33,7 @@ const replacements: Record<string, unknown> = {
   },
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  matchMedia: (query: string) => ({ matches: query.includes("reduce"), media: query }),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 // Pierre's registered elements read their own DOM constructors at import time.
@@ -55,18 +57,19 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   },
   set(this: object, value: number) {
     offsets.set(this, value);
+    jumps.push(value);
   },
 });
 const jumps: number[] = [];
 dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
   const top = typeof options === "number" ? 0 : (options?.top ?? 0);
-  jumps.push(top);
   this.scrollTop = top;
 } as typeof HTMLElement.prototype.scrollTo;
 
-const { act } = await import("react");
+const { act, createRef, useLayoutEffect } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { ThreadMinimap } = await import("../src/agent-session/acpmux/threadMinimap/ThreadMinimap");
 
 afterAll(() => {
   dom.window.close();
@@ -85,6 +88,57 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
 ]).flat();
 
 const scale = (tick: Element) => tick.querySelector<HTMLElement>(".acpmux-minimap__bar")!.style.transform;
+
+test("a tick click and a next-turn command during commit use the new geometry", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const scroller = createRef<HTMLElement>();
+  scroller.current = dom.window.document.createElement("div");
+  const rows = [
+    row("commit-first", "user", "First"),
+    row("commit-second", "user", "Second"),
+    row("commit-third", "user", "Third"),
+    row("commit-fourth", "user", "Fourth"),
+  ];
+  const draw = (top: number, duringCommit: boolean) => {
+    const layout = {
+      tops: Float64Array.from([0, top, 2000, 2500]),
+      heights: Float64Array.from([top, 2000 - top, 500, 500]),
+      totalHeight: 3000,
+    };
+    function CommitClick() {
+      useLayoutEffect(() => {
+        if (!duringCommit) return;
+        dom.window.document.querySelector<HTMLButtonElement>('[data-tick="1"]')!.click();
+        scroller.current!.scrollTop = 0;
+        dom.window.dispatchEvent(new dom.window.Event("cmux-acpmux-nextTurn"));
+      });
+      return null;
+    }
+    return act(async () =>
+      root.render(
+        <>
+          <ThreadMinimap
+            rows={rows}
+            getLayout={() => layout}
+            scroller={scroller}
+            scrollTop={0}
+            viewportHeight={VIEWPORT}
+            width={1040}
+          />
+          <CommitClick />
+        </>,
+      ),
+    );
+  };
+  try {
+    await draw(800, false);
+    jumps.length = 0;
+    await draw(1200, true);
+    expect(jumps).toEqual([1200 + THREAD_PADDING_TOP - LANDING_OFFSET, 0, 1200 + THREAD_PADDING_TOP - LANDING_OFFSET]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
 
 test("the minimap marks every prompt on screen as current, at the resting length", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -114,6 +168,39 @@ test("the minimap marks every prompt on screen as current, at the resting length
     scroller.scrollTop = 0;
     await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
     expect(check()[0]).toBe(0);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a kept minimap tick jumps using the latest geometry after a reply changes", async () => {
+  const { layoutConversation, transcriptRowWidth } = await import("../src/agent-session/acpmux/model");
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const expanded = new Set<string>();
+  const onToggleActivity = () => {};
+  const draw = async (rows: AcpmuxRow[]) => {
+    await act(async () =>
+      root.render(<VirtualTranscript rows={rows} onToggleActivity={onToggleActivity} expanded={expanded} />),
+    );
+  };
+  try {
+    await draw(turnView(turns, expanded));
+    const changed = turns.map((one, index) =>
+      index === 1
+        ? {
+            ...one,
+            version: 2,
+            text: "A much longer answer.\n\n".repeat(30),
+          }
+        : one,
+    );
+    const rows = turnView(changed, expanded);
+    await draw(rows);
+    const target = rows.findIndex((one) => one.id === "t4-user");
+    const expected = layoutConversation(rows, transcriptRowWidth(1040)).tops[target];
+    jumps.length = 0;
+    await act(async () => dom.window.document.querySelector<HTMLButtonElement>('[data-tick="4"]')!.click());
+    expect(jumps).toEqual([expected + THREAD_PADDING_TOP - LANDING_OFFSET]);
   } finally {
     await act(async () => root.unmount());
   }

@@ -54,6 +54,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .subagentPane: "subagentPane"
         case .processTerminal: "processTerminal"
         case .newChatHere: "newChatHere"
+        case .renameChat: "renameChat"
+        case .openFolderIn: "openFolderIn"
         case .checkpointAvailability: "checkpointAvailability"
         case .painted: "painted"
         case .dictation: "dictation"

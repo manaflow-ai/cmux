@@ -43,6 +43,9 @@ import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
+import { labOn } from "./labs";
+import { renderAttachment, resetRenderExecutions } from "./conversation/renderExecution";
+import { renderGuide } from "./conversation/renderGuide";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
@@ -167,6 +170,8 @@ const sentByChief = (msg: { promptId?: unknown }) =>
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
+/// Most older pages an open adds to reach the start of the turn its page began in (1 MiB).
+const OPEN_TURN_PAGES = 4;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
 /// Each chat's slash commands from its last attach on this page (a few dozen chats): back on a
@@ -830,6 +835,9 @@ export class AcpmuxDirectClient {
   onHarnessesChanged?: () => void;
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
+  /// This pane's delivered or in-flight guide, per session; late agent ids enrich the identity.
+  private renderGuides = new Map<string, { promptId: string; harness?: string; agentSessionId?: string }>();
+  private renderGuideWanted = true;
 
   private constructor(
     host: AcpmuxHostConfig,
@@ -1527,6 +1535,7 @@ export class AcpmuxDirectClient {
   /// Returns the attach page's events, or none when the selection moved on.
   private async attach(sessionId: string, generation = this.selectionGeneration): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+    resetRenderExecutions(sessionId);
     const visible = pageShown();
     const attaching = this.request("_acpmux/attach", {
       sessionId,
@@ -1579,6 +1588,11 @@ export class AcpmuxDirectClient {
     this.turnOpener = opener;
     // Merged after the read: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
+    // The open page is the newest records that fit, so a long reply can put its start mid-turn,
+    // and the tail would draw as a whole reply: a render fence cut in two shows its HTML as text
+    // (Lucas 2026-10-19). Older pages until one holds the turn's start, as older pages keep to
+    // whole turns (fetchOlder).
+    if (result?.hasMore !== false && !(await this.reachTurnStart(sessionId, generation))) return [];
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
     this.queue = mergeQueue(this.queue, detail.queue ?? []);
@@ -1678,7 +1692,7 @@ export class AcpmuxDirectClient {
     this.events.push(event);
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
-    this.reduce(event);
+    this.reduce(event, true);
     this.emitInFrame(event.kind);
   }
 
@@ -1756,6 +1770,7 @@ export class AcpmuxDirectClient {
     if (event.kind === "queue_updated") {
       // An edit keeps the prompt's place.
       const id = String(msg.promptId ?? "");
+      if (event.sessionId) this.forgetQueuedRenderGuide(event.sessionId, id);
       this.queue = this.queue.map((entry) =>
         entry.id === id ? queuedEntry(id, String(msg.text ?? ""), entry.next === true) : entry,
       );
@@ -1781,9 +1796,11 @@ export class AcpmuxDirectClient {
         this.queuedSends.add(id);
         this.promptAccepts.get(id)?.();
       }
-    } else if (event.kind === "queue_removed" || event.kind === "dequeued")
-      this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
-    else if (event.kind === "permission_request") {
+    } else if (event.kind === "queue_removed" || event.kind === "dequeued") {
+      const id = String(msg.promptId ?? "");
+      if (event.kind === "queue_removed" && event.sessionId) this.forgetQueuedRenderGuide(event.sessionId, id);
+      this.queue = this.queue.filter((entry) => entry.id !== id);
+    } else if (event.kind === "permission_request") {
       this.openQuestions.add(String(msg.permissionId ?? `permission-${event.seq}`));
       this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
       this.applyPermission({ ...msg, sessionId: event.sessionId });
@@ -1817,17 +1834,17 @@ export class AcpmuxDirectClient {
     this.stopAfterSeq = undefined;
   }
 
-  private reduce(event: EventRecord): void {
+  private reduce(event: EventRecord, live = false): void {
     this.rows.current = event.seq;
     try {
-      this.reduceEvent(event);
+      this.reduceEvent(event, live);
     } finally {
       this.rows.current = undefined;
       if (event.seq) this.rows.saw(event.seq);
     }
   }
 
-  private reduceEvent(event: EventRecord): void {
+  private reduceEvent(event: EventRecord, live: boolean): void {
     const msg = event.msg ?? {};
     const update = sessionUpdate(event);
     if (update?.sessionUpdate === USAGE_KIND) {
@@ -2050,6 +2067,8 @@ export class AcpmuxDirectClient {
         kind: "assistant",
         text: `${existing?.text ?? ""}${text}`,
         streaming: true,
+        renderLive: existing?.renderLive ?? live,
+        renderAttachment: existing?.renderAttachment ?? renderAttachment(this.selectedSessionId ?? ""),
       });
       this.streamingAssistant = id;
       this.streamingAssistantMessageId = messageId;
@@ -2068,6 +2087,8 @@ export class AcpmuxDirectClient {
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
         kind: "activity",
+        renderLive: existing?.renderLive ?? live,
+        renderAttachment: existing?.renderAttachment ?? renderAttachment(this.selectedSessionId ?? ""),
         toolCount: existing?.toolCount ?? 0,
         items: appendThought(existing?.items ?? [], text, event.at),
       });
@@ -2096,6 +2117,8 @@ export class AcpmuxDirectClient {
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
         kind: "activity",
+        renderLive: existing?.renderLive ?? live,
+        renderAttachment: existing?.renderAttachment ?? renderAttachment(this.selectedSessionId ?? ""),
         toolCount: items.filter((entry) => entry.kind === "tool").length,
         items,
       });
@@ -2442,19 +2465,43 @@ export class AcpmuxDirectClient {
     let taken = false;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
-    const context = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
-    if (context) this.contextInFlight = true;
+    const workspaceContext = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
+    if (workspaceContext) this.contextInFlight = true;
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const harness = typeof summary?.harness === "string" ? summary.harness : undefined;
+    const agentSessionId = typeof summary?.agentSessionId === "string" ? summary.agentSessionId : undefined;
+    const previousGuide = this.renderGuides.get(sessionId);
+    const changedAgent =
+      previousGuide &&
+      ((harness && previousGuide.harness && harness !== previousGuide.harness) ||
+        (agentSessionId && previousGuide.agentSessionId && agentSessionId !== previousGuide.agentSessionId));
+    const guide =
+      this.localOrigin &&
+      this.renderGuideWanted &&
+      !steer &&
+      !input.trimStart().startsWith("/") &&
+      labOn("liveRender") &&
+      labOn("renderGuide") &&
+      (!previousGuide || changedAgent)
+        ? { promptId, harness, agentSessionId }
+        : undefined;
+    if (guide) this.renderGuides.set(sessionId, guide);
+    else if (previousGuide && !changedAgent) {
+      previousGuide.harness ??= harness;
+      previousGuide.agentSessionId ??= agentSessionId;
+    }
+    const context = [workspaceContext, guide ? renderGuide() : undefined].filter(Boolean).join("") || undefined;
     const accept = () => {
       this.promptAccepts.delete(promptId);
       if (taken) return;
       taken = true;
-      if (context) this.host = { ...this.host, workspaceContext: undefined };
+      if (workspaceContext) this.host = { ...this.host, workspaceContext: undefined };
       accepted?.();
     };
     this.promptAccepts.set(promptId, accept);
     this.emit();
     try {
-      await this.request("session/prompt", {
+      const params = {
         sessionId,
         // A recording goes only to a harness that takes voice input; one moved to another
         // harness (a switch, a held prompt put back) goes as its transcript.
@@ -2472,7 +2519,17 @@ export class AcpmuxDirectClient {
           },
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
-      });
+      };
+      try {
+        await this.request("session/prompt", params);
+      } catch (error) {
+        if (!guide || workspaceContext || taken || (error as { reason?: string })?.reason !== "context.origin_refused")
+          throw error;
+        // A guide is optional on a connection whose origin changed (Lucas 2026-10-19).
+        this.renderGuideWanted = false;
+        delete params._meta.acpmux.context;
+        await this.request("session/prompt", params);
+      }
       accept();
       // A steer's answer comes once the agent read it (Claude Code's `steered`) or its turn ended.
       if (
@@ -2491,7 +2548,11 @@ export class AcpmuxDirectClient {
     } catch (error) {
       this.promptAccepts.delete(promptId);
       // A refused prompt did not use the context: the next send carries it.
-      if (context && !taken) this.contextInFlight = false;
+      if (workspaceContext && !taken) this.contextInFlight = false;
+      if (guide && !taken && this.renderGuides.get(sessionId) === guide) {
+        if (previousGuide) this.renderGuides.set(sessionId, previousGuide);
+        else this.renderGuides.delete(sessionId);
+      }
       // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
       const queued = this.queuedSends.delete(promptId);
       // Only into the chat it was sent in, still shown: its Retry sends there.
@@ -2657,7 +2718,9 @@ export class AcpmuxDirectClient {
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
     const sessionId = this.actingSessionId;
     if (!sessionId) return { removed: false };
-    return this.request("_acpmux/queue_remove", { sessionId, promptId });
+    const result = await this.request("_acpmux/queue_remove", { sessionId, promptId });
+    if (result.removed) this.forgetQueuedRenderGuide(sessionId, promptId);
+    return result;
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
@@ -2866,12 +2929,15 @@ export class AcpmuxDirectClient {
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
   async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {
-    if (!this.actingSessionId) return { ok: false };
-    return this.request("_acpmux/queue_edit", {
-      sessionId: this.actingSessionId,
-      promptId,
-      ...edit,
-    });
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return { ok: false };
+    const result = await this.request("_acpmux/queue_edit", { sessionId, promptId, ...edit });
+    if (result.ok && edit.op === "update") this.forgetQueuedRenderGuide(sessionId, promptId);
+    return result;
+  }
+  /// Withdrawing or replacing queued text leaves the unsent guide for the next prompt.
+  private forgetQueuedRenderGuide(sessionId: string, promptId: string): void {
+    if (this.renderGuides.get(sessionId)?.promptId === promptId) this.renderGuides.delete(sessionId);
   }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
   /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`). An option
@@ -3357,6 +3423,50 @@ export class AcpmuxDirectClient {
     this.loadingOlder = loading;
     return loading;
   }
+  /// Adds older transcript pages until the held transcript opens with a turn start, acpmux has no
+  /// more, or OPEN_TURN_PAGES pages came. False when the selection moved on meanwhile.
+  private async reachTurnStart(sessionId: string, generation: number): Promise<boolean> {
+    const other = new Set<string>([
+      COMMANDS_KIND,
+      USAGE_KIND,
+      CONFIG_KIND,
+      BOOKMARKS_KIND,
+      ...SECRET_KINDS,
+      ...QUEUE_KINDS,
+    ]);
+    for (let pages = 0; pages < OPEN_TURN_PAGES; pages++) {
+      const transcript = this.events.filter((event) => !other.has(event.kind));
+      const head = transcript.reduce<EventRecord | undefined>(
+        (first, event) => (first && first.seq <= event.seq ? first : event),
+        undefined,
+      );
+      if (!head || startsTurn(head) || head.seq <= 1) return true;
+      const beforeSeq = this.events.reduce((first, event) => Math.min(first, event.seq), head.seq);
+      const result = await this.request("_acpmux/events", {
+        sessionId,
+        beforeSeq,
+        limit: 400,
+        maxBytes: OLDER_PAGE_BYTES,
+        kinds: ["transcript"],
+      });
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return false;
+      let older: EventRecord[] = result?.events ?? [];
+      const more = result?.hasMore === true;
+      // Only the page's last turn start onward: the turns before it stay for scrolling up.
+      let start = -1;
+      for (let index = older.length - 1; index >= 0 && start < 0; index--) if (startsTurn(older[index]!)) start = index;
+      if (start > 0) older = older.slice(start);
+      this.events = mergeEventRecords(older, this.events);
+      if (!more || older.length === 0) {
+        // Nothing was left behind on the page: acpmux holds nothing older.
+        if (start <= 0) this.historyExhausted = true;
+        return true;
+      }
+      if (start >= 0) return true;
+    }
+    return true;
+  }
+
   private async fetchOlder(): Promise<void> {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;

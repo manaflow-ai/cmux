@@ -37,6 +37,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+document.documentElement.setAttribute("data-lab-live-render", "off");
 const window = dom.window;
 const host = window.document.getElementById("root")!;
 let root: Root | undefined;
@@ -208,13 +209,14 @@ test("a document's versions are the chat's documents of its kind and title, olde
     "Here it is:\n\n```html\n<title>Pricing</title><p>One plan</p>\n```\n",
     "And notes:\n\n```md\n# Pricing\n\nNot HTML.\n```\n\n```html\n<title>Signup</title>\n```",
     "Updated, quoted:\n\n> ```html\n> <title>Pricing</title><p>Two plans</p>\n> ```\n",
-    // The transcript draws a `~~~` fence as text, with no Open: not a version.
+    // The transcript draws a `~~~` fence as code with Open too (markdownFence.ts): a version.
     "~~~html\n<title>Pricing</title><p>Draft</p>\n~~~",
   ];
   const opened = { kind: "html" as const, lang: "html", code: "<title>Pricing</title><p>Two plans</p>" };
   expect(artifactVersions(replies, opened).map((version) => version.code)).toEqual([
     "<title>Pricing</title><p>One plan</p>",
     "<title>Pricing</title><p>Two plans</p>",
+    "<title>Pricing</title><p>Draft</p>",
   ]);
   // A document with no title, or one the chat has once, has only itself.
   const untitled = { kind: "svg" as const, lang: "svg", code: "<svg/>" };

@@ -19,13 +19,15 @@ nonisolated struct RemoteFetchChunkedBody {
     }
 
     let maximumBody: Int
+    private let allowsTruncation: Bool
     private(set) var output = Data()
     private var state = State.size
     private var pending: [UInt8] = []
     private var trailerBytes = 0
 
-    init(maximumBody: Int) {
+    init(maximumBody: Int, allowsTruncation: Bool = false) {
         self.maximumBody = maximumBody
+        self.allowsTruncation = allowsTruncation
     }
 
     var isComplete: Bool {
@@ -50,16 +52,17 @@ nonisolated struct RemoteFetchChunkedBody {
                 if size == 0 {
                     state = .trailer
                 } else {
-                    guard output.count + size <= maximumBody else {
+                    guard allowsTruncation || output.count + size <= maximumBody else {
                         throw RemoteFetchReplyReader.Refusal(reason: "chunked body over the cap", overCap: true)
                     }
                     state = .data(remaining: size)
                 }
             case .data(let remaining):
-                let take = min(remaining, pending.count - cursor)
+                let take = min(remaining, pending.count - cursor, allowsTruncation ? maximumBody - output.count : remaining)
                 guard take > 0 else { return false }
                 output.append(contentsOf: pending[cursor..<cursor + take])
                 cursor += take
+                if allowsTruncation && output.count == maximumBody { return true }
                 state = remaining == take ? .dataEnd : .data(remaining: remaining - take)
             case .dataEnd:
                 guard pending.count - cursor >= 2 else { return false }

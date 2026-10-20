@@ -394,6 +394,65 @@
 .nt-cards[data-variant="list"] .nt-card-children > .nt-card {
   padding-left: 30px;
 }
+
+/* The agent chat's side column as it opens (newtab/SurfaceLauncher.tsx, Debug Settings agentChat.sideColumn):
+   window tiles in the middle of the column, no text, each a quiet rounded square on a hairline that
+   lifts its glyph to full ink on hover or focus. Theme tokens only. */
+.nt-surfaces {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 0;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.nt-surfaces__grid {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, 56px);
+  justify-content: center;
+  gap: 10px;
+  /* All five in one row when the column has room for them (5 x 56px and 4 gaps), else they wrap. */
+  width: min(100%, 320px);
+}
+.nt-surface {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  color: var(--agent-muted);
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 9%, transparent);
+  cursor: default;
+  transition:
+    background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out),
+    color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.nt-surface:hover,
+.nt-surface:focus-visible {
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+}
+.nt-surface:active {
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+.nt-surface:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
+  outline-offset: 2px;
+}
+:root[data-borders="none"] .nt-surface {
+  box-shadow: none;
+}
+
 /* Now Playing (NowPlayingPlayer.tsx): the sidebar card's track under the create actions, laid out
    like Apple's Now Playing widget and Control Center's media module. One soft card in the New Tab
    cards' fill and hairline edge with the shared first elevation step; artwork rounded concentric

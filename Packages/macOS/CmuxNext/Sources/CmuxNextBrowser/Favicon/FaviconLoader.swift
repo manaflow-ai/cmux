@@ -1,6 +1,7 @@
 public import AppKit
 public import Foundation
 import CmuxNextCompat
+import ImageIO
 
 /// Loads favicons for tabs.
 public protocol BrowserFaviconLoading: AnyObject {
@@ -93,13 +94,37 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         caches[profile] = nil
     }
 
-    /// Decodes an icon file (PNG, ICO, SVG, ...) and redraws its best
-    /// representation at most ``maximumPixels`` square.
+    /// Decodes and encodes a bounded favicon for a page's data URL.
+    public nonisolated static func png(_ data: Data) -> Data? {
+        guard let icon = decode(data), let image = icon.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        return NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+    }
+
+    /// Raster images use ImageIO's bounded thumbnail decode, before any full-size bitmap exists.
     nonisolated static func decode(_ data: Data) -> NSImage? {
-        guard let source = NSImage(data: data), source.size.width > 0, source.size.height > 0 else { return nil }
         let side = CGFloat(maximumPixels)
-        var proposed = CGRect(x: 0, y: 0, width: side, height: side)
-        guard let best = source.cgImage(forProposedRect: &proposed, context: nil, hints: nil) else { return nil }
+        let best: CGImage
+        if let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) {
+            guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                  let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                  width > 0, height > 0, width <= 4096, height <= 4096 else { return nil }
+            guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maximumPixels,
+                kCGImageSourceShouldCacheImmediately: true,
+            ] as CFDictionary) else { return nil }
+            best = thumbnail
+        } else {
+            // AppKit handles vector formats ImageIO cannot read. Bound their canvas before rasterizing.
+            guard let source = NSImage(data: data), source.size.width > 0, source.size.height > 0,
+                  source.size.width <= 4096, source.size.height <= 4096 else { return nil }
+            var proposed = CGRect(x: 0, y: 0, width: side, height: side)
+            guard let image = source.cgImage(forProposedRect: &proposed, context: nil, hints: nil),
+                  image.width <= 4096, image.height <= 4096 else { return nil }
+            best = image
+        }
         let scale = min(1, side / CGFloat(max(best.width, best.height)))
         let width = max(1, Int((CGFloat(best.width) * scale).rounded()))
         let height = max(1, Int((CGFloat(best.height) * scale).rounded()))

@@ -17,12 +17,19 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
 
 /// The App's side of the reply link requests (``AgentPaneReplyRequest``): the settings, the
 /// favicon and title lookup, the outside-root confirmation sheet, and the effects. Each has a safe
-/// default, so a host that wires nothing shows globes and plain text and opens nothing outside.
+/// default, so a host that wires nothing fetches no source icons and opens
+/// nothing outside.
 @MainActor public final class AgentPaneReplyLinks {
     /// `agentPane.links.outsideRoots` and `agentPane.images.remote`, read on every request.
     public var settings: @MainActor () -> AgentPaneReplySetting = { .fallback }
     /// The site of each URL (key: the URL as the page sent it), from cmux's own caches.
     public var sites: @MainActor ([URL]) -> [URL: AgentPaneReplySite] = { _ in [:] }
+    /// A site's icon fetched from `url` (the pane module's guarded queue: no cookies, size capped),
+    /// for Thread details sources with labs `sourceIcons` on.
+    public var favicon: @MainActor (URL) async -> AgentPaneSourceIconResult = { _ in .unavailable }
+    var sourceIconsBaseline = AgentPaneTunables.sourceIcons.value
+    var sourceIconsLayout: Bool?
+    var sourceIconRequests: [UUID: (url: URL, task: Task<AgentPaneSourceIconResult, Never>)] = [:]
     /// Asks the user to open a file outside the project (the view's native sheet).
     public var confirmOutside: (@MainActor (_ path: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Shows a folder (in Finder: nothing in it runs).
@@ -76,6 +83,11 @@ extension AgentPaneModel {
             return await loadReplyImage(src)
         case .loadMedia(let src):
             return await loadReplyMedia(src)
+        case .favicon(let url):
+            return await replyLinks.sourceIconReply(url)
+        case .cancelFavicon(let url):
+            if let icon = replyLinks.faviconOrigin(url) { replyLinks.cancelSourceIcons(at: icon) }
+            return AgentPaneReply.success()
         case .listBrowsers:
             return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
         case .openIn(let url, let browserId):
@@ -134,8 +146,10 @@ extension AgentPaneModel {
         }
     }
 
-    /// A reply image (D5): a file inside the roots, read by the host; or an https image fetched
-    /// under the network rules, after a click unless `agentPane.images.remote` is `always`.
+    /// A reply image (D5): a file inside the roots, read by the host; one outside them as
+    /// `agentPane.links.outsideRoots` says (Open: at once, Ask: after a click, Text: never), so a
+    /// screenshot the agent saved in a temporary folder shows in the chat; or an https image
+    /// fetched under the network rules, after a click unless `agentPane.images.remote` is `always`.
     func loadReplyImage(_ src: String) async -> [String: Any] {
         if let url = URL(string: src), let scheme = url.scheme?.lowercased(), scheme != "file" {
             guard scheme == "https", AgentPaneSafeFetch.isFetchable(url) else { return Self.replyFailure(.imageRefused) }
@@ -153,8 +167,17 @@ extension AgentPaneModel {
         switch resolved.place {
         case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
         case .denied: return Self.replyFailure(.pathDenied)
-        case .outside: return Self.replyFailure(.pathOutsideRoots)
         case .missing: return Self.replyFailure(.pathInvalid)
+        case .outside:
+            switch replyLinks.settings().outsideRoots {
+            case .text: return Self.replyFailure(.pathOutsideRoots)
+            case .open: break
+            case .confirm: guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
+            }
+            // The link may have changed between the check and now: check the secret names again.
+            guard let canonical = AcpmuxPathPolicy.canonical(resolved.path) else { return Self.replyFailure(.pathInvalid) }
+            guard !replyPaths().isDenied(canonical) else { return Self.replyFailure(.pathDenied) }
+            return Self.replyImage(await AgentPaneReplyImages.local(canonical))
         }
     }
 

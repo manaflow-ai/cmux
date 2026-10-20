@@ -30,29 +30,15 @@ struct AgentReplySites {
         var out: [URL: AgentPaneReplySite] = [:]
         for url in urls {
             var site = AgentPaneReplySite()
-            for tab in tabs where Self.sameSite(tab.url, url) {
-                if site.title == nil, Self.samePage(tab.url, url), !tab.title.isEmpty { site.title = tab.title }
+            for tab in tabs where services.agentReplies.sameSite(tab.url, url) {
+                if site.title == nil, services.agentReplies.samePage(tab.url, url), !tab.title.isEmpty { site.title = tab.title }
                 if site.iconPNG == nil, let icon = tab.icon {
                     let profile = services.browserProfiles.engineProfile(forTab: tab.key)
-                    site.iconPNG = BrowserFaviconLoader.shared.cachedFavicon(at: icon, profile: profile).flatMap(Self.png)
+                    site.iconPNG = BrowserFaviconLoader.shared.cachedFavicon(at: icon, profile: profile).flatMap(services.agentReplies.png)
                 }
             }
             if site.iconPNG != nil || site.title != nil { out[url] = site }
         }
         return out
-    }
-
-    static func sameSite(_ a: URL, _ b: URL) -> Bool {
-        a.scheme?.lowercased() == b.scheme?.lowercased() && a.host(percentEncoded: false)?.lowercased() == b.host(percentEncoded: false)?.lowercased()
-            && a.port == b.port
-    }
-
-    static func samePage(_ a: URL, _ b: URL) -> Bool {
-        sameSite(a, b) && a.path(percentEncoded: true) == b.path(percentEncoded: true) && a.query == b.query
-    }
-
-    static func png(_ image: NSImage) -> Data? {
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
     }
 }
