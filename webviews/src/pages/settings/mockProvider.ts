@@ -584,7 +584,7 @@ export class MockSettingsProvider {
   private snapshot(): SnapshotResult {
     return {
       revision: this.revision,
-      schema_hash: schema.schema_hash,
+      schema_hash: "", // the owner hashes the rows it loads; the export commits no hash (#21946)
       effective: this.effective(),
       managed: Object.fromEntries(
         [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),

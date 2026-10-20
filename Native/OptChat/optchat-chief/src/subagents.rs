@@ -436,17 +436,18 @@ impl Spawner {
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
         let name = crate::workspaces::name(id, task);
+        let group = crate::workspaces::topic_group(task);
         let key = key.unwrap_or_else(crate::workspaces::new_key);
-        match workspaces.open(&key, &session, &name, &s.cwd) {
+        match workspaces.open(&key, &session, &name, &group, &s.cwd) {
             Ok(key) => {
                 let place = workspaces.place();
                 self.trace.emit(
                     "subagent.workspace",
-                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "place": place}),
+                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place}),
                 );
                 // No link here: the posted reply links every mention (link_subagents), so
                 // the memory keeps the plain id, not a 70-character URL per mention.
-                let note = format!("workspace \"{name}\" in {place}");
+                let note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
                 let _ = self.send(Input::SubagentWorkspace {
                     id: id.to_owned(),
                     key,

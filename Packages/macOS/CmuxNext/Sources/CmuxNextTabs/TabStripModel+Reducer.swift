@@ -26,13 +26,15 @@ extension TabStripModel {
             tabs = ordered
             selectedID = next
         case .closeOthers(let keep):
-            tabs = ordered.filter { $0.id == keep || $0.isPinned }
+            let closed = Set(closedByCloseOthers(keeping: keep))
+            tabs = ordered.filter { !closed.contains($0.id) }
             selectedID = keep
         case .closeToRight(let id):
-            guard let index = ordered.firstIndex(where: { $0.id == id }) else { return false }
-            let kept = Array(ordered[...index])
-            tabs = kept
-            if let selectedID, !kept.contains(where: { $0.id == selectedID }) {
+            guard ordered.contains(where: { $0.id == id }) else { return false }
+            // Pinned tabs after `id` stay (Chrome).
+            let closed = Set(closedByCloseToRight(of: id))
+            tabs = ordered.filter { !closed.contains($0.id) }
+            if let selectedID, closed.contains(selectedID) {
                 self.selectedID = id
             }
         case .reorder(let id, _, let to):

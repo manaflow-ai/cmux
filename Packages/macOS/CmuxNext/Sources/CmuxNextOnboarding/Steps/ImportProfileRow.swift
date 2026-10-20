@@ -115,6 +115,7 @@ final class ImportProfileRow: NSView {
         self.onAccess = onAccess
         requiresFullDiskAccess = needsFullDiskAccess || profile.needsFullDiskAccess
         configured = true
+        (accessButton as? OnboardingTextButton)?.setPlainTitle(OnboardingStrings.openSystemSettings)
         icon.image = Self.icon(appURL, browser: profile.browser)
         avatar.image = profile.avatar.flatMap { NSImage(contentsOf: $0) }
         avatar.alphaValue = avatar.image == nil ? 0 : 1
@@ -124,6 +125,25 @@ final class ImportProfileRow: NSView {
         sub.stringValue = subtitle
         sub.alphaValue = subtitle.isEmpty ? 0 : 1
         box.setAccessibilityLabel(OnboardingStrings.profileName(profile))
+        alphaValue = 1
+        update(checked: false, editable: true, state: .idle)
+    }
+
+    /// A browser whose profile folder cmux has no grant for: its icon and
+    /// name, "No access yet", and Allow Access… (the grant explainer).
+    func configureAwaiting(_ browser: ImportBrowser, onAccess: @escaping () -> Void) {
+        toggle = nil
+        self.onAccess = onAccess
+        requiresFullDiskAccess = true
+        configured = true
+        (accessButton as? OnboardingTextButton)?.setPlainTitle(OnboardingStrings.allowAccess)
+        icon.image = Self.icon(nil, browser: browser)
+        avatar.image = nil
+        avatar.alphaValue = 0
+        name.stringValue = browser.displayName
+        sub.stringValue = OnboardingStrings.accessNeeded
+        sub.alphaValue = 1
+        box.setAccessibilityLabel(browser.displayName)
         alphaValue = 1
         update(checked: false, editable: true, state: .idle)
     }

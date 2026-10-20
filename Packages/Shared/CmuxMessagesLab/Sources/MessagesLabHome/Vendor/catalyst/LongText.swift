@@ -337,7 +337,7 @@ final class BlockLayout: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         if let a = drawAttr[outgoing] { return a }
         let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
-        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+        let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         let a = NSMutableAttributedString(string: string as String,
                                           attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
         if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
