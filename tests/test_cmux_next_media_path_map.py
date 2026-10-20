@@ -36,6 +36,15 @@ class TourFilePathTests(unittest.TestCase):
         self.assertEqual(
             path_map.tours_for_path("webviews/src/agent-session/acpmux/harnesses/harnesses.css"), ["agent-pane"])
 
+    def test_the_home_list_routes_to_the_home_tour(self) -> None:
+        for path in ("Packages/macOS/CmuxNext/Sources/CmuxNextHome/Sidebar/HomeSidebarView.swift",
+                     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/DebugHomeSidebarFixture.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(path_map.tours_for_path(path), ["home"])
+        # The transcript side of Home is not the list's tour.
+        self.assertEqual(path_map.tours_for_path("Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/PaneHost.swift"), [])
+
 
 if __name__ == "__main__":
     unittest.main()
