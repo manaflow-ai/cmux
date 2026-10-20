@@ -264,3 +264,100 @@ fn native_receiver_stream_canceling_one_observer_keeps_the_other_registered() {
     assert_eq!(two.0.load(Ordering::SeqCst), 1);
     assert_eq!(f2.as_mut().poll(&mut Context::from_waker(&w2)), Poll::Ready(()));
 }
+
+/// Exhaust all four-event histories of authenticate, revoke, refresh, expiry
+/// and signing-key rotation. The model tracks only observable authority and
+/// whether the one-use fixture has been spent, independently of verifier state.
+#[test]
+fn native_receiver_stream_model_preserves_revocation_expiry_and_single_use() {
+    let f = fixture();
+    let original = Keyset {
+        version: "0000000000000001".into(),
+        keys: [(
+            f["kid"].as_str().unwrap().into(),
+            URL_SAFE_NO_PAD.decode(f["public_key"].as_str().unwrap()).unwrap().try_into().unwrap(),
+        )]
+        .into(),
+    };
+    for history in 0..6u32.pow(4) {
+        let (verifier, clock, mut policy) = configured();
+        let (mut authority, mut key, mut spent) = (true, true, false);
+        let mut expires = policy.expires_at_ms;
+        let mut opened: Option<(StreamLease, bool, Instant)> = None;
+        let mut events = history;
+        for _ in 0..4 {
+            let event = events % 6;
+            events /= 6;
+            let now = *clock.lock().unwrap();
+            match event {
+                0 => {
+                    let result =
+                        verifier.verify(f["token"].as_str().unwrap(), &expected(Service::Daemon));
+                    let allowed = authority && key && !spent && now.unix_ms < expires;
+                    assert_eq!(result.is_ok(), allowed, "history {history}, authenticate");
+                    if let Ok(verified) = result {
+                        spent = true;
+                        opened = Some((
+                            verified.lease.unwrap(),
+                            true,
+                            now.monotonic + Duration::from_millis(expires - now.unix_ms),
+                        ));
+                    }
+                    if authority && now.unix_ms >= expires {
+                        authority = false;
+                    }
+                }
+                1 => {
+                    verifier.clear_authority();
+                    authority = false;
+                    if let Some((_, live, _)) = &mut opened {
+                        *live = false;
+                    }
+                }
+                2 => {
+                    refresh(&clock, &mut policy, 1);
+                    verifier.replace_authority(policy.clone()).unwrap();
+                    authority = true;
+                    expires = policy.expires_at_ms;
+                    if let Some((_, live, deadline)) = &mut opened {
+                        *live = *live && key;
+                        if *live {
+                            *deadline = policy.request_started + Duration::from_secs(30);
+                        }
+                    }
+                }
+                3 => {
+                    let mut now = clock.lock().unwrap();
+                    now.unix_ms += 30_001;
+                    now.monotonic += Duration::from_millis(30_001);
+                }
+                4 => {
+                    verifier
+                        .replace_keys(Keyset {
+                            version: "0000000000000002".into(),
+                            keys: [("replacement".into(), [7; 32])].into(),
+                        })
+                        .unwrap();
+                    key = false;
+                    if let Some((_, live, _)) = &mut opened {
+                        *live = false;
+                    }
+                }
+                5 => {
+                    verifier.replace_keys(original.clone()).unwrap();
+                    key = true;
+                }
+                _ => unreachable!(),
+            }
+            let now = *clock.lock().unwrap();
+            if let Some((lease, live, deadline)) = &mut opened {
+                *live = *live && now.monotonic < *deadline;
+                assert_eq!(
+                    lease.deadline().is_some_and(|at| at > now.monotonic),
+                    *live,
+                    "history {history}, event {event}"
+                );
+            }
+        }
+    }
+}
