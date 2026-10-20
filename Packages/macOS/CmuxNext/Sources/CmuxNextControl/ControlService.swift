@@ -18,8 +18,8 @@ public import Foundation
 /// `CMUX_NEXT_SOCKET_PATH`), with a symlink at its old `/tmp` name. Inherited `CMUX_*` variables never choose it.
 /// Access mode: `CMUX_NEXT_SOCKET_MODE`, else cmux.json
 /// `automation.socketControlMode`, else `automation` (any process of this
-/// user; see ``defaultAccessMode``). Password mode checks
-/// `CMUX_NEXT_SOCKET_PASSWORD` unless the App passes its own verifier.
+/// user; see ``defaultAccessMode``). The retired password mode fails closed
+/// to `off`; plaintext socket passwords are never read from settings or env.
 @MainActor
 public final class ControlService {
     public let server: ControlSocketServer
@@ -42,16 +42,11 @@ public final class ControlService {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
         accessMode explicitMode: ControlAccessMode? = nil,
-        passwordVerifier: (@Sendable (String) -> Bool)? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
         let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
-        var verifier = passwordVerifier
-        if verifier == nil, let expected = environment["CMUX_NEXT_SOCKET_PASSWORD"], !expected.isEmpty {
-            verifier = { @Sendable candidate in candidate == expected }
-        }
         let identity = ControlIdentity(
             version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
             build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0",
@@ -68,7 +63,6 @@ public final class ControlService {
             settingsWriter: settings,
             configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode,
                                                              protectStateDirectory: protectsStateDirectory(launch),
-                                                             passwordVerifier: verifier,
                                                              trustedExecutables: bundledExecutables(bundle, environment: environment),
                                                              compatibilityLink: launch.compatibilityLink),
             identity: identity,
@@ -135,7 +129,7 @@ public final class ControlService {
         case "off": .off
         case "cmuxonly": .cmuxOnly
         case "automation", "notifications": .automation
-        case "password": .password
+        case "password": .off
         case "allowall", "openaccess", "fullopenaccess", "full": .allowAll
         default: nil
         }

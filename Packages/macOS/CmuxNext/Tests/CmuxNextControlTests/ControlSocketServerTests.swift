@@ -6,14 +6,13 @@ import CmuxNextCompat
 import Testing
 
 @Suite(.serialized) struct ControlSocketServerTests {
-    func makeServer(_ mode: ControlAccessMode, path: String = temporarySocketPath(), trustedAncestor: pid_t = getpid(), password: String? = nil) throws -> ControlSocketServer {
+    func makeServer(_ mode: ControlAccessMode, path: String = temporarySocketPath(), trustedAncestor: pid_t = getpid()) throws -> ControlSocketServer {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         router.updateCatalog(sampleCatalog())
         let server = ControlSocketServer(
             configuration: .init(
                 path: path,
                 accessMode: mode,
-                passwordVerifier: password.map { expected in { @Sendable in $0 == expected } },
                 trustedAncestor: trustedAncestor
             ),
             router: router
@@ -68,22 +67,6 @@ import Testing
         let client = try LineClient(path: denied.configuration.path)
         #expect(client.send("ping") == ControlAuthorizer.accessDenied)
         #expect(client.readLine() == "")
-    }
-
-    @Test func passwordModeRequiresLogin() throws {
-        let server = try makeServer(.password, password: "hunter2")
-        defer { server.stop() }
-        let client = try LineClient(path: server.configuration.path)
-        let blocked = try client.call("action.list")
-        #expect(blocked["error"]?["code"] == "auth_required")
-        #expect(client.send("auth nope") == "ERROR: Invalid password")
-        #expect(client.send("auth hunter2") == "OK: Authenticated")
-        #expect(try client.call("action.list")["ok"] == true)
-
-        let v2 = try LineClient(path: server.configuration.path)
-        #expect(try v2.call("auth.login", ["password": "bad"])["error"]?["code"] == "auth_failed")
-        #expect(try v2.call("auth.login", ["password": "hunter2"])["ok"] == true)
-        #expect(try v2.call("system.ping")["ok"] == true)
     }
 
     @Test func neverStealsALiveSocketButReclaimsStaleOnes() throws {

@@ -17,8 +17,7 @@ import CmuxNextCompat
 /// Authorization follows the old `SocketControlMode` model: `cmuxOnly`
 /// admits processes started inside this cmux (descended from this app or
 /// from a process running one of `trustedExecutables`, the bundled cmux
-/// binary that hosts every terminal), `automation` admits the same
-/// user, `password` also requires `auth <password>` / `auth.login`, and
+/// binary that hosts every terminal), `automation` admits the same user, and
 /// `allowAll` admits anyone. The socket file is 0600 except for `allowAll`.
 public final class ControlSocketServer: Sendable {
     public struct Configuration: Sendable {
@@ -26,8 +25,6 @@ public final class ControlSocketServer: Sendable {
         public var accessMode: ControlAccessMode
         /// Tightens and validates an existing parent as cmux's canonical state directory.
         public var protectStateDirectory: Bool
-        /// Verifies a password for `.password` mode. Nil rejects every login.
-        public var passwordVerifier: (@Sendable (String) -> Bool)?
         /// Process whose descendants `.cmuxOnly` admits (default: this app).
         public var trustedAncestor: pid_t
         /// Executables whose processes' descendants `.cmuxOnly` also admits:
@@ -48,7 +45,6 @@ public final class ControlSocketServer: Sendable {
             path: String,
             accessMode: ControlAccessMode,
             protectStateDirectory: Bool = false,
-            passwordVerifier: (@Sendable (String) -> Bool)? = nil,
             trustedAncestor: pid_t = getpid(),
             trustedExecutables: Set<String> = [],
             maxLineBytes: Int = 4 << 20,
@@ -59,7 +55,6 @@ public final class ControlSocketServer: Sendable {
             self.path = path
             self.accessMode = accessMode
             self.protectStateDirectory = protectStateDirectory
-            self.passwordVerifier = passwordVerifier
             self.trustedAncestor = trustedAncestor
             self.trustedExecutables = trustedExecutables
             self.maxLineBytes = maxLineBytes
