@@ -357,7 +357,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.mixed.notification` | boolean |  |  | Latest Notification |
 | `sidebar.workspaceRow.mixed.secondLineOrder` | array |  | `notification`, `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
 | `browser.toolbarButtons` | array | `["media","zoom","downloads"]` | `media`, `zoom`, `favorites`, `downloads`, `designMode`, `profile`, `theme`, `devTools` | Toolbar Buttons. Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back. |
-| `browser.defaultEngine` | string | `"chromium"` | `chromium`, `webkit` | Default Engine. New browser tabs open in this engine. |
+| `browser.defaultEngine` | string | `"chromium"` | `chromium`, `webkit` | Browser Engine. Browser tabs and cmux pages, such as History and Apps, open in this engine. |
+| `browser.siteEngines` | dictionary | `{"amazon.com/gp/video":"webkit","disneyplus.com":"webkit","hulu.com":"webkit","max.com":"webkit","music.apple.com":"webkit","netflix.com":"webkit","primevideo.com":"webkit","spotify.com":"webkit","tv.apple.com":"webkit"}` |  | Site Engines. Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium. |
 | `browser.newTabPage` | string | `""` |  | New Tab Page. An address such as https://example.com. Empty opens a blank page. |
 | `browser.showBookmarksBar` | boolean | `false` |  | Show Bookmarks Bar. A row of bookmarks under each browser toolbar. |
 | `browser.showAgentCursor` | boolean | `true` |  | Show Agent Cursor. When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots. |

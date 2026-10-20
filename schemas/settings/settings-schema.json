@@ -868,6 +868,7 @@
             "key" : "settings.group.engine",
             "rows" : [
               "browser.defaultEngine",
+              "browser.siteEngines",
               "browser.newTabPage"
             ],
             "title" : {
@@ -6687,7 +6688,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -6741,7 +6742,7 @@
           "~/notes"
         ]
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -24841,7 +24842,7 @@
       },
       "help" : {
         "key" : "settings.browser.defaultEngine.help",
-        "text" : "New browser tabs open in this engine."
+        "text" : "Browser tabs and cmux pages, such as History and Apps, open in this engine."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.defaultEngine",
@@ -24865,7 +24866,76 @@
       "summary" : null,
       "title" : {
         "key" : "settings.browser.defaultEngine",
-        "text" : "Default Engine"
+        "text" : "Browser Engine"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+        "amazon.com/gp/video" : "webkit",
+        "disneyplus.com" : "webkit",
+        "hulu.com" : "webkit",
+        "max.com" : "webkit",
+        "music.apple.com" : "webkit",
+        "netflix.com" : "webkit",
+        "primevideo.com" : "webkit",
+        "spotify.com" : "webkit",
+        "tv.apple.com" : "webkit"
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.engine",
+        "text" : "Engine"
+      },
+      "help" : {
+        "key" : "settings.browser.siteEngines.help",
+        "text" : "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.siteEngines",
+      "keywords" : [
+        "drm",
+        "widevine",
+        "spotify",
+        "netflix",
+        "site",
+        "webkit",
+        "chromium"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "siteEngines"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.siteEngines",
+        "text" : "Site Engines"
       },
       "validation" : "portable"
     },

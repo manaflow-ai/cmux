@@ -1120,12 +1120,12 @@
     },
     "browser.defaultEngine" : {
       "default" : "chromium",
-      "description" : "New browser tabs open in this engine.",
+      "description" : "Browser tabs and cmux pages, such as History and Apps, open in this engine.",
       "enum" : [
         "chromium",
         "webkit"
       ],
-      "title" : "Default Engine",
+      "title" : "Browser Engine",
       "type" : "string"
     },
     "browser.enabled" : {
@@ -1401,6 +1401,25 @@
       "description" : "A row of bookmarks under each browser toolbar.",
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
+    },
+    "browser.siteEngines" : {
+      "default" : {
+        "amazon.com/gp/video" : "webkit",
+        "disneyplus.com" : "webkit",
+        "hulu.com" : "webkit",
+        "max.com" : "webkit",
+        "music.apple.com" : "webkit",
+        "netflix.com" : "webkit",
+        "primevideo.com" : "webkit",
+        "spotify.com" : "webkit",
+        "tv.apple.com" : "webkit"
+      },
+      "description" : "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium.",
+      "properties" : {
+
+      },
+      "title" : "Site Engines",
+      "type" : "object"
     },
     "browser.toolbarButtons" : {
       "default" : [
