@@ -12,6 +12,7 @@ struct WorkspaceTodoPageView: View {
             } else {
                 TextField(WorkspaceChecklistStrings.addPlaceholder, text: $model.draft)
                     .textFieldStyle(.roundedBorder)
+                    .focusEffectDisabled()
                     .onSubmit { model.submitDraft() }
                 let items = model.items
                 if items.isEmpty {
