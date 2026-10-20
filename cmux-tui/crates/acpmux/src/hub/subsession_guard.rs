@@ -226,11 +226,31 @@ impl Hub {
         self.listed_access(m).unwrap_or(Access::Asks)
     }
 
-    /// Whether session `m` runs a folder profile other than `caller`'s own
-    /// (its harness is no catalog profile).
+    /// What harness `harness` resolves to in `cwd`: its name, the folder
+    /// whose profile it is (none for a catalog profile), and the whole
+    /// profile. None when it does not resolve.
+    async fn profile_identity(
+        &self,
+        harness: &str,
+        cwd: &Path,
+        remote: bool,
+    ) -> Option<(String, Option<std::path::PathBuf>, Value)> {
+        let cfg = self.config.read().await;
+        let r = self.resolve_new(&cfg, Some(harness.to_owned()), &None, None, remote, Some(cwd));
+        let r = r.ok()?;
+        Some((r.agent, r.folder_root, serde_json::to_value(&r.profile).ok()?))
+    }
+
+    /// Whether session `m` runs a folder profile other than `caller`'s own:
+    /// its harness is no catalog profile, and it is not the very profile
+    /// the caller runs (same name, same folder, same contents and command).
     async fn foreign_folder_profile(&self, m: &SessionMeta, caller: &SessionMeta) -> bool {
-        let own = m.harness == caller.harness && m.harness_argv == caller.harness_argv;
-        !own && self.config.read().await.profile(&m.harness).is_none()
+        if self.config.read().await.profile(&m.harness).is_some() {
+            return false;
+        }
+        let theirs = self.profile_identity(&m.harness, &m.cwd, m.remote_origin).await;
+        let own = self.profile_identity(&caller.harness, &caller.cwd, caller.remote_origin).await;
+        !(theirs.is_some() && theirs == own && m.harness_argv == caller.harness_argv)
     }
 
     /// How much a new or receiving session `m` runs without asking, on
@@ -332,7 +352,12 @@ impl Hub {
             )
         };
         let Ok(r) = resolved else { return Ok(()) };
-        if r.agent == pm.harness && r.profile.argv == pm.harness_argv {
+        // The caller's own harness: the very profile it runs, from the same folder.
+        let own = self.profile_identity(&pm.harness, &pm.cwd, pm.remote_origin).await;
+        let this = serde_json::to_value(&r.profile)
+            .ok()
+            .map(|p| (r.agent.clone(), r.folder_root.clone(), p));
+        if own.is_some() && own == this && r.profile.argv == pm.harness_argv {
             return Ok(());
         }
         if let Some(root) = &r.folder_root {
