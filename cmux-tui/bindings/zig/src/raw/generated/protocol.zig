@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12";
+pub const ir_sha256 = "96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -56,6 +56,8 @@ pub const AgentPresenceActivity = enum {
 pub const AgentRecord = struct {
     /// Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports.
     agent: wire.Field([]const u8) = .absent,
+    /// The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.
+    agent_session_id: wire.Field([]const u8) = .absent,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     last_prompt: wire.Field([]const u8) = .absent,
     session: wire.Nullable([]const u8),
@@ -9799,6 +9801,8 @@ pub const ActivityChangedEvent = struct {
 pub const AgentChangedEvent = struct {
     /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
     agent: wire.Field([]const u8) = .absent,
+    /// The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.
+    agent_session_id: wire.Field([]const u8) = .absent,
     event: []const u8,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     last_prompt: wire.Field([]const u8) = .absent,

@@ -202,6 +202,7 @@ fn agent_json(record: &AgentRecord) -> Value {
         "source": record.source.as_str(),
         "session": record.session,
         "agent": record.agent,
+        "agent_session_id": record.agent_session_id,
         "updated_at_ms": record.updated_at_ms,
         "since_ms": record.since_ms,
         "last_prompt": record.last_prompt.as_deref(),

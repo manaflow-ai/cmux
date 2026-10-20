@@ -6,8 +6,9 @@ nonisolated extension DeepLink {
     /// Nil for another scheme (another build's links are not opened here),
     /// the `auth-callback` host, an unknown host, a malformed id, extra path
     /// segments, a user, password or port, and a fragment other than a
-    /// session's `#turn-<turnId>`. Query parameters other than `machine` and
-    /// the legacy `stable_*_id` fallbacks are ignored.
+    /// session's `#turn-<turnId>`. Query parameters other than `machine`, the
+    /// legacy `stable_*_id` fallbacks and an agent link's `host`/`name`
+    /// display hints are ignored; a malformed hint is dropped.
     ///
     /// - Parameters:
     ///   - url: The URL to read.
@@ -27,7 +28,12 @@ nonisolated extension DeepLink {
         }
         let fragment = components.fragment
         guard let target = target(host: host, segments: segments, query: query, fragment: fragment) else { return nil }
-        return DeepLink(target, machine: machine)
+        guard target.isAgent else { return DeepLink(target, machine: machine) }
+        // Display hints only: a malformed one is dropped, never a reason to refuse.
+        func hint(_ name: String) -> String? {
+            query.first(where: { $0.name == name })?.value.flatMap { Self.isHint($0) ? $0 : nil }
+        }
+        return DeepLink(target, machine: machine, hostHint: hint(Self.hostHintKey), nameHint: hint(Self.nameHintKey))
     }
 
     private static func target(host: String, segments: [String], query: [URLQueryItem], fragment: String?) -> Target? {
@@ -50,6 +56,9 @@ nonisolated extension DeepLink {
             guard segments.count == 3, segments[1] == "session", fragment == nil,
                   isChiefHome(first), isToken(segments[2]) else { return nil }
             return .chiefSession(home: first, session: segments[2])
+        case "agent":
+            guard segments.count == 2, fragment == nil, isHarness(first), isAgentSession(segments[1]) else { return nil }
+            return .agent(harness: first, session: segments[1])
         case "session":
             guard segments.count == 1, isToken(first) else { return nil }
             guard let fragment else { return .session(first, turn: nil) }
