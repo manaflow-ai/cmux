@@ -1772,7 +1772,7 @@ jobs:
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cnx-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
-          git -c protocol.version=2 submodule update --init --force --depth=1 --recursive
+          git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
           # A hosted runner starts with clean submodules; drop what earlier runs left.
           git submodule foreach -q --recursive 'git clean -ffdxq && git reset -q --hard'
           git submodule foreach -q --recursive git config --local gc.auto 0
@@ -1780,7 +1780,7 @@ jobs:
           packs=$(find .git/objects/pack -name '*.pack' | wc -l | tr -d ' ')
           if [ "$packs" -gt 40 ]; then
             echo "$packs packs: repacking"
-            git repack -d -q
+            git repack -a -d -l -q
           fi
           test "$(git rev-parse HEAD)" = "$BUILD_SHA"
           git status --short | head -20
