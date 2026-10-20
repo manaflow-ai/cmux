@@ -1391,6 +1391,8 @@ fi
 graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
 if ! current=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,state 2>"$graphql_error_file"); then
   if graphql_quota_error "$graphql_error_file"; then
+    # Handled here: only the REST fallback's own rate limit (gh() records it) makes this a rate limit.
+    fallback_answered
     if ! current_raw=$(gh api "repos/$repo/pulls/$num" 2>"$graphql_error_file") || \
        ! current=$(jq -c '{headRefOid:(.head.sha // ""),baseRefName:(.base.ref // ""),state:(.state // "")}' <<<"$current_raw"); then
       rm -f "$graphql_error_file"
@@ -1454,6 +1456,8 @@ rest_merge_method() {
 merge_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
 if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@" 2>"$merge_error_file"; then
   if graphql_quota_error "$merge_error_file"; then
+    # Handled here: only the REST merge's own rate limit (gh() records it) makes this a rate limit.
+    fallback_answered
     if ! merge_method=$(rest_merge_method "$@" --match-head-commit "$sha"); then
       rm -f "$merge_error_file"
       refuse \

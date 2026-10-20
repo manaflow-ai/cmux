@@ -624,9 +624,13 @@ class Base:
         if workflow not in self._workflow_runs:
             listed = self.github.json(
                 f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&status=completed&per_page=20")
-            self._workflow_runs[workflow] = [run for run in listed.get("workflow_runs") or []
-                                             if run.get("event") not in ("pull_request", "pull_request_target")
-                                             and run.get("conclusion") != "skipped"]
+            runs = [run for run in listed.get("workflow_runs") or []
+                    if run.get("event") not in ("pull_request", "pull_request_target")
+                    and run.get("conclusion") != "skipped"]
+            # Newest first by creation, which GitHub returns but does not document: the newest run
+            # with a verdict decides, and one older than the merge-base is stale.
+            self._workflow_runs[workflow] = sorted(
+                runs, key=lambda run: run.get("created_at") or "", reverse=True)  # stable: ties keep GitHub's order
         return self._workflow_runs[workflow]
 
 
@@ -671,8 +675,14 @@ def dispatch_hint(base: Base, workflow, path: str) -> str:
     """The run already going at the base tip, or the command that starts one. Never dispatched here."""
     file = path.rsplit("/", 1)[-1] if path else str(workflow)
     if base.tip and workflow is not None:
-        listed = base.github.json(f"repos/{base.repo}/actions/workflows/{workflow}/runs?branch={base.base}"
-                                  f"&head_sha={base.tip}&per_page=5")
+        try:
+            listed = base.github.json(f"repos/{base.repo}/actions/workflows/{workflow}/runs?branch={base.base}"
+                                      f"&head_sha={base.tip}&per_page=5")
+        except RateLimited:
+            raise
+        except Refused as error:
+            base.notes.append(f"could not list runs at the base tip {short(base.tip)} ({error})")
+            listed = {}
         if pending := [run for run in listed.get("workflow_runs") or [] if run.get("status") != "completed"]:
             return (f"run {pending[0]['id']} of {file} at the base tip {short(base.tip)} is "
                     f"{pending[0].get('status')}: retry when it finishes")

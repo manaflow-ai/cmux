@@ -372,6 +372,33 @@ class StaleBase(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, f"run 39386215666 of ci.yml at the base tip {NEW_TIP[:10]} is in_progress"):
             self.judge()
 
+    def test_an_unreadable_tip_run_list_still_names_the_dispatch(self):
+        self.gh.base_runs[1]["head_sha"] = OLD_BASE
+        self.gh.jobs[2].update(head_sha=OLD_BASE, conclusion="success")
+        self.gh.stale = {OLD_BASE}
+        original = self.gh.json
+
+        def failing(route, *, paginate=False):
+            if "head_sha=" in route:
+                raise excuse.Refused("GitHub evidence request failed: HTTP 502")
+            return original(route, paginate=paginate)
+        self.gh.json = failing
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        self.assertIn("gh workflow run ci.yml", str(caught.exception))
+        self.assertIn("run 20", str(caught.exception))
+
+    def test_base_runs_are_read_newest_first_whatever_order_github_lists_them(self):
+        # Run 20 (a stale green) is listed before run 23, the newer run at the tip that is red the same way.
+        self.gh.base_runs[1].update(head_sha=OLD_BASE, created_at="2026-10-20T02:29:05Z")
+        self.gh.jobs[2].update(head_sha=OLD_BASE, conclusion="success")
+        self.gh.stale = {OLD_BASE}
+        self.gh.base_runs.append({"id": 23, "event": "workflow_dispatch", "status": "completed", "conclusion": "failure",
+                                  "head_sha": NEW_TIP, "created_at": "2026-10-20T07:40:00Z"})
+        self.gh.jobs[3] = failed_job(3, 23, NEW_TIP)
+        self.gh.logs[3] = self.gh.logs[1]
+        self.assertIn("run 23", "\n".join(self.judge()))
+
     def test_a_stale_base_run_red_the_same_way_still_excuses(self):
         # The head inherits a red its merge-base's ancestors already had.
         self.gh.base_runs[1]["head_sha"] = OLD_BASE
