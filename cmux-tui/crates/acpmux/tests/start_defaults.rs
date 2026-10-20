@@ -424,7 +424,8 @@ async fn a_harness_config_effort_applies_only_with_its_own_model_or_with_none() 
 #[tokio::test]
 async fn a_catalog_default_the_harness_does_not_offer_is_not_used() {
     let (dir, calls) = home("not-offered");
-    let mut config: Value = serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
     config["harnesses"]["codex"]["env"]["FAKE_MODELS"] = json!("gpt-5.5,gpt-6-astra");
     // Claude Code lists aliases, not the catalog's ids: the catalog default still applies.
     config["harnesses"]["claude"]["env"]["FAKE_MODELS"] = json!("default,opus");
@@ -437,12 +438,19 @@ async fn a_catalog_default_the_harness_does_not_offer_is_not_used() {
     assert!(!take_calls(&calls).iter().any(|(k, v)| k == "model" && v == "gpt-6.1-sol"));
     // Now the list is known: New Agent Chat says no start model, and none is set.
     let harnesses = app.call("_acpmux/harnesses", json!({})).await;
-    assert!(harnesses["harnesses"]["codex"]["start"]["model"].is_null(), "{}", harnesses["harnesses"]["codex"]["start"]);
+    assert!(
+        harnesses["harnesses"]["codex"]["start"]["model"].is_null(),
+        "{}",
+        harnesses["harnesses"]["codex"]["start"]
+    );
     app.new_chat("codex").await;
     assert!(!take_calls(&calls).iter().any(|(k, _)| k == "model"));
     // A harness whose ids are not the catalog's (Claude Code's aliases) still starts on the catalog default.
     app.new_chat("claude").await;
     app.new_chat("claude").await;
-    assert_eq!(take_calls(&calls).first(), Some(&("model".to_owned(), "claude-opus-5-5".to_owned())));
+    assert_eq!(
+        take_calls(&calls).first(),
+        Some(&("model".to_owned(), "claude-opus-5-5".to_owned()))
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
