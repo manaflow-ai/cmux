@@ -139,7 +139,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
     test("Esc never answers: it hands the keyboard to the composer and reaches the pane", async () => {
       const page = await pendingQuestion();
       expect(await focusedInCard(page)).toBe(true);
-      // The pane's own Esc handling (the double press that stops a turn) still sees the key.
+      // The card leaves the key unclaimed for the pane's own listeners.
       await page.evaluate(() => {
         const seen: boolean[] = [];
         window.addEventListener("keydown", (event) => {

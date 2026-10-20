@@ -94,9 +94,11 @@ Agent tabs show the web card in the agent pane
 keys and these rules (Leo, 2026-10-20):
 
 - Esc returns keyboard focus to the composer and never answers. It keeps
-  every answer given so far and is not consumed, so the pane's double-press
-  Esc (stop the turn) still sees it. Inside the Other field the first Esc
-  only leaves the field. Skip is the only way to decline.
+  every answer given so far, and the next Esc is the composer's (on an empty
+  prompt, the press that stops a turn). The card leaves the key unclaimed for
+  the pane's own listeners, except in the floating chat, where an unclaimed
+  Esc hides the panel. Inside the Other field the first Esc only leaves the
+  field. Skip is the only way to decline.
 - One click (or 1-9, or Enter) on the last single-choice question submits at
   once, as in Codex and Claude Code. Multi-select and Other wait for Submit
   or ⌘↩.

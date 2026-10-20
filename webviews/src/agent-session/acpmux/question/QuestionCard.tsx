@@ -63,8 +63,10 @@ const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 /// Bare keys work while focus is inside the card, and it takes the keyboard on arrival only when
 /// nothing else has it or the composer is empty. ⌘↩ submits, and one click on the last
 /// single-choice question sends it. Escape never answers (plans/cmux-next/agent-questions.md §6):
-/// it hands the keyboard back to the composer, keeps every answer given so far, and is left to the
-/// pane, so its double-press Esc still sees it; in the Other field it only leaves the field. Skip
+/// it hands the keyboard back to the composer and keeps every answer given so far, so the next Esc
+/// is the composer's (on an empty prompt, the press that stops a turn). The card leaves the key to
+/// the pane's own listeners, except in the floating chat, where an Esc nobody claimed hides the
+/// panel. In the Other field it only leaves the field. Skip
 /// declines. A reply acpmux refuses shows its error on the card, which takes input again for a
 /// retry. Only a person's click or key sends an answer.
 export function QuestionCard({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
@@ -233,9 +235,11 @@ function PendingQuestion({
     const input = inputForKey(event.key);
     if (!input) return;
     // Escape never answers. Outside the Other field it hands the keyboard to the composer (in one
-    // press, even with an Other answer left open) and keeps every answer, and the key is not
-    // consumed: the pane's own Esc handling (the double press that stops a turn) still sees it.
+    // press, even with an Other answer left open) and keeps every answer. The key is left to the
+    // pane's own listeners, except in the floating chat: there an Esc nobody claimed hides the
+    // panel (paneSurface.ts useEscapeToDismiss, QuickComposerPanel.cancelOperation).
     if (input.type === "escape" && !inOther) {
+      if (target.closest('[data-surface="quick"]')) event.preventDefault();
       if (!event.repeat) resign();
       return;
     }

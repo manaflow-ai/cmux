@@ -112666,7 +112666,7 @@
       }
     },
     "question.replyFailed": {
-      "comment": "Agent pane: agent question card, shown when the agent refused the answer or Skip; the card takes input again",
+      "comment": "Agent pane: agent question card, shown when the host refused the answer or the Skip; the card takes input again",
       "extractionState": "manual",
       "localizations": {
         "ar": {
