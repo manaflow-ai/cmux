@@ -133,8 +133,9 @@ impl Hub {
             p.argv.push(file.to_string_lossy().into_owned());
         }
         // Claude Code defers MCP tools behind its tool search, which it turns
-        // off by itself behind a router; the cmux server lists every tool
-        // for it (agent_tools::lists_all_tools). A profile's own value wins.
+        // off by itself behind a router; it defers the other MCP servers' tools,
+        // and every cmux tool for a profile that opts in (agent_tools::lists_all_tools).
+        // A profile's own value wins.
         if crate::agent_tools::is_claude_code(&meta.harness, profile)
             && crate::agent_tools::own_provider(&p.env)
         {

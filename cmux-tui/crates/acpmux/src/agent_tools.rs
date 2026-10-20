@@ -252,13 +252,21 @@ pub fn left_out(remote_origin: bool, env: &BTreeMap<String, String>, args: &[Str
 /// Anthropic's (our routers), and then sends every schema in every turn.
 pub const TOOL_SEARCH_ENV: &str = "ENABLE_TOOL_SEARCH";
 
-/// Whether a harness defers MCP tools behind its own tool search, so its
-/// cmux server lists every tool (`cmux mcp serve --all-tools`) and the
-/// harness loads the ones a turn needs. Every other harness gets cmux's
-/// code mode (two tools). Measured 2026-10-19, one-word turn with all 641
-/// cmux tools: Claude Code 34k prompt tokens with [`TOOL_SEARCH_ENV`]
-/// (315k without), Codex 20k (the same as with two tools). OpenCode 1.19
-/// and the others send every schema.
+/// The profile env that opts a harness with its own tool search in to every
+/// cmux tool (`cmux mcp serve --all-tools`); `1` turns it on.
+pub const ALL_TOOLS_ENV: &str = "CMUX_MCP_ALL_TOOLS";
+
+/// Whether the cmux server lists every tool (`cmux mcp serve --all-tools`)
+/// for this harness instead of cmux's code mode (two tools, `cmux_docs`
+/// and `cmux_exec`, whose docs load on demand). Code mode is the default
+/// for every harness: behind a tool search (Claude Code with
+/// [`TOOL_SEARCH_ENV`], Codex) the schemas are deferred, but all 641 tool
+/// names still went into every request, ~23 KB (~6k tokens; acpmux overhead
+/// bench, 2026-10-20). A profile opts in with [`ALL_TOOLS_ENV`]`=1`, and
+/// gets it only where the harness defers schemas (measured 2026-10-19,
+/// one-word turn with all 641 tools: Claude Code 34k prompt tokens with
+/// tool search, 315k without; OpenCode 1.19 and the others send every
+/// schema).
 /// `name` is the profile's name: its family comes from it when the profile
 /// declares none (`config::derive_family`); `env` is the env the harness
 /// starts with, its route applied. Fail safe: an unknown harness, a Claude
@@ -270,7 +278,7 @@ pub fn lists_all_tools(
     profile: &crate::config::HarnessProfile,
     env: &BTreeMap<String, String>,
 ) -> bool {
-    if !own_provider(env) {
+    if !own_provider(env) || env.get(ALL_TOOLS_ENV).is_none_or(|v| v.trim() != "1") {
         return false;
     }
     if is_claude_code(name, profile) {
@@ -340,9 +348,13 @@ pub fn claude_args_for(
         current()
             .scoped(env)
             .for_session(session_id)
-            // Claude Code has tool search unless its env turns it off or
-            // sends it to another provider.
-            .listing(tool_search_on(env) && own_provider(env))
+            // Every cmux tool only for a profile that opts in (`ALL_TOOLS_ENV`), and only
+            // while Claude Code's tool search is on and it talks to its own provider.
+            .listing(
+                env.get(ALL_TOOLS_ENV).is_some_and(|v| v.trim() == "1")
+                    && tool_search_on(env)
+                    && own_provider(env),
+            )
             .claude_args(&mcp_config_path(&crate::config::home(), session_id))
     }
 }
