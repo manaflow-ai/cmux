@@ -78,14 +78,14 @@ final class TerminalThemeSetting {
     func follow(_ settings: SettingsController) {
         // An opacity write with Material unset names the material of the config files' own blur.
         settings.ghosttyBackgroundBlur = { GhosttyConfigBackground.loaded.blur }
-        // The theme, its edits, the window background and the backdrop art follow `applied`, so a
-        // theme picker's, the Opacity slider's or the background picker's live preview repaints the
-        // window; the rest follows the loaded
+        // The theme, its edits, the window background, the backdrop art and the tuning follow
+        // `applied`, so a theme picker's, the Opacity, Hue or Saturation slider's or the background
+        // picker's live preview repaints the window; the rest follows the loaded
         // settings, so a font size slider's preview never reloads Ghostty per tick. A background step
         // repaints at once and reloads Ghostty after the steps stop (`apply`).
         take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
              background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
-             shuffle: BackdropSelectionSetting.shuffle(settings.applied.root))
+             shuffle: BackdropSelectionSetting.shuffle(settings.applied.root), tuning: settings.applied.windowTuning)
         // A time zone or clock change moves local midnight, which the armed timer cannot see.
         for name in [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange] {
             dayObservers.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -96,17 +96,17 @@ final class TerminalThemeSetting {
             })
         }
         observation = Task { [weak self] in
-            for await (snapshot, theme, edits, background, art, shuffle) in ObservationStream({
+            for await (snapshot, theme, edits, background, art, shuffle, tuning) in ObservationStream({
                 (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
-                 settings.applied.backdropSelection, BackdropSelectionSetting.shuffle(settings.applied.root))
+                 settings.applied.backdropSelection, BackdropSelectionSetting.shuffle(settings.applied.root), settings.applied.windowTuning)
             }) {
-                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, shuffle: shuffle)
+                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, shuffle: shuffle, tuning: tuning)
             }
         }
     }
 
     private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride,
-                      art: BackdropSelection?, shuffle: BackdropShuffle?) {
+                      art: BackdropSelection?, shuffle: BackdropShuffle?, tuning: AppearanceTuning) {
         shuffling = shuffle
         if shuffle != nil {
             showShuffledArt()
@@ -114,7 +114,7 @@ final class TerminalThemeSetting {
             dailyTimer.cancel()
             backdropScope.setBackdropSelection(art)
         }
-        backdropScope.setAppearanceTuning(snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity)
+        backdropScope.setAppearanceTuning(tuning)
         // Per-surface backgrounds (R55): every owner repaints from them.
         backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
         // Over a picture the Opacity the user set is the window's tint (unset: the work's own).

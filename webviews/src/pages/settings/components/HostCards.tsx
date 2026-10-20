@@ -2,7 +2,7 @@
 // (Appearance, where Change Background… lands), the terminal facts (Terminal) and the settings
 // file with its problems (Advanced). Data comes from the host lists; writes run host ops or
 // catalog actions, the palette's paths.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { rowsByKey, type SchemaRow } from "../schema";
@@ -98,6 +98,10 @@ export function useBackdropsShown(): boolean {
  */
 export function Backdrops({ focus = null, workspace = null }: { focus?: string | null; workspace?: string | null }) {
   const store = useStore();
+  // What a tile's badges say to VoiceOver (the ▶ of a video, the cloud of a pending download).
+  // It stands in for the credit tooltip as VoiceOver's description; the credit stays the pointer's
+  // tooltip, and a video's title already names the wallpaper.
+  const describe = useId();
   const state = useSettingsState();
   const { host, rows } = state;
   const [browsing, setBrowsing] = useState(false);
@@ -205,6 +209,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         className={pending ? "backdrop-tile backdrop-pending" : "backdrop-tile"}
         aria-pressed={current === id}
         aria-label={title}
+        aria-describedby={
+          [choice?.video ? `${describe}-video` : null, pending ? `${describe}-pending` : null].filter(Boolean).join(" ") ||
+          undefined
+        }
         /* tooltip-allow: what a click on a cloud tile does, or the credit the one-line tile drops */ title={
           pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : credit
         }
@@ -251,6 +259,13 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
+      {/* Hidden: read only as a tile's description, never as text of their own in the card. */}
+      <span id={`${describe}-video`} hidden>
+        {t("settingsWindow.backdropPicker.video")}
+      </span>
+      <span id={`${describe}-pending`} hidden>
+        {t("settingsWindow.backdropPicker.downloadInSystemSettings")}
+      </span>
       {/* The happy path first: one background for every window, or one that turns on its own. */}
       <div className="backdrop-grid">
         {own &&
