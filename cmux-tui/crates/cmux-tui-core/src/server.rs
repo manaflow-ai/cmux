@@ -2812,6 +2812,10 @@ mod pinned_columns_tests;
 mod rows_tests;
 
 #[cfg(test)]
+#[path = "server/column_move_tests.rs"]
+mod column_move_tests;
+
+#[cfg(test)]
 #[path = "server/pane_browser_kind_tests.rs"]
 mod pane_browser_kind_tests;
 
