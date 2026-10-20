@@ -671,6 +671,8 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-answered-key{color:var(--agent-muted)}
 .acpmux-question-answered-by{color:var(--agent-muted);font-size:11px}
 .acpmux-question-cancelled{padding:4px 2px;color:var(--agent-muted);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+/* A single permission card's receipt (permissions/record.ts): one muted line where it was answered. */
+.acpmux-permission-record{padding:4px 2px;color:var(--agent-muted);font-size:var(--text-detail);line-height:18px;overflow-wrap:anywhere}
 @media (prefers-reduced-motion:no-preference){.acpmux-question-row{transition:background-color var(--agent-motion-hover,120ms) var(--agent-ease-out,ease-out)}}
 /* Menus and popovers open from their trigger (ui/popupSurface.css), only when motion is allowed. */
 @media (prefers-reduced-motion:no-preference){.acpmux-menu,.acpmux-context-pop,.acpmux-slash-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
