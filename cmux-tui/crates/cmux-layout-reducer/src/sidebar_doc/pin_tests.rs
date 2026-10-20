@@ -28,7 +28,9 @@ fn run(doc: &mut Doc, ops: Vec<Op>) -> Vec<Op> {
 
 /// Machine section: w4, group g1 (w1, w2, w3), w5.
 fn fixture() -> Doc {
-    let mut doc = Doc::from_parts(0, vec![Section::machine(SESSION)], vec![]);
+    let mut section = Section::machine(SESSION);
+    section.order = super::order_key::spread(1).remove(0);
+    let mut doc = Doc::from_parts(0, vec![section], vec![]);
     run(
         &mut doc,
         vec![Op::Adopt { refs: ["w4", "w1", "w2", "w3", "w5"].map(reference).to_vec(), to: None }],
