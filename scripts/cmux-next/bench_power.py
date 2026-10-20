@@ -18,7 +18,7 @@ acpmux). It needs no root. GPU and display energy are not in it; with
 
 Usage (a fleet mini, never a laptop; launches the app with a scratch HOME):
   bench_power.py --app BUNDLE [--settle 120] [--measure 60]
-      [--scenarios terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,scroll,video,switch,minimized]
+      [--scenarios terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,minimized]
       [--out FILE.json]
 Prints one PERF-POWER line per scenario and kind, plus a total line.
 """
@@ -189,7 +189,7 @@ def main():
     # minutes after tabs open or hide; shorter settles measure that, not idle.
     parser.add_argument("--settle", type=float, default=120)
     parser.add_argument("--measure", type=float, default=60)
-    parser.add_argument("--scenarios", default="terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,scroll,video,switch,minimized")
+    parser.add_argument("--scenarios", default="terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,minimized")
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
@@ -265,6 +265,11 @@ def main():
                     index += 1
                     time.sleep(0.5)  # test script: two tab switches a second
             settle_measure("switch", during=switch, settle=10)
+        if "title" in scenarios:
+            # A page in view that changes its title every frame (a timer, a counter).
+            open_tab("/busy.html?n=0")
+            settle_measure("title", settle=10)
+            run("closeTab")
         if "scroll" in scenarios:
             open_tab("/long.html")
             settle_measure("scroll", settle=10)
