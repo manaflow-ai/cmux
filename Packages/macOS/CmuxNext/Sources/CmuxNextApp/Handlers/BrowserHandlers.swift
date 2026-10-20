@@ -158,7 +158,7 @@ enum BrowserHandlers {
         let daemon = context.services.daemon(for: model)
         let connection = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
         // The default engine (never refused: no engine is requested).
-        guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
+        guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return }
         let intent = pane.workspace?.beginFocusIntent()
         let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
         Task {
@@ -180,7 +180,7 @@ enum BrowserHandlers {
     private static func browserTab(in strip: PaneController, url: URL?, profile: String?, context: AppActionContext) throws {
         let browserTabs = context.services.cache.browserTabs
         if let refusal = browserTabs.refusal(in: strip.pane) { throw ActionFailure(message: refusal) }
-        guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
+        guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return }
         let content = strip.workspace
         if let content { PaneHandlers.focus(strip.layoutPaneID, in: content) }
         let intent = content?.beginFocusIntent()
