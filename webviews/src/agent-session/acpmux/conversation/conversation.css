@@ -1369,6 +1369,17 @@ pre.cv-math-source {
   padding-left: 14.5px;
   border-left: 1px solid var(--cv-rule);
 }
+/* Commands, reads and searches list flush under their line, one glyph and line per call, as the
+   Codex desktop app lists "Ran commands". */
+.cv-tool-group.is-flat {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+/* "+K more" lines up with the calls' text, past their glyphs. */
+.cv-tool-group.is-flat .cv-tool-group__more {
+  padding-left: 22.5px;
+}
 .cv-tool__counts {
   display: inline-flex;
   gap: 4px;
@@ -1379,13 +1390,15 @@ pre.cv-math-source {
 .cv-command__failed {
   color: var(--agent-danger);
 }
-/* "npm test  ✓ 4.2s": the command fills the row, its status and time sit at the right edge. */
-.cv-command__line {
+/* "Ran npm test  ✓ 4.2s": the command fills the row, its status and time sit at the right edge. */
+.cv-command__text {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.cv-command__line {
   font: 12.5px/20px var(--cv-mono);
 }
 .cv-command__meta {

@@ -92,7 +92,7 @@ export function ToolGroupRow({
         />
       </button>
       {open && (
-        <div className="cv-tool-group" id={detailsId}>
+        <div className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"} id={detailsId}>
           {hidden > 0 && (
             <button type="button" className="cv-tool cv-tool-group__more" onClick={() => setAll(true)}>
               <span className="cv-tool__text">{t("tools.more", { n: hidden })}</span>
