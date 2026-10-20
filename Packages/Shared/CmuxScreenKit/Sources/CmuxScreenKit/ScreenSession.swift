@@ -86,7 +86,7 @@ public final class ScreenSession {
     /// When the current run of reconnects started (the give-up clock).
     @ObservationIgnored private var reconnectStarted: Date?
     /// Reconnects stop once they have tried this long, whatever `reconnectLimit` says.
-    public static let reconnectDeadline: TimeInterval = 45
+    public nonisolated static let reconnectDeadline: TimeInterval = 45
     /// The TURN relays' errors in the current connection (refused
     /// credentials, unreachable), so a failure can say why; cleared on connect.
     public private(set) var relayErrors: [ICECandidateError] = []
