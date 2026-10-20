@@ -67,7 +67,9 @@ public final class AccountsModel {
         }
     }
 
-    /// The app became active: re-detect if a login ran in a tab meanwhile.
+    /// The app became active, or the Settings window came forward (a login
+    /// in a cmux terminal tab never makes the app inactive): re-detect if a
+    /// login or logout ran in a tab meanwhile.
     public func appDidBecomeActive() {
         guard !pendingReauth.isEmpty else { return }
         for provider in pendingReauth { apply(.reauthEnded, to: provider) }

@@ -75,6 +75,8 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
 /// One gesture on the Accounts part of the Settings page.
 public enum AccountsPageAction: Equatable, Sendable {
     case refresh, signInToCmux
+    /// The Settings window came forward: re-detect rows a login or logout left busy.
+    case windowFocused
     case reauthenticate(AIProvider), signOut(AIProvider), addKey(AIProvider), deleteSavedKey(AIProvider), connect(AIProvider)
     case confirmConnect(AIProvider), cancelConfirm
     case remove(accountID: String)
@@ -86,6 +88,7 @@ public enum AccountsPageAction: Equatable, Sendable {
         let provider = provider.flatMap(AIProvider.init(rawValue:))
         switch (action, provider) {
         case ("refresh", _): self = .refresh
+        case ("focus", _): self = .windowFocused
         case ("signIn", _): self = .signInToCmux
         case ("reauth", let provider?): self = .reauthenticate(provider)
         case ("signOut", let provider?): self = .signOut(provider)
@@ -129,6 +132,7 @@ extension AccountsModel {
     public func perform(_ action: AccountsPageAction) async -> String? {
         switch action {
         case .refresh: refresh()
+        case .windowFocused: appDidBecomeActive()
         case .signInToCmux: services.signInToCmux()
         case .reauthenticate(let provider): reauthenticate(provider)
         case .signOut(let provider): signOut(provider)

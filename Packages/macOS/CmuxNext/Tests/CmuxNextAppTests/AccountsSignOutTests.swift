@@ -20,7 +20,7 @@ import Testing
     @Test func theLogoutCommandsAreTheCLIsOwn() {
         #expect(AIProvider.codex.signOutPlan.shellLine == "codex logout")
         #expect(AIProvider.claude.signOutPlan.shellLine == "claude auth logout")
-        #expect(AIProvider.copilot.signOutPlan.shellLine == "gh auth logout")
+        #expect(AIProvider.copilot.signOutPlan.shellLine == "gh auth logout --hostname github.com")
         #expect(AIProvider.openAI.signOutPlan == .none)
     }
 
@@ -46,6 +46,15 @@ import Testing
         if let action { await model.perform(action) }
         #expect(services.calls.contains("signOut:codex"))
         #expect(model.row(.codex).phase == .reauthenticating)
+
+        // The logout ran in a cmux tab, so the app stayed active: coming back
+        // to the Settings window re-detects and frees the row.
+        let detections = services.calls.filter { $0 == "detect" }.count
+        await model.perform(.windowFocused)
+        for _ in 0..<200 where model.isRefreshing { await Task.yield() }
+        #expect(model.row(.codex).phase != .reauthenticating)
+        #expect(services.calls.filter { $0 == "detect" }.count == detections + 1)
+        #expect(AccountsPageAction(action: "focus", provider: nil, account: nil, secret: nil) == .windowFocused)
     }
 
     @Test func aShellVariableSignInHasNoSignOutAndSaysWhy() async {

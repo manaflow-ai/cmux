@@ -124,7 +124,7 @@ public struct AccountRowState: Sendable, Equatable {
     /// for a provider whose CLI it overrides: while it is set, the CLI uses
     /// it and ignores a re-authentication or a sign-out made here.
     public var shellVariableInUse: String? {
-        guard provider.signOutPlan != .none, status == .signedIn, let first = detection?.sources.first,
+        guard provider.signOutPlan != .none, status == .signedIn || status == .expired, let first = detection?.sources.first,
               first.isEnvironment else { return nil }
         return first.label
     }
