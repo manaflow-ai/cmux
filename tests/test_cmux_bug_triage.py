@@ -161,5 +161,85 @@ class InboxTests(unittest.TestCase):
         self.assertEqual((self.inbox / "SKIPPED.md").read_text(), skipped)
 
 
+MANAGED = ROOT / "tests" / "fixtures" / "bug-triage" / "managed-mac-report"
+
+
+def git(repo: Path, *args: str) -> str:
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True,
+                          text=True, env=env).stdout.strip()
+
+
+def commit(repo: Path, message: str) -> str:
+    git(repo, "commit", "-q", "--allow-empty", "-m", message)
+    return git(repo, "rev-parse", "HEAD")
+
+
+class LandedFixTests(unittest.TestCase):
+    """Dedup against feat-cmux-next reads commit bodies, prefers the fix over its test,
+    and says whether the fix is in the published nightly yet."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.inbox = Path(self.tmp.name) / "inbox"
+        self.repo = Path(self.tmp.name) / "repo"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q")
+        self.decoy = commit(self.repo, "cmux-next: the Desktop Wallpaper tile shows the desktop, never a broken image")
+        git(self.repo, "tag", "nightly-next")
+        self.test_sha = commit(self.repo, "test(next): macOS 15 tester repros fail first: Cmd-D/Cmd-W from Settings, Cmd-1/2/3")
+        self.crash_fix = commit(self.repo, "fix(next): Home binds no task local on the main thread outside a task (macOS 15 Cmd-1/2/3 crash)\n\n"
+                                "macOS 15 tester: crashes after cmd 123. Cmd-1..9 switching workspaces crashed the app.")
+        self.close_fix = commit(self.repo, "fix(next): Cmd-W right after Cmd-D runs at once; a split's key hold always ends\n\n"
+                                "macOS 15 tester: Cmd-D then Cmd-W from Settings did nothing 2-3 times, then closed the new tab, Settings and the window.")
+        self.chip_fix = commit(self.repo, "fix(next): the access chip says what it is and survives a refused mode\n\n"
+                               "macOS 15 tester (company-managed Mac): what is the third dropdown? it does not work. It is the "
+                               "permission mode. A mode the organization's managed settings refuse failed in silence.")
+        self.tile_fix = commit(self.repo, "fix(next): wallpaper tiles show one title line; the full credit is the tooltip\n\n"
+                               "macOS 15 tester: the caption text under each wallpaper tile overflowed and overlapped.")
+        git(self.repo, "update-ref", "refs/remotes/origin/feat-cmux-next", "HEAD")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def run_triage(self, *extra: str) -> dict:
+        proc = run("triage", str(MANAGED / "report.md"), "--json", "--repo", str(self.repo), *extra, inbox=self.inbox)
+        if proc.returncode != 0:
+            raise AssertionError(proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_each_bug_maps_to_its_fix_commit(self) -> None:
+        bugs = {b["text"]: b for b in self.run_triage()["bugs"]}
+        want = {"Cmd+1": self.crash_fix, "Cmd+W": self.close_fix, "dropdown": self.chip_fix, "wallpaper": self.tile_fix}
+        for needle, sha in want.items():
+            bug = next(b for t, b in bugs.items() if needle.lower() in t.lower())
+            self.assertEqual(bug["decision"], "skip", bug)
+            self.assertEqual(bug["fixed_by"], sha[:11], bug)
+            self.assertNotEqual(bug["fixed_by"], self.test_sha[:11])
+
+    def test_fix_after_the_nightly_says_retest_after_next_nightly(self) -> None:
+        for bug in self.run_triage()["bugs"]:
+            self.assertFalse(bug["in_nightly"], bug)
+            self.assertIn("not in nightly-next", bug["reason"])
+        git(self.repo, "tag", "-f", "nightly-next", "HEAD")
+        for bug in self.run_triage()["bugs"]:
+            self.assertTrue(bug["in_nightly"], bug)
+            self.assertIn("in nightly-next", bug["reason"])
+
+    def test_open_github_issue_is_linked_without_changing_the_decision(self) -> None:
+        issues = Path(self.tmp.name) / "issues.json"
+        issues.write_text(json.dumps([{"number": 743, "title": "cmux crashes on workspace switch with Cmd+1",
+                                       "url": "https://github.com/manaflow-ai/cmux/issues/743"}]))
+        proc = run("triage", str(MANAGED / "report.md"), "--json", "--no-git", "--github", str(issues), inbox=self.inbox)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        result = json.loads(proc.stdout)
+        crash = next(b for b in result["bugs"] if "Cmd+1" in b["text"])
+        self.assertEqual(crash["decision"], "fix now")
+        self.assertEqual(crash["issue"], "https://github.com/manaflow-ai/cmux/issues/743")
+        task = next(t for t in result["tasks"] if "Cmd+1" in t["prompt"])
+        self.assertIn("issues/743", task["prompt"])
+
+
 if __name__ == "__main__":
     unittest.main()

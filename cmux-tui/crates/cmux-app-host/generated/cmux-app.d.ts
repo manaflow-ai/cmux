@@ -1662,7 +1662,7 @@ interface CmuxGlobal {
     /** `workspace.run` (mutation, scope `workspace:execute`) */
     run: CmuxOp<{ machine?: string; session?: string; workspace: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `workspace.update` (mutation, scope `workspace:write`) */
-    update: CmuxOp<{ machine?: string; session?: string; workspace: string; title?: string | null; color?: string | null; icon?: string | null; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceSnapshot>>
+    update: CmuxOp<{ machine?: string; session?: string; workspace: string; title?: string | null; color?: string | null; icon?: string | null; description?: string | null; task_status?: "todo" | "working" | "needs-attention" | "review" | "done" | null; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceSnapshot>>
   }
   workspace_group: {
     /** `workspace_group.create` (mutation, scope `workspace_group:write`) */

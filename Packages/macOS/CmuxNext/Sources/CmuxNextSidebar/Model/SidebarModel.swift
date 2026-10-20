@@ -146,6 +146,8 @@ public final class SidebarModel {
     public var expanded = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
     public var detailedStatus = false
+    /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
+    public var showsTimestamps = false
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
     public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
@@ -491,6 +493,7 @@ public final class SidebarModel {
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
+        showsTimestamps = preferences.showTimestamps
         hidesWorkspaces = !preferences.showProjects
         groupsByFolder = preferences.groupBy == .folder
         groupsByComputer = preferences.groupsByComputer
@@ -511,6 +514,7 @@ public final class SidebarModel {
         o.workspaceRow = workspaceRow
         (o.minimal, o.expanded) = (minimal, expanded)
         o.detailedStatus = detailedStatus
+        o.showsTimestamps = showsTimestamps
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {

@@ -465,6 +465,12 @@ export class SettingsStore {
     return reply.value.error ?? null;
   }
 
+  /** The host's calls for Agents > Chiefs (`cmux.chief.profile.*`, `cmux.chief.backend.*`): the
+   * Chief editor reaches the Chief owner through the host's page relay, as Home does. */
+  readonly chiefCalls = {
+    call: <R,>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
+  };
+
   /** Settings > Agents' state; null when the host has no Agents part. */
   async agentsState(): Promise<AgentsState | null> {
     const reply = await this.request("cmux.settings.agents.state", {});

@@ -197,6 +197,8 @@ final class AppServices {
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     let terminalTheme = TerminalThemeSetting(backdropScope: .app)
+    /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
+    private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
     /// Room, workspace and terminal themes.
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.

@@ -225,6 +225,7 @@ final class SidebarRegionView: NSView {
                 let new = headerViews[id] == nil
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
+                view.setAccessibilityIdentifier("cmux.sidebar.region.\(id.rawValue)")
                 place(view, row.frame, new: new)
             case let .app(id):
                 guard let section = sections[id], let view = appViews[id] ?? appView?(section) else { continue }
@@ -255,6 +256,7 @@ final class SidebarRegionView: NSView {
                 default: section.look == .builtIn ? .builtIn : .list
                 }
                 view.configure(activeInfo(content.infos[id] ?? .fallback(for: item), id), style: style)
+                view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
                 view.activatesOnPress = item.ref.activatesOnPress
                 place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
