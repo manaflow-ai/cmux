@@ -27,6 +27,18 @@ EOF
 cat > "$tmp/root/bin/slow.sh" <<'EOF'
 sleep 5
 EOF
+# Like swift test: a child (xctest) that outlives its parent and keeps the
+# output pipe open. cmux19, run 39360407187: three entries timed out twice
+# each (the run and the classify run) and left six xctest processes behind.
+cat > "$tmp/root/bin/hang-child.sh" <<'EOF'
+sleep 30 &
+echo $! >> "$1"
+# SwiftPM starts xctest in a process group of its own: killing the entry's
+# group alone misses it.
+python3 -c 'import os, time; os.setpgid(0, 0); time.sleep(30)' &
+echo $! >> "$1"
+wait
+EOF
 
 registry() { printf '%s\n' "$1" > "$tmp/registry.json"; }
 quarantine() {
@@ -76,6 +88,22 @@ quarantine
 registry "{\"entries\": [$(entry stuck slow.sh)]}"
 run
 expect "an entry over its time cap fails" 1 "^FAST-TIER FAIL stuck .*timed out after 2s"
+
+registry "{\"entries\": [$(entry hung hang-child.sh "[\"$tmp/hung.pids\"]")]}"
+started=$SECONDS
+run
+expect "an entry whose child hangs fails at its cap" 1 "^FAST-TIER FAIL hung .*timed out after 2s"
+if [ $((SECONDS - started)) -ge 15 ]; then
+  echo "FAIL: a timed-out entry waited on its child's pipe ($((SECONDS - started)) s for two 2 s runs)" >&2
+  exit 1
+fi
+while read -r pid; do
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    echo "FAIL: a timed-out entry left its child $pid running" >&2
+    exit 1
+  fi
+done < "$tmp/hung.pids"
 
 registry '{"entries": [{"name": "orphan", "kind": "script", "path": "bin/pass.sh"}]}'
 run
