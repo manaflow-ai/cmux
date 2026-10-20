@@ -19,6 +19,7 @@ members = [
     "crates/acpmux",
     "crates/cmux-coderouter",
     "crates/cmux-history",
+    "crates/cmux-search",
     "crates/cmux-chat-index",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
@@ -186,6 +187,7 @@ cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
+cmux-search = { path = "crates/cmux-search" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-config = { path = "crates/cmux-config" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
@@ -238,6 +240,9 @@ ip_network = "0.4"
 smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
 libc = "0.2"
+# SIMD substring search for the search-everything index (cmux-search). Already
+# in the graph through regex at this version; no new transitive code.
+memchr = "2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
@@ -355,4 +360,9 @@ opt-level = 0
 # The JSON rewriter sits on every translated daemon message; tests and the
 # Rex parity bench (tests/rex_parity_bench.rs) measure it optimized.
 [profile.dev.package.cmux-api-compat]
+opt-level = 3
+
+# The search index (cmux-search): its perf guard and ripgrep bench measure the
+# optimized engine, as the daemon runs it.
+[profile.dev.package.cmux-search]
 opt-level = 3

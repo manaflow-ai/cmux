@@ -1392,6 +1392,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-search"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "memchr",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "cmux-server"
 version = "0.1.0"
 dependencies = [
