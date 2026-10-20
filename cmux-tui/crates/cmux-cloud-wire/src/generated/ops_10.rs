@@ -4,6 +4,323 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes team_vm.taint.accept declares.
+    TeamVmTaintAcceptError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        TeamVmInUse = "team_vm.in_use",
+        TeamVmNotConfigured = "team_vm.not_configured",
+        TeamVmNotInLedger = "team_vm.not_in_ledger",
+        TeamVmNotTainted = "team_vm.not_tainted",
+        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
+        TeamVmRetiredFull = "team_vm.retired_full",
+        TeamVmStaleEpoch = "team_vm.stale_epoch",
+        TeamVmStaleTaint = "team_vm.stale_taint",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread.
+    ThreadUpdateOp {
+        name: "thread.update",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ThreadUpdateParams,
+        result: HomeConversationCommit,
+        error: ThreadUpdateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ThreadUpdateParams {
+    pub conversation: ConversationId,
+    pub root: MessageId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<HomeThreadStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes thread.update declares.
+    ThreadUpdateError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidThreadOwner = "invalid_thread_owner",
+        InvalidThreadRoot = "invalid_thread_root",
+        InvalidThreadUpdate = "invalid_thread_update",
+        InvalidTitle = "invalid_title",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownMessage = "unknown_message",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Rename a group conversation (not a dm or chief thread).
+    TitleSetOp {
+        name: "title.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TitleSetParams,
+        result: HomeConversationCommit,
+        error: TitleSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TitleSetParams {
+    pub conversation: ConversationId,
+    pub title: String,
+}
+
+wire_errors! {
+    /// The error codes title.set declares.
+    TitleSetError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidTitle = "invalid_title",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Attach an owned WireGuard tunnel to an owned private network.
+    TunnelAttachOp {
+        name: "tunnel.attach",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: TunnelAttachParams,
+        result: TunnelAttachResult,
+        error: TunnelAttachError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelAttachParams {
+    pub device_fingerprint: String,
+    pub network_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelAttachResult {
+    pub tunnel_id: String,
+    pub network_id: String,
+}
+
+wire_errors! {
+    /// The error codes tunnel.attach declares.
+    TunnelAttachError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Detach an owned WireGuard tunnel from an owned private network.
+    TunnelDetachOp {
+        name: "tunnel.detach",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: TunnelDetachParams,
+        result: TunnelDetachResult,
+        error: TunnelDetachError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelDetachParams {
+    pub device_fingerprint: String,
+    pub network_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelDetachResult {
+    pub tunnel_id: String,
+    pub network_id: String,
+}
+
+wire_errors! {
+    /// The error codes tunnel.detach declares.
+    TunnelDetachError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Rotate an owned tunnel's WireGuard public key without changing its address.
+    TunnelRotateKeyOp {
+        name: "tunnel.rotate-key",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: TunnelRotateKeyParams,
+        result: TunnelRotateKeyResult,
+        error: TunnelRotateKeyError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelRotateKeyParams {
+    pub device_fingerprint: String,
+    pub client_public_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TunnelRotateKeyResult {
+    pub tunnel_id: String,
+    pub client_public_key: String,
+}
+
+wire_errors! {
+    /// The error codes tunnel.rotate-key declares.
+    TunnelRotateKeyError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling.
+    UsageCapSetOp {
+        name: "usage.cap.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UsageMeterDO",
+        risk: "money",
+        principals: [Session],
+        params: UsageCapSetParams,
+        result: UsageCapSetResult,
+        error: UsageCapSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageCapSetParams {
+    pub cap_usd: Option<WireNumber>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageCapSetResult {
+    pub owner: Option<TeamId>,
+    pub team_cap_usd: Option<WireNumber>,
+}
+
+wire_errors! {
+    /// The error codes usage.cap.set declares.
+    UsageCapSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        TeamRolesRequired = "team.roles_required",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs.
+    UsageSummaryOp {
+        name: "usage.summary",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UsageMeterDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: UsageSummaryParams,
+        result: UsageSummary,
+        error: UsageSummaryError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UsageSummaryParams {}
+
+wire_errors! {
+    /// The error codes usage.summary declares.
+    UsageSummaryError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Create or refresh the caller's user record from the Stack session.
+    UserEnsureOp {
+        name: "user.ensure",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: UserEnsureParams,
+        result: UserProfile,
+        error: UserEnsureError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserEnsureParams {}
+
+wire_errors! {
+    /// The error codes user.ensure declares.
+    UserEnsureError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// The owner's presence keys with their public P-256 parts, platform, App Attest flag, usable_from and install state. Only an owner Mac install without an agent claim reads it: the Mac checks a phone's signed feed answers (cx-aocz).
     UserPresenceKeyListOp {

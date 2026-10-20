@@ -4,8 +4,9 @@ import CmuxNextIcons
 import QuartzCore
 
 /// The speaker of a browser tab playing sound, crossed out while the tab is
-/// muted (Chrome's tab audio indicator, cx-d0d.24). Mute Tab in the tab's
-/// menu toggles it.
+/// muted (Chrome's tab audio indicator, cx-d0d.24). A click on it mutes or
+/// unmutes the tab (Chrome's alert indicator button,
+/// `TabStripIntent.toggleAudioMute`), as Mute Tab in the tab's menu does.
 extension TabCell {
     static let audioIconSize: CGFloat = 12
 
@@ -30,6 +31,13 @@ extension TabCell {
         let name: IconName = item.audio == .muted ? .mediaMuted : .mediaAudio
         icon.contentsScale = scale
         icon.contents = TabPackIconCache.shared.image(name: name, tint: Palette.textSecondary, size: Self.audioIconSize, scale: scale)
+    }
+
+    /// The speaker's frame in this cell's coordinates while it shows (the
+    /// mute button's hit area), else nil.
+    var audioButtonRect: CGRect? {
+        guard let audioLayer, audioLayer.opacity > 0, audioLayer.superlayer != nil else { return nil }
+        return audioLayer.frame
     }
 
     /// Places the speaker at the end of the title area when the title keeps

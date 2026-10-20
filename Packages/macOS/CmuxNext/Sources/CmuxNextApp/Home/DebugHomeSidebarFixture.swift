@@ -9,6 +9,8 @@ import Foundation
 /// window's Home sidebar (the sidebar only, never the store or the owner),
 /// the first `pinned` of them pinned, so a pin drag can be proven on a test
 /// window that has only its Chief. `count: 0` removes them.
+/// `width`, `select`, `search`, `unread` set the list's look (`HomeSidebarView.debugLook`),
+/// after the rows (no `count` keeps them); the answer carries the header's frames.
 @MainActor
 enum DebugHomeSidebarFixture {
     static let names = ["Austin", "Lucas Wang", "Aziz Ali", "Mia Chen", "Noah Park", "Iris Lee",
@@ -18,15 +20,15 @@ enum DebugHomeSidebarFixture {
         guard let page = services.windows.active?.topPages.views[.home] as? TopHomePageView else {
             return .object(["error": .string("no Home page in the active window")])
         }
-        let count = min(names.count, max(0, params["count"]?.intValue ?? 5))
-        let pinned = min(count, max(0, params["pinned"]?.intValue ?? 3))
-        let me = services.home.homeStore.me ?? Participant(id: ParticipantID("user_debug_me"), kind: .human, displayName: "Me")
-        page.sidebar.debugRows = rows(count: count, me: me, now: Date())
-        for row in page.sidebar.debugRows.prefix(pinned) where !page.sidebar.pins.isPinned(row) {
-            page.sidebar.setPinned(true, row.id)
+        if params["count"] != nil || !["width", "select", "search", "unread"].contains(where: { params[$0] != nil }) {
+            let count = min(names.count, max(0, params["count"]?.intValue ?? 5)), pinned = min(count, max(0, params["pinned"]?.intValue ?? 3))
+            let me = services.home.homeStore.me ?? Participant(id: ParticipantID("user_debug_me"), kind: .human, displayName: "Me")
+            page.sidebar.debugRows = rows(count: count, me: me, now: Date())
+            for row in page.sidebar.debugRows.prefix(pinned) where !page.sidebar.pins.isPinned(row) { page.sidebar.setPinned(true, row.id) }
+            page.list.update(page.sidebar.model())
         }
-        page.list.update(page.sidebar.model())
-        return .object(["rows": .array(page.sidebar.debugRows.map { .string($0.id.rawValue) })])
+        guard let look = page.list.debugLook(width: params["width"]?.doubleValue, select: params["select"]?.intValue, unread: params["unread"]?.boolValue, search: params["search"]?.boolValue) else { return .object(["error": .string("no such row")]) }
+        return JSONValue(foundation: look.merging(["rows": page.sidebar.debugRows.map(\.id.rawValue)]) { a, _ in a }) ?? .null
     }
 
     /// One DM per name, an hour apart, through the same mirror path real inbox rows take.
