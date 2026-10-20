@@ -1857,10 +1857,17 @@ extension Workspace {
             let restoredResumeSnapshotWorkspaceID = snapshotWorkspaceId
                 ?? restoredRemotePTYSessionID.flatMap { Self.parsedDefaultSSHPTYSessionID($0)?.workspaceId }
                 ?? id
+            // A pre-restore crash can leave only the managed hook binding. If
+            // the structured agent payload is gone, keep that binding as the
+            // effective compatibility record while the synthesized agent takes
+            // the normal `cmux restore` admission path. Structured managed-only
+            // snapshots still keep their binding in the managed map instead of
+            // reintroducing it as a stale compatibility binding.
+            let compatibilityResumeBinding = snapshotRestorableAgent == nil
+                ? (persistedResumeBinding ?? persistedManagedResumeBinding)
+                : persistedResumeBinding
             let resumeBinding = Self.resumeBindingForSessionRestore(
-                synthesizedLegacyAgent == nil
-                    ? persistedResumeBinding
-                    : (persistedManagedResumeBinding ?? persistedResumeBinding),
+                compatibilityResumeBinding,
                 restorableAgent: restorableAgent
             )
             // A Claude background session lives on in Claude's daemon. One pane

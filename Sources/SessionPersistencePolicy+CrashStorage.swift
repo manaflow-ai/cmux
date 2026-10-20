@@ -142,9 +142,11 @@ extension SessionPersistencePolicy {
             let agentSessionIDs = window.tabManager.workspaces.flatMap { workspace in
                 workspace.panels.compactMap { panel -> String? in
                     guard let terminal = panel.terminal else { return nil }
-                    return terminal.agent?.sessionId ?? terminal.resumeBinding?.checkpointId
+                    return terminal.agent?.sessionId
+                        ?? terminal.resumeBinding?.checkpointId
+                        ?? terminal.managedAgentResumeBinding?.checkpointId
                 }
-            }
+            }.reduce(into: Set<String>()) { $0.insert($1) }.sorted()
             let fingerprint: SessionWindowDuplicateFingerprint?
             if !agentSessionIDs.isEmpty {
                 fingerprint = SessionWindowDuplicateFingerprint(
@@ -186,10 +188,10 @@ extension SessionPersistencePolicy {
             if let existingIndex = result.firstIndex(where: {
                 areCrashDuplicateWindows($0, window)
             }) {
-                if sessionWindowRestoreFidelityScore(window) >
-                    sessionWindowRestoreFidelityScore(result[existingIndex]) {
-                    result[existingIndex] = window
-                }
+                result[existingIndex] = mergingCrashDuplicateWindows(
+                    result[existingIndex],
+                    window
+                )
                 removedAny = true
                 continue
             }
@@ -203,25 +205,13 @@ extension SessionPersistencePolicy {
         _ lhs: SessionWindowSnapshot,
         _ rhs: SessionWindowSnapshot
     ) -> Bool {
-        let lhsWorkspaces = lhs.tabManager.workspaces
-        let rhsWorkspaces = rhs.tabManager.workspaces
-        guard lhsWorkspaces.count == rhsWorkspaces.count,
-              lhsWorkspaces.count > 1 else {
+        guard lhs.tabManager.workspaces.count == rhs.tabManager.workspaces.count,
+              lhs.tabManager.workspaces.count > 1 else {
             return false
         }
 
-        let lhsAgents = Set(lhsWorkspaces.flatMap { workspace in
-            workspace.panels.compactMap { panel -> String? in
-                guard let terminal = panel.terminal else { return nil }
-                return terminal.agent?.sessionId ?? terminal.resumeBinding?.checkpointId
-            }
-        })
-        let rhsAgents = Set(rhsWorkspaces.flatMap { workspace in
-            workspace.panels.compactMap { panel -> String? in
-                guard let terminal = panel.terminal else { return nil }
-                return terminal.agent?.sessionId ?? terminal.resumeBinding?.checkpointId
-            }
-        })
+        let lhsAgents = crashWindowCheckpointIDs(lhs)
+        let rhsAgents = crashWindowCheckpointIDs(rhs)
         guard !lhsAgents.isEmpty, !rhsAgents.isEmpty else { return false }
         let overlap = lhsAgents.intersection(rhsAgents)
         let smaller = min(lhsAgents.count, rhsAgents.count)
@@ -230,21 +220,127 @@ extension SessionPersistencePolicy {
         return overlap.count == smaller
     }
 
-    private static func sessionWindowRestoreFidelityScore(_ window: SessionWindowSnapshot) -> Int {
-        window.tabManager.workspaces.reduce(0) { score, workspace in
-            score
-                + (workspace.workspaceId == nil ? 0 : 1)
-                + (workspace.currentDirectory.isEmpty ? 0 : 1)
-                + workspace.panels.reduce(0) { panelScore, panel in
-                    panelScore
-                        + (panel.directory == nil ? 0 : 1)
-                        + (panel.terminal?.workingDirectory == nil ? 0 : 4)
-                        + (panel.terminal?.agent?.workingDirectory == nil ? 0 : 4)
-                        + (panel.terminal?.agent?.launchCommand == nil ? 0 : 3)
-                        + (panel.terminal?.resumeBinding?.cwd == nil ? 0 : 3)
-                        + (panel.terminal?.resumeBinding?.launchCommand == nil ? 0 : 2)
-                        + (panel.terminal?.resumeBinding?.isAgentHookBinding == true ? 2 : 0)
+    /// Merge two crash-window generations that share at least one checkpoint.
+    /// A later save can contain an additional workspace while the older copy
+    /// still carries a useful plain terminal. Keep the richer copy of an
+    /// overlapping workspace and append workspaces that exist only in the
+    /// other generation instead of dropping them with the duplicate window.
+    private static func mergingCrashDuplicateWindows(
+        _ lhs: SessionWindowSnapshot,
+        _ rhs: SessionWindowSnapshot
+    ) -> SessionWindowSnapshot {
+        let lhsIsRicher = sessionWindowRestoreFidelityScore(lhs) >=
+            sessionWindowRestoreFidelityScore(rhs)
+        let preferred = lhsIsRicher ? lhs : rhs
+        let supplemental = lhsIsRicher ? rhs : lhs
+        var mergedWorkspaces = preferred.tabManager.workspaces
+
+        for (supplementalIndex, workspace) in supplemental.tabManager.workspaces.enumerated() {
+            let supplementalCheckpoints = workspaceCheckpointIDs(workspace)
+            if let matchingIndex = duplicateWorkspaceMatchIndex(
+                workspace,
+                supplementalIndex: supplementalIndex,
+                in: mergedWorkspaces,
+                checkpoints: supplementalCheckpoints
+            ) {
+                if sessionWorkspaceRestoreFidelityScore(workspace) >
+                    sessionWorkspaceRestoreFidelityScore(mergedWorkspaces[matchingIndex]) {
+                    mergedWorkspaces[matchingIndex] = workspace
                 }
+            } else {
+                mergedWorkspaces.append(workspace)
+            }
+        }
+
+        var merged = preferred
+        merged.tabManager.workspaces = mergedWorkspaces
+        var mergedGroups = preferred.tabManager.workspaceGroups ?? []
+        for group in supplemental.tabManager.workspaceGroups ?? [] {
+            if !mergedGroups.contains(where: { $0.id == group.id }) {
+                mergedGroups.append(group)
+            }
+        }
+        merged.tabManager.workspaceGroups = mergedGroups.isEmpty ? nil : mergedGroups
+        return merged
+    }
+
+    private static func duplicateWorkspaceMatchIndex(
+        _ workspace: SessionWorkspaceSnapshot,
+        supplementalIndex: Int,
+        in existing: [SessionWorkspaceSnapshot],
+        checkpoints: Set<String>
+    ) -> Int? {
+        if let stableId = workspace.stableId,
+           let index = existing.firstIndex(where: { $0.stableId == stableId }) {
+            return index
+        }
+        if let workspaceId = workspace.workspaceId,
+           let index = existing.firstIndex(where: { $0.workspaceId == workspaceId }) {
+            return index
+        }
+        if !checkpoints.isEmpty,
+           let index = existing.firstIndex(where: { current in
+               !checkpoints.isDisjoint(with: workspaceCheckpointIDs(current))
+           }) {
+            return index
+        }
+        if let title = workspace.customTitle,
+           !title.isEmpty {
+            let titled = existing.indices.filter { index in
+                existing[index].customTitle == title &&
+                    existing[index].customDescription == workspace.customDescription
+            }
+            if titled.count == 1 {
+                return titled[0]
+            }
+        }
+        // Legacy snapshots often omit workspace identities and titles. Within
+        // a duplicate window, the remaining plain workspaces retain their
+        // relative order, so use that position before appending anything.
+        guard supplementalIndex < existing.count,
+              (workspace.customTitle ?? "").isEmpty else {
+            return nil
+        }
+        return supplementalIndex
+    }
+
+    private static func crashWindowCheckpointIDs(
+        _ window: SessionWindowSnapshot
+    ) -> Set<String> {
+        Set(window.tabManager.workspaces.flatMap(workspaceCheckpointIDs))
+    }
+
+    private static func workspaceCheckpointIDs(
+        _ workspace: SessionWorkspaceSnapshot
+    ) -> Set<String> {
+        Set(workspace.panels.compactMap { panel in
+            guard let terminal = panel.terminal else { return nil }
+            return terminal.agent?.sessionId
+                ?? terminal.resumeBinding?.checkpointId
+                ?? terminal.managedAgentResumeBinding?.checkpointId
+        })
+    }
+
+    private static func sessionWindowRestoreFidelityScore(_ window: SessionWindowSnapshot) -> Int {
+        window.tabManager.workspaces.reduce(0) { $0 + sessionWorkspaceRestoreFidelityScore($1) }
+    }
+
+    private static func sessionWorkspaceRestoreFidelityScore(
+        _ workspace: SessionWorkspaceSnapshot
+    ) -> Int {
+        workspace.panels.reduce(
+            (workspace.workspaceId == nil ? 0 : 1) +
+                (workspace.currentDirectory.isEmpty ? 0 : 1)
+        ) { score, panel in
+            let binding = panel.terminal?.resumeBinding ?? panel.terminal?.managedAgentResumeBinding
+            return score
+                + (panel.directory == nil ? 0 : 1)
+                + (panel.terminal?.workingDirectory == nil ? 0 : 4)
+                + (panel.terminal?.agent?.workingDirectory == nil ? 0 : 4)
+                + (panel.terminal?.agent?.launchCommand == nil ? 0 : 3)
+                + (binding?.cwd == nil ? 0 : 3)
+                + (binding?.launchCommand == nil ? 0 : 2)
+                + (binding?.isAgentHookBinding == true ? 2 : 0)
         }
     }
 

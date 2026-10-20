@@ -277,9 +277,16 @@ extension DockSplitStore {
             )
         }()
         let hibernation = restorableAgent != nil ? terminalSnapshot.hibernation : nil
+        // Preserve a managed hook binding as the effective compatibility
+        // record only for the legacy binding-only shape. A structured agent
+        // snapshot keeps managed state separate so it cannot be mistaken for
+        // an independently observed process binding.
+        let compatibilityResumeBinding = terminalSnapshot.agent == nil
+            ? (terminalSnapshot.resumeBinding ?? persistedManagedResumeBinding)
+            : terminalSnapshot.resumeBinding
         let resumeBinding = localTmuxStartCommand == nil
             ? Workspace.resumeBindingForSessionRestore(
-                terminalSnapshot.resumeBinding,
+                compatibilityResumeBinding,
                 restorableAgent: restorableAgent
             )
             : nil
