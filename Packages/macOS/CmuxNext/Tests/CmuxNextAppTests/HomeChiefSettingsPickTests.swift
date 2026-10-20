@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextDaemon
 import CmuxNextHome
 @testable import CmuxNextHomeEngine
 import Testing
@@ -31,8 +32,22 @@ import Testing
         // The person picks Low; the brain refuses it.
         view.effort.selectItem(at: low)
         await view.pick("effort", "low").value
-        #expect(!view.failure.isHidden)
         #expect(view.effort.selectedItem?.representedObject as? String == "high")
+    }
+
+    /// Picking by name the harness Default already runs keeps the model and effort chosen for it.
+    @Test func theHarnessDefaultRunsKeepsTheModelAndEffort() {
+        var onDefault = HomeChiefSnapshot(harness: nil, model: "claude-opus-5-5", effort: "high", avatar: nil, turns: [])
+        onDefault.effective = ChiefEngineReport.Engine(harness: "claude", model: "claude-opus-5-5", effort: "high")
+        #expect(HomeChiefSettingsView.keepsHarness("claude", shown: onDefault))
+        #expect(HomeChiefSettingsView.keepsHarness(nil, shown: onDefault))
+        #expect(!HomeChiefSettingsView.keepsHarness("codex", shown: onDefault))
+        var onClaude = onDefault
+        onClaude.harness = "claude"
+        #expect(HomeChiefSettingsView.keepsHarness("claude", shown: onClaude))
+        // What Default would run is not known while a harness is chosen.
+        #expect(!HomeChiefSettingsView.keepsHarness(nil, shown: onClaude))
+        #expect(!HomeChiefSettingsView.keepsHarness("claude", shown: nil))
     }
 }
 

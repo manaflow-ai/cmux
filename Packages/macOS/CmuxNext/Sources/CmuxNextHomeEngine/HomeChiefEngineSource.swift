@@ -14,13 +14,6 @@ public nonisolated protocol HomeChiefEngineSource: Sendable {
     func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot
 }
 
-extension HomeChiefEngineSource {
-    /// Sets (nil: clears) one of harness, model, effort; the snapshot after.
-    func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
-        try await set([key: value])
-    }
-}
-
 /// This Mac's brain. It reads its mux home's files (engine.json, profile,
 /// traces) as a read-only mirror; a set goes to the brain through this Mac's
 /// Chief owner daemon (`chief.engine.set`), because the brain is the one

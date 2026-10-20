@@ -393,7 +393,18 @@ public final class HomeChiefSettingsView: NSView {
         // A new harness starts on its own default model and effort, as the Chief editor's
         // backend picker does: the brain keeps a field it is not sent, and another
         // harness's model would not run on this one.
-        if let shownEngine, shownEngine.harness == value { pick("harness", value) } else { pick(["harness": value, "model": nil, "effort": nil]) }
+        if Self.keepsHarness(value, shown: shownEngine) { pick("harness", value) } else { pick(["harness": value, "model": nil, "effort": nil]) }
+    }
+
+    /// Whether a harness pick keeps the harness the turns run on: the chosen one again, or, while
+    /// none is chosen, the harness Default runs picked by name. Default picked while a harness is
+    /// chosen counts as a change, since what Default would run is not known then.
+    nonisolated static func keepsHarness(_ value: String?, shown: HomeChiefSnapshot?) -> Bool {
+        guard let shown else { return false }
+        if shown.harness == value { return true }
+        // What Default runs is known only while no harness is chosen.
+        guard shown.harness == nil, let runs = shown.effective?.harness else { return false }
+        return value == runs
     }
 
     /// The hint under the Harness row: only UniiChat's (sign in with `unii login` first), since
