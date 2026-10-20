@@ -2655,8 +2655,9 @@ export class AcpmuxDirectClient {
   }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
-    if (!this.selectedSessionId) return { removed: false };
-    return this.request("_acpmux/queue_remove", { sessionId: this.actingSessionId, promptId });
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return { removed: false };
+    return this.request("_acpmux/queue_remove", { sessionId, promptId });
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
@@ -2919,6 +2920,10 @@ export class AcpmuxDirectClient {
     }
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
+    // During a switch's hold the card drawn is the chat before's, while the group client already
+    // reads the next chat: refuse here, so the next chat's permission state gets no error.
+    if (this.snapshotHold && this.shownSessionId !== this.selectedSessionId)
+      throw new Error(translate("permission.error.selectionChanged"));
     await this.permissions.respond(groupId, revision, decision);
   }
   async select(sessionId: string): Promise<string | undefined> {
@@ -3282,13 +3287,16 @@ export class AcpmuxDirectClient {
   async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
     const sessionId = this.actingSessionId;
     if (!sessionId) return;
+    const generation = this.selectionGeneration;
     const result = await this.request("session/set_config_option", {
       sessionId,
       configId,
       value,
       ...gestureMeta(ticket),
     });
-    if (sessionId !== this.actingSessionId || !Array.isArray(result?.configOptions)) return;
+    // `summary` is the selected chat's: during a hold that is already the next chat, not the one acted on.
+    if (generation !== this.selectionGeneration || sessionId !== this.selectedSessionId) return;
+    if (!Array.isArray(result?.configOptions)) return;
     this.summary = { ...this.summary, configOptions: result.configOptions };
     this.emit();
   }

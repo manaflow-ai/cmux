@@ -58,7 +58,13 @@ final class HomeHostView: NSView {
         super.init(frame: .zero)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
-        transcript.onNamePill = { [weak self] in self?.toggleChiefSettings() }
+        // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.
+        transcript.onNamePill = { [weak self, weak services] in
+            guard let self else { return }
+            if isChief || settings.isShown { return toggleChiefSettings() }
+            _ = services?.registry.perform("home.conversationInfo",
+                                           invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
+        }
         loadAvatar()
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
@@ -309,6 +315,9 @@ final class HomeHostView: NSView {
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif
+
+    /// The transcript header's height (New Message's To: field covers it).
+    var headerHeight: CGFloat { transcript.headerHeight }
 
     /// The view that takes the keyboard when the tab's pane is focused.
     /// Home's primary input: the message box itself. Focusing the transcript

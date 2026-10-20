@@ -168,6 +168,73 @@ pub struct QueuedStart {
     pub extra: Option<String>,
 }
 
+/// Where cloud subagents run (plans/cmux-next/cloud-subagents-DESIGN.md):
+/// an acpmux peer on a cloud VM. Set from `OPTCHAT_SUBAGENT_PEER`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CloudPlacement {
+    /// The acpmux peer name (`acpmux host ls`).
+    pub peer: String,
+    /// The folder sessions start in on the peer (`OPTCHAT_SUBAGENT_PEER_DIR`).
+    pub dir: PathBuf,
+    /// The peer's harness profile (`OPTCHAT_SUBAGENT_PEER_HARNESS`).
+    pub harness: String,
+    /// The subagent system text: local presets do not exist on the peer, so
+    /// it goes in front of the first message.
+    pub instructions: String,
+}
+
+/// The repo a `spawn(cwd)` folder on the Mac names, for its clone on the VM
+/// (`~/src/<repo>`): the folder's last part, a `<repo>-worktrees/<x>`
+/// folder's repo.
+pub fn cloud_repo(cwd: Option<&str>) -> Option<String> {
+    let parts: Vec<&str> = cwd?
+        .split('/')
+        .filter(|p| !p.is_empty() && *p != "~" && *p != ".")
+        .collect();
+    if let Some(k) = parts.iter().position(|p| p.ends_with("-worktrees")) {
+        return Some(parts[k].trim_end_matches("-worktrees").to_owned());
+    }
+    parts.last().map(|p| (*p).to_owned())
+}
+
+/// The environment variable naming the acpmux peer cloud subagents run on;
+/// unset or empty: they run on this machine.
+pub const PEER_ENV: &str = "OPTCHAT_SUBAGENT_PEER";
+
+impl CloudPlacement {
+    /// The placement `OPTCHAT_SUBAGENT_PEER` (and `_PEER_DIR`,
+    /// `_PEER_HARNESS`) set, if any; `instructions` is the subagent system
+    /// text.
+    pub fn from_env(
+        env: impl Fn(&str) -> Option<String>,
+        instructions: String,
+    ) -> Option<CloudPlacement> {
+        let peer = env(PEER_ENV).map(|p| p.trim().to_owned()).filter(|p| !p.is_empty())?;
+        Some(CloudPlacement {
+            peer,
+            dir: env("OPTCHAT_SUBAGENT_PEER_DIR")
+                .filter(|d| d.starts_with('/'))
+                .map_or_else(|| PathBuf::from("/home/agent/work"), PathBuf::from),
+            harness: env("OPTCHAT_SUBAGENT_PEER_HARNESS")
+                .filter(|h| !h.trim().is_empty())
+                .unwrap_or_else(|| "claude".to_owned()),
+            instructions,
+        })
+    }
+
+    /// The first message's task on the peer: the subagent system text (no
+    /// preset there), where it runs and how it gets its own worktree.
+    pub fn task(&self, id: &str, asked: Option<&str>, task: &str) -> String {
+        let repo = cloud_repo(asked).unwrap_or_else(|| "cmux".to_owned());
+        format!(
+            "{}\n\n# Where you run\n\nYou run on the cloud VM `{peer}` (acpmux peer `{peer}`), not on the user's Mac. Paths in the view and the task that start with ~/fun or /Users are the Mac's: here the repo `{repo}` is a clone at ~/src/{repo}. Make your own worktree before you change anything: `git -C ~/src/{repo} fetch -q origin && git -C ~/src/{repo} worktree add {dir}/{id} origin/<branch>` and work in {dir}/{id}. Mac builds and tests go to the fleet (cmux-ci); this VM reaches the fleet controller and sr2 only. Your zoom and date tools are not here. If `git push` has no credential, commit and say the worktree path and sha in your report: the Chief lands it.\n\n{task}",
+            self.instructions.trim_end(),
+            peer = self.peer,
+            dir = self.dir.display(),
+        )
+    }
+}
+
 /// A queued subagent's launch.
 struct Waiting {
     spawn: String,
@@ -201,6 +268,8 @@ pub struct Spawner {
     /// Queued ids of a spawn the grant refused, with the refusal: the queue
     /// starter fails them with it when the brain dequeues them.
     refused: Mutex<BTreeMap<String, String>>,
+    /// Cloud placement: new subagents start on this acpmux peer.
+    cloud: Option<CloudPlacement>,
 }
 
 impl Spawner {
@@ -224,7 +293,14 @@ impl Spawner {
             log,
             grant: None,
             refused: Mutex::new(BTreeMap::new()),
+            cloud: None,
         }
+    }
+
+    /// New subagents start on this peer (None: on this machine).
+    pub fn with_cloud(mut self, cloud: Option<CloudPlacement>) -> Spawner {
+        self.cloud = cloud;
+        self
     }
 
     /// The person's harness grant (empty: every harness).
@@ -324,12 +400,24 @@ impl Spawner {
         s: &SubagentSettings,
     ) -> Result<String, String> {
         let began = Instant::now();
+        let peer = self.cloud.as_ref().map(|c| c.peer.clone());
         // Claude only through acpmux's own Claude Code adapter (harness_gate).
-        let admitted =
-            crate::harness_gate::admit_live(&*self.agents, &s.harness).map_err(|reason| {
-                crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
-                crate::harness_gate::refusal(&reason)
-            })?;
+        // A peer's harness is its own profile: the gate reads this daemon's
+        // catalog, so it does not apply there.
+        let admitted = match &peer {
+            Some(_) => crate::harness_gate::Admitted::peer(&s.harness),
+            None => crate::harness_gate::admit_live(&*self.agents, &s.harness).map_err(
+                |reason| {
+                    crate::harness_gate::trace_refusal(
+                        &self.trace,
+                        "subagent",
+                        &s.harness,
+                        &reason,
+                    );
+                    crate::harness_gate::refusal(&reason)
+                },
+            )?,
+        };
         // No mark of ours in a subagent's first message: Claude Code marks
         // its two system blocks and the last two messages of every later
         // request in the session (each tool step), and the API takes at
@@ -361,17 +449,22 @@ impl Spawner {
                 }
                 t
             },
+            // Per-session env reaches a local session only (acpmux allowlist,
+            // unix socket).
             env: key
                 .iter()
+                .filter(|_| peer.is_none())
                 .map(|k| ("CMUX_WORKSPACE_ID".to_owned(), crate::workspaces::env_id(k)))
                 .collect(),
             fast: false,
+            peer: peer.clone(),
         };
         // The folder the host made for its subagents is trusted up front, so
         // the user's first message in a subagent's pane is never held behind
         // "trust this folder" (Lawrence 2026-10-09). A folder of the user's
         // (a spawn's cwd) is never trusted here: its pane asks as usual.
-        if s.cwd == self.settings.cwd
+        if peer.is_none()
+            && s.cwd == self.settings.cwd
             && let Err(e) = self.agents.trust_folder(&s.cwd)
         {
             (self.log)(&format!(
@@ -392,12 +485,20 @@ impl Spawner {
             }
             other => other?,
         };
-        let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
-            .map_err(|reason| {
-                let _ = self.agents.end_session(&session);
-                crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
-                crate::harness_gate::refusal(&reason)
-            })?;
+        let admitted = match &peer {
+            Some(_) => admitted,
+            None => crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
+                .map_err(|reason| {
+                    let _ = self.agents.end_session(&session);
+                    crate::harness_gate::trace_refusal(
+                        &self.trace,
+                        "subagent",
+                        &s.harness,
+                        &reason,
+                    );
+                    crate::harness_gate::refusal(&reason)
+                })?,
+        };
         // codex under approve-all: no sandbox for its cmux calls (E6).
         if let Some(mode) = crate::acpmux::chief_session_mode(admitted.family, &spec.policy)
             && let Err(e) = self.agents.set_mode(&session, mode)
@@ -806,6 +907,7 @@ impl Orchestrator for Spawner {
         let (reply, answer) = channel();
         self.send(Input::SpawnRegister {
             tasks: tasks.clone(),
+            peer: self.cloud.as_ref().map(|c| c.peer.clone()),
             reply,
         })?;
         let plan = answer
@@ -832,7 +934,7 @@ impl Orchestrator for Spawner {
                 "harness": run.harness,
             }),
         );
-        if let (Some(text), Some(preset)) = (&run.claude_md, &run.preset) {
+        if let (None, Some(text), Some(preset)) = (&self.cloud, &run.claude_md, &run.preset) {
             let file = (!self.agents.system_prompt(preset)).then_some(text.as_str());
             if let Err(e) = crate::session_dir::set_claude_md(&run.cwd, file) {
                 (self.log)(&format!("the subagent directory's CLAUDE.md: {e}"));
@@ -842,16 +944,26 @@ impl Orchestrator for Spawner {
         // ask child or subagent lives, every subagent runs with policy ask.
         // No answer from the brain fails closed (ask).
         let floor = self.spawn_floor();
-        let (dir, dir_note) = self.run_dir(cwd.as_deref(), &run);
+        let (dir, dir_note) = match &self.cloud {
+            Some(c) => (c.dir.clone(), None),
+            None => self.run_dir(cwd.as_deref(), &run),
+        };
         // The run's settings in the directory they start in.
         // How hard they think: as asked, else as hard as the calling turn.
-        let launch = SubagentSettings {
+        let mut launch = SubagentSettings {
             cwd: dir.clone(),
             effort: effort
                 .or_else(|| plan.engine.as_ref().and_then(|e| e.effort.clone()))
                 .or_else(|| run.effort.clone()),
             ..run.clone()
         };
+        // On a peer: its own harness profile, no local preset or model.
+        if let Some(c) = &self.cloud {
+            launch.harness = c.harness.clone();
+            launch.preset = None;
+            launch.model = None;
+            launch.claude_md = None;
+        }
         let mut started = Vec::new();
         let mut lines = Vec::new();
         if let Some(e) = &refused {
@@ -908,7 +1020,11 @@ impl Orchestrator for Spawner {
                 ));
                 continue;
             }
-            match self.start_one(&plan.spawn, id, task, &view, floor.as_deref(), &launch) {
+            let task = match &self.cloud {
+                Some(c) => c.task(id, cwd.as_deref(), task),
+                None => task.clone(),
+            };
+            match self.start_one(&plan.spawn, id, &task, &view, floor.as_deref(), &launch) {
                 Ok(note) => {
                     started.push(id.clone());
                     lines.push(format!("- {id}: {note}"));
@@ -927,6 +1043,13 @@ impl Orchestrator for Spawner {
             "No subagent started.".to_owned()
         } else if started.is_empty() {
             format!("Queued {}.", plan.queued.join(", "))
+        } else if let Some(c) = &self.cloud {
+            format!(
+                "Started {} on the cloud VM {} (acpmux peer), in {}.",
+                started.join(", "),
+                c.peer,
+                dir.display()
+            )
         } else {
             format!("Started {} in {}.", started.join(", "), dir.display())
         };
