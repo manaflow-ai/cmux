@@ -27251,6 +27251,138 @@
           }
         }
       }
+    },
+    "handlers.refusal.homeReplyNoSelection": {
+      "comment": "Refusal: home.replyToSelection ran with no text selected in one message of a shown Home conversation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select text in one message of a Home conversation to reply to it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدد نصًا في رسالة واحدة من محادثة في الصفحة الرئيسية للرد عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberite tekst u jednoj poruci razgovora na Početnoj da biste odgovorili na njega."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markér tekst i én besked i en Hjem-samtale for at svare på den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle Text in einer Nachricht einer Home-Unterhaltung aus, um darauf zu antworten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selecciona texto en un mensaje de una conversación de Inicio para responder a él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sélectionnez du texte dans un message d’une conversation de l’accueil pour y répondre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seleziona del testo in un messaggio di una conversazione Home per rispondere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信するには、ホームの会話の1つのメッセージ内のテキストを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសអត្ថបទក្នុងសារមួយនៃការសន្ទនាទំព័រដើម ដើម្បីឆ្លើយតបទៅវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "답장하려면 홈 대화의 메시지 하나에서 텍스트를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Marker tekst i én melding i en Hjem-samtale for å svare på den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaznacz tekst w jednej wiadomości rozmowy na stronie głównej, aby na niego odpowiedzieć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selecione um texto em uma mensagem de uma conversa do Início para responder a ele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выделите текст в одном сообщении беседы на главной, чтобы ответить на него."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกข้อความในข้อความเดียวของการสนทนาในหน้าหลักเพื่อตอบกลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıtlamak için Ana Sayfa sohbetindeki bir mesajda metin seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виділіть текст в одному повідомленні розмови на головній, щоб відповісти на нього."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn văn bản trong một tin nhắn của cuộc trò chuyện Trang chủ để trả lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主页对话的一条消息中选择文本以回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主頁對話的一則訊息中選取文字以回覆。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

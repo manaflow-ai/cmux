@@ -213,8 +213,11 @@ COPY desktop/start-vnc.sh /usr/local/bin/start-vnc.sh
 COPY desktop/cmux-desktop-boot /usr/local/bin/cmux-desktop-boot
 COPY desktop/cmux-desktop.service /etc/systemd/system/cmux-desktop.service
 COPY desktop/desktop-env.sh /etc/cmux/desktop-env.sh
-RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
-  && bash -n /usr/local/bin/start-vnc.sh && sh -n /usr/local/bin/cmux-desktop-boot && sh -n /etc/cmux/desktop-env.sh \
+# Cloud browser role (plans/cmux-next/cloud-browser-DESIGN.md CB-2): shipped, never enabled here.
+COPY desktop/cmux-cloud-browser /usr/local/bin/cmux-cloud-browser
+COPY desktop/cmux-cloud-browser.service /etc/systemd/system/cmux-cloud-browser.service
+RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot /usr/local/bin/cmux-cloud-browser \
+  && bash -n /usr/local/bin/cmux-cloud-browser && bash -n /usr/local/bin/start-vnc.sh && sh -n /usr/local/bin/cmux-desktop-boot && sh -n /etc/cmux/desktop-env.sh \
   && mkdir -p /etc/cmux/icons \
   && cp /opt/google/chrome/product_logo_128.png /etc/cmux/icons/google-chrome.png \
   && cp "$(find /usr/share/icons -name 'org.xfce.thunar.png' -path '*128*' | head -1)" /etc/cmux/icons/thunar.png \

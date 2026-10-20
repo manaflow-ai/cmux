@@ -35,18 +35,10 @@ final class SidebarUpdateCardView: NSView {
     /// The staged update's highlights (the React ready surface; set by the sidebar).
     var highlights: (any SidebarSurfaceIsland)? {
         didSet {
-            // A new page gets a new popup (the old one held the old page).
-            if let notesPanel {
-                // Its close must not park the new page or close the new popup.
-                notesPanel.onClosed = nil
-                notesPanel.onDismiss = nil
-                notesPanel.host.onPointerExit = nil
-                notesPanel.host.onPointerEnter = nil
-                cancelNotesClose()
-                notesPanel.parent?.removeChildWindow(notesPanel)
-                notesPanel.orderOut(nil)
-            }
-            notesPanel = nil
+            // A new page closes the popup that held the old one.
+            cancelNotesClose()
+            if notesAreShown { hoverCards()?.endOwned(Self.notesID) }
+            oldValue?.onHeightChange = nil
             oldValue?.view.removeFromSuperview()
             highlights?.onAction = { [weak self] in self?.hideNotes() }
             parkHighlights()
@@ -76,8 +68,10 @@ final class SidebarUpdateCardView: NSView {
         highlights.view.autoresizingMask = [.width, .height]
         parking.addSubview(highlights.view)
     }
-    /// The themed popup the highlights show in (no arrow: the popup style every cmux popup has).
-    var notesPanel: SidebarUpdateNotesPanel?
+    /// The highlights page's host in the app's one hover card (menu-wide, page-tall).
+    let notesHost = SidebarPopoverIslandHost(width: SidebarUpdateCardView.popoverWidth)
+    /// The app's one hover card coordinator (the sidebar's list's); the popup shows in its window.
+    var hoverCards: @MainActor () -> HoverCardCoordinator? = { nil }
     /// The highlights page's place while the popover is closed.
     let parking = SidebarIslandParking()
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
