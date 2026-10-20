@@ -21,7 +21,7 @@ export function EditDiff({ file }: { file: TurnFile }) {
   return (
     <div className="cv-edit-diff">
       <div className="cv-edit-diff__header">
-        <span className="cv-edit-diff__name" title={file.path} data-path={file.path}>
+        <span className="cv-edit-diff__name" data-path={file.path}>
           {name}
         </span>
         <span className="cv-edit-diff__add">+{file.additions}</span>

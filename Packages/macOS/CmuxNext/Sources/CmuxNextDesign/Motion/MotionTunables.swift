@@ -11,8 +11,8 @@ public nonisolated enum MotionTunables {
         // Structural (design-tokens.json motion.springs, motion.structural): critically damped by
         // default, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
-        .zoom: (SpringParameters(response: 0.32, dampingFraction: 0.9), "A pane zooming to fill its screen."),
-        .exit: (SpringParameters(response: 0.12, dampingFraction: 1), "The panes a zoom leaves fading out, the farthest first."),
+        .zoom: (SpringParameters(response: 0.30, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
+        .exit: (SpringParameters(response: 0.24, dampingFraction: 1), "A pane closing: its neighbours and dividers covering its space."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
@@ -63,6 +63,8 @@ public nonisolated enum MotionTunables {
         .launch: (0.24, "Launch mark resolving on the glass (scaled by the animation speed; stays under 400 ms)."),
         .clickPulse: (0.25, "Agent cursor click ripple grows and fades (cmux-cua timing)."),
         .cursorHide: (0.3, "Agent cursor fades out once its agent goes idle."),
+        .hibernateIcon: (0.25, "Hibernated tab favicon shrinks into its ring, and grows back on wake (Chrome: 250 ms)."),
+        .hibernateRing: (1.0, "Hibernated tab dotted ring fades in (Chrome: 1 s)."),
     ]
 
     static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in
@@ -75,13 +77,14 @@ public nonisolated enum MotionTunables {
     static let loopDefaults: [MotionLoop: (TimeInterval, String)] = [
         .spinner: (0.9, "One turn of the busy spinner."),
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
-        .flash: (0.6, "Pane attention flash (two blinks)."),
+        .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
     ]
 
     static let loops: [MotionLoop: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionLoop.allCases.map { loop in
         let entry = loopDefaults[loop] ?? (1, "")
         return (loop, Tunable.number("motion.loop.\(loop.rawValue)", .fades, "\(loop.rawValue) period", help: entry.1,
-                                     default: entry.0, range: 0.1...4, step: 0.05, unit: .seconds, code: "MotionTunables.loopDefaults[.\(loop.rawValue)]"))
+                                     default: entry.0, range: loop.minimumPeriod...4, step: 0.05, unit: .seconds,
+                                     code: "MotionTunables.loopDefaults[.\(loop.rawValue)]"))
     })
 
     // MARK: Marquee and panel scale
@@ -101,11 +104,6 @@ public nonisolated enum MotionTunables {
     public static let marqueeMinimumTravel = Tunable<Double>.number(
         "motion.marquee.minimumTravel", .hover, "Marquee minimum travel", help: "Clipping under this many points never scrolls.",
         default: 2, range: 0...40, step: 1, unit: .points, code: "MotionTunables.marqueeMinimumTravel")
-    /// Leo 2026-10-13: the workspace hover card showed on every row the
-    /// pointer passed; it waits for a native-tooltip dwell instead.
-    public static let hoverCardDwell = Tunable<Double>.number(
-        "motion.hoverCard.dwell", .hover, "Hover card dwell", help: "Pointer rest on a sidebar workspace row before its hover card shows.",
-        default: 1, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.hoverCardDwell")
     /// Leo 2026-10-14: hover intent app-wide (`HoverIntentTiming`, AppKit's
     /// `NSInitialToolTipDelay` is about 1 s).
     public static let tooltipDelay = Tunable<Double>.number(
@@ -144,7 +142,7 @@ public nonisolated enum MotionTunables {
         MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, dividerReleaseProjection.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
-            + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel, hoverCardDwell,
+            + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
                tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim].map(\.descriptor)
             + [panelOpenScale, panelCloseScale].map(\.descriptor)
     }

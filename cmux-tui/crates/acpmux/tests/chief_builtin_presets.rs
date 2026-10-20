@@ -8,6 +8,11 @@
 //! its unix socket.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -91,6 +96,11 @@ impl Daemon {
     /// [`Daemon::start`] with `extra` in the daemon's own environment, set
     /// relative to its directory (the starter's leftovers).
     fn start_with(tag: &str, extra: &[(&str, &str)]) -> Self {
+        Self::start_env(tag, extra, &[])
+    }
+
+    /// [`Daemon::start_with`], and `plain` in the daemon's own environment as given.
+    fn start_env(tag: &str, extra: &[(&str, &str)], plain: &[(&str, &str)]) -> Self {
         let dir = std::env::temp_dir().join(format!("acb-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("mux")).unwrap();
@@ -109,7 +119,8 @@ impl Daemon {
         )
         .unwrap();
         let socket = dir.join("s.sock");
-        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        // Stand-in agents (fclaude, fcodex) only; PATH stays the bare GUI one below.
+        let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
             .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &dir)
             .env("ACPMUX_SOCKET", &socket)
@@ -119,12 +130,8 @@ impl Daemon {
             .env("CMUX_CHIEF_OWNER_SOCKET", "/tmp/brain-owner.sock")
             .env("PATH", "/usr/bin:/bin")
             .env("ACPMUX_LOGIN_ENV", "0")
-            .env_remove("CMUX_BUNDLED_CLI_PATH")
-            .env_remove("CMUX_SOCKET_PATH")
-            .env_remove("CMUX_APP_DAEMON_SOCKET")
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("CLAUDECODE")
             .envs(extra.iter().map(|(k, v)| (*k, dir.join(v))))
+            .envs(plain.iter().copied())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
@@ -237,7 +244,7 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
     // Testbox's warm target disk) and keeps it on macOS.
     let path = env["PATH"].as_str().unwrap();
     let (first, rest) = path.split_once(':').unwrap();
-    let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_acpmux")).unwrap();
+    let exe = std::fs::canonicalize(daemon_env::bin()).unwrap();
     assert_eq!(std::fs::canonicalize(first).unwrap(), exe.parent().unwrap(), "{env}");
     assert_eq!(rest, "/usr/bin:/bin", "{env}");
 }
@@ -394,5 +401,70 @@ async fn a_built_in_preset_of_an_unknown_chief_is_refused() {
         assert!(message.contains("0badc0de is not a Chief"), "{name}: {r}");
         let r = chief.call("_acpmux/presets", json!({"name": name})).await;
         assert!(r.get("error").is_some(), "{name} was stored: {r}");
+    }
+}
+
+/// A Chief turn gets only the cmux MCP server of the agent tools (cx-4a5w2):
+/// the computer use, secret and session offer servers stay out of its
+/// session. In the app (whose bundle has `cmux-cua`) their tool names and
+/// instructions came after the turn's cache mark, 2,905 uncached tokens per
+/// turn and about 70% read from the cache; a turn reaches that work through
+/// subagents, which keep every server.
+#[tokio::test]
+async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
+    let d = Daemon::start_env(
+        "tools",
+        &[("CMUX_AGENT_TOOLS_BIN_DIR", "tools")],
+        &[("ACPMUX_SECRET_TOOLS", "1"), ("ACPMUX_OFFER_TOOLS", "1")],
+    );
+    let tools = d.dir.join("tools");
+    std::fs::create_dir_all(&tools).unwrap();
+    for name in ["cmux", "cmux-cua"] {
+        use std::os::unix::fs::PermissionsExt;
+        let path = tools.join(name);
+        std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let id = home_id(&d.dir.join("mux"));
+    let mut chief = Rpc::connect(&d.socket).await;
+    let servers = |text: String| -> Vec<String> {
+        let list: Value = serde_json::from_str(&text).unwrap();
+        list.as_array()
+            .unwrap_or_else(|| panic!("mcpServers is a list: {text}"))
+            .iter()
+            .filter_map(|s| s["name"].as_str().map(str::to_owned))
+            .collect()
+    };
+    for (preset, want) in [
+        (Some(format!("optchat-chief-{id}")), vec!["cmux"]),
+        (Some(format!("optchat-chief-codex-{id}")), vec!["cmux"]),
+        (
+            Some(format!("optchat-sub-{id}")),
+            vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux"],
+        ),
+        (None, vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux"]),
+    ] {
+        let mut params = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+        if let Some(name) = &preset {
+            let harness = if name.contains("-codex-") { "fcodex" } else { "fclaude" };
+            let r = chief
+                .call("_acpmux/presets", json!({"name": name, "set": {"harness": harness}}))
+                .await;
+            assert!(r.get("error").is_none(), "{r}");
+            params["_meta"] = json!({"acpmux": {"preset": name}});
+        }
+        let r = chief.call("session/new", params).await;
+        assert!(r.get("error").is_none(), "{preset:?}: {r}");
+        let session = r["result"]["sessionId"].as_str().unwrap().to_owned();
+        let text = chief.prompt_text(&session, "mcp").await;
+        assert_eq!(servers(text.clone()), want, "{preset:?}");
+        // A Chief turn's cmux server gets the Chief's tool list (it lists
+        // only those and refuses `cmux_exec`); a subagent or plain session
+        // gets code mode.
+        let list: Value = serde_json::from_str(&text).unwrap();
+        let cmux = list.as_array().unwrap().iter().find(|s| s["name"] == "cmux").unwrap();
+        let scoped = cmux["env"].to_string().contains("agents_wait,render");
+        let turn = preset.as_deref().is_some_and(|name| name.starts_with("optchat-chief-"));
+        assert_eq!(scoped, turn, "{preset:?}: {cmux}");
     }
 }

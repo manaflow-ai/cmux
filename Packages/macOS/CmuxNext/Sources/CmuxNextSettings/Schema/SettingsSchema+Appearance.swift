@@ -160,15 +160,23 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller"]
             ),
             SettingDescriptor(
-                InterfaceSizeSetting().configPath, section: .appearance, group: look,
+                ["appearance", "metrics", "chromeFontSize"], section: .appearance, group: look,
+                title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
+                help: SettingsText.keyed("settings.appearance.interfaceSize.help", "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
+                kind: .number(SettingNumber(10...16, step: 1, unit: .points, placeholder: 12)),
+                default: nil, defaultLabel: densityDefault,
+                keywords: ["font", "text", "size", "chromeFontSize"]
+            ),
+            SettingDescriptor(
+                InterfaceScaleSetting().configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
                 help: SettingsText.keyed("settings.appearance.interfaceSize.help",
                                         "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
                 summary: SettingsText.keyed("settings.appearance.interfaceSize.summary", "Text size of tabs, sidebar and controls"),
-                kind: .number(SettingNumber(InterfaceSizeSetting().range, step: 1, unit: .points, placeholder: 12)),
+                kind: .number(SettingNumber(InterfaceScaleSetting().range, step: InterfaceScaleSetting().step, unit: .fraction, placeholder: InterfaceScaleSetting().fallback)),
                 default: nil, defaultLabel: densityDefault,
-                keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "chromeFontSize"]
-            ),
+                keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "interfaceScale"]
+            ).hiddenFromSettingsPage("opt-in: the Debug Settings toggle chrome.interfaceSize turns it on, until it is promoted"),
             metric(.sidebarWidth, SettingsText.keyed("settings.appearance.sidebarWidth", "Sidebar Width"), look, densityDefault,
                    keywords: ["sidebar", "width", "size", "sidebarWidth"]),
             metric(.columnGap, SettingsText.keyed("settings.appearance.columnGap", "Column Gap"), look, densityDefault,
@@ -243,7 +251,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.ui.animations.newWorkspace", "Animate New Workspaces"),
                 help: SettingsText.keyed("settings.ui.animations.newWorkspace.help",
                                         "A new workspace row opens in the sidebar. Off shows it there at once."),
-                kind: .toggle, default: .bool(false), keywords: ["motion", "animation", "workspace", "sidebar"]
+                kind: .toggle, default: .bool(AnimationKindsSetting.defaultEnabled.contains(.newWorkspace)), keywords: ["motion", "animation", "workspace", "sidebar"]
             ),
             SettingDescriptor(
                 AnimationKindsSetting.bouncePath, section: .appearance, group: look,

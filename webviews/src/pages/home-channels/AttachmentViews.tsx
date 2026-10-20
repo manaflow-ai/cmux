@@ -5,6 +5,7 @@
 // with its progress where the work is (board principle 6) and a remove button on hover or focus.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "../../ui/Dialog";
+import { DialogButton } from "../../ui/DialogButton";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { AttachmentService, attachmentClass, formatBytes, type UploadProgress } from "./attachmentService";
@@ -127,6 +128,7 @@ function ImageTile({
       className={`hc-att-image${single ? " single" : ""}${src ? "" : failed ? " failed" : " loading"}`}
       style={size}
       aria-label={part.name}
+      /* tooltip-allow: a loaded image shows no name; the name shows only once it fails */
       title={part.name}
       disabled={failed}
       onClick={onOpen}
@@ -316,9 +318,9 @@ function Lightbox({
             {formatBytes(part.byteCount)}
           </span>
           <span className="lg-spacer" />
-          <button ref={closeButton} type="button" className="hc-text-button" onClick={onClose}>
+          <DialogButton ref={closeButton} dialogKey="escape" className="hc-text-button" onClick={onClose}>
             {strings.t("lightbox.close")}
-          </button>
+          </DialogButton>
         </header>
         <div className="hc-lightbox-stage">
           {images.length > 1 && (

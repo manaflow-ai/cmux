@@ -47,6 +47,13 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // takes retention bounds.
         (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
         (vec!["closed", "clear", "--before-ms", "5", "--keep-newest", "3"], "closed.delete"),
+        // machine.list and machine.get: the reader opts in to owner metadata
+        // and admitted remote records.
+        (vec!["machine", "list", "--catalog"], "machine.list"),
+        (
+            vec!["machine", "machine_00000000000000000000000000000001", "show", "--catalog"],
+            "machine.get",
+        ),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
         (
@@ -59,6 +66,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             ],
             "browser.tab.emulate",
         ),
+        (vec!["tab", TAB, "emulate", "--fit", "16:9"], "browser.tab.emulate"),
         // layout.bulk: one case in cases.rs; the other levels and --end-terminals.
         (vec!["workspace", WORKSPACE, "close", "--others", "--end-terminals"], "layout.bulk"),
         (vec!["screen", "current", "close", "--to-right"], "layout.bulk"),
@@ -169,6 +177,13 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "palette_usage.import"
                         | "palette_usage.hide"
                         | "palette_usage.forget"
+                        // Stash (stash-v1) is the app's native OneTab; the
+                        // CLI has no stash verbs yet.
+                        | "stash.create"
+                        | "stash.list"
+                        | "stash.restore"
+                        | "stash.delete"
+                        | "stash.import"
                         | "sidebar_layout.update"
                         // The sidebar document (sidebar-doc-v1) is the app's
                         // too; the CLI sets only a section's scroll and row
@@ -227,11 +242,12 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
-                        // `cmux chief list|new|edit|delete` send these
+                        // `cmux chief list|new|adopt|edit|delete` send these
                         // (cli/chief/registry.rs), outside the noun grammar.
                         | "chief.profile.list"
                         | "chief.profile.get"
                         | "chief.profile.create"
+                        | "chief.profile.adopt"
                         | "chief.profile.update"
                         | "chief.profile.delete"
                         | "chief.profile.avatar.set"

@@ -28,9 +28,11 @@ import { ToolRows } from "./TurnRows";
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 export function EditedFilesCard({
   row,
+  sessionId,
   onOpenDiff,
 }: {
   row: AcpmuxRow;
+  sessionId?: string;
   onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
 }) {
   const settings = useEditedFilesSettings();
@@ -40,7 +42,7 @@ export function EditedFilesCard({
   const latest = sessionEdits?.at(-1)?.id;
   const own = useMemo(() => [row], [row]);
   if (settings.show === "never" || (settings.scope === "session" && sessionEdits && latest !== row.id))
-    return <ToolRows row={row} />;
+    return <ToolRows row={row} sessionId={sessionId} />;
   const rows = settings.scope === "session" && sessionEdits ? sessionEdits : own;
   return <Card row={row} rows={rows} onOpenDiff={onOpenDiff} />;
 }
@@ -148,7 +150,7 @@ function Card({
           return (
             <div className="acpmux-edited-file" key={entry.key}>
               {path ? (
-                <span className="acpmux-edited-path" title={path} data-path={path}>
+                <span className="acpmux-edited-path" data-path={path}>
                   <DirPart dir={path.slice(0, cut + 1)} />
                   <span className="acpmux-edited-base">{path.slice(cut + 1)}</span>
                 </span>
@@ -162,7 +164,7 @@ function Card({
         const slash = file.displayPath.lastIndexOf("/");
         const label = (
           <>
-            <span className="acpmux-edited-path" title={file.path} data-path={file.path}>
+            <span className="acpmux-edited-path" data-path={file.path}>
               <DirPart dir={file.displayPath.slice(0, slash + 1)} />
               <span className="acpmux-edited-base">{file.displayPath.slice(slash + 1)}</span>
             </span>
@@ -234,13 +236,7 @@ function UndoButton({
   }
   const busy = state.phase === "checking" || state.phase === "undoing" || state.phase === "confirm";
   return (
-    <button
-      type="button"
-      className="acpmux-edited-undo"
-      disabled={busy}
-      title={t("edited.undoHostLabel")}
-      onClick={() => void checkUndo(rowId, files)}
-    >
+    <button type="button" className="acpmux-edited-undo" disabled={busy} onClick={() => void checkUndo(rowId, files)}>
       {state.phase === "undoing"
         ? t("edited.undoing")
         : state.phase === "failed"

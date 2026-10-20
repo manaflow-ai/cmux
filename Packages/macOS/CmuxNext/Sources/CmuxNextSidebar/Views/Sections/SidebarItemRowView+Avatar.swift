@@ -2,7 +2,7 @@ import AppKit
 
 // The profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2): an
 // icon-only item whose info carries an avatar draws `avatarView` (the
-// profile's initial in a circle and a chevron) instead of its glyph.
+// profile's initial in a circle) instead of its glyph.
 extension SidebarItemRowView {
     /// The item draws the profile control.
     var showsAvatar: Bool { info.avatar != nil && style.isIconOnly }

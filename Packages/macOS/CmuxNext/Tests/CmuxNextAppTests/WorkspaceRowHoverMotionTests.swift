@@ -6,10 +6,9 @@ import CmuxNextDesign
 import Testing
 
 /// Leo 2026-10-13 (cosmic-gray): moving the pointer from one workspace row to
-/// the next snapped the hover state: the menu button and the x appeared and
-/// vanished at once, and the fill cleared at once. Both ways now fade in
-/// place (`MotionFade.hover`), keyed to the row, and nothing in the row moves
-/// or resizes: the buttons keep their slots while they fade out.
+/// the next snapped the hover state. Hover entry is immediate; clearing the
+/// fill and controls uses the short hover-out treatment, and nothing in the
+/// row moves or resizes.
 @MainActor
 struct WorkspaceRowHoverMotionTests {
     private static let name = "a workspace whose name runs under the hover buttons"
@@ -30,7 +29,7 @@ struct WorkspaceRowHoverMotionTests {
     }
 
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
-    func hoverFadesTheRowsButtonsAndFillBothWaysInPlace() throws {
+    func hoverShowsRowsButtonsImmediatelyAndClearsInPlace() throws {
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [
             WorkspaceSnapshot(id: 1, key: nil, resourceID: ResourceID(rawValue: "ws-long"), name: Self.name),
@@ -61,9 +60,10 @@ struct WorkspaceRowHoverMotionTests {
         row.displayIfNeeded()
         for (name, view) in Self.controls(row) {
             #expect(!view.isHidden, "the \(name) shows on hover")
-            #expect(Self.keyPaths(under: view.layer).contains("opacity"), "the \(name) snapped in")
+            #expect(!Self.keyPaths(under: view.layer).contains("opacity"), "the \(name) should show immediately")
         }
-        #expect(Self.keyPaths(under: row.title.layer).contains("locations"), "the title's fade under the buttons snapped in")
+        #expect(!Self.keyPaths(under: row.title.layer).contains("locations"), "the title fade should not delay hover entry")
+        #expect(!Self.keyPaths(under: row.layer).contains("backgroundColor"), "the hover fill should show immediately")
         #expect(row.frame == rest.row && row.title.frame == rest.title, "hover moved or resized the row")
         let slots = Self.controls(row).map { $0.1.frame }
 
@@ -75,7 +75,59 @@ struct WorkspaceRowHoverMotionTests {
             #expect(Self.keyPaths(under: view.layer).contains("opacity"), "the \(name) snapped out")
             #expect(view.frame == slot, "the \(name) left its slot as it faded out")
         }
-        #expect(Self.keyPaths(under: row.layer).contains("backgroundColor"), "the hover fill cleared at once")
+        #expect(!Self.keyPaths(under: row.layer).contains("backgroundColor"), "the hover fill should clear without a trail")
         #expect(row.frame == rest.row && row.title.frame == rest.title, "hover moved or resized the row")
+    }
+
+    /// Leo 2026-10-18 (NEXT nightly): a row kept its x after the pointer left it. A list reload
+    /// (any model change, a workspace switch) clears hover while hover effects are suppressed, and
+    /// the row's controls only show or hide in `layout()`, which that path no longer requested.
+    @Test func hoverClearedDuringAReloadHidesTheRowsControls() throws {
+        let workspaces = [
+            SidebarWorkspace(id: WorkspaceID("workspace-1"), title: "Workspace 1"),
+            SidebarWorkspace(id: WorkspaceID("workspace-2"), title: "Workspace 2"),
+        ]
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: workspaces.map { .workspace($0) })])
+        let list = SidebarListView(model: model)
+        list.frame = NSRect(x: 0, y: 0, width: 240, height: 300)
+        list.reload(animated: false)
+        let key = SidebarRowKey.workspace(workspaces[0].id)
+        let row = try #require(list.rowViews[key] as? WorkspaceRowView)
+        list.setHovered(key)
+        row.layoutSubtreeIfNeeded()
+        #expect(!row.closeButton.isHidden && row.closeButton.alphaValue > 0, "the x shows on hover")
+
+        // No window, so the reload finds no pointer over the list and clears hover while applying.
+        list.reload(animated: false)
+        row.layoutSubtreeIfNeeded()
+
+        #expect(list.hoveredKey == nil)
+        #expect(!row.isHovered)
+        #expect(row.closeButton.isHidden || row.closeButton.alphaValue == 0, "the x stayed after hover cleared")
+    }
+
+    @Test func removingTheHoveredRowClearsItsTransientState() throws {
+        let workspaces = [
+            SidebarWorkspace(id: WorkspaceID("workspace-1"), title: "Workspace 1"),
+            SidebarWorkspace(id: WorkspaceID("workspace-2"), title: "Workspace 2"),
+        ]
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let section = SidebarSection(kind: .machine(machine), nodes: workspaces.map { .workspace($0) })
+        let model = SidebarModel(sections: [section])
+        let list = SidebarListView(model: model)
+        list.frame = NSRect(x: 0, y: 0, width: 240, height: 300)
+        list.reload(animated: false)
+        let old = try #require(list.rowViews[.workspace(workspaces[0].id)] as? WorkspaceRowView)
+        old.isHovered = true
+        list.hoveredKey = .workspace(workspaces[0].id)
+
+        model.sections = [SidebarSection(kind: .machine(machine), nodes: [.workspace(workspaces[1])])]
+        list.reload(animated: true)
+
+        #expect(list.hoveredKey == nil)
+        #expect(!old.isHovered)
+        #expect(!old.fadesNextFill)
+        #expect(!old.fadesNextHover)
     }
 }

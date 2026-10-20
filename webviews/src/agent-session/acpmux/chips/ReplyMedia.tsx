@@ -85,10 +85,10 @@ export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string;
   const near = useNearViewport(frame);
   const { src, state, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
-  if (src) return <MediaPlayer src={src} kind={kind} name={name} title={path} onError={fail} />;
+  if (src) return <MediaPlayer src={src} kind={kind} name={name} onError={fail} />;
   if (state === "failed" && fallback) return <>{fallback}</>;
   return (
-    <span ref={setFrame} className={`cv-media is-${kind}`} title={path}>
+    <span ref={setFrame} className={`cv-media is-${kind}`}>
       <span className="cv-media__name">{name}</span>
     </span>
   );
@@ -103,10 +103,10 @@ export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; 
   const near = useNearViewport(frame);
   const { src, state, load, fail } = useMediaLoad(url, near && policy.remoteImages === "always");
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
-  if (src) return <MediaPlayer src={src} kind={kind} name={name} title={url} onError={fail} />;
+  if (src) return <MediaPlayer src={src} kind={kind} name={name} onError={fail} />;
   if (policy.remoteImages === "never" || (state === "failed" && fallback)) return <>{fallback}</>;
   return (
-    <span ref={setFrame} className={`cv-media is-${kind} is-remote`} title={url}>
+    <span ref={setFrame} className={`cv-media is-${kind} is-remote`}>
       <span className="cv-media__host">{webURL(url)?.host}</span>
       {state === "failed" ? (
         <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>
@@ -123,13 +123,11 @@ function MediaPlayer({
   src,
   kind,
   name,
-  title,
   onError,
 }: {
   src: string;
   kind: "video" | "audio";
   name: string;
-  title: string;
   onError(): void;
 }) {
   const t = useT();
@@ -137,14 +135,14 @@ function MediaPlayer({
   const close = useRef<HTMLButtonElement>(null);
   if (kind === "audio")
     return (
-      <span className="cv-media is-audio" title={title}>
+      <span className="cv-media is-audio">
         <span className="cv-media__name">{name}</span>
         {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
         <audio src={src} controls preload="metadata" aria-label={name} onError={onError} />
       </span>
     );
   return (
-    <span className="cv-media is-video" title={title}>
+    <span className="cv-media is-video">
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
       <video
         src={src}

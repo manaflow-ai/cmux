@@ -28,9 +28,13 @@ final class InternalPageView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// The view that takes the keyboard when the tab is focused: a React page's
+    /// The view that takes the keyboard when the tab is focused: a native
+    /// page's primary input (the docked Home's message box), a React page's
     /// web content itself, so typing reaches the page without a click first.
-    var focusTarget: NSView { (content as? PageWebView)?.webKitView ?? content }
+    var focusTarget: NSView {
+        if let input = (content as? any PrimaryInputTarget)?.primaryInputView { return input }
+        return (content as? PageWebView)?.webKitView ?? content
+    }
 
     override var acceptsFirstResponder: Bool { false }
 

@@ -12,6 +12,11 @@
 //! - An OpenCode chat resumes through adopt too (ACP `session/load`), from
 //!   its `opencode.db`, not as a fresh chat in its folder (cx-6edj).
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::adopt::HarnessHomes;
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};

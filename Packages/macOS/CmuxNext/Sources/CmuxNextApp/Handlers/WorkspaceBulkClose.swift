@@ -97,7 +97,7 @@ enum WorkspaceBulkClose {
     /// too), or the window's workspace list for the workspaces section.
     static func sectionWorkspaces(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [String] {
         let layout = context.services.sidebarLayout
-        if let reason = layout.unavailableReason { throw ActionFailure(message: reason) }
+        if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
         let section = try SidebarSectionResolve.section(invocation.target, in: layout.document)
         switch section.content {
         case .items:

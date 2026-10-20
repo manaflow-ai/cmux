@@ -2,10 +2,10 @@
 //! per-kind switches. The numbers come from the spec's design-tokens.json
 //! (`motion`), compiled in by build.rs; no timing constant lives here.
 
-use crate::{SpringParameters, ease_out};
+use crate::{SpringParameters, TabStripGeometry, TweenCurve, TweenParameters, ease_out};
 
 // SPEED_NORMAL, SPRINGS, STRUCTURAL, SUBTLE_BOUNCE, DEFAULT_BOUNCE,
-// DEFAULT_KINDS, SETTLE_*, FADES, LOOPS.
+// DEFAULT_KINDS, SETTLE_*, FADES, TWEENS, TAB_STRIP_*, LOOPS.
 
 include!(concat!(env!("OUT_DIR"), "/tokens.rs"));
 
@@ -126,6 +126,43 @@ impl MotionSpring {
     /// springs keep their own damping.
     pub const fn is_structural(self) -> bool {
         STRUCTURAL[self as usize]
+    }
+}
+
+/// Tween tokens (duration and curve at speed `fast`; design-tokens.json
+/// `motion.tweens`): Chrome's tab strip motion, a 200 ms ease-out that
+/// restarts from the value on screen when the target changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum MotionTween {
+    /// A new tab opening at its slot from the previous tab's right edge,
+    /// and its neighbours and the + button making room
+    /// (`ui.animations.newTab`).
+    TabOpen,
+    /// A closing tab shrinking with its left edge pinned, its neighbours
+    /// closing the gap, and the resize when mouse closing mode ends
+    /// (`ui.animations.newTab`).
+    TabClose,
+    /// Tabs moving in a reorder or crowding change and a dragged tab
+    /// settling on release. A gesture: not under a kind switch.
+    TabMove,
+}
+
+impl MotionTween {
+    pub const ALL: [Self; 3] = [Self::TabOpen, Self::TabClose, Self::TabMove];
+
+    /// Duration and curve at speed `fast` (design-tokens.json `motion.tweens`).
+    pub const fn base(self) -> TweenParameters {
+        TWEENS[self as usize]
+    }
+
+    /// The `ui.animations.*` switch that turns this tween on (an off kind
+    /// applies the change at once), or none for a gesture.
+    pub const fn kind(self) -> Option<MotionKind> {
+        match self {
+            Self::TabOpen | Self::TabClose => Some(MotionKind::NewTab),
+            Self::TabMove => None,
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
@@ -11,6 +11,7 @@ import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { focusAfterEscape } from "../../ui/escapeFocus";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -24,6 +25,7 @@ export const CONTEXT_LABELS = {
   connectSSH: "composer.connectSSH",
   connectCloud: "composer.connectCloud",
   newChatHere: "composer.newChatHere",
+  noProject: "composer.noProject",
 } as const;
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -44,6 +46,8 @@ export function ComposerContext({
   projectChoices,
   onBrowseProject,
   onNewWorktree,
+  onNoProject,
+  noProject = false,
   localName,
   onNewChat,
   onBrowseFolder,
@@ -58,6 +62,9 @@ export function ComposerContext({
   onBrowseProject?(): void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
+  /// A new chat's Do not work in a project (FolderPopover); `noProject` while it is the choice.
+  onNoProject?(): void;
+  noProject?: boolean;
   /// This Mac's name (the handshake's `machineName`).
   localName?: string;
   /// A started chat's New Chat Here, or a folder picked from its menu: a new chat in that folder,
@@ -121,14 +128,23 @@ export function ComposerContext({
               face={
                 <LocationFace
                   icon={<FolderIcon />}
-                  value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+                  value={
+                    currentFolder
+                      ? projectLabel(currentFolder)
+                      : noProject
+                        ? t(CONTEXT_LABELS.noProject)
+                        : t(CONTEXT_LABELS.chooseFolder)
+                  }
                   chevron
+                  middle={currentFolder !== undefined}
                 />
               }
               folders={folders}
               current={currentFolder}
               onPick={(cwd) => onProject?.(cwd)}
               onBrowse={onBrowseProject}
+              onNoProject={onNoProject}
+              noProject={noProject && !currentFolder}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               localName={localName}
               peers={peers}
@@ -142,6 +158,7 @@ export function ComposerContext({
               selected={currentFolder}
               disabled={readOnly && !newChats}
               icon={<FolderIcon />}
+              middle={currentFolder !== undefined}
               allowPath
               onBrowse={newChats ? browseNewChat : undefined}
               extras={
@@ -161,14 +178,10 @@ export function ComposerContext({
               }}
             />
           )}
-          {folderShown && (
-            <span className="acpmux-location-dot" aria-hidden="true">
-              ·
-            </span>
-          )}
           <LocationPicker
             label={t(CONTEXT_LABELS.computer)}
             menu="Computer"
+            kind="computer"
             icon={<ComputerIcon />}
             value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
             options={computers}
@@ -200,7 +213,7 @@ export function ComposerContext({
 function BranchPicker({ branch }: { branch: string }) {
   const { control, anchor, open, setOpen, side } = useLocationPopover();
   return (
-    <span ref={control} className="acpmux-location-picker" title={branch}>
+    <span ref={control} className="acpmux-location-picker">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
@@ -301,12 +314,32 @@ function normalizeCwd(cwd?: string): string | undefined {
 }
 
 /// What every location control shows: an optional icon, the name (cut with an ellipsis, never
-/// wrapped) and, on a control that opens a menu, a chevron. One look for the whole row.
-function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value: string; chevron: boolean }) {
+/// wrapped) and, on a control that opens a menu, a chevron. One look for the whole row. A folder's
+/// name (`middle`) is cut in the middle, so its end survives: "atl…web", never "atla…" (design
+/// panel, compact composer).
+function LocationFace({
+  icon,
+  value,
+  chevron,
+  middle = false,
+}: {
+  icon?: React.ReactNode;
+  value: string;
+  chevron: boolean;
+  middle?: boolean;
+}) {
+  const [head, tail] = middle ? splitForMiddleTruncation(value) : [value, ""];
   return (
     <>
       {icon}
-      <span className="acpmux-location-label">{value}</span>
+      {tail ? (
+        <span className="acpmux-location-label" data-middle="">
+          <span className="acpmux-location-head">{head}</span>
+          <span className="acpmux-location-tail">{tail}</span>
+        </span>
+      ) : (
+        <span className="acpmux-location-label">{value}</span>
+      )}
       {chevron && (
         <span className="ui-ghost-icon" aria-hidden="true">
           <ChevronIcon />
@@ -314,6 +347,19 @@ function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value:
       )}
     </>
   );
+}
+
+/// A name split for a cut in the middle: the head takes the ellipsis, the tail always shows. Names
+/// under 7 characters are not split (they fit, or a cut would leave nothing to read). The tail is
+/// the name's last word when that word is 3 to 10 characters ("atlas-web-checkout-service" reads
+/// "atlas-we…service", never "…ervice"); otherwise a third of the name, 3 to 6 characters.
+export function splitForMiddleTruncation(value: string): [string, string] {
+  const chars = Array.from(value);
+  if (chars.length < 7) return [value, ""];
+  const separator = Math.max(...["-", "_", ".", " "].map((mark) => chars.lastIndexOf(mark)));
+  const word = chars.length - 1 - separator;
+  const tail = separator > 0 && word >= 3 && word <= 10 ? word : Math.min(6, Math.max(3, Math.floor(chars.length / 3)));
+  return [chars.slice(0, -tail).join(""), chars.slice(-tail).join("")];
 }
 
 function FolderIcon() {
@@ -367,6 +413,8 @@ function LocationPicker({
   selected,
   disabled,
   icon,
+  middle = false,
+  kind,
   allowPath = false,
   onBrowse,
   extras,
@@ -380,6 +428,10 @@ function LocationPicker({
   selected?: string;
   disabled: boolean;
   icon?: React.ReactNode;
+  /// The name is cut in the middle (a folder's).
+  middle?: boolean;
+  /// "computer": the picker whose name gives way to its icon in a narrow strip.
+  kind?: "computer";
   allowPath?: boolean;
   /// The folder popover's last row, Choose folder…: the host's folder panel.
   onBrowse?(): void;
@@ -390,6 +442,7 @@ function LocationPicker({
   const [query, setQuery] = useState("");
   const { control, anchor, open, setOpen, side } = useLocationPopover();
   const press = usePopoverTrigger(open, setOpen);
+  const trigger = useRef<HTMLButtonElement>(null);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   // A folder list names duplicates apart by a short suffix, its path only on hover (projectSuffix.ts).
   const suffixes = useMemo(
@@ -406,13 +459,13 @@ function LocationPicker({
   }, [options, query, suffixes]);
   if (disabled)
     return (
-      <span className="acpmux-location-picker">
+      <span className="acpmux-location-picker" data-kind={kind}>
         <span
           className="acpmux-location-readonly"
           aria-label={label + ": " + value}
           title={label + ": " + (allowPath && selected ? selected : value)}
         >
-          <LocationFace icon={icon} value={value} chevron={false} />
+          <LocationFace icon={icon} value={value} chevron={false} middle={middle} />
         </span>
       </span>
     );
@@ -421,12 +474,17 @@ function LocationPicker({
     setOpen(false);
     setQuery("");
   };
-  const button = <LocationFace icon={icon} value={value} chevron />;
+  const button = <LocationFace icon={icon} value={value} chevron middle={middle} />;
   if (!allowPath)
     return (
-      <span ref={control} className="acpmux-location-picker">
+      // tooltip-allow: at or under a 460 px pane the computer shows only its icon; the tooltip names it
+      <span ref={control} className="acpmux-location-picker" data-kind={kind} title={label + ": " + value}>
         <Menu open={open} onOpenChange={setOpen}>
-          <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
+          {/* The computer's name is in its label too: a narrow pane shows its icon alone. */}
+          <MenuButton
+            className="acpmux-location-button ui-ghost ui-ghost-sm"
+            label={kind === "computer" ? label + ": " + value : label}
+          >
             {button}
           </MenuButton>
           <MenuPopup
@@ -468,8 +526,9 @@ function LocationPicker({
   const suggestions = shown.map((option) => option.id);
   if (typedPath && !suggestions.includes(typedPath)) suggestions.push(typedPath);
   return (
-    <span ref={control} className="acpmux-location-picker" title={selected}>
+    <span ref={control} className="acpmux-location-picker">
       <button
+        ref={trigger}
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={label}
@@ -496,6 +555,10 @@ function LocationPicker({
           onQuery={setQuery}
           onSubmit={(path) => (path ? pick(path) : setOpen(false))}
           onCancel={() => setOpen(false)}
+          // Escape closes back onto the folder chip (escapeFocus.ts).
+          onCommand={(event) => {
+            if (event.key === "Escape") focusAfterEscape(trigger.current);
+          }}
           label={label}
           placeholder={t(CONTEXT_LABELS.folderSearch)}
           inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
@@ -505,6 +568,7 @@ function LocationPicker({
             const folder = options.find((option) => option.id === path);
             const suffix = suffixes?.get(path);
             return (
+              // tooltip-allow: the row shows the folder's name; the tooltip is its full path
               <span className="acpmux-menu-text acpmux-location-name" title={path}>
                 <span className="acpmux-menu-label">{folder?.label ?? path}</span>
                 {suffix && (

@@ -116,35 +116,4 @@ final class ThreadStackSampler: @unchecked Sendable {
     private static func strip(_ address: UInt) -> UInt {
         address & 0x0000_7FFF_FFFF_FFFF
     }
-
-    /// Resolves addresses to image, symbol, and offset. Safe off the main
-    /// thread; call after `sample()` returned.
-    static func symbolicate(_ addresses: [UInt]) -> [HangFrame] {
-        addresses.map { address in
-            var info = Dl_info()
-            guard dladdr(UnsafeRawPointer(bitPattern: address), &info) != 0 else {
-                return HangFrame(address: address, image: nil, symbol: nil, offset: 0)
-            }
-            let image = info.dli_fname.map { (String(cString: $0) as NSString).lastPathComponent }
-            let symbol = info.dli_sname.map { demangle(String(cString: $0)) }
-            let base = info.dli_saddr.map { UInt(bitPattern: $0) } ?? address
-            return HangFrame(address: address, image: image, symbol: symbol, offset: address &- base)
-        }
-    }
-
-    private typealias Demangle = @convention(c) (UnsafePointer<CChar>?, Int, UnsafeMutablePointer<CChar>?, UnsafeMutablePointer<Int>?, UInt32) -> UnsafeMutablePointer<CChar>?
-
-    private static let swiftDemangle: Demangle? = {
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "swift_demangle") else { return nil }
-        return unsafeBitCast(symbol, to: Demangle.self)
-    }()
-
-    private static func demangle(_ name: String) -> String {
-        guard name.hasPrefix("$s") || name.hasPrefix("_$s"), let swiftDemangle else { return name }
-        return name.withCString { raw in
-            guard let result = swiftDemangle(raw, strlen(raw), nil, nil, 0) else { return name }
-            defer { free(result) }
-            return String(cString: result)
-        }
-    }
 }

@@ -113,9 +113,8 @@ public final class ChiefProfilePageRelay {
     /// that connection was closed under it (the owner restarted). A mutation carries its
     /// idempotency key, so the owner applies it once.
     private func call(operation: String, params: [String: JSONValue], idempotencyKey: String?, gesture: Bool) async throws -> JSONValue {
-        var attempt = 0
-        while true {
-            attempt += 1
+        // Two attempts at most: the second only after the first lost its connection.
+        for attempt in 1...2 {
             guard let owner, let main = owner.connection, let socket = await owner.socketPath(),
                   let identity = owner.identity else { throw DaemonError.notConnected }
             var used: DaemonConnection?
@@ -138,6 +137,8 @@ public final class ChiefProfilePageRelay {
                 if let used, self.relay?.connection === used { dropRelay() }
             }
         }
+        // Not reached: the second attempt returns or throws.
+        throw DaemonError.notConnected
     }
 
     nonisolated static func isConnectionLost(_ error: DaemonError) -> Bool {
@@ -201,7 +202,7 @@ public final class ChiefProfilePageRelay {
         guard let relayID = relay.identity.connectionID else { throw DaemonError.notConnected }
         let issued = try await ResourceRelayClient(connection: main).send(
             operation: "origin.confirmation.issue",
-            params: ["operation": .string(operation), "params_sha256": .string(try ResourceRelayClient.paramsDigest(params)),
+            params: ["operation": .string(operation), "params_sha256": .string(try ResourceRelayClient.paramsDigest(params, operation: operation)),
                      "relay_connection_id": .string(relayID)],
             idempotencyKey: nil)
         guard case .object(let members) = issued, case .string(let token)? = members["token"] else {

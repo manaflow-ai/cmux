@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 
 /// The Extensions (puzzle) menu of one browser tab: its items are the
-/// `browser.extension*` registry actions, targeted at the tab's pane, so the
+/// `browser.extension*` registry actions, targeted at the tab, so the
 /// menu, palette, shortcuts and CLI share one handler per action.
 final class ExtensionMenuRouter: ExtensionMenuHandling {
     private unowned let services: AppServices
@@ -40,7 +40,7 @@ final class ExtensionMenuRouter: ExtensionMenuHandling {
     func perform(_ operation: ExtensionMenuOperation, extensionID: String?) {
         if operation == .siteAccess {
             // Chromium's own action menu (site access, pin, options, remove).
-            if let id = extensionID, case .browser(let entry)? = paneController?.currentContent,
+            if let id = extensionID, let entry = services.cache.existingBrowser(tabKey),
                let host = entry.tab as? any BrowserExtensionActionHosting {
                 host.showExtensionActionMenu(id, atScreenPoint: NSEvent.mouseLocation)
             }
@@ -49,11 +49,10 @@ final class ExtensionMenuRouter: ExtensionMenuHandling {
         guard let id = Self.actionID(for: operation) else { return }
         var arguments: [String: ActionValue] = [:]
         if let extensionID { arguments["extension"] = .string(extensionID) }
-        let target = paneController.map { ActionTargetRef(kind: .pane, id: $0.paneKey) }
+        // The tab itself, not its pane: the pane's selected content is not
+        // always this page (a pane shown in two windows, an adopted page), which
+        // refused the menu's rows with "needs a Chromium tab".
+        let target = ActionTargetRef(kind: .tab, id: tabKey)
         services.registry.perform(id, invocation: ActionInvocation(target: target, arguments: arguments))
-    }
-
-    private var paneController: PaneController? {
-        services.locateTab(tabKey).flatMap { services.paneController(for: $0.1) }
     }
 }

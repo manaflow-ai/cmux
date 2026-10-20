@@ -44,6 +44,11 @@ enum PageCallDeadline {
 
         var isWaiting: Bool { continuation != nil }
 
+        // A main-actor generic class needs a nonisolated deinit while the package targets macOS 14: the
+        // isolated deinit's back-deploy path crashes swift-frontend's Release inliner (EarlyPerfInliner);
+        // this one touches nothing.
+        nonisolated deinit {}
+
         func finish(_ result: Result<T, any Error>) {
             guard let continuation else { return }
             self.continuation = nil

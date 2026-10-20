@@ -14,7 +14,9 @@ extension BookmarkService {
     func observeHome() {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
-            for await serves in ObservationStream({ [weak self] in self?.usesDaemon ?? false }) {
+            // A trigger: a daemon restart that still serves bookmarks resets and fetches again.
+            for await serves in ObservationStream({ [weak self] in ObservationTrigger(self?.usesDaemon ?? false) }) {
+                let serves = serves.value
                 guard let self else { return }
                 fetched.removeAll()
                 loadedFromDaemon.removeAll()

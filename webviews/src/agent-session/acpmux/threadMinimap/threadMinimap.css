@@ -10,6 +10,10 @@
   --acpmux-minimap-base: var(--acpmux-base, var(--agent-page-bg));
   --acpmux-minimap-fill: color-mix(in srgb, var(--agent-text) 7.2%, var(--acpmux-minimap-base));
 }
+/* appearance.borders none clears the popover's rim in place, as it clears the popups'. */
+:root[data-borders="none"] .acpmux-minimap {
+  --acpmux-minimap-rim: transparent;
+}
 .acpmux-minimap__rail {
   position: absolute;
   top: 0;
@@ -67,12 +71,14 @@
   width: 321px;
   max-width: calc(100vw - 58.5px);
   box-sizing: border-box;
-  /* The 0.5 px edge is an inset shadow: a 0.5 px border draws two device pixels wide. */
+  /* The edge is an inset shadow one device pixel wide (--cmux-hairline): a 0.5 px border draws two
+     device pixels wide. */
   padding: 8.5px 9px 7px;
   border-radius: 11px;
   background: var(--acpmux-minimap-fill);
   box-shadow:
-    inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 12.6%, var(--acpmux-minimap-base)),
+    inset 0 0 0 var(--cmux-hairline, 0.5px)
+      var(--acpmux-minimap-rim, color-mix(in srgb, var(--agent-text) 12.6%, var(--acpmux-minimap-base))),
     var(--elevation-2);
   color: var(--agent-text);
   -webkit-font-smoothing: antialiased;

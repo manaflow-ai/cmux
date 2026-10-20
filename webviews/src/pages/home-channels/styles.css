@@ -67,7 +67,8 @@ body,
   font-weight: 600;
   cursor: default;
 }
-.hc-text-button:hover:not(:disabled) {
+/* The quiet hover is for outline buttons only: a filled button keeps its fill under the pointer. */
+.hc-text-button:not(.primary, .danger):hover:not(:disabled) {
   background: var(--page-hover);
 }
 .hc-text-button.primary {
@@ -75,14 +76,22 @@ body,
   background: var(--page-text);
   color: var(--hc-on-text);
 }
-.hc-text-button.primary:disabled {
-  opacity: 0.4;
-}
 .hc-text-button.danger {
   border-color: transparent;
   background: var(--hc-danger);
   /* Danger is fitted against the app theme's window, so that is its ink. */
   color: var(--cmux-app-window, var(--cmux-surface-solid, Canvas));
+}
+/* Hover makes a filled button a little stronger: the same fill with a soft ring of its own color. */
+.hc-text-button.primary:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--page-text) 28%, transparent);
+}
+.hc-text-button.danger:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hc-danger) 35%, transparent);
+}
+.hc-text-button.primary:disabled,
+.hc-text-button.danger:disabled {
+  opacity: 0.4;
 }
 .hc-tag {
   padding: 0 5px;
@@ -320,6 +329,10 @@ body,
   .hc-writing {
     animation: hc-writing 1.4s ease-in-out infinite;
   }
+}
+/* Static status indicators (cx-sya4n), where a page gets the pane's theme: no pulse. */
+:root[data-status-indicators="static"] .hc-writing {
+  animation: none;
 }
 @keyframes hc-writing {
   50% {
@@ -731,4 +744,8 @@ body,
 }
 .hc-gate-error {
   color: var(--hc-danger);
+}
+/* The field's right-click menu host adds no box of its own. */
+.hc-composer-field-menu {
+  display: contents;
 }

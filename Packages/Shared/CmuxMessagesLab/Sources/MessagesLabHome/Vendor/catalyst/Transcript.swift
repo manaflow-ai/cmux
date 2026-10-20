@@ -121,6 +121,27 @@ final class TranscriptModel {
         rows.insert(g, at: min(max(0, base), rows.count)) // never past the end
     }
 
+    /// Ask 11 (HostHooks.swift): the rows of message `from` (a streaming bubble) become the rows of message `to` (the
+    /// final message that replaces it): each key "kind:from[:part]" is "kind:to[:part]", with its place, insert time
+    /// and fade. Live rows only: a part the stream dropped keeps fading under its old key. Returns the renamed keys
+    /// (old, new); none when `to` already has a row (its rows stay its own).
+    func renameOwner(_ from: ID, to: ID) -> [(String, String)] {
+        guard !rows.contains(where: { RowBuilder.key($0.spec.key, belongsTo: to) }) else { return [] }
+        var renamed: [(String, String)] = []
+        rows = rows.map { r in
+            guard !r.ghost, RowBuilder.key(r.spec.key, belongsTo: from) else { return r }
+            var r = r
+            var parts = r.spec.key.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            parts.update(at: 1) { $0 = to }
+            let key = parts.joined(separator: ":")
+            renamed.append((r.spec.key, key))
+            r.spec.key = key
+            return r
+        }
+        if !renamed.isEmpty { rebuild() }
+        return renamed
+    }
+
     /// Paging splice (no animation): replace rows at the two ends.
     func splice(dropHead: Int, newHead: [RowSpec], dropTail: Int, newTail: [RowSpec], at t: Double) {
         let keepEnd = rows.count - dropTail
@@ -431,7 +452,12 @@ final class MotionLedger {
         }
     }
 
-    /// Move entries to a renamed key (a row's key never changes today).
+    /// Moves a row's entries to its new key (ask 11: a streaming bubble's rows become the final message's).
+    func rename(_ key: String, to new: String) {
+        guard let list = entries.removeValue(forKey: key) else { return }
+        entries[new, default: []].append(contentsOf: list)
+    }
+
     var isEmpty: Bool { entries.isEmpty }
 }
 
@@ -456,6 +482,9 @@ final class RowCell: UICollectionViewCell {
     static let id = "row"
     private(set) var spec: RowSpec?
     private(set) var key = ""
+    /// Ask 11: the row this cell shows was renamed (a streaming bubble's row is the final message's now). The cell
+    /// keeps its layers, animations and applied entries; its next configure draws the new spec (the same pixels).
+    func renameRow(to new: String) { key = new }
     /// Ledger entries already added to this cell's layers.
     var applied: AppliedEntries = []
     /// The window's container-motion serial this cell's row was last checked against (-1: not yet).
@@ -504,6 +533,12 @@ final class RowCell: UICollectionViewCell {
     /// The typing row's insert time (RowSpec model time) that its dots and breathing run from (-inf: none).
     var typingInsertedAt = -Double.infinity
     let receiptOld = CALayer()
+    /// cmux: the transcript's text-selection highlight over this row's glyphs, in the cell's own coordinates
+    /// (TranscriptSelection.refresh sets its path). Inside the row it rides every motion the row makes (its springs,
+    /// a container or page motion, a scroll pace), so a new message or a growing reply never moves it off the text
+    /// (a highlight over the rows landed at the row's end place at once while the row sprang there: Lawrence
+    /// 2026-10-19, "a layout shift for the highlight thing ... janky and disjoint"). Joins the tree on first use.
+    let selectionHighlight = CAShapeLayer()
     /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
     var tiled: TiledBody?
     /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
@@ -587,10 +622,14 @@ final class RowCell: UICollectionViewCell {
         let noActions: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "path": NSNull(),
                                              "hidden": NSNull(), "opacity": NSNull(), "strokeEnd": NSNull(), "transform": NSNull()]
         appliedScale = renderScale
-        for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
+        for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld, selectionHighlight] {
             l.actions = noActions
             l.contentsScale = renderScale
         }
+        selectionHighlight.fillColor = TranscriptSelection.highlightFill
+        selectionHighlight.compositingFilter = "screenBlendMode"
+        // Over the bitmap, the long-text tiles, the markdown blocks and the receipt (added after it or not).
+        selectionHighlight.zPosition = 100
         typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
         fillMaskImage.actions = noActions.merging(["contentsCenter": NSNull()]) { a, _ in a }
         typingBody.frame = RowDraw.typingBubble
@@ -657,10 +696,21 @@ final class RowCell: UICollectionViewCell {
         key = ""
         // A bitmap kept in a live resize is not the row's own: the next configure draws it, even for the same row.
         if liveKept { liveKept = false; spec = nil }
+        setSelectionHighlight(nil)
         tiled?.detach(self)
         markdownOverlay?.detach()
         CustomRows.host?.detach(self)
         dropWant()
+    }
+
+    /// cmux: draws the selection highlight (`selectionHighlight`), nil for none. The path is in this cell's
+    /// coordinates.
+    func setSelectionHighlight(_ path: CGPath?) {
+        if path == nil, selectionHighlight.path == nil { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if path != nil, selectionHighlight.superlayer !== contentView.layer { contentView.layer.addSublayer(selectionHighlight) }
+        selectionHighlight.path = path
+        CATransaction.commit()
     }
 
     func clearAnimations() {
@@ -685,6 +735,7 @@ final class RowCell: UICollectionViewCell {
             case let .separator(b, r): return b.isEmpty ? r : b + " " + r  // cmux: a notice row has no bold part
             case let .receipt(b, r): return b + " " + r
             case let .label(text, _, _): return text
+            case let .notice(text): return text
             default: return nil
             }
         }
@@ -740,15 +791,16 @@ final class RowCell: UICollectionViewCell {
         // Whether this cell already shows this row (its bitmap may be stale:
         // new palette, new scale or new content) before anything changes.
         let showingThisRow = key == spec.key && bitmap.contents != nil
-        let repaint = palette != Fixture.paletteGeneration || appliedScale != renderScale
-        if key != spec.key { clearAnimations(); applied = []; motionChecked = -1; key = spec.key; fillReachBelow = 0 }
+        let rescaled = appliedScale != renderScale
+        let repaint = palette != Fixture.paletteGeneration || rescaled
+        if key != spec.key { clearAnimations(); applied = []; motionChecked = -1; key = spec.key; fillReachBelow = 0; setSelectionHighlight(nil) }
         if let w = pendingWant, w != spec { dropWant() }
         if repaint {
             palette = Fixture.paletteGeneration
             appliedScale = renderScale
             CATransaction.begin(); CATransaction.setDisableActions(true)
             // A scale change: every layer this cell owns follows its window view's scale.
-            for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
+            for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld, selectionHighlight] {
                 l.contentsScale = renderScale
             }
             // The breathing body's clip rounds to the screen's device pixels: a running clip starts again on the new
@@ -856,7 +908,10 @@ final class RowCell: UICollectionViewCell {
                 // Inside a width change's layout pass the new bitmap is drawn with the other visible
                 // rows of the pass, in parallel, and installed in the same commit (flushReflow): the
                 // visible rows show the new line breaks at once, the stretched bitmap is not seen.
-                if !repaint, RowCell.reflow != nil, Images.ready(spec) {
+                // A display change's pass (MessagesWindowView.displayChange: a scale or colour space change, cx-3cb
+                // scale-redraw) draws its visible rows the same way: the first frame after it shows no bitmap of
+                // the old scale or colour space.
+                if !repaint || rescaled || RowCell.displayPass, RowCell.reflow != nil, Images.ready(spec) {
                     RowCell.reflow?.append((self, spec, bitmapFrame, renderScale))
                     queued = true
                 }
@@ -932,24 +987,49 @@ final class RowCell: UICollectionViewCell {
     static var reflow: [(RowCell, RowSpec, CGRect, CGFloat)]?
     /// Rows drawn by reflow passes, and the longest pass's wall time (bench evidence).
     static var reflowRows = 0, reflowMaxMs = 0.0
-    static func beginReflow() { reflow = [] }
+    /// Opens a pass, or joins the open one (a width pass nested in a scale change's pass keeps its queued rows).
+    static func beginReflow() { if reflow == nil { reflow = [] } }
+    /// Inside a display change's pass (MessagesWindowView.displayChange): a visible row repainted for a palette
+    /// change (the colour space's) joins the reflow pass instead of keeping its old bitmap until an async one lands.
+    static var displayPass = false
     /// Draws the pass's rows on all cores at once (RowBitmaps.render is thread safe) and installs
     /// them in this commit. The pass waits for them: about one row's drawing time per core.
     static func flushReflow() {
-        guard let q = reflow else { return }
+        guard let queued = reflow else { return }
         reflow = nil
+        // Only each cell's last entry, and only while the cell still shows that row at that scale (a display
+        // change's pass can queue a cell for its colour space and again for its new scale): nothing is drawn twice.
+        var last: [ObjectIdentifier: Int] = [:]
+        for (k, e) in queued.enumerated() { last.updateValue(k, forKey: ObjectIdentifier(e.0)) } // dictionary write
+        let q = queued.enumerated().filter { k, e in last.value(for: ObjectIdentifier(e.0)) == k && e.0.spec == e.1 && e.0.renderScale == e.3 }.map(\.element) // dictionary read
         guard !q.isEmpty else { return }
         let t0 = CACurrentMediaTime()
         // Each row at its cell's scale (two window views at two scales can share a pass).
         let specs = q.map(\.1), scales = q.map(\.3)
         var images = [CGImage?](repeating: nil, count: specs.count)
+        // Per row: its drawing time on its worker (ms), for the display change's evidence.
+        var rowMs = [Double](repeating: 0, count: specs.count)
         images.withUnsafeMutableBufferPointer { out in
+            rowMs.withUnsafeMutableBufferPointer { ms in
             DispatchQueue.concurrentPerform(iterations: specs.count) { i in
                 // checked reads and writes (crash ratchet)
+                let r0 = CACurrentMediaTime()
                 if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] { out[slot] = RowBitmaps.render(spec, scale: sc) }
+                if let slot = ms.checkedIndex(i) { ms[slot] = (CACurrentMediaTime() - r0) * 1000 }
+            }
             }
         }
+        let t1 = CACurrentMediaTime()
         for ((s, sc), img) in zip(zip(specs, scales), images) { if let img { RowBitmaps.shared.insert([(s, img)], scale: sc) } }
+        let t2 = CACurrentMediaTime()
+        if displayPass || DisplayTiming.flushOpen {
+            DisplayTiming.note("flush.draw", (t1 - t0) * 1000)
+            DisplayTiming.note("flush.insert", (t2 - t1) * 1000)
+            DisplayTiming.note("flush.rowsSumMs", rowMs.reduce(0, +))
+            DisplayTiming.note("flush.rowMaxMs", rowMs.max() ?? 0)
+            DisplayTiming.note("flush.rows", Double(specs.count))
+        }
+        defer { if displayPass || DisplayTiming.flushOpen { DisplayTiming.note("flush.install", (CACurrentMediaTime() - t2) * 1000) } }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for (k, (cell, spec, frame, sc)) in q.enumerated() where cell.spec == spec && cell.renderScale == sc {
             guard let img = images[k] else { continue }
@@ -1126,8 +1206,11 @@ final class RowCell: UICollectionViewCell {
         box.position = CGPoint(x: c.x - 20 + box.anchorPoint.x * size.width, y: c.y - 20 + box.anchorPoint.y * size.height)
         box.contentsScale = renderScale
         badgeTop = c.y - 20
-        fill.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
-        fill.locations = Fixture.gradientStops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
+        // cmux: my tapback's disc is the sent bubbles' fill (the theme style's, else the measured blue).
+        let stops: [(CGFloat, CGColor)] = Fixture.themedGradient?.map { ($0.0, $0.1.cgColor) }
+            ?? Fixture.gradientStops.map { ($0.0, Fixture.gradientColor($0.1, $0.2).cgColor) }
+        fill.colors = stops.map(\.1)
+        fill.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
         RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
         if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
             holder.frame = CGRect(origin: .zero, size: size)
@@ -1315,7 +1398,7 @@ final class RowCell: UICollectionViewCell {
         case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
         case .receipt: return true
         case let .threadPreview(pv): return pv.outgoing
-        case .separator, .unsent, .typing: return false
+        case .separator, .unsent, .typing, .notice: return false
         }
     }
     /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
@@ -1505,6 +1588,8 @@ final class RowCell: UICollectionViewCell {
             a.isRemovedOnCompletion = false
             a.calculationMode = .linear
             if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
+            // cmux: under Reduce Motion the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
+            else if MessagesLabHomeView.reducesMotion { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
             hi.add(a, forKey: "dots")
         }
     }
@@ -1515,6 +1600,8 @@ final class RowCell: UICollectionViewCell {
     func startTypingBreath(insert: CFTimeInterval) {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard Springs.typingStillPhase == nil else { return }
+        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
+        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
         let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
         // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
         // fixed point to b: e x (a - b).
@@ -1613,7 +1700,8 @@ final class RowCell: UICollectionViewCell {
     /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
     var needsTypingBreath: Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
-        Springs.typingStillPhase == nil && typingContainer.animation(forKey: "breath.transform.scale") == nil
+        // cmux: no breathing under Reduce Motion (cx-sya4n).
+        Springs.typingStillPhase == nil && !MessagesLabHomeView.reducesMotion && typingContainer.animation(forKey: "breath.transform.scale") == nil
 #else
         false
 #endif
@@ -1661,5 +1749,36 @@ extension UIView {
             v = x.superview
         }
         return Fixture.renderScale
+    }
+}
+
+/// Where a display change's main-thread time goes (bench and audit evidence, cx-3cb display-budget): the outermost
+/// MessagesWindowView.displayChange's ms per named step, and the drawing in the commit after it (shim views by class).
+/// Main thread only.
+enum DisplayTiming {
+    /// The last display change's ms per step (nested steps are also counted in their outer step).
+    static var phases: [String: Double] = [:]
+    /// The open display change's steps.
+    static var open: [String: Double] = [:]
+    /// The outermost display change's reflow flush runs now (its rows' timing goes to `open`).
+    static var flushOpen = false
+    /// Main-thread ms from the last display change's end to the end of its run-loop turn, -1 before.
+    static var commitMs = -1.0
+    /// From a display change's end to the end of its run-loop turn: layer drawing is timed per class.
+    static var commitOpen = false
+    /// The last display change's commit: drawing ms per class (shim views; AppKit views not included).
+    static var commitPhases: [String: Double] = [:]
+    static var commitAcc: [String: Double] = [:]
+    static func note(_ name: String, _ ms: Double) { open[name, default: 0] += ms } // dictionary write
+    static func noteCommit(_ name: String, _ ms: Double) {
+        guard Thread.isMainThread else { return } // a background transaction's drawing is not the move's
+        commitAcc[name, default: 0] += ms // dictionary write
+    }
+    /// Times `body` as the named step of the open display change (outside one: just runs it).
+    static func phase<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
+        guard RowCell.displayPass else { return try body() }
+        let t0 = CACurrentMediaTime()
+        defer { open[name, default: 0] += (CACurrentMediaTime() - t0) * 1000 } // dictionary write
+        return try body()
     }
 }

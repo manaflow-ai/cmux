@@ -68,7 +68,10 @@ const noop = () => {};
 
 /// The New Tab page as the pane draws it: the page's dictation, aimed at the New Tab field, and
 /// its mic before Send. `calls` records what the page asked the host.
-async function renderNewTab(calls: [string, unknown][]) {
+async function renderNewTab(
+  calls: [string, unknown][],
+  onAsk: (harness: string, text: string, cwd?: string, model?: string) => void = noop,
+) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { useDictation } = await import("../src/agent-session/acpmux/dictation");
@@ -89,7 +92,7 @@ async function renderNewTab(calls: [string, unknown][]) {
         cwd="/Users/you/src/app"
         dictationField={field}
         accessory={<DictationMic dictation={dictation} />}
-        onAsk={noop}
+        onAsk={onAsk}
         onOpen={noop}
         onSearch={noop}
         onShell={noop}
@@ -104,6 +107,29 @@ async function renderNewTab(calls: [string, unknown][]) {
   await act(async () => root!.render(<Page />));
 }
 
+test("auto-send routes finalized dictation through the normal New Tab prompt action", async () => {
+  const calls: [string, unknown][] = [];
+  const asks: Array<[string, string, string | undefined, string | undefined]> = [];
+  const { configureDictation, deliverDictation } = await import("../src/agent-session/acpmux/dictation");
+  configureDictation({ dictation: { autoSend: true } });
+  try {
+    await renderNewTab(calls, (harness, text, cwd, model) => asks.push([harness, text, cwd, model]));
+    await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
+    await act(async () =>
+      deliverDictation({ state: "listening", text: "open the voice settings", level: 0.4, cancelled: false }),
+    );
+    await act(async () =>
+      deliverDictation({ state: "idle", text: "open the voice settings", level: 0, cancelled: false }),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(asks).toHaveLength(1);
+    expect(asks[0]?.[0]).toBe("claude");
+    expect(asks[0]?.[1]).toBe("open the voice settings");
+  } finally {
+    configureDictation(undefined);
+  }
+});
+
 const mic = () => host.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-mic");
 
 test("the New Tab composer has the mic beside Send, and dictated words land in its field", async () => {
@@ -117,7 +143,7 @@ test("the New Tab composer has the mic beside Send, and dictated words land in i
   await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
   await act(async () => deliverDictation({ state: "listening", text: "fix the upload", level: 0.4, cancelled: false }));
   await act(async () => deliverDictation({ state: "idle", text: "fix the upload test", level: 0, cancelled: false }));
-  expect(host.querySelector<HTMLInputElement>(".nt-field")!.value).toBe("fix the upload test");
+  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("fix the upload test");
 });
 
 test("right-click Hide Dictation Button hides the mic in every composer until Settings shows it", async () => {
@@ -148,7 +174,7 @@ test("updates that arrive before a render still land once each (review: the fiel
     deliverDictation({ state: "listening", text: "fix the upload", level: 0.4, cancelled: false });
     deliverDictation({ state: "idle", text: "fix the upload test", level: 0, cancelled: false });
   });
-  expect(host.querySelector<HTMLInputElement>(".nt-field")!.value).toBe("fix the upload test");
+  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("fix the upload test");
 });
 
 test("a session whose New Tab field goes away ends, and never writes into the chat composer", async () => {
@@ -211,7 +237,7 @@ test("a session whose New Tab field goes away ends, and never writes into the ch
   await act(async () => root!.render(<Pane />));
   await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
   await act(async () => deliverDictation({ state: "listening", text: "fix the", level: 0.4, cancelled: false }));
-  expect(host.querySelector<HTMLInputElement>(".nt-field")!.value).toBe("fix the");
+  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("fix the");
   await act(async () => leave());
   await act(async () => deliverDictation({ state: "listening", text: "fix the upload", level: 0.4, cancelled: false }));
   await act(async () => deliverDictation({ state: "idle", text: "fix the upload test", level: 0, cancelled: false }));

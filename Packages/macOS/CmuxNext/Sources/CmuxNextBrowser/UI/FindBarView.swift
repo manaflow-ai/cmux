@@ -9,7 +9,7 @@ final class FindBarView: NSView {
     weak var tab: (any BrowserTab)?
 
     private let field = ChromeTextField()
-    private let countLabel = NSTextField(labelWithString: "")
+    private let countLabel = ChromeLabel(labelWithString: "")
     private var findTask: Task<Void, Never>?
     private let density = DensityBinding()
     private let icon = NSImageView()
@@ -28,9 +28,9 @@ final class FindBarView: NSView {
         countLabel.alignment = .right
         countLabel.setContentHuggingPriority(.required, for: .horizontal)
 
-        let previous = ChromeIconButton(icon: .navPreviousMatch, label: Strings.findPrevious, action: #selector(findPrevious), target: self)
-        let next = ChromeIconButton(icon: .disclosureExpanded, label: Strings.findNext, action: #selector(findNext), target: self)
-        let done = ChromeIconButton(icon: .actionClose, label: Strings.findDone, action: #selector(close), target: self)
+        let previous = ChromeIconButton(icon: .browserFindPrevious, label: Strings.findPrevious, action: #selector(findPrevious), target: self)
+        let next = ChromeIconButton(icon: .browserFindNext, label: Strings.findNext, action: #selector(findNext), target: self)
+        let done = ChromeIconButton(icon: .browserToolbarClose, label: Strings.findDone, action: #selector(close), target: self)
 
         let stack = NSStackView(views: [icon, field, countLabel, previous, next, done])
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -56,7 +56,7 @@ final class FindBarView: NSView {
             },
         ])
         density.update { [countLabel, icon] in
-            icon.image = NSImage.icon(.search, size: .iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize - 1))
+            icon.image = NSImage.icon(.browserOmniboxSearch, size: .iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize - 1))
             countLabel.font = BrowserMetrics.countFont
             stack.spacing = BrowserMetrics.buttonSpacing
             stack.edgeInsets = NSEdgeInsets(top: 0, left: BrowserMetrics.overlayPadding, bottom: 0, right: BrowserMetrics.buttonSpacing)

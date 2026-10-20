@@ -4,6 +4,11 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -16,7 +21,8 @@ use tokio::sync::mpsc;
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const ARG: &str = "--SUPERSECRETARG";
 const ENV: &str = "s3cr3t-env-value";
-const PROFILE_ENV: &str = "profile-secret-value";
+const PROFILE_ARG: &str = "profile-private-argument";
+const PROFILE_ENV: &str = "profile-private-environment";
 const DEFAULT_ENV: &str = "default-secret-value";
 const SHA: &str = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
 
@@ -25,6 +31,7 @@ fn hub() -> Arc<Hub> {
         "harnesses": {
             "fake": {"argv": ["python3", FAKE], "env": {"PROFILE_KEY": PROFILE_ENV}},
             "env": {"argv": ["python3", FAKE]},
+            "private": {"argv": ["/bin/echo", PROFILE_ARG], "env": {"PRIVATE_TOKEN": PROFILE_ENV}},
         },
         "defaultHarness": "fake",
         "defaults": {
@@ -114,7 +121,7 @@ async fn the_local_app_starts_a_preset_by_its_id_only() {
 #[tokio::test]
 async fn no_connection_but_the_unix_socket_reads_preset_contents() {
     let hub = hub();
-    for origin in [Origin::LocalApp, Origin::Web] {
+    for origin in [Origin::LocalApp, Origin::Web, Origin::Peer] {
         let mut c = client(&hub, origin);
         for (m, p) in [
             ("_acpmux/presets", json!({})),
@@ -124,7 +131,7 @@ async fn no_connection_but_the_unix_socket_reads_preset_contents() {
         ] {
             let reply = c.call(m, p.clone()).await;
             let text = reply.to_string();
-            for secret in [ARG, ENV, SHA] {
+            for secret in [ARG, ENV, SHA, PROFILE_ARG, PROFILE_ENV] {
                 assert!(!text.contains(secret), "{origin:?} {m} {p} carried {secret}: {text}");
             }
             assert!(
@@ -136,6 +143,11 @@ async fn no_connection_but_the_unix_socket_reads_preset_contents() {
     let mut local = client(&hub, Origin::Local);
     let all = local.call("_acpmux/presets", json!({})).await.to_string();
     assert!(all.contains(ARG) && all.contains(ENV), "the unix socket still reads them: {all}");
+    let harnesses = local.call("_acpmux/harnesses", json!({})).await.to_string();
+    assert!(
+        harnesses.contains(PROFILE_ARG) && harnesses.contains(PROFILE_ENV),
+        "the unix socket still reads global profile details: {harnesses}"
+    );
 }
 
 #[tokio::test]

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A permission dictation needs and the user denied.
 public enum DictationPermission: String, Equatable, Sendable {
@@ -40,11 +40,25 @@ public struct DictationUpdate: Equatable, Sendable {
     public var level: Float
     /// The session was cancelled: the composer drops ``text``.
     public var cancelled: Bool
+    /// The session's audio as a WAV file, on the update that ends a session
+    /// recorded for a harness that takes voice input (``DictationSession/recordsAudio``).
+    public var audio: Data?
+    /// Why such a session's audio was left out (its prompt goes as text alone).
+    public var audioOmitted: DictationAudioRecording.Omission?
 
-    public init(phase: DictationPhase, text: String = "", level: Float = 0, cancelled: Bool = false) {
+    public init(
+        phase: DictationPhase,
+        text: String = "",
+        level: Float = 0,
+        cancelled: Bool = false,
+        audio: Data? = nil,
+        audioOmitted: DictationAudioRecording.Omission? = nil
+    ) {
         self.phase = phase
         self.text = text
         self.level = level
         self.cancelled = cancelled
+        self.audio = audio
+        self.audioOmitted = audioOmitted
     }
 }

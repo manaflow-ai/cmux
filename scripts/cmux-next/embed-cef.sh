@@ -37,6 +37,11 @@ LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs"
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
 
+# The built-in full uBlock Origin (a Chromium extension, so it rides on this
+# phase; it does not need the CEF artifact). Its own failures are warnings
+# unless CMUX_NEXT_REQUIRE_UBLOCK=1.
+"$SCRIPT_DIR/bundle-ublock.sh"
+
 # Removes a framework left by a build that used the flat layout, with the
 # shim and helpers that belong to it. Used when nothing will replace it.
 remove_invalid_embed() {

@@ -19,6 +19,16 @@
 //! from a user's action.
 //! After a change the catalog reloads and `_acpmux/watch` connections get
 //! `_acpmux/harnesses_changed`.
+//!
+//! A machine-inventory consumer first requires `harnessInventory` in the
+//! initialize reply's `_meta.acpmux.features`, then asks for health with
+//! exactly `{view: "inventory"}`. Older daemons ignore unknown health params,
+//! so the feature check is required to avoid accidentally starting a check.
+//! This view reports only cached versions, install channels and auth enums;
+//! an empty cache is unknown inventory, not evidence that no CLI is installed.
+//! The separately negotiated local-socket inventory refresh asks only the
+//! registries for cached installations. It never enters harness_health's
+//! probe/auto-update path, and preserves failed-source timestamps.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -56,6 +66,9 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_HARNESS_DOCTOR,
     method::MUX_REGISTRY,
     method::MUX_HARNESS_HEALTH,
+    method::MUX_HARNESS_INVENTORY_REFRESH,
+    method::MUX_HARNESS_UPDATE_PLAN,
+    method::MUX_HARNESS_UPDATE_PREPARE,
     method::MUX_HARNESS_UPDATE,
     method::MUX_SESSIONS_RESTART_HARNESS,
 ];
@@ -66,6 +79,39 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    if matches!(m, method::MUX_HARNESS_UPDATE_PLAN | method::MUX_HARNESS_UPDATE_PREPARE) {
+        if origin != Origin::Local {
+            return Err(RpcError::invalid_params("harness_update_plan.not_trusted"));
+        }
+        if !params.is_object() {
+            return Err(RpcError::invalid_params("harness_update_plan.bad_request"));
+        }
+        let params = serde_json::from_value::<crate::protocol::inventory::HarnessUpdatePlanParams>(
+            params.clone(),
+        )
+        .map_err(|_| RpcError::invalid_params("harness_update_plan.bad_request"))?;
+        return if m == method::MUX_HARNESS_UPDATE_PREPARE {
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || hub.health.prepare_update(&params.cli))
+                .await
+                .map_err(joined)?
+        } else {
+            hub.health.cached_update_plan(&params.cli)
+        };
+    }
+    if m == method::MUX_HARNESS_INVENTORY_REFRESH {
+        if origin != Origin::Local {
+            return Err(RpcError::invalid_params("harness_inventory.not_trusted"));
+        }
+        if !params.is_object() {
+            return Err(RpcError::invalid_params("harness_inventory.bad_request"));
+        }
+        serde_json::from_value::<crate::protocol::inventory::InventoryRefreshParams>(
+            params.clone(),
+        )
+        .map_err(|_| RpcError::invalid_params("harness_inventory.bad_request"))?;
+        return hub.health.refresh_inventory_latest().await;
+    }
     let spawns = matches!(
         m,
         method::MUX_HARNESS_ADD
@@ -77,6 +123,17 @@ pub(super) async fn handle(
         return Err(RpcError::invalid_params(
             "adding, checking or updating a harness runs a program: only the unix socket may ask for it",
         ));
+    }
+    // Inventory consumers read the cache without entering the health
+    // control path (which may run a first check or start auto-updates).
+    // Keep the existing health origins: a peer still cannot read this host.
+    if m == method::MUX_HARNESS_HEALTH && params.get("view").is_some() {
+        if origin == Origin::Peer {
+            return Err(RpcError::invalid_params(
+                "a peer cannot read this host's harness inventory",
+            ));
+        }
+        return crate::harness_health::inventory::view(&hub.health.rows(), params);
     }
     // A plain browser page on the listener (Web, never a peer) may read the
     // last health rows: no refresh, no latest-version check, no auto-update
@@ -195,6 +252,18 @@ pub(super) async fn handle(
         other => return Err(RpcError::method_not_found(other)),
     };
     Ok(reply)
+}
+
+/// One payload of the watchers' harness feed to watching connection `conn`:
+/// `_acpmux/harnesses_changed`, or `_acpmux/start_mode_changed {}` when
+/// marked a start-mode notice (`hub/start_mode.rs`), which only local
+/// connections get (a remote-origin connection's chats get no start mode).
+pub(super) fn watch_note(conn: &super::Conn, note: Value) {
+    if note.get(crate::hub::start_mode::START_MODE_NOTE).is_none() {
+        conn.send(&crate::rpc::Message::notification(method::MUX_HARNESSES_CHANGED, note));
+    } else if !conn.origin.web_class() {
+        conn.send(&crate::rpc::Message::notification(method::MUX_START_MODE_CHANGED, json!({})));
+    }
 }
 
 /// An optional list of ids in `params[key]` (`restart_harness`'s filters): None when absent.

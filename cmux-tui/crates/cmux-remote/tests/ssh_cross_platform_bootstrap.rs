@@ -1,7 +1,8 @@
 #![cfg(unix)]
 
+use cmux_build_identity::BUILD_IDENTITY;
 use cmux_remote::ssh_bootstrap::{
-    BUILD_IDENTITY, BootstrapOutcome, DISTRIBUTION_VERSION, SshBootstrapConfig, SshBootstrapper,
+    BootstrapOutcome, DISTRIBUTION_VERSION, SshBootstrapConfig, SshBootstrapper,
 };
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
 use sha2::{Digest, Sha256};
@@ -87,7 +88,7 @@ esac
                 installed = installed.display()
             ),
         );
-        let mut config = SshBootstrapConfig::defaults("host");
+        let mut config = SshBootstrapConfig::defaults("host", BUILD_IDENTITY);
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_installable = false;
         config.local_binary = Some(source);
@@ -221,7 +222,7 @@ esac
                 installed = installed.display()
             ),
         );
-        let mut config = SshBootstrapConfig::defaults(host);
+        let mut config = SshBootstrapConfig::defaults(host, BUILD_IDENTITY);
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_installable = false;
         config.local_binary = Some(self.directory.path().join("app/cmux-tui"));
@@ -559,7 +560,7 @@ esac
                 installed = installed.display(),
             ),
         );
-        let mut config = SshBootstrapConfig::defaults("host");
+        let mut config = SshBootstrapConfig::defaults("host", BUILD_IDENTITY);
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_version = "9.9.9".into();
         config.package_installable = true;
@@ -722,7 +723,7 @@ exit 127
             ),
         );
 
-        let mut config = SshBootstrapConfig::defaults("host");
+        let mut config = SshBootstrapConfig::defaults("host", BUILD_IDENTITY);
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.remote_binary = root.join("home/.local/bin/cmux-tui").to_string_lossy().into_owned();
         config.package_version = "9.9.9".into();

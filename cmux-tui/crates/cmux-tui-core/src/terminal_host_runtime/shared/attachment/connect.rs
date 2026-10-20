@@ -162,6 +162,10 @@ pub(crate) fn connect_record_at_version(
     if program_status_requested {
         hello_frame.flags |= FLAG_PROGRAM_STATUS;
     }
+    let shell_activity_requested = terminal_metadata_requested && record.supports_shell_activity;
+    if shell_activity_requested {
+        hello_frame.flags |= FLAG_SHELL_ACTIVITY;
+    }
     write_frame(&mut stream, &hello_frame)?;
     let hello_frame = read_host_hello(&mut stream)?;
     if hello_frame.kind != MessageKind::HostHello
@@ -171,13 +175,15 @@ pub(crate) fn connect_record_at_version(
                 | FLAG_SMART_RENDERER
                 | FLAG_LAUNCH_ACTIVATION_REQUIRED
                 | FLAG_TERMINAL_METADATA
-                | FLAG_PROGRAM_STATUS)
+                | FLAG_PROGRAM_STATUS
+                | FLAG_SHELL_ACTIVITY)
             != 0
         || hello_frame.request_id != 1
         || hello_frame.sequence != 0
         || (smart_renderer && hello_frame.flags & FLAG_SMART_RENDERER == 0)
         || (!terminal_metadata_requested && hello_frame.flags & FLAG_TERMINAL_METADATA != 0)
         || (!program_status_requested && hello_frame.flags & FLAG_PROGRAM_STATUS != 0)
+        || (!shell_activity_requested && hello_frame.flags & FLAG_SHELL_ACTIVITY != 0)
     {
         anyhow::bail!("terminal host rejected owner handshake");
     }
@@ -196,6 +202,8 @@ pub(crate) fn connect_record_at_version(
     let terminal_metadata_negotiated = hello_frame.flags & FLAG_TERMINAL_METADATA != 0;
     let program_status_negotiated =
         terminal_metadata_negotiated && hello_frame.flags & FLAG_PROGRAM_STATUS != 0;
+    let shell_activity_negotiated =
+        terminal_metadata_negotiated && hello_frame.flags & FLAG_SHELL_ACTIVITY != 0;
     let snapshot_frame = read_required_frame(&mut stream, "terminal snapshot")?;
     if snapshot_frame.kind != MessageKind::Snapshot
         || snapshot_frame.version != protocol_version
@@ -208,6 +216,7 @@ pub(crate) fn connect_record_at_version(
         &snapshot_frame.payload,
         protocol_version,
         terminal_metadata_negotiated,
+        shell_activity_negotiated,
         program_status_negotiated,
     )?;
     let colors_frame = read_required_frame(&mut stream, "terminal color state")?;

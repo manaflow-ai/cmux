@@ -21,7 +21,8 @@ nonisolated struct SidebarRegionDrop: Hashable, Sendable {
             guard let first = rows.first else { continue }
             let frame = rows.dropFirst().reduce(first.frame) { $0.union($1.frame) }.insetBy(dx: 0, dy: -gap / 2)
             guard point.y >= frame.minY, point.y < frame.maxY else { continue }
-            let next = rows.first { row in Self.item(of: row) != nil && !Self.isPast(point, row) }
+            // A client item drawn in the section (Channels after Home) is no document item: the drop maps past it.
+            let next = rows.first { row in Self.item(of: row).map { !$0.isTransient } == true && !Self.isPast(point, row) }
             let index = next.flatMap(Self.item).flatMap { id in section.items.firstIndex { $0.id == id } } ?? section.items.count
             // The built-in rows (Home, App Store) stay at the top of their
             // section: a pin goes after them (cx-odqn, coordinator 2026-10-08).
