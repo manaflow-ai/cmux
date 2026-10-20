@@ -523,6 +523,17 @@ public struct AgentResumeArgv: Sendable, Equatable {
                 preservePromptTags: false,
                 stripCmuxHooks: parts.executable == "codex"
             ) else { return nil }
+            // Older bindings can prove that the captured Codex invocation used
+            // Subrouter but lack the paired launch marker. Never replay the
+            // captured `model_providers.subrouter.*` argv in that case: it may
+            // contain a dead per-process localhost endpoint. Re-enter through
+            // `sr` so the provider allocates a fresh route on resume.
+            if SubrouterCodexResumeRouting().usesSubrouterProvider(
+                in: [parts.executable] + parts.tail
+            ) {
+                let clean = SubrouterCodexResumeRouting().removingRoutingArguments(from: preserved)
+                return ["sr", "codex", "resume", sessionId] + clean
+            }
             let replayExecutable = codexReplayExecutable(
                 capturedExecutable: parts.executable,
                 launchTail: parts.tail

@@ -204,9 +204,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let publishedEnvironment = try XCTUnwrap(binding["environment"] as? [String: String])
         for (key, value) in routingEnvironment
             where key != "SUBROUTER_CODEX_RESUME_COMMAND"
-                && key != "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND" {
+                && key != "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND"
+                && key != "SUBROUTER_CODEX_BASE_URL" {
             XCTAssertEqual(publishedEnvironment[key], value, key)
         }
+        XCTAssertNil(
+            publishedEnvironment["SUBROUTER_CODEX_BASE_URL"],
+            "a captured Subrouter binding must not persist an ephemeral loopback or request-side base URL"
+        )
         XCTAssertNil(publishedEnvironment["SUBROUTER_CODEX_RESUME_COMMAND"])
         XCTAssertNil(publishedEnvironment["CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND"])
     }
