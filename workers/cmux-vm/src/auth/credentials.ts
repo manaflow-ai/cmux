@@ -166,7 +166,23 @@ export function makeStackSessionVerifier(
   };
 }
 
-const TeamsResponse = Schema.Struct({ items: Schema.Array(Schema.Struct({ id: Schema.String })) });
+const TeamsResponse = Schema.Struct({ items: Schema.Array(Schema.Struct({ id: Schema.String, server_metadata: Schema.optional(Schema.Unknown) })) });
+
+/** Stack server_metadata key cmux sets on a VM personal tenant (backend team-vm-api-personal-stack.ts). */
+export const PERSONAL_TENANT_METADATA_KEY = "cmuxVmPersonalTenant";
+
+/**
+ * Whether Stack membership admits `userId`. A team marked as a cmux VM personal tenant
+ * belongs to its marker's owner alone, so an invitee never reaches that user's VMs;
+ * metadata or a marker that cannot be read admits nobody.
+ */
+export const stackMemberAdmitted = (metadata: unknown, userId: string): boolean => {
+  if (metadata === null || metadata === undefined) return true;
+  if (typeof metadata !== "object" || Array.isArray(metadata)) return false;
+  const marker: unknown = Reflect.get(metadata, PERSONAL_TENANT_METADATA_KEY);
+  if (marker === null || marker === undefined) return true;
+  return typeof marker === "object" && !Array.isArray(marker) && Reflect.get(marker, "stack_user") === userId;
+};
 
 /**
  * Team membership through the Stack server API, behind the shared positive
@@ -227,7 +243,7 @@ export function makeStackTeamMembership(
         catch: () => new IdentityUnavailable({ reason: "stack" }),
       }).pipe(
         Effect.flatMap((body) => decode(body).pipe(Effect.mapError(() => new IdentityUnavailable({ reason: "stack-shape" })))),
-        Effect.map((teams) => teams.items.some((team) => team.id === tenantId)),
+        Effect.map((teams) => teams.items.some((team) => team.id === tenantId && stackMemberAdmitted(team.server_metadata, userId))),
       );
   return { isMember: lookup };
 }

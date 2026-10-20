@@ -132,6 +132,19 @@ describe("forkVm", () => {
     expect(h.resources.filter((row) => row.kind === "snapshot")).toHaveLength(0);
   });
 
+  it("frees both quota slots after unkeyed forks the provider refuses", async () => {
+    const limited = await makeHarness({ maxVms: 2, maxSnapshots: 1 });
+    try {
+      const source = limited.addVm(TENANT_A, "stopped");
+      const key = await limited.addKey(TENANT_A, ["vm:write"]);
+      for (let i = 0; i < 2; i++)
+        expect((await limited.request(`/v1/vms/${source.vmId}/fork`, bearer(key), { method: "POST", body: {} })).status).toBe(409);
+      expect((await limited.request("/v1/vms", bearer(key), { method: "POST", body: { displayName: "after refused forks" } })).status).toBe(201);
+    } finally {
+      await limited.dispose();
+    }
+  });
+
   it("refuses a fork without billing before taking a snapshot", async () => {
     const source = h.addVm(TENANT_A, "running");
     h.setBilling(TENANT_A, false);
