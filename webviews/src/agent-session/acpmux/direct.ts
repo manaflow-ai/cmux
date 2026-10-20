@@ -2039,6 +2039,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
+        this.subagents.startTurn();
         this.settleCompactions(event.seq);
         // A Stop before this turn never judges it.
         this.stopAnswered(event);

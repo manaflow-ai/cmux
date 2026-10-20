@@ -44,6 +44,12 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "model",
     "stopped",
     "exited",
+    // The agent process started again: a client reads a subagent the old
+    // process left running as stopped, as `processes.rs` does its processes.
+    "resumed",
+    "reopened",
+    "host_started",
+    "host_ended",
 ];
 
 /// Which records a page or a live event stream carries. `kinds` entries are
