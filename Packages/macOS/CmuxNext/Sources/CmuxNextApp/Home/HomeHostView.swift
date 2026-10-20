@@ -95,14 +95,13 @@ final class HomeHostView: NSView {
             }
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: invocation)
         }
+        settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
         settingsView.onRename = { [weak service] name in
-            guard let connection = service?.connection else { return }
-            // task-owner: one op; ends with its reply
-            Task {
-                let key = "home-chief-rename-\(UUID().uuidString.lowercased())"
-                _ = try? await CmuxNextDaemon.ConversationClient(connection).op(
-                    CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))
-            }
+            // One op; the daemon refusing it (or no daemon, or one without the op) is false, and the card says so.
+            guard let connection = service?.connection else { return false }
+            let key = "home-chief-rename-\(UUID().uuidString.lowercased())"
+            return (try? await CmuxNextDaemon.ConversationClient(connection).op(
+                CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))) != nil
         }
         toggleObserver = NotificationCenter.default.addObserver(forName: Self.toggleSettings, object: nil, queue: .main) { [weak self] note in
             // task-owner: one hop to the main actor for the toggle; only the front window's Home answers (the posted window)
@@ -179,6 +178,7 @@ final class HomeHostView: NSView {
             let id: ActionID = switch action {
             case .openTerminal: Self.openTerminalAction
             case .startAgent: Self.startAgentAction
+            case .togglePet: "home.toggleChiefPet"
             }
             _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
         }
@@ -361,8 +361,7 @@ final class HomeHostView: NSView {
             guard let self, control.brainHome == home else { return }
             let picture = avatar.picture.flatMap(NSImage.init(data:))
             let text = HomeChiefAvatar.headerText(avatar.text, hasPicture: picture != nil)
-            transcript.avatarPicture = picture
-            transcript.avatarText = text
+            transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
             settingsView.setAvatar(picture: picture, text: text)
         }
     }
