@@ -55,6 +55,40 @@ extension AppActions {
                 if let message = outcome.message { registry.refuse(message) }
             })
         }
+        // Group chats with Chiefs (chief-group-chats-DESIGN.md): the CLI and MCP get the new
+        // group's id back; a person's run (palette) also shows it on the Home page.
+        registry.bind("home.createGroup", invoke: { invocation in
+            let members = invocation["members"]?.stringValue ?? ""
+            let title = invocation["title"]?.stringValue ?? ""
+            var replies: ChiefReplyPolicy?
+            if let text = invocation["replies"]?.stringValue, !text.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard let parsed = ChiefReplyPolicy(argument: text) else {
+                    return registry.refuse(HomeGroupOutcome.refused("").message ?? "")
+                }
+                replies = parsed
+            }
+            let actions = services.home.groupActions
+            let shows = invocation.origin == .user
+            // task-owner: the action run; a capturing caller (socket, CLI) awaits it through the registry.
+            registry.track(result: Task { @MainActor in
+                switch await actions.create(named: members, title: title, replies: replies) {
+                case .created(let id):
+                    if shows { services.home.pendingSelection = id }
+                    return .success(["conversation": .string(id.rawValue)])
+                case .refused(let outcome):
+                    let reason = outcome.message ?? ""
+                    registry.refuse(reason)
+                    return .failure(ActionWorkFailure(refusal: outcome == .unknownConversation ? .notFound : .unavailable, reason: reason))
+                }
+            })
+        })
+        registry.bind("home.setChiefReplies", invoke: { invocation in
+            guard let id = conversation(invocation, services) else { return }
+            guard let policy = invocation["replies"]?.stringValue.flatMap(ChiefReplyPolicy.init(argument:)) else {
+                return registry.refuse(HomeGroupOutcome.refused("").message ?? "")
+            }
+            runGroup(services) { await $0.setChiefReplies(policy, id) }
+        })
         registry.bind("home.sendMessage", invoke: { invocation in
             guard let id = conversation(invocation, services) else { return }
             let text = invocation["text"]?.stringValue ?? ""

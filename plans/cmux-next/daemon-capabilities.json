@@ -30,6 +30,7 @@
     "cloud-conversation-typing-v1",
     "cloud-conversations-v1",
     "cloud-host-replica-v1",
+    "column-move-v1",
     "conversation-draft-events-v1",
     "conversation-inbox-state-v1",
     "conversation-runs-v1",

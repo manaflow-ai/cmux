@@ -28,5 +28,8 @@ pub mod reduce;
 pub mod reset;
 pub mod view;
 
+#[cfg(test)]
+mod nested_group_tests;
+
 pub use doc::Doc;
 pub use model::*;

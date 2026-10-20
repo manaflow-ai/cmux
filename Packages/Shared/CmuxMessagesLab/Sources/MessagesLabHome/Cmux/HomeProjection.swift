@@ -104,8 +104,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// A store pass waits for the next display frame (a keystroke's frame is open); one at a time.
     var heldPass = false
 
-    /// Link card previews (LinkPresentation, MessagesLab's LinkPreviews): fetched
-    /// once per URL for links this Mac sends or the user taps; nil keeps domain cards.
+    /// Link card previews (MessagesLab's guarded HTML/image fetcher): fetched once per URL for
+    /// links this Mac sends or the user taps; nil keeps domain cards.
     let linkPreviews: HomeLinkPreviews?
 
     init(store: HomeStore, conversation: ConversationID, me: ParticipantID, controller: ChatController,
@@ -229,9 +229,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         store.linkPreviews = linkPreviews
         installThreadHeader()
         if let previews = linkPreviews?.previews {
-            // MessagesLab 85684b4: the LinkPresentation fallback runs only for an OUTGOING card on
-            // screen (a link I sent); a late answer fills the card.
-            previews.isOnScreen = { [weak self] url in self?.controller.demo?.outgoingLinkOnScreen(url) ?? false }
+            // A historical outgoing card on screen may receive a late answer from the guarded
+            // parser; no system preview provider or unguarded subresource loader runs.
             previews.onLateMetadata = { [weak self] url, meta in
                 guard let self, !self.stopped else { return }
                 self.controller.dispatch(.linkMetadata(url: url, title: meta.title, site: meta.site, image: meta.image))
@@ -607,8 +606,23 @@ final class HomeProjection: @preconcurrency ChatIntents {
             return nil
         }).first else { return }
         let media = self.media
+        // cmux: in the app the click opens it in cmux beside Home (the host's path-link opener);
+        // without a host it goes to the system as before.
+        let open = controller.onAppLink
+        let opener = HomeAttachmentOpen(folder: HomeMedia.directory)
+        // Without a host, a received script, installer or HTML page is shown in Finder, never run.
+        let reveal = HomeAttachmentPolicy.revealsInsteadOfOpening(name: ref.name)
         // task-owner: one fetch; ends when the file opens
-        Task { if let url = try? await media.original(ref) { NSWorkspace.shared.open(url) } }
+        Task {
+            guard let url = try? await media.original(ref) else { return }
+            if let open, let named = try? opener.namedCopy(of: url, name: ref.name, hash: ref.hash) {
+                open(named)
+            } else if reveal || HomeAttachmentPolicy.revealsInsteadOfOpening(name: url.lastPathComponent) {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } else {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     /// Test seams for the alias table.
@@ -641,9 +655,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func scrolled() {
         video.place()
         if let previews = linkPreviews?.previews {
-            // My link cards that scrolled in with no title (also from HomeStore): a cached title, else the fallback.
+            // My link cards that scrolled in with no title (also from HomeStore): a cached title,
+            // else the guarded parser.
             if let urls = controller.demo?.visibleUntitledOutgoingLinks(), !urls.isEmpty { previews.consider(urls) }
-            previews.visibilityChanged()
         }
         askForOlderIfNeeded()
         reportReadIfNeeded()

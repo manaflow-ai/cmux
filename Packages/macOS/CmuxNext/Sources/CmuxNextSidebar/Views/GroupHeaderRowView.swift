@@ -14,7 +14,8 @@ import QuartzCore
 /// near-black, whichever reads better (`GroupTint.headerChip`, 4.5:1 also on
 /// hover, drop and pressed). The + and the
 /// more button show only on hover, keyboard focus or while the editor is
-/// open, in slots that are always reserved, so nothing moves. Hover and a
+/// open, in slots that are always reserved, so nothing moves; a hover fades
+/// them in and out (opacity only, `MotionFade.hoverReveal`, u2397). Hover and a
 /// drop take tonal steps over the bar's color. Type and glyphs scale with the row height
 /// (the sidebar density setting). A collapsed group shows its member count
 /// after the name (cg-design-judge 2026-10-14), and its members' activity and
@@ -37,7 +38,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// pastel fill): the line starts under it and runs to the last member.
     private let dot = CALayer()
     /// The more button (the pack's three-dot action.more): the group editor, as a click on the
-    /// name (cx-rcby, Lawrence 2026-10-08); its More Group Actions row has the full menu.
+    /// name (cx-rcby, Lawrence 2026-10-08); a right-click shows the group's flat menu.
     let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                        label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
@@ -59,7 +60,7 @@ final class GroupHeaderRowView: SidebarRowView {
     var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsLayout = true; needsDisplay = true } } }
     /// The group editor is open for this group.
     var isEditing = false { didSet { if isEditing != oldValue { needsLayout = true; needsDisplay = true } } }
-    /// Shows the group's full menu: VoiceOver's More Group Actions (the editor's last row).
+    /// Shows the group's full menu: VoiceOver's More Group Actions (a right-click shows the same menu).
     var onMore: (() -> Void)?
     /// Opens the group editor (name, color and actions): the more button and VoiceOver's Edit action.
     var onEdit: (() -> Void)?
@@ -227,7 +228,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let b = layoutBounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
+        defer { fadesNextHover = false; CATransaction.commit() }
 
         // One full-width rounded bar (the Chrome tab group header) whose
         // radius, padding, type and glyphs scale with the row height
@@ -254,13 +255,15 @@ final class GroupHeaderRowView: SidebarRowView {
         // a click there collapses the group, and VoiceOver uses the header's
         // custom actions.
         let showsActions = (isHovered || isKeyboardFocused || isEditing) && !renaming
-        moreButton.isHidden = !showsActions
-        moreButton.alphaValue = 1
+        // Lawrence 2026-10-19 (u2397): a hover fades them in and out (opacity
+        // only); focus, the editor and Reduce Motion show them at once.
+        let fades = fadesNextHover
+        setHoverShown(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
         addButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
         addButton.frame.origin.x = max(pad, addButton.frame.minX)
         let offersAdd = onAdd != nil && !isEmpty
-        addButton.isHidden = !offersAdd || !showsActions
+        setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
         // The badge and activity keep their place whether or not the buttons show.
         var trailing = (offersAdd ? addButton.frame.minX : moreButton.frame.minX) - Metrics.space2
@@ -311,6 +314,8 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
+        // The fill still shows at once on entry; the + and more fade both ways (u2397).
+        fadesNextHover = true
         needsLayout = true
     }
 }
