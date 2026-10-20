@@ -2,7 +2,6 @@ use super::*;
 use std::io::{BufRead as _, Read as _, Write as _};
 use std::os::unix::net::UnixStream as StdStream;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 const FIXTURE: &str = "CMUX_NATIVE_SUPERVISION_TEST";
 const SESSION: &str = "CMUX_NATIVE_SUPERVISION_SESSION";
