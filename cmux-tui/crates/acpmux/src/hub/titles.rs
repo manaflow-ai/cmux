@@ -42,10 +42,7 @@ const MAX_TITLE_TRIES: u8 = 3;
 fn wants_title(source: Option<&str>, asking: bool, failures: u8) -> bool {
     match source {
         Some(PROMPT) => true,
-        Some(ASKED) => {
-            let _ = (asking, failures);
-            false
-        }
+        Some(ASKED) => !asking && failures < MAX_TITLE_TRIES,
         _ => false,
     }
 }
@@ -310,7 +307,7 @@ impl Hub {
 }
 
 fn request(prompt: &str, reply: &str, first: bool) -> String {
-    let which = if first { "first" } else { "first" };
+    let which = if first { "first" } else { "latest" };
     let mut text = format!("Title this chat.\n\nThe person's {which} message:\n{prompt}\n");
     if !reply.is_empty() {
         text.push_str(&format!("\nThe start of the agent's reply:\n{reply}\n"));
