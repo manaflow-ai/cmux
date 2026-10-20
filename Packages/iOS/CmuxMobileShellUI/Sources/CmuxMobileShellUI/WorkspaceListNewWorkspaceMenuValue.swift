@@ -4,11 +4,14 @@ import SwiftUI
 struct WorkspaceListNewWorkspaceMenuValue: Equatable {
     let canCreate: Bool
     let canCreateGroup: Bool
+    /// The Cloud machine selected by the current computer scope. It is part
+    /// of the value because the menu stores action closures separately.
+    var scopedExternalHostID: String? = nil
     /// Computers a new workspace can go to while "All Computers" is shown.
     /// With more than one, `+` asks which; otherwise it creates directly.
     var computerTargets: [WorkspaceCreateComputerTarget] = []
     /// When `+` creates on one SSH computer: the kinds it offers (PRD D31).
-    /// Empty for a Mac, where `+` creates a workspace directly.
+    /// Empty for a Mac or Cloud machine.
     var sshKinds: [WorkspaceCreateKindOption] = []
     /// The SSH computer `+` creates on. Part of the value because the menu
     /// is `Equatable` on its value alone: two hosts offer the same kinds,
@@ -17,13 +20,39 @@ struct WorkspaceListNewWorkspaceMenuValue: Equatable {
     var sshTargetHostID: UUID?
 
     var asksForComputer: Bool { computerTargets.count > 1 }
+
+    var singleConnectedTarget: WorkspaceCreateComputerTarget? {
+        guard computerTargets.count == 1,
+              let target = computerTargets.first,
+              target.statusText == nil
+        else {
+            return nil
+        }
+        return target
+    }
+
+    var isEnabled: Bool {
+        canCreate || computerTargets.contains { $0.statusText == nil }
+    }
+
+    static func soleConnectedTarget(
+        scopedExternalHostID: String?,
+        targets: [WorkspaceCreateComputerTarget]
+    ) -> WorkspaceCreateComputerTarget? {
+        guard scopedExternalHostID == nil else { return nil }
+        let connectedTargets = targets.filter { $0.statusText == nil }
+        guard connectedTargets.count == 1 else { return nil }
+        return connectedTargets.first
+    }
 }
 
-/// One computer offered by `+` under "All Computers": a connected Mac or a
-/// saved SSH computer, with the status dot and text used elsewhere.
+/// One computer offered by `+` under "All Computers": a connected Mac,
+/// Cloud machine, or saved SSH computer, with the status dot and text used
+/// elsewhere.
 struct WorkspaceCreateComputerTarget: Equatable, Identifiable {
     enum Kind: Equatable {
         case mac(macDeviceID: String, instanceTag: String?)
+        case cloud(hostID: String)
         case ssh(UUID)
     }
 
@@ -35,7 +64,7 @@ struct WorkspaceCreateComputerTarget: Equatable, Identifiable {
     let statusText: String?
     let statusColor: Color
     /// SSH computers: the kinds of workspace `+` can create there, shown as
-    /// a submenu. Empty for Macs.
+    /// a submenu. Empty for Macs and Cloud machines.
     var sshKinds: [WorkspaceCreateKindOption] = []
 }
 

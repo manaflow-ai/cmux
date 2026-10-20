@@ -39,9 +39,6 @@ extension AppDelegate {
             enforceComputerUsePolicy: { [weak self] in
                 self?.applyManagedComputerUsePolicy()
             },
-            enforceUpdatePolicy: { [weak self] in
-                self?.installUpdatesAutomaticallyDidChange()
-            },
             enforceSocketControlPolicy: { [weak self] in
                 self?.reconcileSocketListenerConfiguration(source: "managed_policy")
             }

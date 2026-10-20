@@ -331,7 +331,9 @@ extension CMUXCLI {
             // Initial transient foreground-auth failures are a reconnect phase, so boot-time outages share this loop.
             "cmux_ssh_reauth_required=\(hasOneTimeCommand ? 1 : 0)",
             "CMUX_SSH_CHILD_PID=; CMUX_SSH_AUTH_PID=; CMUX_SSH_PENDING_SIGNAL=; CMUX_SSH_PENDING_SIGNAL_NAME=",
-        ] + backoffBuilder.stateInitializationLines + [
+        ]
+        scriptLines += backoffBuilder.stateInitializationLines
+        scriptLines += [
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_reset_terminal_modes() { if [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi; }",
             "cmux_ssh_register_attempt() { \(lifecycleLaunching); }",
@@ -344,7 +346,6 @@ extension CMUXCLI {
             "trap 'cmux_ssh_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_signal_exit 143 TERM' TERM",
         ]
-
         scriptLines += [
             "while :; do",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
@@ -458,7 +459,6 @@ extension CMUXCLI {
         ].joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(wrapper))"
     }
-
     private func buildSSHSessionEndShellCommand(remoteRelayPort: Int) -> String {
         [
             "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]",

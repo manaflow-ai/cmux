@@ -21,7 +21,7 @@ import WebKit
     func selectCredential(
         for protectionSpace: URLProtectionSpace,
         candidates: [BrowserClientCertificateCredentialCandidate],
-        registerCancelPrompt: ((@escaping () -> Void) -> Void)? = nil,
+        registerCancelPrompt: BrowserClientCertificateAuthenticationHandler.PromptCancellationRegistration? = nil,
         completion: @escaping (BrowserClientCertificateCredentialCandidate?) -> Void
     ) {
         guard !candidates.isEmpty else {

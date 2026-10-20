@@ -34,7 +34,7 @@ struct AgentHookDeliveryEvent: Sendable {
         "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
         "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
-        "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID",
+        "CMUX_SURFACE_ID", "CMUX_STABLE_SURFACE_ID", "CMUX_WORKSPACE_ID",
     ]).union(SubrouterClaudeResumeRouting.hookCapturedEnvironmentKeys)
 
     private static let optionalLaunchEnvironmentKeys: Set<String> = Set([
@@ -164,7 +164,7 @@ struct AgentHookDeliveryEvent: Sendable {
         // boundary, updates the resumable session record, and may publish a
         // completion notification. Session teardown must not coalesce that
         // work away while replacing stale state in the same lane.
-        if subcommand == "session-end", earlier.subcommand == "stop" {
+        if earlier.subcommand == "stop" {
             return false
         }
         guard Self.terminalStateSubcommands.contains(subcommand),

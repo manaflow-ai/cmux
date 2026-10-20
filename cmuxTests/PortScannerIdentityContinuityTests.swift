@@ -295,6 +295,63 @@ struct PortScannerIdentityContinuityTests {
         #expect(finalized.completenessByWorkspace[validWorkspaceID] == .incomplete)
     }
 
+    @Test("A root whose PID is reused after the final root check is not excluded from badges")
+    func rootReusedAfterFinalRootCheckIsNotExcluded() async {
+        let workspaceID = UUID()
+        let recordedIdentity = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 0)
+        let replacementIdentity = AgentPIDProcessIdentity(pid: 100, startSeconds: 99, startMicroseconds: 0)
+        let root = AgentPortRootIdentity(pid: 100, processIdentity: recordedIdentity)
+        // Finalizing reads the root's identity twice: first to validate the
+        // root against its recorded identity, then to revalidate the identity
+        // captured before the port lookup. The PID changes hands in between,
+        // so the root passes the first read and fails the second.
+        let identityReads = OSAllocatedUnfairLock(initialState: 0)
+        let scanner = PortScanner(
+            processTable: RootReuseProcessTable(parents: [100: 1]),
+            processIdentityProvider: { _ in
+                identityReads.withLock { reads in
+                    reads += 1
+                    return reads == 1 ? recordedIdentity : replacementIdentity
+                }
+            },
+            processPresenceProvider: { _ in .present }
+        )
+
+        let finalized = await scanner.finalizeAgentPIDOwnership(
+            rootsByWorkspace: [workspaceID: Set([root])],
+            capturedOwnershipByPID: [100: [workspaceID]],
+            capturedIdentitiesByPID: [100: recordedIdentity],
+            workspaceIds: [workspaceID]
+        )
+
+        // Two reads mean the PID changed between them, not before the first.
+        #expect(identityReads.withLock { $0 } == 2)
+        #expect(finalized.ownershipByPID[100] == nil)
+        #expect(finalized.rootPIDs.isEmpty, "the replacement process's listeners must stay visible")
+    }
+
+    @Test("A root whose identity holds through the final check is still excluded from badges")
+    func rootThatKeepsItsIdentityIsExcluded() async {
+        let workspaceID = UUID()
+        let identity = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 0)
+        let root = AgentPortRootIdentity(pid: 100, processIdentity: identity)
+        let scanner = PortScanner(
+            processTable: RootReuseProcessTable(parents: [100: 1]),
+            processIdentityProvider: { _ in identity },
+            processPresenceProvider: { _ in .present }
+        )
+
+        let finalized = await scanner.finalizeAgentPIDOwnership(
+            rootsByWorkspace: [workspaceID: Set([root])],
+            capturedOwnershipByPID: [100: [workspaceID]],
+            capturedIdentitiesByPID: [100: identity],
+            workspaceIds: [workspaceID]
+        )
+
+        #expect(finalized.ownershipByPID[100] == [workspaceID])
+        #expect(finalized.rootPIDs == [100])
+    }
+
     @Test("No agent ownership skips post-capture process enumeration")
     func noAgentOwnershipSkipsFreshProcessGraph() async {
         let workspaceID = UUID()

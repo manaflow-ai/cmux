@@ -527,7 +527,8 @@ class DistanceRouting(unittest.TestCase):
                 calls.append(args)
                 return subprocess.CompletedProcess(args, 128, stdout="", stderr="fatal: the remote hung up")
             with unittest.mock.patch.object(wd.subprocess, "run", side_effect=fake_run), \
-                    unittest.mock.patch.object(wd, "have_tree", return_value=False):
+                    unittest.mock.patch.object(wd, "have_tree", return_value=False), \
+                    unittest.mock.patch.object(wd, "is_shallow", return_value=True):
                 wd._deadline[0] = time.monotonic() + 30
                 try:
                     report = wd.fetch_bases(workspace, ["1" * 40, "2" * 40, "not-a-sha"])
@@ -535,6 +536,7 @@ class DistanceRouting(unittest.TestCase):
                     wd._deadline[0] = float("inf")
             self.assertEqual(len(calls), 2)
             self.assertIn("--refetch", calls[0])
+            self.assertIn("--depth=1", calls[0])
             self.assertEqual({key: report[key] for key in ("missing", "attempts", "left")},
                              {"missing": 2, "attempts": 2, "left": 2})
             self.assertIn("remote hung up", report["error"])

@@ -31,6 +31,26 @@ extension MobileShellComposite {
         return scoped.union(userWide)
     }
 
+    /// Matches a stored hidden marker to a typed app-instance key. Older
+    /// markers can use a raw device id or preserve different casing, so a
+    /// string lookup is not sufficient for cached snapshot restoration.
+    /// A raw marker remains scoped to the legacy untagged pairing; a tagged
+    /// marker matches only the same tagged app instance.
+    func isHiddenMacPairingKey(
+        _ key: MacPairingKey,
+        hiddenIDs: Set<String>
+    ) -> Bool {
+        let expectedDeviceID = cmxCanonicalDeviceID(key.canonicalMacDeviceID).lowercased()
+        let expectedTag = macInstanceTagAuthority.normalize(key.normalizedInstanceTag)?.lowercased()
+        return hiddenIDs.contains { marker in
+            let identity = MobilePairedMac.pairingIdentity(from: marker)
+            guard cmxCanonicalDeviceID(identity.macDeviceID).lowercased() == expectedDeviceID else {
+                return false
+            }
+            return macInstanceTagAuthority.normalize(identity.instanceTag)?.lowercased() == expectedTag
+        }
+    }
+
     func visibleStoredPairedMacs(
         from loadedMacs: [MobilePairedMac],
         scope: MobileShellScopeSnapshot
@@ -428,6 +448,38 @@ extension MobileShellComposite {
         // rowless and clear them, so the hidden entry the user retries from
         // would vanish while a failed sibling keeps its revoked binding.
         if deletion.cleaned {
+            if let workspaceSnapshotStore {
+                let snapshotAccountID = computer.stackUserID ?? scope.userID
+                let deletedScopes = deletion.deletedScopes.isEmpty
+                    ? [MobilePairedMacExactScope(
+                        macDeviceID: computer.macDeviceID,
+                        instanceTag: computer.instanceTag,
+                        stackUserID: snapshotAccountID,
+                        teamID: computer.teamID
+                    )]
+                    : deletion.deletedScopes
+                for deletedScope in deletedScopes
+                where (deletedScope.stackUserID ?? snapshotAccountID) == snapshotAccountID {
+                    // Legacy paired rows may not carry a team. Their workspace
+                    // snapshot was written under the currently selected team,
+                    // so clear that scoped key as well as the old team-less key.
+                    var snapshotTeamIDs = [deletedScope.teamID]
+                    if deletedScope.teamID == nil, let currentTeamID = scope.teamID {
+                        snapshotTeamIDs.append(currentTeamID)
+                    }
+                    for snapshotTeamID in snapshotTeamIDs {
+                        await workspaceSnapshotStore.remove(
+                            userID: snapshotAccountID,
+                            teamID: snapshotTeamID,
+                            pairing: MacPairingKey(
+                                macDeviceID: deletedScope.macDeviceID,
+                                instanceTag: deletedScope.instanceTag
+                            ),
+                            force: true
+                        )
+                    }
+                }
+            }
             rememberForgottenMacRecovery(
                 for: computer,
                 accountID: scope.userID,

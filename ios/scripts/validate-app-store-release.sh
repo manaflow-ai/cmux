@@ -22,7 +22,7 @@ REVIEW_NOTES="$IOS_DIR/AppStoreReview/review-notes.md"
 CHECKLIST="$IOS_DIR/AppStoreReview/metadata-screenshots-checklist.md"
 SCREENSHOT_DEVICE_TYPES=(IPHONE_69 IPAD_PRO_3GEN_129)
 SCREENSHOT_DEVICE_TYPES_EXPLICIT=0
-VALIDATE_DIGITAL_GOODS="${CMUX_APP_STORE_VALIDATE_DIGITAL_GOODS:-0}"
+VALIDATE_DIGITAL_GOODS="${CMUX_APP_STORE_VALIDATE_DIGITAL_GOODS:-1}"
 
 usage() {
   cat <<'EOF'
@@ -210,7 +210,7 @@ if [[ "$VALIDATE_DIGITAL_GOODS" == "1" ]]; then
   asc validate iap --app "$APP" --output table
   asc validate subscriptions --app "$APP" --output table
 else
-  note "skipping IAP/subscription validation because the iOS App Store build exposes no purchase flow; payment gating is covered by web tests and $REVIEW_NOTES"
+  note "skipping IAP/subscription validation (CMUX_APP_STORE_VALIDATE_DIGITAL_GOODS=0); the App Store build sells StoreKit subscriptions, so only skip for a dry run"
 fi
 
 if [[ "$STAGE_DRY_RUN" -eq 1 ]]; then

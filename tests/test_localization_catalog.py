@@ -102,6 +102,60 @@ class LocalizationCatalogTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertTrue(MODULE.validate_localization("Open", unit(marker), "de"))
 
+    def test_numbered_placeholders_may_change_order(self):
+        self.assertEqual(MODULE.validate_localization("Move %@ to %@", unit("%2$@ に %1$@ を移動"), "ja"), [])
+        self.assertEqual(MODULE.validate_localization("Count %d; name %@", unit("名前 %2$@、件数 %1$d"), "ja"), [])
+        self.assertEqual(MODULE.validate_localization("%d%% of %@", unit("%2$@ の %1$d%%"), "ja"), [])
+
+    def test_dynamic_width_and_precision_consume_their_own_arguments(self):
+        self.assertEqual(MODULE.signature("Width %*d then %d"), [(1, "*"), (2, "*1$d"), (3, "d")])
+        self.assertEqual(MODULE.signature("%3$*1$.*2$f"), [(1, "*"), (2, "*"), (3, "*1$.*2$f")])
+        self.assertEqual(MODULE.signature("%*.*f"), MODULE.signature("%3$*1$.*2$f"))
+        self.assertEqual(MODULE.canonical_text("Width %-*.*f"), "Width %3$-*1$.*2$f")
+        self.assertEqual(MODULE.canonical_text("Width %3$-*1$.*2$f"), "Width %3$-*1$.*2$f")
+        for english, translated in (
+            ("Width %*d then %d", "幅 %2$*1$d、%3$d"),
+            ("Width %*d then %d", "幅 %*d、%d"),
+            ("Precision %.*f", "精度 %2$.*1$f"),
+            ("Positional %3$*1$.*2$f", "精度 %3$*1$.*2$f"),
+        ):
+            with self.subTest(translated=translated):
+                self.assertEqual(MODULE.validate_localization(english, unit(translated), "ja"), [])
+
+    def test_dynamic_width_and_precision_arguments_cannot_be_dropped_or_retyped(self):
+        for english, translated in (
+            ("Width %*d", "幅 %d"),
+            ("Precision %.*f", "精度 %f"),
+            ("Positional %3$*1$.*2$f", "精度 %3$f"),
+            ("Width %*d", "幅 %1$d 値 %2$d"),
+            ("Width %*d", "幅 %2$*1$@"),
+            ("Positional %3$*1$.*2$f", "精度 %3$*2$.*1$f"),
+            ("Width %*d then %*d", "幅 %2$*3$d、%4$*1$d"),
+        ):
+            with self.subTest(translated=translated):
+                self.assertTrue(MODULE.validate_localization(english, unit(translated), "ja"))
+
+    def test_unnumbered_placeholders_count_separately_from_numbered_ones(self):
+        # String(format: "%1$@ %@", "one", "two") renders "one one" and
+        # String(format: "%@ %2$@", "one", "two") renders "one two".
+        self.assertEqual(MODULE.signature("%1$@ %@"), [(1, "@"), (1, "@")])
+        self.assertEqual(MODULE.canonical_text("%1$@ %@"), "%1$@ %1$@")
+        self.assertEqual(MODULE.validate_localization("Move %@ to %@", unit("%@ を %2$@ へ"), "ja"), [])
+        self.assertEqual(MODULE.validate_localization("Move %@ to %@", unit("%2$@ に %@ を移動"), "ja"), [])
+        for english, translated in (
+            ("Move %@ to %@", "%1$@ %@"),
+            ("Width %*d then %d", "幅 %2$*1$d、%d"),
+            ("Width %*d", "幅 %*1$d"),
+        ):
+            with self.subTest(translated=translated):
+                self.assertTrue(MODULE.validate_localization(english, unit(translated), "ja"))
+
+    def test_reordered_placeholders_still_need_every_argument_and_type(self):
+        self.assertTrue(MODULE.validate_localization("Move %@ to %@", unit("%2$@ を移動"), "ja"))
+        self.assertTrue(MODULE.validate_localization("Move %@ to %@", unit("%2$@ に %1$@ を %3$@ へ移動"), "ja"))
+        self.assertTrue(MODULE.validate_localization("Count %d; name %@", unit("名前 %2$d、件数 %1$@"), "ja"))
+        self.assertTrue(MODULE.validate_localization("%d%% of %@", unit("%2$@ の %1$d"), "ja"))
+
     def test_rejects_lost_line_breaks(self):
         self.assertTrue(MODULE.validate_localization("Name: %@\nStatus: %@", unit("Name: %@ Status: %@"), "de"))
 
@@ -201,6 +255,23 @@ class LocalizationCatalogTests(unittest.TestCase):
                 MODULE.merge(path, "de", [{"key": "example", "source": "Open %@", "value": "Öffnen"}], {})
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), original)
 
+    def test_merge_accepts_reordered_numbered_placeholders(self):
+        original = {
+            "sourceLanguage": "en",
+            "strings": {
+                "example": {
+                    "extractionState": "manual",
+                    "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Move %@ to %@"}}},
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Localizable.xcstrings"
+            path.write_text(json.dumps(original, indent=2) + "\n", encoding="utf-8")
+            MODULE.merge(path, "ja", [{"key": "example", "source": "Move %@ to %@", "value": "%2$@ に %1$@ を移動"}], {})
+            updated = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(updated["strings"]["example"]["localizations"]["ja"]["stringUnit"]["value"], "%2$@ に %1$@ を移動")
+
     def test_merge_preserves_other_locales_and_updates_only_target(self):
         original = {
             "sourceLanguage": "en",
@@ -222,6 +293,23 @@ class LocalizationCatalogTests(unittest.TestCase):
             localizations = updated["strings"]["example"]["localizations"]
             self.assertEqual(localizations["ja"]["stringUnit"]["value"], "開く")
             self.assertEqual(localizations["de"]["stringUnit"]["value"], "Öffnen")
+
+    def test_load_metadata_rejects_duplicate_keys(self):
+        document = (
+            '{"one": {"source": "A"}, "two": {"source": "B"}, "one": {"source": "C"}}'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            scripts = Path(directory) / "scripts"
+            scripts.mkdir()
+            (scripts / "metadata.json").write_text(document, encoding="utf-8")
+            with patch.object(MODULE, "ROOT", Path(directory)):
+                with self.assertRaisesRegex(ValueError, "scripts/metadata.json.*duplicate.*one"):
+                    MODULE.load_metadata("metadata.json")
+
+    def test_checked_in_metadata_has_no_duplicate_keys(self):
+        for name in ("localization-allowed-omissions.json", "localization-plurals.json"):
+            with self.subTest(name=name):
+                self.assertIsInstance(MODULE.load_metadata(name), dict)
 
 
 if __name__ == "__main__":

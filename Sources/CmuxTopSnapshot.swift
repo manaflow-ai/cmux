@@ -1,4 +1,5 @@
 import Darwin
+import CmuxCore
 import Foundation
 
 struct CmuxTopResourceSummary: Sendable {
@@ -51,18 +52,6 @@ enum CmuxTopProcessMemorySource: String, Sendable {
     case rusageResidentSize = "proc_pid_rusage.RUSAGE_INFO_V4.ri_resident_size"
     case mixed
     case unavailable
-}
-
-struct CmuxTopProcessScope: Sendable, Equatable {
-    let workspaceID: UUID?
-    let surfaceID: UUID?
-    let attributionReason: String
-
-    init(workspaceID: UUID?, surfaceID: UUID?, attributionReason: String) {
-        self.workspaceID = workspaceID
-        self.surfaceID = surfaceID
-        self.attributionReason = attributionReason
-    }
 }
 
 // All stored indexes and records are immutable after construction.
@@ -196,6 +185,46 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
 
     func pids(forCMUXSurfaceID surfaceID: UUID) -> Set<Int> {
         Set(pidsByCMUXSurfaceID[surfaceID] ?? [])
+    }
+
+    /// Splits a surface's TTY population into processes cmux can prove it owns and
+    /// processes that merely share the TTY device.
+    ///
+    /// Sharing a TTY is not ownership: a process reparented to launchd keeps the
+    /// controlling TTY of the terminal it was launched from, so a detached REPL or dev
+    /// server would otherwise be summed into the surface's memory.
+    /// See https://github.com/manaflow-ai/cmux/issues/11004.
+    ///
+    /// - Parameters:
+    ///   - ttyPIDs: every PID sharing the surface's TTY device.
+    ///   - surfaceID: the surface being annotated, when it has an identifier.
+    ///   - cmuxOwnedPIDs: the window's app processes and their descendants, used as launch
+    ///     evidence for a process whose parent sits off the TTY.
+    ///   - provenPIDs: PIDs already proven through the cmux-scoped process tree.
+    /// - Returns: the proven set, the unattributed set, and the reason for each PID.
+    func ttyOwnership(
+        ttyPIDs: Set<Int>,
+        surfaceID: UUID?,
+        cmuxOwnedPIDs: Set<Int>,
+        provenPIDs: Set<Int> = []
+    ) -> CmuxTopTTYOwnership {
+        var ownershipProcesses: [Int: CmuxTopTTYOwnershipProcess] = [:]
+        ownershipProcesses.reserveCapacity(ttyPIDs.count)
+        for pid in ttyPIDs {
+            guard let process = processesByPID[pid] else { continue }
+            ownershipProcesses[pid] = CmuxTopTTYOwnershipProcess(
+                pid: process.pid,
+                parentPID: process.parentPID,
+                processGroupID: process.processGroupID,
+                cmuxSurfaceID: process.cmuxSurfaceID
+            )
+        }
+        return CmuxTopTTYOwnershipResolver(cmuxOwnedPIDs: cmuxOwnedPIDs).resolve(
+            candidates: ttyPIDs,
+            processes: ownershipProcesses,
+            surfaceID: surfaceID,
+            provenPIDs: provenPIDs
+        )
     }
 
     func pids(forProcessGroupID processGroupID: Int) -> Set<Int> {

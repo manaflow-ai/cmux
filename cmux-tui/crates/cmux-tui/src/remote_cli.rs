@@ -61,6 +61,7 @@ const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CLIENT_RELAY_ROUTES: usize = 4;
 const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
+const FORWARD_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
     crate::cli::is_remote_invocation(args)
@@ -101,6 +102,8 @@ fn run_inner(
         Some("remote-link") => run_remote_link(&args[1..]),
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
         Some("remote-stop") => run_remote_stop(&args[1..]),
+        Some("remote-doctor") => crate::remote_doctor::run(&args[1..]),
+        Some("remote-trust") => crate::remote_trust::run(&args[1..]),
         Some("install-self") => run_install_self(&args[1..]),
         Some("wg") => run_wg(&args[1..]),
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
@@ -152,6 +155,13 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--link-socket",
         "--mux-socket",
         "--destination",
+        "--user",
+        "--timeout-seconds",
+        "--tier",
+        "--folder",
+        "--agent",
+        "--expires-in-hours",
+        "--limit",
     ];
 
     let mut index = 0;
@@ -193,6 +203,8 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-probe") => client.remote_probe_help,
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
+        Some("remote-doctor") => client.remote_doctor_help,
+        Some("remote-trust") => catalog().peer_trust.help,
         Some("install-self") => client.install_self_help,
         Some("wg") => client.wg_hub_help,
         Some("remote") => client.remote_lifecycle_help,
@@ -994,6 +1006,7 @@ fn reachable_unix_route(_: &Url) -> bool {
 
 fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let flags = parse_connect_flags(args)?;
+    let owner = flags.exit_with_parent.then(current_parent_process_id);
     let workspace_root = flags
         .forward_workspace
         .clone()
@@ -1030,6 +1043,14 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
         println!("{}", forward.webview_url(&scheme)?);
         let mut finished = connected.runtime.subscribe_finished();
+        let parent_exit = async {
+            if let Some(owner) = owner {
+                wait_for_parent_exit(owner).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::pin!(parent_exit);
         let mut wait_error = None;
         if !crate::shutdown_requested() && !*finished.borrow() {
             tokio::select! {
@@ -1040,10 +1061,15 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
                     }
                 }
                 _ = finished.changed() => {}
+                _ = &mut parent_exit => {}
             }
         }
         forward.shutdown().await;
-        let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        let _ = tokio::time::timeout(
+            FORWARD_CLEANUP_TIMEOUT,
+            client.request(WorkspaceRequest::CloseRoute { route }),
+        )
+        .await;
         if let Some(error) = wait_error {
             return Err(error.into());
         }
@@ -1816,10 +1842,95 @@ fn parent_process_is(_: u32) -> bool {
     true
 }
 
+/// Returns when the process `expected` (our parent at launch) exits. It
+/// waits on a kernel process-exit event (kqueue `NOTE_EXIT`, Linux pidfd);
+/// it used to re-check `getppid` every 100 ms. Kernels without pidfd keep
+/// the old check as a fallback.
 async fn wait_for_parent_exit(expected: u32) {
+    if !parent_process_is(expected) {
+        return;
+    }
+    // A detached thread, not `spawn_blocking`: dropping a tokio runtime waits
+    // for its blocking tasks, so a shutdown while the parent is alive would
+    // hang until the parent exits (and deadlock if the parent waits for us).
+    let (exited_tx, exited_rx) = tokio::sync::oneshot::channel();
+    let spawned = thread::Builder::new().name("parent-exit-watch".to_owned()).spawn(move || {
+        let _ = exited_tx.send(wait_for_process_exit(expected));
+    });
+    if spawned.is_ok() && matches!(exited_rx.await, Ok(Ok(()))) {
+        return;
+    }
     while parent_process_is(expected) {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+/// Blocks until process `pid` exits (at once when it is already gone).
+#[cfg(target_os = "macos")]
+fn wait_for_process_exit(pid: u32) -> io::Result<()> {
+    let pid = libc::pid_t::try_from(pid).map_err(|_| io::ErrorKind::InvalidInput)?;
+    // SAFETY: kqueue has no preconditions; the descriptor is closed below.
+    let queue = unsafe { libc::kqueue() };
+    if queue < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the kevent structs are fully initialized and outlive the call.
+    let mut change: libc::kevent = unsafe { std::mem::zeroed() };
+    change.ident = pid as libc::uintptr_t;
+    change.filter = libc::EVFILT_PROC;
+    change.flags = libc::EV_ADD | libc::EV_ONESHOT;
+    change.fflags = libc::NOTE_EXIT;
+    let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+    let mut changes = 1;
+    let result = loop {
+        let count =
+            unsafe { libc::kevent(queue, &change, changes, &mut event, 1, std::ptr::null()) };
+        if count > 0 {
+            break Ok(());
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::EINTR) => {
+                // The registration was applied before the interruption.
+                changes = 0;
+            }
+            Some(libc::ESRCH) => break Ok(()),
+            _ => break Err(error),
+        }
+    };
+    // SAFETY: `queue` is owned here.
+    unsafe { libc::close(queue) };
+    result
+}
+
+#[cfg(target_os = "linux")]
+fn wait_for_process_exit(pid: u32) -> io::Result<()> {
+    // SAFETY: pidfd_open takes a pid and flags and returns a descriptor.
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
+    if fd < 0 {
+        let error = io::Error::last_os_error();
+        return if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) };
+    }
+    let fd = fd as libc::c_int;
+    let mut pollfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+    let result = loop {
+        // SAFETY: `pollfd` names the pidfd owned here.
+        if unsafe { libc::poll(&mut pollfd, 1, -1) } > 0 {
+            break Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            break Err(error);
+        }
+    };
+    // SAFETY: `fd` is owned here.
+    unsafe { libc::close(fd) };
+    result
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn wait_for_process_exit(_pid: u32) -> io::Result<()> {
+    Err(io::ErrorKind::Unsupported.into())
 }
 
 /// A wg-quick file is small; anything larger is not one.
@@ -1981,7 +2092,21 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
-pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub", "browser-proxy"];
+/// `cloud-browser-network`: Cloud browser proxy routes preserve the guest
+/// machine's network and loopback context.
+/// `ssh-payload-download`: a remote platform's build that the app does not
+/// bundle is downloaded once, checked against the bundled manifest and cached,
+/// so the app's packager may ship only its checksum.
+/// `ssh-payload-macos-from-client`: a Mac host gets this client's own build or
+/// its slice of a universal binary, so the packager may ship no macOS payload.
+pub const PROBE_CAPABILITIES: &[&str] = &[
+    "direct-ws-user-agent",
+    "wireguard-hub",
+    "browser-proxy",
+    "cloud-browser-network",
+    "ssh-payload-download",
+    "ssh-payload-macos-from-client",
+];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
@@ -2919,6 +3044,20 @@ mod tests {
     fn probe_capabilities_include_direct_ws_user_agent() {
         assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
         assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
+    }
+
+    #[test]
+    fn probe_capabilities_include_ssh_payload_download() {
+        // The app's packager bundles Linux SSH payloads only for a client
+        // without this capability (scripts/install-cmux-tui-client.sh).
+        assert!(PROBE_CAPABILITIES.contains(&"ssh-payload-download"));
+    }
+
+    #[test]
+    fn probe_capabilities_include_ssh_payload_macos_from_client() {
+        // The app's packager bundles macOS SSH payloads only for a client
+        // without this capability (scripts/install-cmux-tui-client.sh).
+        assert!(PROBE_CAPABILITIES.contains(&"ssh-payload-macos-from-client"));
     }
 
     #[test]
@@ -5402,6 +5541,28 @@ mod tests {
         assert!(
             remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:3000", false)
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn cloud_browser_proxy_keeps_remote_hosts_on_guest_network() {
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_options(
+                "example.com:443",
+                true,
+                true,
+            )
+            .unwrap(),
+            ("example.com".into(), 443)
+        );
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_options(
+                "cmux-loopback.localtest.me:3000",
+                true,
+                true,
+            )
+            .unwrap(),
+            ("127.0.0.1".into(), 3000)
         );
     }
 }

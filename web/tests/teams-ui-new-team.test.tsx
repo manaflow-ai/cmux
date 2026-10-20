@@ -59,6 +59,17 @@ describe("new team flow steps", () => {
     expect(html).toContain('href="/api/billing/checkout?plan=team&amp;teamId=team+1"');
   });
 
+  test("the plan step says seats follow the member count", async () => {
+    const html = await render(<NewTeamFlow initialState={{ step: "plan", team }} />);
+
+    // Seats are not soft: the subscription quantity follows the member count,
+    // so this line must not go back to offering to add seats later.
+    expect(html).toContain(
+      "Seats follow your member count: each member is billed, and the total updates when people join or leave."
+    );
+    expect(html).not.toContain("add seats later");
+  });
+
   test("the invite step can finish without inviting anyone", async () => {
     const html = await render(<NewTeamFlow initialState={{ step: "invite", team }} />);
     expect(html).toContain("Invite people to Acme");

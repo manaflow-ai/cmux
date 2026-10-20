@@ -329,7 +329,29 @@ function newClientRequestId(prefix: string): string {
 }
 
 export function restoreComposerDraft(storage: Pick<Storage, "setItem">, prompt: string) {
-  storage.setItem(composerDraftKey, prompt);
+  try { storage.setItem(composerDraftKey, prompt); } catch {
+    // Draft recovery is best effort when browser storage is unavailable.
+  }
+}
+
+export function readComposerDraft(storage: Pick<Storage, "getItem">): string {
+  try {
+    return storage.getItem(composerDraftKey) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeComposerDraft(
+  storage: Pick<Storage, "setItem" | "removeItem">,
+  draft: string,
+) {
+  try {
+    if (draft) storage.setItem(composerDraftKey, draft);
+    else storage.removeItem(composerDraftKey);
+  } catch {
+    // Private browsing and embedded Cloud contexts can deny session storage.
+  }
 }
 
 // An echo matches anywhere in the queue: one that never lands (a failed send)
@@ -403,6 +425,7 @@ export function useSession(): SessionState {
     failed?: boolean;
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
+  const pendingStartStopsRef = useRef(new Set<string>());
   const discardFileDiffRequests = useCallback(() => {
     for (const request of pendingFileDiffRequestsRef.current.values()) window.clearTimeout(request.timer);
     pendingFileDiffRequestsRef.current.clear();
@@ -457,16 +480,29 @@ export function useSession(): SessionState {
   }, [closeForkWindow, closeHandoffWindow]);
 
   const clearPendingStartTimeout = useCallback(() => {
-    if (pendingStartTimeoutRef.current) window.clearTimeout(pendingStartTimeoutRef.current);
+    if (pendingStartTimeoutRef.current !== null) window.clearTimeout(pendingStartTimeoutRef.current);
     pendingStartTimeoutRef.current = null;
+  }, []);
+
+  const sendRaw = useCallback((obj: unknown) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(obj));
+      return true;
+    }
+    return false;
   }, []);
 
   const failPendingStart = useCallback((message: string) => {
     const pending = pendingStartRef.current;
     if (!pending) return;
+    // Restoring the draft offers a retry. Cancel the original request as well
+    // so it cannot quietly launch another agent after timeout or failure.
+    pendingStartStopsRef.current.add(pending.requestId);
+    sendRaw({ op: "stop", requestId: pending.requestId });
     clearPendingStartTimeout();
     pendingStartRef.current = null;
-    restoreComposerDraft(draftStorage, pending.prompt);
+    restoreComposerDraft(draftStorage, [pending.prompt, ...pending.queuedReplies.map((reply) => reply.prompt)].join("\n\n"));
     history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
     sessionIdRef.current = null;
@@ -482,23 +518,20 @@ export function useSession(): SessionState {
     setFileDiffErrors({});
     setLastError(message);
     setPhase("composer");
-  }, [clearPendingStartTimeout, discardFileDiffRequests]);
+  }, [clearPendingStartTimeout, discardFileDiffRequests, sendRaw]);
 
   const armPendingStartTimeout = useCallback(() => {
     clearPendingStartTimeout();
-    pendingStartTimeoutRef.current = window.setTimeout(() => {
+    const pending = pendingStartRef.current;
+    if (!pending) return;
+    const timeout = window.setTimeout(() => {
+      // Clearing a timer cannot recall a callback already queued. Also guard
+      // rearming this same request after reconnect, not just a new startup.
+      if (pendingStartRef.current !== pending || pendingStartTimeoutRef.current !== timeout) return;
       failPendingStart("Failed to start agent: request timed out");
     }, PENDING_START_TIMEOUT_MS);
+    pendingStartTimeoutRef.current = timeout;
   }, [clearPendingStartTimeout, failPendingStart]);
-
-  const sendRaw = useCallback((obj: unknown) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(obj));
-      return true;
-    }
-    return false;
-  }, []);
 
   useEffect(() => {
     const disconnect = openSessionConnection({
@@ -509,6 +542,7 @@ export function useSession(): SessionState {
         if (!ws) latestCommandRequestsRef.current.clear();
       },
       onOpen: () => {
+        for (const requestId of pendingStartStopsRef.current) sendRaw({ op: "stop", requestId });
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
         else if (pending && !pending.failed) {
@@ -525,6 +559,9 @@ export function useSession(): SessionState {
       onMessage: (e) => {
         const msg = JSON.parse(e.data);
         switch (msg.kind) {
+          case "start-stopped":
+            if (typeof msg.requestId === "string") pendingStartStopsRef.current.delete(msg.requestId);
+            break;
           case "hello": {
             const h = msg as Hello & { kind: string; capabilities?: Record<string, ProviderCapabilities> };
             setProviders(h.providers);
@@ -550,6 +587,13 @@ export function useSession(): SessionState {
               }
               break;
             }
+            if (
+              pendingHandoffSourceSessionRef.current
+              && pendingHandoffSourceSessionRef.current !== msg.session.id
+            ) {
+              closeHandoffWindow();
+              setHandoffPending(false);
+            }
             if (sessionIdRef.current !== msg.session.id) resetSessionActions();
             sessionIdRef.current = msg.session.id;
             history.replaceState(null, "", appPath("/s/" + msg.session.id));
@@ -573,6 +617,13 @@ export function useSession(): SessionState {
           }
           case "history":
             if (msg.sessionId !== sessionIdRef.current) break;
+            if (
+              pendingHandoffSourceSessionRef.current
+              && pendingHandoffSourceSessionRef.current !== msg.session.id
+            ) {
+              closeHandoffWindow();
+              setHandoffPending(false);
+            }
             if (sessionIdRef.current !== msg.session.id) resetSessionActions();
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
@@ -591,6 +642,8 @@ export function useSession(): SessionState {
             break;
           case "no-session":
             if (!sessionIdRef.current || msg.sessionId !== sessionIdRef.current) break;
+            closeHandoffWindow();
+            setHandoffPending(false);
             resetSessionActions();
             history.replaceState(null, "", appPath("/"));
             sessionIdRef.current = null;
@@ -819,7 +872,7 @@ export function useSession(): SessionState {
     setFileDiffs({});
     setFileDiffErrors({});
     setPhase("composer");
-  }, [clearPendingStartTimeout, closeHandoffWindow, discardFileDiffRequests, resetSessionActions]);
+  }, [clearPendingStartTimeout, discardFileDiffRequests, resetSessionActions]);
   const reply = useCallback((text: string) => {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {
@@ -849,8 +902,13 @@ export function useSession(): SessionState {
     if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
   }, [sendRaw]);
   const stop = useCallback(() => {
-    if (sessionIdRef.current) sendRaw({ op: "stop", sessionId: sessionIdRef.current });
-  }, [sendRaw]);
+    const pending = pendingStartRef.current;
+    if (pending) {
+      failPendingStart("");
+    } else if (sessionIdRef.current) {
+      sendRaw({ op: "stop", sessionId: sessionIdRef.current });
+    }
+  }, [failPendingStart, sendRaw]);
   const setOption = useCallback((id: string, value: OptionValue) => {
     if (sessionIdRef.current) sendRaw({ op: "set-option", sessionId: sessionIdRef.current, id, value });
   }, [sendRaw]);

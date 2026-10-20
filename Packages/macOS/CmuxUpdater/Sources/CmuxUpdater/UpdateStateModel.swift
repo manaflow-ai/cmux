@@ -269,9 +269,6 @@ public final class UpdateStateModel {
             let percent = String(format: "%.0f%%", extracting.progress * 100)
             return String(localized: "update.extracting.progress", defaultValue: "Preparing: \(percent)")
         case .installing(let install):
-            if install.relaunchBlockers != nil {
-                return String(localized: "update.readyWaiting", defaultValue: "Update Ready")
-            }
             return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installing.status", defaultValue: "Installing…")
         case .notFound:
             return String(localized: "update.noUpdates.title", defaultValue: "No Updates Available")
@@ -318,8 +315,8 @@ public final class UpdateStateModel {
             return "arrow.down.circle"
         case .extracting:
             return "shippingbox"
-        case .installing(let install):
-            return install.relaunchBlockers == nil ? "power.circle" : "hourglass"
+        case .installing:
+            return "power.circle"
         case .notFound:
             return "info.circle"
         case .error:
@@ -345,9 +342,6 @@ public final class UpdateStateModel {
         case .extracting:
             return String(localized: "update.preparingUpdate", defaultValue: "Extracting and preparing the update")
         case let .installing(install):
-            if let blockers = install.relaunchBlockers {
-                return Self.relaunchBlockersDescription(blockers, askingUser: install.updateWhenClear != nil)
-            }
             return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
         case .notFound:
             return String(localized: "update.noUpdates.message", defaultValue: "You are running the latest version")
@@ -374,50 +368,6 @@ public final class UpdateStateModel {
             return String(format: "%.0f%%", extracting.progress * 100)
         default:
             return nil
-        }
-    }
-
-    /// Summarizes a held relaunch for the popover, above its list of agents. `askingUser` is
-    /// set when the user asked to install and risky agents need their say-so.
-    public nonisolated static func relaunchBlockersDescription(
-        _ blockers: UpdateRelaunchBlockers,
-        askingUser: Bool
-    ) -> String {
-        var sentences: [String] = []
-        if blockers.needsConfirmation {
-            sentences.append(askingUser
-                ? String(localized: "update.relaunch.confirmRisky", defaultValue: "Relaunching now stops what these are running.")
-                : String(localized: "update.autoInstall.waitingRisky", defaultValue: "Installs after these finish and you step away."))
-        } else {
-            sentences.append(String(
-                localized: "update.autoInstall.waitingQuiet",
-                defaultValue: "Installs the next time you step away for a minute. Workspaces and agents resume where they left off."
-            ))
-        }
-        let careCount = blockers.careAgents.count
-        if careCount > 0 {
-            sentences.append(String(
-                localized: "update.relaunch.resumesMidTask",
-                defaultValue: "\(careCount) agents will be resumed mid-task."
-            ))
-        }
-        return sentences.joined(separator: " ")
-    }
-
-    /// The label for the running-commands row of a held relaunch.
-    public nonisolated static func runningCommandsLabel(_ count: Int) -> String {
-        String(localized: "update.relaunch.runningCommands", defaultValue: "\(count) running commands")
-    }
-
-    /// The chip text for an agent's resume safety.
-    public nonisolated static func safetyLabel(_ safety: UpdateResumeSafety) -> String {
-        switch safety {
-        case .safe:
-            return String(localized: "update.safety.safe", defaultValue: "Safe")
-        case .care:
-            return String(localized: "update.safety.care", defaultValue: "Resumes")
-        case .risky:
-            return String(localized: "update.safety.risky", defaultValue: "Risky")
         }
     }
 

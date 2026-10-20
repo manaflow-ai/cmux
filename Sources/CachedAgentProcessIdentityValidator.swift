@@ -122,7 +122,12 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             let observedSessionID: String?
             switch registration.sessionIdSource {
             case .argvOption(let option):
-                guard let observedSessionID = nonOptionValue(after: option, in: arguments)
+                // `muse resume` also accepts a session name; only a UUID there
+                // names the session, so a name defers to the hook record.
+                let argvSessionID = nonOptionValue(after: option, in: arguments).flatMap { value in
+                    registration.isBuiltInMuse && UUID(uuidString: value) == nil ? nil : value
+                }
+                guard let observedSessionID = argvSessionID
                     ?? authoritativeEnvironmentSessionID else {
                     // The identity option only appears on explicit resumes. A
                     // fresh launch has none: Antigravity mints its conversation

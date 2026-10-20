@@ -22,15 +22,7 @@ extension GhosttyNSView {
             // A remote-tmux mirror pane surface is not a workspace panel, so
             // without it every pointer-down in one of those would ask the
             // container to select a pane it does not own.
-            if let workspace = terminalSurface.owningWorkspace(),
-               workspace.panels[terminalSurface.id] != nil,
-               (workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id))?.selectedTabId == workspace.id,
-               workspace.focusedPanelId != terminalSurface.id {
-                workspace.focusPanel(
-                    terminalSurface.id,
-                    trigger: .terminalFirstResponder
-                )
-            }
+            terminalSurface.owningWorkspace()?.focusPanelFromTerminalInput(terminalSurface.id)
         case .rightSidebarDock:
             DockSplitStore.focusPanelFromDockPointer(terminalSurface.id, window: window)
         }

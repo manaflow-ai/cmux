@@ -2,10 +2,14 @@ import AppKit
 import CmuxExtensionSidebarExamples
 import CmuxFoundation
 import CmuxSettings
+import CmuxSettingsUI
 import CmuxSidebarProviderKit
 import Foundation
 
 enum CmuxExtensionSidebarSelection {
+    @MainActor
+    private static var inMemoryTemplatePreview: (providerId: String, source: String)?
+
     // No "." in this key: ContentView and VerticalTabsSidebar read it through
     // @AppStorage, and SwiftUI re-evaluated every view holding a dotted
     // @AppStorage key when an unrelated key changed (#13930).
@@ -305,6 +309,28 @@ enum CmuxExtensionSidebarSelection {
         defaults.set(providerId, forKey: defaultsKey)
     }
 
+    static func clearStaleTemplatePreviewSelection(defaults: UserDefaults = .standard) {
+        guard let providerId = defaults.string(forKey: defaultsKey),
+              providerId.hasPrefix(customSidebarProviderPrefix + ".cmux-preview-") else { return }
+        defaults.removeObject(forKey: defaultsKey)
+    }
+
+    @MainActor
+    static func setInMemoryTemplatePreview(providerId: String, source: String) {
+        inMemoryTemplatePreview = (providerId, source)
+    }
+
+    @MainActor
+    static func clearInMemoryTemplatePreview() {
+        inMemoryTemplatePreview = nil
+    }
+
+    @MainActor
+    static func inMemoryTemplatePreviewSource(for providerId: String) -> String? {
+        guard inMemoryTemplatePreview?.providerId == providerId else { return nil }
+        return inMemoryTemplatePreview?.source
+    }
+
     /// Moves a selection saved under `legacyDefaultsKey` before #13930.
     /// A selection already stored under `defaultsKey` wins; the legacy key is removed.
     static func migrateLegacyDefaultsKeyIfNeeded(defaults: UserDefaults = .standard) {
@@ -312,6 +338,17 @@ enum CmuxExtensionSidebarSelection {
         defaults.removeObject(forKey: legacyDefaultsKey)
         guard defaults.object(forKey: defaultsKey) == nil else { return }
         defaults.set(legacyProviderId, forKey: defaultsKey)
+    }
+
+    @MainActor
+    static func browseTemplates() {
+        guard customSidebarsEnabled else { return }
+        AppDelegate.shared?.openPreferencesWindow(
+            debugSource: "sidebar.browseTemplates",
+            navigationTarget: .customSidebars
+        )
+        SettingsNavigationRequest.post(.customSidebars, anchorID: "setting:customSidebars:templates", highlight: true)
+        CustomSidebarTemplateGalleryRequest.shared.request()
     }
 
     @MainActor
@@ -342,6 +379,16 @@ enum CmuxExtensionSidebarSelection {
             item.image = NSImage(systemSymbolName: descriptor.systemImageName, accessibilityDescription: nil)
             menu.addItem(item)
         }
+        if customSidebarsEnabled {
+            menu.addItem(.separator())
+            let templatesItem = NSMenuItem(
+                title: String(localized: "sidebar.menu.browseTemplates", defaultValue: "Browse Sidebar Templates…"),
+                action: #selector(CmuxExtensionSidebarMenuTarget.browseTemplates),
+                keyEquivalent: ""
+            )
+            templatesItem.target = CmuxExtensionSidebarMenuTarget.shared
+            menu.addItem(templatesItem)
+        }
         menu.popUp(
             positioning: nil,
             at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
@@ -357,5 +404,9 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
     @objc func selectProvider(_ sender: NSMenuItem) {
         guard let providerId = sender.representedObject as? String else { return }
         CmuxExtensionSidebarSelection.setProviderId(providerId)
+    }
+
+    @objc func browseTemplates() {
+        CmuxExtensionSidebarSelection.browseTemplates()
     }
 }
