@@ -28,7 +28,7 @@ atom_info() { otool -l "$1" | grep -c LC_ATOM_INFO || true; }
 [ "$(atom_info "$FW/Versions/A/Mergeable")" = 1 ] || { echo "fixture has no LC_ATOM_INFO" >&2; exit 1; }
 before="$(stat -f%z "$FW/Versions/A/Mergeable")"
 
-"$ROOT/scripts/strip-release-bundle.sh" "$APP" > "$TMP_DIR/out.log"
+/bin/bash "$ROOT/scripts/strip-release-bundle.sh" "$APP" > "$TMP_DIR/out.log"
 
 after="$(stat -f%z "$FW/Versions/A/Mergeable")"
 if [ "$(atom_info "$FW/Versions/A/Mergeable")" != 0 ]; then
@@ -42,6 +42,6 @@ nm -gU "$FW/Versions/A/Mergeable" | grep -q '_mergeable_add' || { echo "exported
 # The top-level symlink is not stripped twice.
 [ -L "$FW/Mergeable" ] || { echo "framework symlink was replaced" >&2; exit 1; }
 # A second run leaves the stripped framework as it is.
-"$ROOT/scripts/strip-release-bundle.sh" "$APP" > /dev/null
+/bin/bash "$ROOT/scripts/strip-release-bundle.sh" "$APP" > /dev/null
 [ "$(stat -f%z "$FW/Versions/A/Mergeable")" = "$after" ] || { echo "second strip changed the framework" >&2; exit 1; }
 echo "ok: LC_ATOM_INFO removed ($before -> $after bytes), symbols kept"

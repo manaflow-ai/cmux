@@ -14,7 +14,7 @@
         "Contents/Library/cmux Computer Use.app": 15000000,
         "Contents/Resources/CmuxNext_CmuxNextPages.bundle": 14500000,
         "Contents/Resources/CmuxNext_CmuxNextAgentPane.bundle": 10500000,
-        "Contents/Frameworks/Sentry.framework": 10500000
+        "Contents/Frameworks/Sentry.framework": 3400000
       },
       "forbidden": [
         "Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/v8_context_snapshot.x86_64.bin",
