@@ -37,6 +37,31 @@ export type AcpmuxCompaction = {
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
 
+/// A message to this chat that acpmux holds while its pair is paused (`agent_pair_held`).
+export type AcpmuxHeldMessage = { promptId: string; text: string };
+
+/// acpmux paused messages between this chat and another agent's (an `agent_pair_paused` record,
+/// conversation/agentPairs.ts): why, what it still holds, what it settled, and whether it resumed.
+export type AcpmuxAgentPair = {
+  peer: string;
+  peerName: string;
+  /// Back and forth without progress, the same message again, more than the cap within
+  /// `windowSecs`, or a held message acpmux could not deliver after a resume.
+  reason: "alternating" | "repeating" | "cap" | "release_failed";
+  count: number;
+  windowSecs?: number;
+  /// Why a release failed (`release_failed`).
+  error?: string;
+  /// Messages still held, once each, in the order acpmux held them; a re-pause takes over what an
+  /// earlier pause with the same peer still held.
+  held: AcpmuxHeldMessage[];
+  /// Held messages acpmux delivered (`agent_pair_released`).
+  released: number;
+  /// Held messages it gave up on (`agent_pair_dropped`).
+  dropped: number;
+  resumed?: boolean;
+};
+
 /// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's
 /// `session_info_update._meta.claude`): drawn once, where the session started
 /// (conversation/SessionStartNote.tsx). `harness` and `cwd` are the chat's when the line came.
@@ -72,6 +97,8 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// An agent pair row's pause (conversation/AgentPairNote.tsx).
+  agentPair?: AcpmuxAgentPair;
   /// A session start row's agent, version, model, route and folder.
   sessionStart?: AcpmuxSessionStart;
   /// A suggested tasks card's offers (offer/SuggestedTasks.tsx): the offers of one group, in the
@@ -123,6 +150,8 @@ export type AcpmuxRow = {
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
+  /// A todo list whose turn has ended: a step left in progress no longer spins (conversation/turns.ts).
+  turnEnded?: boolean;
   /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
   merged?: string[];
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
@@ -507,6 +536,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === SUBAGENT_OF) return 44;
   // The 27px disclosure line, and the live status lines in its place.
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
+  // The activity line: one 24px line with 4px above and 8px below (conversation/ActivityLine.tsx).
+  if (row.kind === ACTIVITY_LINE) return 36;
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return 36;
   // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
@@ -523,10 +554,12 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
+  // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
+  if (row.kind === "agentPair") return row.agentPair?.resumed ? 37 : 37 + 24;
   // A session start: its facts line, and the compaction note under it until it is dismissed.
   if (row.kind === "sessionStart") return 37 + 44;
-  // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
-  if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
+  // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
+  if (row.kind === "plan" && row.plan) return 40 + row.plan.length * 24;
   if (
     row.kind === "turnSummary" ||
     row.kind === "notice" ||
@@ -811,7 +844,7 @@ import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { PREVIEW_FRAME_HEIGHT, previewFrameHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
-import { DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
+import { ACTIVITY_LINE, DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";

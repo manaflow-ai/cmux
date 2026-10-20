@@ -4,6 +4,7 @@
 import type { AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { agentMessage, type AgentMessage } from "./agentMessages";
+import { mcpCall, mcpKey } from "./mcpCalls";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -11,6 +12,8 @@ export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
 export type ToolGroup =
   | { type: "group"; kind: ToolGroupKind; items: AcpmuxActivity[] }
   | { type: "message"; item: AcpmuxActivity; message: AgentMessage }
+  /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
+  | { type: "mcp"; items: AcpmuxActivity[] }
   | { type: "item"; item: AcpmuxActivity };
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -38,11 +41,15 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
 
 /// Consecutive calls of one kind form a group; a thought or a call of another kind ends it.
 /// Commands, reads and searches group from two calls; an edit with a diff groups alone, so it
-/// still reads "Edited App.tsx +12 -3". A lone call of any other kind keeps its own row and title.
+/// still reads "Edited App.tsx +12 -3". Calls to one MCP tool group from one call, so even a lone
+/// one reads as what it did. A lone call of any other kind keeps its own row and title.
 export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   const groups: ToolGroup[] = [];
   let run: { kind: ToolGroupKind; items: AcpmuxActivity[] } | undefined;
+  let mcp: { key: string; items: AcpmuxActivity[] } | undefined;
   const close = () => {
+    if (mcp) groups.push({ type: "mcp", items: mcp.items });
+    mcp = undefined;
     if (!run) return;
     const lone = run.items[0]!.tool!;
     if (run.items.length >= 2 || (run.kind === "edits" && lone.diffs?.length)) groups.push({ type: "group", ...run });
@@ -52,13 +59,20 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   for (const item of items) {
     const tool = item.tool;
     const message = tool && agentMessage(tool);
-    const kind = tool && !message ? toolGroupKind(tool) : undefined;
+    const call = tool && !message ? mcpCall(tool) : undefined;
+    const key = call && mcpKey(call);
+    if (key && mcp?.key === key) {
+      mcp.items.push(item);
+      continue;
+    }
+    const kind = tool && !message && !call ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
       run.items.push(item);
       continue;
     }
     close();
     if (message) groups.push({ type: "message", item, message });
+    else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item] };
     else groups.push({ type: "item", item });
   }
