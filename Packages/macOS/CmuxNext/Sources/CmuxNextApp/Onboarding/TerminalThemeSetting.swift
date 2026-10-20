@@ -85,7 +85,7 @@ final class TerminalThemeSetting {
         // repaints at once and reloads Ghostty after the steps stop (`apply`).
         take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
              background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
-             daily: BackdropSelectionSetting.shufflesDaily(settings.applied.root), tuning: Self.tuning(settings.applied))
+             daily: BackdropSelectionSetting.shufflesDaily(settings.applied.root), tuning: settings.applied.windowTuning)
         // A time zone or clock change moves local midnight, which the armed timer cannot see.
         for name in [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange] {
             dayObservers.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -98,18 +98,11 @@ final class TerminalThemeSetting {
         observation = Task { [weak self] in
             for await (snapshot, theme, edits, background, art, daily, tuning) in ObservationStream({
                 (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
-                 settings.applied.backdropSelection, BackdropSelectionSetting.shufflesDaily(settings.applied.root),
-                 Self.tuning(settings.applied))
+                 settings.applied.backdropSelection, BackdropSelectionSetting.shufflesDaily(settings.applied.root), settings.applied.windowTuning)
             }) {
                 self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, daily: daily, tuning: tuning)
             }
         }
-    }
-
-    /// The window tint's tuning: Hue, Saturation and Glass Transparency apply only while
-    /// Experimental Appearance Controls is on.
-    static func tuning(_ snapshot: CmuxConfigSnapshot) -> AppearanceTuning {
-        snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity
     }
 
     private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride,
