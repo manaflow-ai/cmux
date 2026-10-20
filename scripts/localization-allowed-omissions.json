@@ -5140,5 +5140,158 @@
         ]
       }
     }
+  },
+  "menu.view.chief": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "command.openChief.subtitle": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief.harness.claude": {
+    "source": "Claude Code",
+    "identityLocales": {
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief.harness.codex": {
+    "source": "Codex",
+    "identityLocales": {
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "attachment.kind.document": {
+    "source": "Document",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "attachment.kind.image": {
+    "source": "Image",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "attachment.kind.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.attachment.video": {
+    "source": "Video, %@",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.compose": {
+    "source": "Message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "compose.placeholder": {
+    "source": "Message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.message.role": {
+    "source": "message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.messages": {
+    "source": "Messages",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "compose.emoji": {
+    "source": "Emoji",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "preview.photo": {
+    "source": "Photo",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "preview.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.attachment.file": {
+    "class": "format",
+    "source": "%1$@, %2$@, %3$@"
+  },
+  "ax.message.format": {
+    "class": "format",
+    "source": "%1$@, %2$@, %3$@"
+  },
+  "ax.attachment.photo": {
+    "source": "Photo, %@",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "chief.firstRun.suggestions": {
+    "source": "Suggestions",
+    "identityLocales": {
+      "fr": "Suggestions is the standard French noun for this label and shares the English spelling."
+    }
   }
 }

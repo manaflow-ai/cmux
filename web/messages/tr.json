@@ -2265,6 +2265,13 @@
               "enabled": "Uzak bir tmux çalışma alanı seçildiğinde “Yeni çalışma alanı”, o çalışma alanının ana bilgisayarında bir tmux oturumu başlatır."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, Ana Sayfa aracısı: gösterilip gösterilmediği ve hangi altyapıyı, modeli ve çabayı kullandığı.",
+          "enabled": "Ana Sayfa satırını ve Chief giriş noktalarını gösterir. false olduğunda Ana Sayfa satırı, Chief'i Aç kısayolu, menü öğesi ve komut paleti girdileri gizlenir.",
+          "harness": "Chief'in çalıştığı aracı altyapısı: claude (Claude Code) veya codex (Codex).",
+          "model": "Altyapıya iletilen model. Altyapının varsayılanını kullanmak için boş bırakın.",
+          "effort": "Altyapıya iletilen akıl yürütme çabası; örneğin low, medium veya high. Altyapının varsayılanını kullanmak için boş bırakın."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

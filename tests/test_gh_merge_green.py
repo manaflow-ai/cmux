@@ -1,12 +1,16 @@
 """Fix-forward merging requires actual builds and same-base test evidence."""
+import contextlib
 import copy
+import io
 from datetime import datetime, timedelta, timezone
 import json
 import importlib.util
 from pathlib import Path
 import unittest
+import signal
 import subprocess
 import tempfile
+import time
 import os
 import shlex
 import sys
@@ -71,6 +75,7 @@ jobs:
   cmux-scheme-compile:
     name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
 """
+RATE_LIMITED = "<rate limited>"
 CI_WORKFLOW = """name: CI
 jobs:
   changes:
@@ -152,6 +157,20 @@ class MainFixEvidenceTests(unittest.TestCase):
 
     def validate(self):
         return module.validate("manaflow-ai/cmux", 42, self.gh)
+
+    def test_a_rate_limited_main_fix_exits_3(self):
+        class Limited:
+            def json(self, route, *, paginate=False):
+                raise module.RateLimited("GitHub rate-limited `gh api`; core 0 of 5000 left")
+        original = module.GitHub
+        module.GitHub = Limited
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                status = module.main(["manaflow-ai/cmux#42", "--check-only"])
+        finally:
+            module.GitHub = original
+        self.assertEqual(status, 3)
+        self.assertIn("rate-limited:", err.getvalue())
 
     def test_green_requires_three_actual_builds(self):
         evidence = self.validate()
@@ -360,7 +379,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -396,9 +415,14 @@ class InstalledHelperRegression(unittest.TestCase):
         if base_workflow is None:
             base_workflow = cmux_next_workflow
         base_workflow_route = "printf '%s' " + shlex.quote(base_workflow) + "; exit 0" if base_workflow else "exit 1"
+        if base_workflow == RATE_LIMITED:
+            base_workflow_route = "echo 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; exit 1"
         protected_route = "printf '%s' " + shlex.quote(protected_paths) + "; exit 0" if protected_paths is not None else "exit 1"
+        rate_limit_route = ("if [ \"$1 $2\" = 'api rate_limit' ]; then printf '%s\\n' "
+                            + shlex.quote(json.dumps({"resources": rate_limit})) + "; exit 0; fi\n") if rate_limit else ""
         gh.write_text(
             "#!/bin/sh\n"
+            + rate_limit_route +
             "if [ \"$1 $2\" = 'pr view' ] && printf '%s' \"$*\" | grep -q statusCheckRollup; then "
             "printf '%s\\n' " + rollup_payload + "; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
@@ -424,7 +448,9 @@ class InstalledHelperRegression(unittest.TestCase):
             "printf '%s' " + shlex.quote(CI_WORKFLOW) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci-web.yml?ref=" + HEAD + "'; then "
             "printf '%s' " + shlex.quote(CI_WEB_WORKFLOW) + "; exit 0; fi\n"
-            + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files.*filename'; then exit 1; fi\n"
+            + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files.*filename'; then "
+               + ("echo 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; " if files_rest_fails == "quota" else "")
+               + "exit 1; fi\n"
                "if [ \"$1 $2\" = 'api graphql' ] && printf '%s' \"$*\" | grep -q 'files(first'; then printf '%s\\n' "
                + shlex.quote(json.dumps({"data": {"repository": {"pullRequest": {"files": {"nodes": [{"path": f} for f in changed_files], "pageInfo": {"hasNextPage": False}}}}}}))
                + "; exit 0; fi\n" if files_rest_fails else "") +
@@ -435,12 +461,17 @@ class InstalledHelperRegression(unittest.TestCase):
             "exit 2\n"
         )
         gh.chmod(0o755)
-        return subprocess.run(
-            [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"],
-            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
-            capture_output=True,
-            text=True,
-        )
+        argv = [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"]
+        env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
+        if terminate_after is None:
+            return subprocess.run(argv, env=env, capture_output=True, text=True)
+        # A caller's timeout: SIGTERM to the whole group while the gate still waits.
+        process = subprocess.Popen(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                   start_new_session=True)
+        time.sleep(terminate_after)
+        os.killpg(process.pid, signal.SIGTERM)
+        stdout, stderr = process.communicate(timeout=60)
+        return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
 
     def test_fork_trust_rejects_non_full_sha_values(self):
         for value in ("main", "a" * 39, "A" * 40):
@@ -647,6 +678,91 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertIn("fast gate", summary[0])
             self.assertIn("cmux-next fast tier", summary[0])
             self.assertIn("waited", summary[0])
+
+    def test_a_merge_stopped_while_the_gate_waits_says_so(self):
+        """2026-10-20: a caller's timeout stopped gh-merge-green while the fast tier was still
+        queued, and its summary read "refused ... (fast gate: nothing reported; waited 0m00s)"."""
+        queued = tuple(("cmux-next fast tier", "queued", "") if name == "cmux-next fast tier" else (name, status, c)
+                       for name, status, c in self.FAST_GREEN)
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=queued,
+                                     cmux_next_runs=[("in_progress", None, 1)], extra_args=("--wait", "600"),
+                                     terminate_after=2)
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(marker.exists())
+            summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
+            self.assertEqual(len(summary), 1, result.stderr)
+            self.assertIn("stopped by SIGTERM (check the PR)", summary[0])
+            self.assertIn("still waiting for the gate's lanes when stopped", summary[0])
+            self.assertNotIn("nothing reported", summary[0])
+
+    def test_a_wait_that_runs_out_names_the_queued_lane_in_the_summary(self):
+        """2026-10-20: #22200's --wait ran out with the fast tier still QUEUED, and the summary
+        read `fast gate: nothing reported; waited 0m00s, 898s in all`."""
+        queued = tuple(("cmux-next fast tier", "queued", "") if name == "cmux-next fast tier" else (name, status, c)
+                       for name, status, c in self.FAST_GREEN)
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=queued,
+                                     extra_args=("--wait", "0"))
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(marker.exists())
+            summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
+            self.assertEqual(len(summary), 1, result.stderr)
+            self.assertIn("--wait ran out with cmux-next fast tier (queued) not done", summary[0])
+            self.assertNotIn("nothing reported", summary[0])
+
+    RATE_SPENT = {"core": {"limit": 5000, "remaining": 0, "reset": 4102444800},
+                  "graphql": {"limit": 5000, "remaining": 4800, "reset": 4102444800}}
+
+    def test_a_spent_rest_quota_refuses_at_once_with_the_reset_time(self):
+        """2026-10-20: GraphQL was rate-limited, the REST fallback was too, and gh-merge-green
+        refused only about 30 minutes later, with no reset time."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     rate_limit=self.RATE_SPENT)
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("rate-limited:", result.stderr)
+            self.assertIn("core 0 of 5000 left, resets 00:00:00Z", result.stderr)
+            summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
+            self.assertEqual(len(summary), 1, result.stderr)
+            self.assertIn("refused (GitHub rate limit)", summary[0])
+
+    def test_a_rate_limited_paths_filter_read_refuses_before_the_wait(self):
+        """Review on #22443: a rate-limited read of the base's paths filter counted as covered,
+        and the fast gate then waited out --wait for routing that never came."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=("docs/README.md",), rollup=(),
+                                     base_workflow=RATE_LIMITED, extra_args=("--wait", "600"))
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("rate-limited: GitHub rate-limited gh api", result.stderr)
+
+    def test_a_red_after_a_recovered_rate_limited_read_is_still_a_red(self):
+        """Review on #22443: the REST file list was rate-limited and its GraphQL fallback answered;
+        a genuine red after it is an ordinary refusal (exit 1), not a rate limit."""
+        rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     files_rest_fails="quota", excuse=(1, "not excused: the head's own red"))
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("used GraphQL fallback", result.stderr)
+            self.assertNotIn("rate-limited:", result.stderr)
+
+    def test_a_rate_limited_base_comparison_refuses_as_rate_limited(self):
+        rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     excuse=(3, "rate-limited: core 0 of 5000 left"))
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("rate-limited:", result.stderr)
 
     def test_the_fast_gate_refuses_a_red_fast_lane_or_a_red_gating_check(self):
         for red in (("cmux-next fast tier", "completed", "failure"),
@@ -1200,6 +1316,17 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(merged)
                 self.assertIn('REPAIR.md#merging', result.stderr)
+
+    def test_no_ci_workflow_with_an_advisory_red_vercel_check_merges(self):
+        # bash 3.2 (macOS /bin/bash) treats an empty array as unset under set -u: the
+        # "other failing checks" note died on ${must[*]} with no refusal reason.
+        result, merged, _ = self.run_case(checks=[
+            {"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+            {"id": 2, "name": "Vercel", "status": "completed", "conclusion": "failure"}],
+            files=["docs/README.md"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+        self.assertNotIn("unbound variable", result.stderr)
 
     def test_no_ci_workflow_override_waives_only_a_red_lint_check(self):
         """--full --override waives a red lint check without the aggregate workflow too;
@@ -1962,6 +2089,229 @@ class MergedHeadChecksRegression(unittest.TestCase):
             self.assertNotIn("--only swift", log)
 
 
+FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
+    # A recorded GitHub: routes are (substring of the joined arguments, stdout) in order.
+    import json, os, sys
+    from pathlib import Path
+    x = json.loads(Path(os.environ['FIXTURE']).read_text())
+    a = sys.argv[1:]
+    joined = ' '.join(a)
+    with open(os.environ['QUERIES'], 'a') as f: f.write(joined + '\n')
+    VALUE = {'--match-head-commit', '--subject', '-t', '--body', '-b', '--body-file', '-F', '--author-email', '-A'}
+    FLAGS = {'--squash', '-s', '--merge', '-m', '--rebase', '-r', '--delete-branch', '-d', '--auto', '--admin', '--disable-auto'}
+    if a[:2] == ['pr', 'view']:
+        print(json.dumps({'headRefOid': x['head'], 'baseRefName': x['base'], 'state': 'OPEN', 'labels': [],
+                          'isCrossRepository': False, 'title': 'fix', 'body': ''}))
+    elif a[:2] == ['pr', 'comment']:
+        Path(os.environ['MERGE_MARKER'] + '.comment').touch()
+    elif a[:2] == ['pr', 'merge']:
+        i = 2
+        while i < len(a):
+            arg = a[i].split('=', 1)[0]
+            if arg in VALUE:
+                i += 1 if '=' in a[i] else 2
+                continue
+            if arg in FLAGS or not arg.startswith('-') or arg == '--repo':
+                i += 2 if arg == '--repo' else 1
+                continue
+            # gh's own refusal: one line, then its whole usage text.
+            print('unknown flag: ' + a[i], file=sys.stderr)
+            for n in range(38):
+                print('  usage line %d' % n, file=sys.stderr)
+            sys.exit(1)
+        if x.get('merge_error'):
+            print(x['merge_error'], file=sys.stderr)
+            sys.exit(1)
+        Path(os.environ['MERGE_MARKER']).write_text(joined)
+    elif a[:2] == ['run', 'view']:
+        print(x['logs'][a[a.index('--job') + 1]])
+    elif a[0] == 'api' and any('/contents/' in arg for arg in a):
+        print('HTTP/2.0 200')
+    else:
+        for needle, out in x['routes']:
+            if needle in joined:
+                if '--paginate' in a and '--slurp' not in a and isinstance(out, list) and all(isinstance(p, dict) for p in out):
+                    # Real gh without --slurp prints each recorded page object back to back.
+                    print(''.join(json.dumps(page) for page in out))
+                else:
+                    print(out if isinstance(out, str) else json.dumps(out))
+                sys.exit(0)
+        if a[0] == 'api' and '/files' in joined:
+            print('docs/README.md')
+            sys.exit(0)
+        if a[0] == 'api':
+            print('[]')
+            sys.exit(0)
+        sys.exit(2)
+    """)
+
+LINT = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+TIP = "1" * 40
+
+
+def lint_job(job_id, run_id, sha, conclusion="failure"):
+    steps = [{"name": "Set up runner", "status": "completed", "conclusion": "success"},
+             {"name": "Main-thread concurrency", "status": "completed", "conclusion": "success"},
+             {"name": "Type scale", "status": "completed", "conclusion": "success"},
+             {"name": "God files and types (Swift)", "status": "completed", "conclusion": "success"},
+             {"name": "Fail on any red check", "status": "completed", "conclusion": conclusion}]
+    return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": LINT, "status": "completed",
+            "conclusion": conclusion, "steps": steps}
+
+
+def lint_log(*red):
+    lines = []
+    for step in red:
+        lines.append(f"{LINT}\t{step}\t2026-10-19T19:31:23.4759936Z Sources/Next/View.swift:41: {step} finding")
+        lines.append(f"{LINT}\t{step}\t2026-10-19T19:31:23.4759936Z ##[error]Process completed with exit code 1.")
+    lines.append(f"{LINT}\tFail on any red check\t2026-10-19T19:35:08.4268790Z ##[error]Process completed with exit code 1.")
+    return "\n".join(lines)
+
+
+class BaseRedAndReasonRegression(unittest.TestCase):
+    """2026-10-19: three good merges were refused, and agents fell back to bare gh pr merge.
+
+    #21807: its cmux-next checks (lint) job was red, and red on feat-cmux-next too, but lint
+    never reached the base comparison. #21729: "no base verdict" with nothing about what was
+    missing. cmuxterm-hq#2554: `--sha` went through to gh pr merge, whose usage text buried
+    the reason under `| tail -5`."""
+
+    def run_case(self, *, base_lint="failure", base_red=("Main-thread concurrency", "Type scale"),
+                 head_red=("Main-thread concurrency",), args=("--full", "--squash"), merge_error=None, ci_status="success",
+                 lint_conclusion="failure"):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            marker = directory / "merged"
+            queries = directory / "queries"
+            head_lint = lint_job(7, 900, HEAD, lint_conclusion)
+            base_job = lint_job(8, 41, TIP, base_lint)
+            check = lambda job, sha: {"id": job["id"], "name": LINT, "status": "completed", "conclusion": job["conclusion"],
+                                      "head_sha": sha, "app": {"slug": "github-actions"},
+                                      "details_url": f"https://github.com/manaflow-ai/cmux/actions/runs/{job['run_id']}/job/{job['id']}"}
+            head_checks = [{"id": 1, "name": "ci-status", "status": "completed", "conclusion": ci_status,
+                            "app": {"slug": "github-actions"}}, check(head_lint, HEAD)]
+            routes = [
+                [f"commits/{HEAD}/check-runs", [{"check_runs": head_checks}]],
+                [f"commits/{TIP}/check-runs", [{"check_runs": [check(base_job, TIP)] if base_lint else []}]],
+                ["workflows/cmux-next.yml/runs", {"workflow_runs": [
+                    {"id": 900, "status": "completed", "conclusion": lint_conclusion, "run_attempt": 1,
+                     "head_sha": HEAD, "event": "pull_request"}]}],
+                ["actions/runs/900/jobs", [{"jobs": [head_lint]}]],
+                ["actions/runs/900", {"id": 900, "workflow_id": 7}],
+                ["actions/runs/41", {"id": 41, "workflow_id": 7}],
+                ["actions/jobs/7", head_lint],
+                ["actions/jobs/8", base_job],
+                ["commits?sha=feat-cmux-next", [{"sha": TIP}]],
+                ["/compare/", {"merge_base_commit": {"sha": TIP}}],
+                ["actions/workflows/7/runs", {"workflow_runs": []}],
+            ]
+            fixture = directory / "fixture.json"
+            fixture.write_text(json.dumps({"head": HEAD, "base": "feat-cmux-next", "routes": routes,
+                                           "logs": {"7": lint_log(*head_red), "8": lint_log(*base_red)},
+                                           "merge_error": merge_error}))
+            gh = directory / "gh"
+            gh.write_text(FIXTURE_GH)
+            gh.chmod(0o755)
+            result = subprocess.run(
+                [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *args],
+                env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"], "FIXTURE": str(fixture),
+                     "MERGE_MARKER": str(marker), "QUERIES": str(queries), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
+                capture_output=True, text=True)
+            merged = marker.read_text() if marker.exists() else None
+            return result, merged, queries.read_text() if queries.exists() else ""
+
+    def tail(self, result, lines=5):
+        return "\n".join(result.stderr.strip().splitlines()[-lines:])
+
+    def test_a_lint_red_the_base_tip_has_too_merges(self):
+        # #21807 at fba65e653cc: the same lint steps were red on feat-cmux-next.
+        result, merged, _ = self.run_case()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNotNone(merged)
+        self.assertIn(f"excused '{LINT}'", result.stderr)
+        self.assertIn(TIP[:10], result.stderr)
+
+    def test_a_lint_red_the_base_does_not_have_names_check_sha_and_base(self):
+        result, merged, _ = self.run_case(head_red=("Main-thread concurrency", "God files and types (Swift)"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(merged)
+        tail = self.tail(result)
+        self.assertIn(LINT, tail)
+        self.assertIn(HEAD[:10], tail)
+        self.assertIn("God files and types (Swift)", result.stderr)
+        self.assertIn(f"base tip {TIP[:10]}", result.stderr)
+
+    def test_override_waives_a_lint_red_the_base_does_not_have(self):
+        # #22203 (2026-10-20) made a red lint check waivable by --override; risk evidence stays unwaivable.
+        reason = "the lint lane is a known base failure unrelated to this change"
+        result, merged, _ = self.run_case(head_red=("God files and types (Swift)",),
+                                          args=("--full", "--override", reason, "--squash"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNotNone(merged)
+        self.assertIn("--override waives", result.stderr)
+
+    def test_no_base_verdict_says_what_was_missing(self):
+        # #21729: the checks job never runs on feat-cmux-next pushes.
+        result, merged, _ = self.run_case(base_lint=None)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(merged)
+        self.assertIn(f"no feat-cmux-next verdict", result.stderr)
+        self.assertIn(f"base tip ({TIP[:10]}", result.stderr)
+        self.assertIn(HEAD[:10], self.tail(result))
+
+    def test_sha_flag_pins_the_head_instead_of_reaching_gh(self):
+        # cmuxterm-hq#2554: `--sha <head>` reached gh pr merge, which printed its usage and refused.
+        result, merged, _ = self.run_case(ci_status="success", lint_conclusion="success", base_lint=None,
+                                          head_red=(), args=("--full", "--sha", HEAD, "--squash"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNotNone(merged)
+        self.assertNotIn("--sha", merged)
+
+    def test_a_pinned_head_that_moved_refuses_before_any_check(self):
+        result, merged, queries = self.run_case(lint_conclusion="success", args=("--full", "--sha", "b" * 40, "--squash"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(merged)
+        self.assertIn("b" * 10, self.tail(result))
+        self.assertIn(HEAD[:10], self.tail(result))
+        self.assertNotIn("check-runs", queries)
+
+    def test_an_unknown_option_refuses_before_querying_github(self):
+        result, merged, queries = self.run_case(lint_conclusion="success", args=("--full", "--bogus", "--squash"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(merged)
+        self.assertIn("--bogus", self.tail(result))
+        self.assertEqual(queries, "")
+
+    def test_a_github_merge_refusal_keeps_its_reason_in_the_last_lines(self):
+        result, merged, _ = self.run_case(lint_conclusion="success", base_lint=None, head_red=(),
+                                          merge_error="X Pull request manaflow-ai/cmux#42 is not mergeable: the merge commit cannot be cleanly created.\nhint one\nhint two\nhint three\nhint four")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(merged)
+        self.assertIn("is not mergeable", self.tail(result))
+        self.assertIn(HEAD[:10], self.tail(result))
+
+    def test_a_refusal_prints_no_generic_trap_line(self):
+        # bash 3.2 runs the ERR trap inside $(...) even under `if !`, so a failed base
+        # comparison printed the generic "inspect the failed GitHub query" line first.
+        result, _, _ = self.run_case(ci_status="failure", lint_conclusion="success", base_lint=None, head_red=())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("'ci-status'", self.tail(result))
+        self.assertNotIn("inspect the failed GitHub query", result.stderr)
+
+    def test_dry_run_runs_every_gate_and_merges_nothing(self):
+        result, merged, queries = self.run_case(args=("--full", "--dry-run", "--squash"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(merged)
+        self.assertIn("dry-run", result.stdout + result.stderr)
+        self.assertIn(f"excused '{LINT}'", result.stderr)
+        self.assertNotIn("pr merge", queries)
+
+    def test_dry_run_still_refuses_red(self):
+        result, merged, _ = self.run_case(args=("--full", "--dry-run"), head_red=("God files and types (Swift)",))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(merged)
+
+
 class GhMergeGreenRestFallbackTests(unittest.TestCase):
     """Exercise only the quota-triggered REST escape hatch."""
 
@@ -1975,6 +2325,7 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
         merge_quota=True,
         fork=False,
         rest_merge_error=False,
+        rest_quota=False,
     ):
         helper = ROOT / "scripts" / "gh-merge-green"
         head_repo = "fork/repo" if fork else "example/repo"
@@ -2016,6 +2367,10 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
                       done
                       case "$path" in
                         repos/example/repo/pulls/123)
+                          if [ "{int(rest_quota)}" = 1 ]; then
+                            echo "gh: API rate limit exceeded for user ID 1. (HTTP 403)" >&2
+                            exit 1
+                          fi
                           cat <<'JSON'
                     {{"number":123,"state":"open","head":{{"sha":"{HEAD}","repo":{{"full_name":"{head_repo}"}}}},"base":{{"ref":"main","repo":{{"full_name":"example/repo"}}}},"labels":[]}}
                     JSON
@@ -2090,7 +2445,8 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
             merge_args=("--squash", "--match-head-commit", "b" * 40)
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("unsupported", result.stderr.lower())
+        # The pinned head is checked against the PR's before any gate or merge.
+        self.assertIn("not the expected " + "b" * 40, result.stderr)
         self.assertFalse(any("pulls/123/merge" in call for call in calls))
 
     def test_quota_error_with_rest_failure_refuses_without_claiming_merge(self):
@@ -2098,6 +2454,12 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("rest merge failed", result.stderr.lower())
         self.assertTrue(any("pulls/123/merge" in call for call in calls))
+
+    def test_quota_error_on_graphql_and_rest_refuses_as_rate_limited(self):
+        result, calls = self.run_rest_fixture(merge_args=("--squash",), rest_quota=True)
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertIn("rate-limited:", result.stderr)
+        self.assertFalse(any("pulls/123/merge" in call for call in calls))
 
     def test_rest_fork_metadata_accepts_explicit_exact_head_trust(self):
         result, calls = self.run_rest_fixture(
