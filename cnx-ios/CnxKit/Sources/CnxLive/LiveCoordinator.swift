@@ -1196,7 +1196,9 @@ public final class LiveCoordinator {
         if reason.contains("unknown_service") || reason.contains("no service chief") {
             return String(localized: "This Mac's cmux is too old for Chief on iPhone. Update cmux on the Mac.")
         }
-        if reason.contains("No such file") || reason.contains("not set up") || reason.contains("Connection refused") {
+        // hostd closes the channel when the owner's socket is missing ("daemon channel closed").
+        if reason.contains("No such file") || reason.contains("not set up") || reason.contains("Connection refused")
+            || reason.contains("channel closed") {
             return String(localized: "Chief isn't running on \(mac). Open cmux on the Mac to start it, then try again.")
         }
         return String(localized: "Chief on \(mac) didn't answer (\(reason)).")

@@ -43,6 +43,9 @@ public struct ChiefConversationScreen: View {
 
     public var body: some View {
         ChiefConversationController(session: session, compose: compose, focusesComposer: focusesComposer, back: { dismiss() })
+            // The conversation draws one store; a new backend (Try Again, a new link) makes a
+            // new store, so the open screen is rebuilt on it instead of waiting on the old one.
+            .id(ObjectIdentifier(session.store))
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
