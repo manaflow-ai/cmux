@@ -432,6 +432,7 @@ impl Native {
             harness: None,
             refused: false,
             done_draft: None,
+            kept: None,
         }
     }
 

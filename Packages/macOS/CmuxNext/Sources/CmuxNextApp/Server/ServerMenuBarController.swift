@@ -16,6 +16,8 @@ import os
 final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     private var item: NSStatusItem?
     private var popover: NSPopover?
+    /// The floating Add Server card (u3849: pairing is not a menu bar popover).
+    private var card: AddServerCardPanel?
     private var model: ServerModel?
     /// Makes the model's source: the cloud pairing source in the App, the
     /// mock alone in previews and tests. Nil once the App's services are gone.
@@ -47,6 +49,8 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     func hide() {
         popover?.close()
         popover = nil
+        card?.orderOut(nil)
+        card = nil
         model?.stop()
         model = nil
         if let item { NSStatusBar.system.removeStatusItem(item) }
@@ -54,7 +58,10 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     }
 
     /// Opens `surface` under the item. User-initiated only (palette or click).
+    /// Add Server is the floating card over the cmux window instead, and puts
+    /// nothing in the menu bar.
     func open(_ surface: ServerSurface) {
+        if surface == .approver { return openCard(code: nil) }
         show()
         guard let button = item?.button else { return }
         popover?.close()
@@ -69,13 +76,39 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         controller.view = view
         let pop = NSPopover()
         pop.behavior = .transient
-        pop.animates = Motion.animatesMovement
+        pop.animates = Motion.overlays.animatesMovement
         pop.contentViewController = controller
         pop.contentSize = view.frame.size
         pop.delegate = self
         view.onDismiss = { [weak pop] in pop?.close() }
         popover = pop
         pop.show(relativeTo: CmuxPopoverAnchor.rect(in: button), of: button, preferredEdge: .minY)
+    }
+
+    /// Shows the Add Server card near the top center of the front cmux window,
+    /// on every Space and over full screen. Opened by hand (`code` nil) it
+    /// takes the keys for the code field; a code that arrived from outside
+    /// (a pairing link, a script without the words) shows without taking
+    /// them, so the user's typing goes on until they click the card.
+    func openCard(code: String?) {
+        guard let model = currentModel() else {
+            Self.logger.fault("server card: no source (the App's services are gone)")
+            return
+        }
+        if let code {
+            model.beginApproval(code: code)
+        } else {
+            model.beginApproval()
+        }
+        let card = self.card.flatMap { $0.model === model ? $0 : nil } ?? AddServerCardPanel(model: model)
+        self.card = card
+        card.present(over: Self.frontWindow(), takeKeys: code == nil)
+    }
+
+    /// The cmux window the card belongs over: the main window, else the
+    /// frontmost visible ordinary window.
+    private static func frontWindow() -> NSWindow? {
+        NSApp.mainWindow ?? NSApp.orderedWindows.first { $0.isVisible && !($0 is NSPanel) && $0.canBecomeMain }
     }
 
     @objc private func togglePanel(_ sender: Any?) {

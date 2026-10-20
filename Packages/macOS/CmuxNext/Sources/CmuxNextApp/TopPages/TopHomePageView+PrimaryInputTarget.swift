@@ -8,11 +8,15 @@ import AppKit
 /// list or the page itself has the keyboard goes to the box (Lawrence
 /// 2026-10-19: "If I type randomly, or if I focus using Command + Up/Down
 /// Arrow key to focus the pane and start typing, it doesn't actually work").
+///
+/// On the New Message page the primary input is the page's own: To: until
+/// someone is chosen, then its message box (`HomeNewMessageView.focusTarget`).
 extension TopHomePageView: PrimaryInputTarget {
-    var primaryInputView: NSView? { host?.primaryInputView }
+    var primaryInputView: NSView? { isComposingNewMessage ? newMessage?.focusTarget : host?.primaryInputView }
 
     /// The shown conversation's keys (Home's one key path: `HomeHostView`).
     func routesToPrimaryInput(_ event: NSEvent) -> Bool {
+        if isComposingNewMessage { return KeyRouter.isPrintable(event) || KeyRouter.isDeadKey(event) }
         guard let host else { return false }
         // The conversation list keeps its arrow keys (they move the selection).
         if KeyRouter.historyArrow(event) != nil, let view = window?.firstResponder as? NSView, view.isDescendant(of: list) {
@@ -21,9 +25,17 @@ extension TopHomePageView: PrimaryInputTarget {
         return host.routesToPrimaryInput(event)
     }
 
-    func beginTyping(with event: NSEvent) { host?.beginTyping(with: event) }
+    func beginTyping(with event: NSEvent) {
+        if isComposingNewMessage { newMessage?.beginTyping(with: event); return }
+        host?.beginTyping(with: event)
+    }
 
     func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
+        if isComposingNewMessage, let page = newMessage {
+            guard let view = responder as? NSView, view === self || view.isDescendant(of: self) else { return true }
+            if view.ownsTypedText { return false }
+            return view.isDescendant(of: page) || !view.isDescendant(of: list)
+        }
         guard let host else { return false }
         guard let view = responder as? NSView, view === self || view.isDescendant(of: self) else { return true }
         if view === host || view.isDescendant(of: host) { return host.primaryInputShouldTakeKeyboard(from: responder) }

@@ -10,6 +10,11 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
     /// Closer to the pet than the notices: it is what the click on the pet opened.
     static let gap: CGFloat = 12
 
+    /// In the notices' place by the pet: toward the quadrant with room (`ChiefPetBubblePanel.frame`).
+    static func frame(over pet: CGRect, in visible: CGRect) -> CGRect {
+        ChiefPetBubblePanel.frame(height: size.height, over: pet, in: visible, width: size.width, gap: gap)
+    }
+
     /// Return (or ⌘Return) in the field with the chosen target and the text.
     var onSubmit: ((ChiefPetReplyTarget, String, _ command: Bool) -> Void)?
     var onClose: (() -> Void)?
@@ -143,7 +148,7 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         }
         if super.performKeyEquivalent(with: event) { return true }
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        let editing = (flags == .command && ["a", "c", "v", "x", "z"].contains(key)) || (flags == [.command, .shift] && key == "z")
+        let editing = (flags == .command && ["a", "c", "v", "x", "z"].contains(key)) || (flags == [.command, .shift] && ["v", "z"].contains(key))
         return flags.contains(.command) && !editing
     }
 

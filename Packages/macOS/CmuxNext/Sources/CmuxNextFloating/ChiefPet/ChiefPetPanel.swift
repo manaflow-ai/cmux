@@ -27,8 +27,15 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     let placement: ChiefPetPlacement
     let pet: ChiefPetView
     private var expandTool: ChiefPetTool?
+    /// The visible frame of the screen the pet is on (its menu bar and Dock left out); tests give their own.
+    var visibleFrame: () -> CGRect? = { nil }
+    /// The pet was pulled back on its screen after a screen change (the bubble and reply box take their side again).
+    var onKeptOnScreen: (() -> Void)?
+    /// The didChangeScreenParameters observer's token, kept for the panel's life.
+    private var screenObserver: (any NSObjectProtocol)?
 
-    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard) {
+    /// `notifications`: where screen-parameter changes are posted (AppKit posts to `.default`); tests give their own.
+    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, notifications: NotificationCenter = .default) {
         placement = ChiefPetPlacement(defaults: defaults)
         pet = ChiefPetView(image: mascot.image)
         super.init(
@@ -61,6 +68,13 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         pet.contextMenu = { [weak self] in self?.contextMenu() }
         contentView = pet
         delegate = self
+        visibleFrame = { [weak self] in self?.screen?.visibleFrame }
+        // A resolution change, or the Dock or menu bar resizing, keeps the screen, so AppKit sends no
+        // didChangeScreen; the visible frame still changes under the pet.
+        screenObserver = notifications.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                   object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.keepOnScreen() } // main-proof: observer on queue: .main
+        }
     }
 
     /// The pet's right-click menu: its settings (the Chief Settings popover, or Settings), and
@@ -102,18 +116,28 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         orderOut(nil)
     }
 
-    /// A screen change (resolution, a display unplugged) keeps it on its screen.
+    /// A screen change (a display unplugged, the pet dragged onto another) keeps it on its screen.
     public func windowDidChangeScreen(_ notification: Notification) {
-        guard let visible = screen?.visibleFrame else { return }
-        setFrameOrigin(ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible))
+        keepOnScreen()
+    }
+
+    /// Pulls the pet fully back on its screen. Not during a drag: AppKit reports the screen change as
+    /// the pet crosses onto the next display, and pulling it back then would jump it away from the
+    /// pointer until the next move (the drag's end pulls it back, `saveOrigin`).
+    func keepOnScreen() {
+        guard !pet.isDragging, let visible = visibleFrame() else { return }
+        let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible)
+        guard origin != frame.origin else { return }
+        setFrameOrigin(origin)
+        onKeptOnScreen?()
     }
 
     /// Keeps the spot the pet was dragged to, pulled fully back on its screen.
     func saveOrigin() {
-        guard let screen else { return }
-        let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: screen.visibleFrame)
+        guard let visible = visibleFrame() else { return }
+        let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible)
         if origin != frame.origin { setFrameOrigin(origin) }
-        placement.save(origin, onDisplay: ChiefPetPlacement.display(screen))
+        if let screen { placement.save(origin, onDisplay: ChiefPetPlacement.display(screen)) }
     }
 
     static func screenUnderPointer() -> NSScreen? {
@@ -127,6 +151,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
 /// The rail's tools take their own clicks. Clicks work on the first press: the panel is never key.
 final class ChiefPetView: NSView {
     var onClick: (() -> Void)?
+    /// After each step of a drag, with the panel already moved (the notices follow it live).
+    var onDragMoved: (() -> Void)?
     var onDragEnded: (() -> Void)?
     /// The right-click menu (the panel's `contextMenu()`).
     var contextMenu: (() -> NSMenu?)?
@@ -135,10 +161,12 @@ final class ChiefPetView: NSView {
     let rail = ChiefPetRail()
     private let badgeView = ChiefPetBadge()
     /// The pixel character, drawn by a layer so it scales up with whole pixels.
-    private let character = NSView()
+    private let character = ChiefPetCharacter()
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
     private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
+    /// A press is moving the pet now.
+    var isDragging: Bool { dragging }
 
     init(image: NSImage?) {
         super.init(frame: .zero)
@@ -153,8 +181,11 @@ final class ChiefPetView: NSView {
         self.image = image
         character.layer?.contents = image
         character.setAccessibilityElement(true)
-        character.setAccessibilityRole(.image)
+        // A button, not an image: the panel never takes the keys, so VoiceOver's press is the only way
+        // to the reply box that is not the pointer.
+        character.setAccessibilityRole(.button)
         character.setAccessibilityLabel(ChiefPetStrings.accessibilityLabel)
+        character.onPress = { [weak self] in self?.onClick?() }
         toolTip = ChiefPetStrings.accessibilityLabel
     }
 
@@ -213,7 +244,9 @@ final class ChiefPetView: NSView {
         let point = pointer()
         if !dragging, !ChiefPetPlacement.isDrag(from: press.start, to: point) { return }
         dragging = true
-        window.setFrameOrigin(CGPoint(x: press.origin.x + point.x - press.start.x, y: press.origin.y + point.y - press.start.y))
+        // Whole points, as the saved spot is: the drop then rounds nothing and the notices stay put.
+        window.setFrameOrigin(CGPoint(x: (press.origin.x + point.x - press.start.x).rounded(), y: (press.origin.y + point.y - press.start.y).rounded()))
+        onDragMoved?()
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -227,5 +260,16 @@ final class ChiefPetView: NSView {
 
     override func resetCursorRects() {
         addCursorRect(character.frame, cursor: .pointingHand)
+    }
+}
+
+/// The character's view: a VoiceOver press on it is a click on the character.
+final class ChiefPetCharacter: NSView {
+    var onPress: (() -> Void)?
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let onPress else { return false }
+        onPress()
+        return true
     }
 }

@@ -1,12 +1,19 @@
 import CmuxNextDesign
 
-/// The Settings rows of `LinkRouting` (Browser > Opening Links) and of `TextEditorSetting`
+/// The Settings rows of `LinkRouting` (Browser > Opening Links, Enable cmux Browser first) and of `TextEditorSetting`
 /// (General > Files), kept out of `SettingsSchema` so its catalog stays within the type budget.
 nonisolated enum LinkRoutingSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.openingLinks", "Opening Links")
         let fallback = LinkRouting.fallback
         return [
+            SettingDescriptor(
+                LinkRouting.enabledPath, section: .browser, group: group,
+                title: SettingsText.keyed("settings.browser.enabled", "Enable cmux Browser"),
+                help: SettingsText.keyed("settings.browser.enabled.help",
+                                         "When off, cmux opens no browser tabs for web pages and every link opens in your default browser."),
+                kind: .toggle, default: .bool(fallback.browserEnabled), keywords: ["browser", "disable", "turn off", "default browser", "web"]
+            ),
             SettingDescriptor(
                 LinkRouting.openPath, section: .browser, group: group,
                 title: SettingsText.keyed("settings.browser.openLinks", "Open Links in cmux Browser"),

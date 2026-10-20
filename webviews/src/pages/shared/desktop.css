@@ -450,3 +450,16 @@ input[type="submit"] {
   ):is(:hover, [data-highlighted]) {
   transition-duration: 0s !important;
 }
+
+/* SYNCED-SPINNERS (user 2026-10-20): the one spinner animation of every page. Clockwise, one
+   period (the native spinner's turn, Motion `spinner`), its phase pinned to the shared clock by
+   ui/spinnerClock.ts. Spinners write `animation: cmux-spin var(--cmux-spinner-period) linear
+   infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes. */
+:root {
+  --cmux-spinner-period: 900ms;
+}
+@keyframes cmux-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
