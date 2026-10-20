@@ -66,10 +66,8 @@ extension AppServices {
                 // stop on sign-out. A switch of the active team also reloads the team's machines and accounts.
                 let current = state.0 ? state.2.flatMap { user in state.3.map { (user: user, team: $0) } } : nil
                 guard current?.user != account?.user || current?.team != account?.team else { continue }
-                if let before = account, let now = current, before.user == now.user {
-                    Task { await cloud.refresh() } // task-owner: one machine-list reload; CloudService reconciles
-                    self.accounts.model.refresh()
-                }
+                // task-owner: one machine-list reload; CloudService reconciles.
+                if let before = account, before.user == current?.user { Task { await cloud.refresh() }; self.accounts.model.refresh() }
                 account = current
                 if let auth = CloudMobileAuth(auth: cloud.auth) {
                     self.mobile.start(auth: auth, launch: self.environment.launch, daemon: self.daemon)

@@ -71,8 +71,7 @@ extension CloudHandlers {
             guard !teams.isEmpty else { throw ActionFailure(message: CloudStrings.noTeams) }
             CloudPresenter.choose(CloudStrings.teamPickerTitle, teams.map { ($0.displayName, $0.id) }, selected: active.id,
                                   in: window(context)) { id in
-                guard let id, id != active.id else { return }
-                run("switch team", context) { try await active.select(id) }
+                if let id { run("switch team", context) { try await active.select(id) } } // the active team is a no-op
             }
         }
         bind("cloudDiagnostics", registry, reason: { nil }) { _ in

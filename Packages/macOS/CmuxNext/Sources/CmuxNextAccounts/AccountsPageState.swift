@@ -100,6 +100,12 @@ public enum AccountsPageAction: Equatable, Sendable {
     case saveKey(AIProvider, String), sendToCodeRouter(AIProvider, String)
     case selectTeam(String)
 
+    /// Parses the page's `{action, provider?, account?, secret?, team?}` from its field lookup.
+    public init?(field: (String) -> String?) {
+        self.init(action: field("action") ?? "", provider: field("provider"), account: field("account"),
+                  secret: field("secret"), team: field("team"))
+    }
+
     /// Parses `{action, provider?, account?, secret?, team?}`; nil for an unknown action or provider.
     public init?(action: String, provider: String?, account: String?, secret: String?, team: String? = nil) {
         let provider = provider.flatMap(AIProvider.init(rawValue:))
