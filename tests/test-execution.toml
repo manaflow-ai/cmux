@@ -233,6 +233,14 @@ path = "tests/test_ci_nightly_push_throttle.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_nightly_off_blacksmith.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_no_shallow_dev_fetch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
@@ -274,6 +282,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_simple_pool_picker.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
 [[test]]
@@ -498,6 +510,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_tour.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_media_tag_lock.py"
 lane = "linux-guard"
 
 [[test]]
@@ -949,6 +965,10 @@ path = "tests/test_install_git_hooks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_lint_prepush.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_bead_autoclose.py"
 lane = "linux-guard"
 
@@ -1089,6 +1109,11 @@ path = "tests/test_cmux_next_checks_workflow.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_run_checks_concurrently.py"
+lane = "linux-guard"
+serial = true
+
+[[test]]
 path = "tests/test_cmux_next_release_build_retention.py"
 lane = "linux-guard"
 
@@ -1206,6 +1231,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_next_batch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_next_batch_groups.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1349,11 +1378,23 @@ path = "tests/test_cmux_next_media_path_map.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_media_runner_scope.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_prune_media_derived_data.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_media_module_cache_stamp.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_media_app_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_media_tree_fallback.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1470,4 +1511,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_risk_tier.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_target_graph.py"
 lane = "linux-guard"

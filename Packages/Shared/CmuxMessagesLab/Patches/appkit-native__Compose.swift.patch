@@ -17,7 +17,20 @@
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -183,11 +193,13 @@
+@@ -100,6 +110,12 @@
+         runLoopLog = o
+     }
+     var caretSuspended = false { didSet { updateCaret(reset: false) } }
++
++    /// cmux: the caret's colour after a palette change (it was set once, when the field was made).
++    func recolorCaret() {
++        caretLayer.backgroundColor = Fixture.caret.cgColor
++        if !Self.ownCaret, insertionPointColor != .clear { insertionPointColor = Fixture.caret }
++    }
+ 
+     func installCaret() {
+         guard Self.ownCaret else { return }
+@@ -183,11 +199,13 @@
      /// not depend on the blink's phase at the grab (Messages' still references show it solid).
      static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
  
@@ -33,7 +46,7 @@
          let a = CAKeyframeAnimation(keyPath: "opacity")
          a.calculationMode = .discrete
          // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
-@@ -231,6 +243,7 @@
+@@ -231,6 +249,7 @@
          if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
      }
      override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
@@ -41,7 +54,7 @@
          if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
              (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
              return true
-@@ -424,9 +437,27 @@
+@@ -424,9 +443,27 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -69,7 +82,16 @@
  }
  
  /// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
-@@ -940,11 +971,11 @@
+@@ -835,6 +872,8 @@
+         if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
+         renderPlaceholder()
+         renderChips()
++        // cmux: the caret follows the palette too (the bubble style, the theme, the accent).
++        textView.view.recolorCaret()
+     }
+ 
+     /// The "+" button (opens the file picker).
+@@ -940,11 +979,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in

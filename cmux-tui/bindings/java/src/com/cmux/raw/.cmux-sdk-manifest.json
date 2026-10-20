@@ -651,6 +651,11 @@
       "size": 3090
     },
     {
+      "path": "CloudRequestsListRequest.java",
+      "sha256": "5bb22675029dd9838962082e43fc9ce30cd4a058a291ff722c2cd45c2da28f86",
+      "size": 1409
+    },
+    {
       "path": "CloudSessionClearRequest.java",
       "sha256": "1abc73226ded01960a5f0f3d4a76a159b8963c32c117601dab0c2930a9fa89c4",
       "size": 1409
@@ -692,8 +697,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "0d385be103af667c9648b004928bdd3bcb3829e8ee283cfb6dea512b8a375448",
-      "size": 75976
+      "sha256": "e3c4869ce37feed6e8f3d0f8860fddc93593e51c513c96ba637fcc22b69e30e6",
+      "size": 76383
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1342,8 +1347,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "25a08709002ca1fa7f8e5d81d51b601a42740593da274e3525c3ac53bb4a2b6d",
-      "size": 65988
+      "sha256": "fd4f8e6d0a57bbf323ea64360999cf391764a15a94f05ca909a2d3f7b7b32fb3",
+      "size": 66178
     },
     {
       "path": "GetBlobRequest.java",
@@ -1482,8 +1487,8 @@
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "daf5efdec992602e76fb6bbe2aea33f6ea1e8fd0bc2fe66d4961fe27fcd72e03",
-      "size": 16694
+      "sha256": "3f9ed34adaf727f8682524774b2e374f67b38a7ecb700133a5630f9fc9feb410",
+      "size": 20363
     },
     {
       "path": "IdsRequest.java",
@@ -2062,7 +2067,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "21e2bb04e1f3ea630c7ef80f8f250f5a461d07d9cde33ecf2988943e73c52d7d",
+      "sha256": "1b6feeb4e4e7d8cff9c3650c455a664f21706df403434b4e84cdef97c62e5949",
       "size": 7486
     },
     {
@@ -2422,8 +2427,8 @@
     },
     {
       "path": "SendRequest.java",
-      "sha256": "4a34d0d878ad12a9131b07ca939a0cb3144c4b47279c897e759bbd0a83e64edd",
-      "size": 4376
+      "sha256": "69e1cee647295ed024e6137eba01754a3176124a21e3c4e4f1cd1cf4c76ca0c8",
+      "size": 5202
     },
     {
       "path": "SendResult.java",
@@ -2502,8 +2507,8 @@
     },
     {
       "path": "SetClientInfoRequest.java",
-      "sha256": "75cc1047e3dd99393c4fd6689d085a989f9da80ac88c36ac1cc21cd6a7b853b0",
-      "size": 6894
+      "sha256": "133a4069520bb497683fe492e8cdb944fa1e46b4245f4c5641cd1f45509fd104",
+      "size": 8925
     },
     {
       "path": "SetClientSizingRequest.java",
@@ -3322,7 +3327,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93",
+  "ir_sha256": "4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

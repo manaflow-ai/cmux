@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextIcons
 
 // Extensions toolbar and menu, the width-driven toolbar collapse, and
 // history recording.
@@ -67,8 +68,10 @@ extension BrowserChromeView {
     /// What the toolbar shows now (`debug.extensions.toolbar`).
     public var toolbarReport: BrowserToolbarReport {
         var frames: [String: CGRect] = [:]
+        var icons: [String: IconName] = [:]
         func add(_ key: String, _ view: NSView?) {
             guard let view, !view.isHidden, view.superview != nil, view.window != nil else { return }
+            if let button = view as? ChromeIconButton { icons[key] = button.iconName }
             // Constraints place the alignment rect (NSButton frames carry
             // extra insets for the bezel).
             let alignment = view.alignmentRect(forFrame: view.frame)
@@ -89,7 +92,7 @@ extension BrowserChromeView {
             openPopup: host?.openExtensionPopup,
             popupAnchor: host?.openExtensionPopup.flatMap { extensionToolbar.anchorRect(for: $0) }
                 .map { tab.contentView.convert($0, to: self) },
-            frames: frames, toolbarBounds: toolbar.convert(toolbar.bounds, to: self)
+            frames: frames, icons: icons, toolbarBounds: toolbar.convert(toolbar.bounds, to: self)
         )
     }
 
@@ -191,6 +194,8 @@ public struct BrowserToolbarReport: Equatable, Sendable {
     /// Visible controls: "back", "forward", "reload", "omnibar",
     /// "extensions", "action:<id>".
     public var frames: [String: CGRect]
+    /// The pack icon each visible icon button draws, keyed like `frames`.
+    public var icons: [String: IconName]
     public var toolbarBounds: CGRect
 
     /// Every control lies inside the toolbar and no two overlap.
