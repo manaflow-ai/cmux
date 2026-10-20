@@ -106,8 +106,23 @@ public struct ProvisionalTab: Sendable, Hashable {
     /// Cmd-T, the tab showed beside the stand-in, or a tab the person closed came back
     /// (tab-spam-race).
     @MainActor static func matched(_ event: DaemonEvent, in store: DaemonStore) {
-        guard case .tabAdded(let delta) = event, delta.clientTransactionID == nil, delta.entity.kind == .conversation else { return }
+        guard case .tabAdded(let delta) = event, delta.clientTransactionID == nil else { return }
+        if delta.entity.kind == .pty, let terminal = delta.entity.terminalID {
+            return claimTerminal(delta.surface, terminal: terminal, in: store)
+        }
+        guard delta.entity.kind == .conversation else { return }
         guess(delta.surface, in: delta.pane, asking: delta.entity.conversation, in: store)
+    }
+
+    /// A terminal tab whose host id a pending terminal create chose (``terminal(_:cwd:)``) is that
+    /// create's: the stand-in gives way to it in this apply, so the two never show side by side
+    /// even when the daemon's `tab-added` beats its reply (Ctrl-`).
+    @MainActor private static func claimTerminal(_ surface: SurfaceID, terminal: TerminalID, in store: DaemonStore) {
+        guard let entry = store.intentLog.entries.first(where: { entry in
+            guard !entry.createdConfirmed, case .createTab(_, let provisional) = entry.kind else { return false }
+            return provisional.kind == .pty && provisional.terminalID == terminal
+        }) else { return }
+        store.intentLog.noteCreated(entry.transaction, surface: surface)
     }
 
     /// A create whose guessed tab was another create's left the log (the daemon refused it): the
