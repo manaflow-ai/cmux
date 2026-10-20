@@ -139,4 +139,25 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       await page.close();
     },
   );
+
+  test.each(engines.map(([name]) => name))(
+    "%s: with an image staged, Return on an address asks a chat instead of opening the page",
+    async (name) => {
+      const page = await newTab(name);
+      const field = page.locator(".nt-field");
+      await field.click();
+      await page.keyboard.type("example.com");
+      const data = await transfer(page);
+      await field.evaluate(
+        (node, data) =>
+          node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true })),
+        data,
+      );
+      await page.locator(".nt-box .acpmux-attachment-image").waitFor();
+      await page.keyboard.press("Enter");
+      await page.locator(".cv-user__bubble", { hasText: "example.com" }).waitFor({ timeout: 30_000 });
+      await page.locator(".cv-user__images img").first().waitFor({ timeout: 30_000 });
+      await page.close();
+    },
+  );
 });

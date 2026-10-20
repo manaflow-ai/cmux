@@ -213,7 +213,8 @@ export function NewTabScreen(props: Props) {
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
   const { attachments, setAttachments, attachError, dropping } = useAttachmentIntake({
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
-    pasteTarget: (target) => (field.current?.contains(target) ? { uploads: false } : undefined),
+    // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
+    pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
   });
   const wholeSelection = useRef(false);
   const inlineCaret = useRef<number | undefined>(undefined);
@@ -473,7 +474,10 @@ export function NewTabScreen(props: Props) {
       : rows.length
         ? rows[current]
         : suggested[defaultSelection(suggested, mode)];
-    if (row) return activate(row);
+    // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
+    const keeps =
+      !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
+    if (row && keeps) return activate(row);
     const prompt = text.trim();
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
     if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) return;
