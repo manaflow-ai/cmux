@@ -9256,6 +9256,20 @@
         "required": true
       }
     },
+    "request:move-column": {
+      "/direction": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "left",
+          "right"
+        ]
+      },
+      "/pane": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:move-personal-group": {
       "/group": {
         "ty": "string",
@@ -17392,6 +17406,12 @@
       }
     },
     "response:move-browser-profile": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:move-column": {
       "/data": {
         "ty": "json",
         "required": true

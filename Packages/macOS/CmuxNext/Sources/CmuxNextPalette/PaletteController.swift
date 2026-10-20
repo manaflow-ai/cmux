@@ -58,6 +58,9 @@ public final class PaletteController {
         self.registry = registry
         self.sources = sources
         self.model = PaletteModel(usage: usage ?? LocalPaletteUsageStore(persistence: frecencyPersistence))
+        // What an open's first frame does not show (the command page's workspaces and tabs)
+        // loads once that frame is committed.
+        model.afterFrame = { work in scheduleAfterFrameCommit(work) }
         model.onDismiss = { [weak self] in self?.hide() }
         // A command that refuses shows why on its row instead of beeping,
         // and the palette comes back on the same page.

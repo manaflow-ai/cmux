@@ -215,9 +215,6 @@ public nonisolated enum RefusalStrings {
     public static var openSecondTabToDock: String { text("handlers.refusal.openSecondTabToDock", "Open a second tab to dock this one") }
     public static var lastScrollingColumn: String { text("handlers.refusal.lastScrollingColumn", "at least one column must scroll") }
     public static func noColumnInDirection(_ direction: String) -> String { format("handlers.refusal.noColumnInDirection", "no column to the %@", direction) }
-    public static func moveColumnUnsupported(_ count: Int) -> String {
-        format("handlers.refusal.moveColumnNotAvailable", "Moving a whole column is not available yet. This column has %lld panes; move them one at a time.", count)
-    }
     public static var columnAtEdge: String { text("handlers.refusal.columnAtEdge", "the column is already at the edge") }
     public static func paneHasNoDaemonHandle(_ id: String) -> String { text("handlers.refusal.paneNotReady", "That pane isn't ready yet.") }
 }

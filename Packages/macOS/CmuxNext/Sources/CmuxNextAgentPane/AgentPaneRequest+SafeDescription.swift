@@ -85,6 +85,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .reply: "reply"
         case .saveFile: "saveFile"
         case .composerSetting: "composerSetting"
+        case .displaySetting: "displaySetting"
         case .toolCard: "toolCard"
         case .upload: "upload"
         case .unsupported: "unsupported"
