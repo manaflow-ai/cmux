@@ -107,6 +107,15 @@ public actor CloudMachineLink {
         try checkGeneration(generation)
         try paths.prepare()
         unlink(paths.linkSocket(machineID: machineID))
+        let inviteFile = endpoint.invitation.map {
+            paths.linkState.appendingPathComponent("invite-\(UUID().uuidString.lowercased())")
+        }
+        if let invitation = endpoint.invitation, let inviteFile {
+            try paths.writeSecret(invitation.uri + "\n", to: inviteFile)
+        }
+        defer {
+            if let inviteFile { try? FileManager.default.removeItem(at: inviteFile) }
+        }
         var arguments = [
             "remote", "connect", endpoint.route,
             "--device-name", deviceName,
@@ -115,7 +124,11 @@ public actor CloudMachineLink {
             "--headless", "--json", "--exit-with-parent", "--lanes", "single",
             "--connect-timeout-seconds", "20",
         ]
-        if endpoint.trustedCarrier { arguments.append("--carrier") }
+        if let inviteFile {
+            arguments += ["--invite-file", inviteFile.path]
+        } else if endpoint.trustedCarrier {
+            arguments.append("--carrier")
+        }
         arguments += ["--wireguard-hub", hubSocket]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.linkState.path
@@ -124,12 +137,23 @@ public actor CloudMachineLink {
         try child.start()
         self.child = child
         do {
-            let path = try await child.firstLine(within: .seconds(60), label: "cmux-tui remote connect") { line in
-                if case .connected(let socket) = CloudLinkEvent.parse(line) { return socket }
-                return nil
+            let socketTask = Task {
+                try await child.firstLine(within: .seconds(60), label: "cmux-tui remote connect") { line in
+                    if case .connected(let socket) = CloudLinkEvent.parse(line) { return socket }
+                    return nil
+                }
             }
+            defer { socketTask.cancel() }
+            if let invitation = endpoint.invitation {
+                let approval = try await api.approveCmuxRemoteEnrollment(machineID, invitationID: invitation.invitationId)
+                guard approval.approved, approval.state == "approved" || approval.state == "already_enrolled" else {
+                    socketTask.cancel()
+                    throw CloudAPIError.decoding("/api/vm/\(machineID)/cmux-remote/approve")
+                }
+            }
+            let path = try await socketTask.value
             try checkGeneration(generation)
-            socket = path
+            self.socket = path
             let redial = redial
             await MainActor.run { redial.isRedialing = false }
             watchSnapshots(child)

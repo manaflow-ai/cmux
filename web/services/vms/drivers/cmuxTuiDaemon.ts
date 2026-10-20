@@ -1,5 +1,6 @@
 import { dirname } from "node:path";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../images/workUser";
+import { cloudClientGrantRequired } from "../clientGrant";
 import {
   ProviderError,
   ProviderArtifactUnavailableError,
@@ -23,11 +24,8 @@ export function shellQuote(value: string): string {
 export const CMUX_TUI_PORT = 1337;
 export const CMUX_TUI_SESSION = "cloud";
 /**
- * The daemon's cloud listener is reachable only inside the owner's private
- * network (every member is the owner's Mac or another of the owner's machines),
- * so it grants carrier authentication to every link: no device enrollment, no
- * invitation, no approval. The env form is what a systemd drop-in sets on a
- * machine whose baked launch line predates the flag; the daemon reads either.
+ * Compatibility flag for machines whose listener still trusts the private
+ * carrier. Grant-required images omit it and use the enrollment flow.
  */
 export const CMUX_TUI_TRUSTED_CARRIER_ENV = "CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER";
 export const CMUX_TUI_TRUSTED_CARRIER_FLAG = "--remote-ws-trusted-carrier";
@@ -430,7 +428,8 @@ export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
 export function cmuxTuiDaemonCommand(
   remoteWsBind: string = CMUX_TUI_DEFAULT_REMOTE_WS_BIND,
 ): string {
-  const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind ${CMUX_TUI_TRUSTED_CARRIER_FLAG}`;
+  const carrier = cloudClientGrantRequired() ? "" : ` ${CMUX_TUI_TRUSTED_CARRIER_FLAG}`;
+  const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind${carrier}`;
   return (
     `${cmuxTuiLayoutSelector()}; ` +
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s\\n' "$CMUX_TUI_LAYOUT" > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +

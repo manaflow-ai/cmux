@@ -28,8 +28,15 @@ function entry(overrides: Partial<VmAttachEntry> = {}): VmAttachEntry {
 
 describe("create attach contract", () => {
   test("requires the attach endpoint to mint a cryptographic client grant", () => {
-    expect(createAttachBlock({ entry: entry(), manifestEntry })).toBeNull();
-    expect(createAttachBlock({ entry: entry({ addressIpv4: null }), manifestEntry })).toBeNull();
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
+    try {
+      expect(createAttachBlock({ entry: entry(), manifestEntry })).toBeNull();
+      expect(createAttachBlock({ entry: entry({ addressIpv4: null }), manifestEntry })).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
   });
 
   test("feature detects old or public rows and falls back to attach endpoint", () => {

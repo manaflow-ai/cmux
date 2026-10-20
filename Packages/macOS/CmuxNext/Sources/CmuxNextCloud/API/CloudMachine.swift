@@ -187,11 +187,24 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
 
 /// `POST /api/vm/{id}/attach-endpoint {transport:"cmux-remote"}`.
 public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
+    public struct Invitation: Sendable, Hashable, Decodable {
+        public var uri: String
+        public var invitationId: String
+        public var expiresAtUnix: Double
+    }
+
     public var transport: String
     public var route: String
     public var session: String
     public var trustedCarrier: Bool
     public var expiresAtUnix: Double?
+    public var invitation: Invitation?
+}
+
+public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {
+    public var approved: Bool
+    public var state: String
+    public var deviceFingerprint: String?
 }
 
 extension String {

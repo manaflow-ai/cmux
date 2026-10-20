@@ -5450,7 +5450,7 @@ export function openVmCmuxRemote(input: {
       tokenHash: hashToken(endpoint.token),
       expiresAt: new Date(endpoint.expiresAtUnix * 1000),
       transport: "cmux-remote",
-      metadata: { session: endpoint.session, invited: false, trustedCarrier: endpoint.trustedCarrier },
+      metadata: { session: endpoint.session, invited: endpoint.invitation != null, trustedCarrier: endpoint.trustedCarrier },
     }).pipe(
       Effect.catchAll((err) => {
         const cleanup = providers.revokeEndpointLeases
@@ -5467,7 +5467,7 @@ export function openVmCmuxRemote(input: {
       eventType: "vm.attach",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { transport: "cmux-remote", invited: false, trustedCarrier: endpoint.trustedCarrier },
+      metadata: { transport: "cmux-remote", invited: endpoint.invitation != null, trustedCarrier: endpoint.trustedCarrier },
     }).pipe(Effect.catchAll(() => Effect.void));
     // Only an opted-in machine pays this exec; the default attach stays exec-free.
     if (vmAgentUpdatesFromRow(vm) === "latest") {

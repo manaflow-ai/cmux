@@ -79,12 +79,12 @@ impl Harness {
         Self { root, home, bin, daemon_log, metadata, id, _dir: dir }
     }
 
-    /// A Cloud machine's host config: the Freestyle edge carrier on 0.0.0.0.
+    /// A Cloud machine's host config: edge reachability plus client grant auth.
     fn with_cloud_edge(self) -> Self {
         fs::create_dir_all(self.at("/etc/cmux")).unwrap();
         fs::write(
             self.at("/etc/cmux/host.json"),
-            r#"{"remoteWs": {"bind": "0.0.0.0:1337", "carrier": "freestyle-edge"}}"#,
+            r#"{"remoteWs": {"bind": "0.0.0.0:1337", "carrier": "freestyle-edge-grant"}}"#,
         )
         .unwrap();
         fs::set_permissions(self.at("/etc/cmux/host.json"), fs::Permissions::from_mode(0o644))

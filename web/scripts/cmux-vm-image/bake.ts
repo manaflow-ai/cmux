@@ -463,10 +463,12 @@ async function configureRoles(ctx: Ctx): Promise<void> {
 async function installHostConfig(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await L.step(vm, "host-dirs", "install -d -m 0700 /var/lib/cmux && install -d -m 0755 /etc/cmux");
-  await writeGuestFile(vm, HOST_CONFIG_PATH, hostConfig(), 0o644);
+  const hostConfigBody = hostConfig();
+  const hostCarrier = (JSON.parse(hostConfigBody) as { remoteWs: { carrier: string } }).remoteWs.carrier;
+  await writeGuestFile(vm, HOST_CONFIG_PATH, hostConfigBody, 0o644);
   ctx.result.hostConfig = (await L.step(vm, "host-config", [
     `chown root:root ${HOST_CONFIG_PATH}`,
-    `python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); assert c == {"remoteWs": {"bind": "[::]:1337", "carrier": "freestyle-edge"}}, c' ${HOST_CONFIG_PATH}`,
+    `python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); assert c == {"remoteWs": {"bind": "[::]:1337", "carrier": "${hostCarrier}"}}, c' ${HOST_CONFIG_PATH}`,
     `test "$(stat -c '%U %a' ${HOST_CONFIG_PATH})" = "root 644"`,
     "test ! -e /var/lib/cmux/bind.json && test ! -e /var/lib/cmux/bound.json",
     `${HOST_CLI} --help >/dev/null`,

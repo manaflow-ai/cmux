@@ -82,7 +82,12 @@ import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp
 import {
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
+  approveCmuxTuiEnrollment,
+  cmuxTuiRunCommand,
+  mintCmuxTuiInvitation,
+  type CmuxTuiInvoke,
 } from "./cmuxTuiDaemon";
+import { cloudClientGrantRequired } from "../clientGrant";
 export { preconnectFreestyle } from "./freestyleWarmup";
 export type { FreestylePreconnectOptions } from "./freestyleWarmup";
 
@@ -1760,6 +1765,12 @@ export class FreestyleProvider implements VMProvider {
           }
           span.setAttribute("cmux.vm.cmux_tui_contract", "snapshot-v2");
           const route = freestyleCmuxRemoteRoute(routeAddresses, vmId);
+          const requireClientGrant = cloudClientGrantRequired();
+          let invitation: CmuxRemoteEndpoint["invitation"] | undefined;
+          if (requireClientGrant) {
+            const vm = this.deps.client(EXEC_DEFAULT_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS).vms.ref(vmId);
+            invitation = await mintCmuxTuiInvitation(this.cmuxTuiInvoke(vm), "freestyle", vmId);
+          }
           const token = `cmux-freestyle-route-${randomBytes(32).toString("hex")}`;
           const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
           const addresses = freestyleNetworkAddressMetadata(routeAddresses);
@@ -1776,7 +1787,8 @@ export class FreestyleProvider implements VMProvider {
             token,
             expiresAtUnix,
             session: CMUX_TUI_SESSION,
-            trustedCarrier: true,
+            trustedCarrier: !requireClientGrant,
+            ...(invitation ? { invitation } : {}),
             ...(Object.keys(networkAddresses).length ? { networkAddresses } : {}),
           };
         } catch (err) {
@@ -1807,8 +1819,26 @@ export class FreestyleProvider implements VMProvider {
     options?: CmuxRemoteApprovalOptions,
   ): Promise<CmuxRemoteApprovalResult> {
     void options;
-    void invitationId;
-    throw new ProviderError("freestyle", `VM ${vmId} uses trusted-carrier attach and has no enrollment approval path`);
+    return withVmSpan(
+      "cmux.vm.provider.approve_cmux_remote_enrollment",
+      "provider",
+      spanAttributes(vmId, "approve_cmux_remote_enrollment"),
+      async () => {
+        try {
+          const vm = this.deps.client(40_000 + EXEC_OVERHEAD_TIMEOUT_MS).vms.ref(vmId);
+          return await approveCmuxTuiEnrollment(
+            this.cmuxTuiInvoke(vm),
+            "freestyle",
+            vmId,
+            invitationId,
+          );
+        } catch (err) {
+          throw err instanceof ProviderError
+            ? err
+            : new ProviderError("freestyle", `approveCmuxRemoteEnrollment(${vmId}) failed`, err);
+        }
+      },
+    );
   }
 
   /**
@@ -1913,6 +1943,15 @@ export class FreestyleProvider implements VMProvider {
     } catch {
       return null;
     }
+  }
+
+  private cmuxTuiInvoke(vm: Vm): CmuxTuiInvoke {
+    return async (args, timeoutMs) =>
+      await this.execResult(vm, cmuxTuiRunCommand(args), timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS) ?? {
+        exitCode: 124,
+        stdout: "",
+        stderr: "exec failed",
+      };
   }
 
 }
