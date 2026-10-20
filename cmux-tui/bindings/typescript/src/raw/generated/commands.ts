@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c09dd7c14b07e11ae0cfd502853da8ac29ed04e4022b4ab807cb844565da7eaa. */
+/* cmux-tui mux protocol 12, IR 4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b. */
 
 
 import type * as T from "./types.js";
@@ -514,6 +514,30 @@ export interface CloudConversationUnsubscribeRequest extends CmuxRequestBase {
 export type CloudConversationUnsubscribeResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudHostReplicaClearRequest extends CmuxRequestBase {
+  cmd: "cloud-host-replica-clear";
+  "purge"?: boolean;
+}
+export type CloudHostReplicaClearResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudHostReplicaSetRequest extends CmuxRequestBase {
+  cmd: "cloud-host-replica-set";
+  "api_base_url": string;
+  "client_version"?: (string) | null;
+  "expires_at": bigint;
+  "host_name": string;
+  "install_token": string;
+}
+export type CloudHostReplicaSetResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudHostReplicaStatusRequest extends CmuxRequestBase {
+  cmd: "cloud-host-replica-status";
+}
+export type CloudHostReplicaStatusResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudInboxListRequest extends CmuxRequestBase {
   cmd: "cloud-inbox-list";
   "include_archived"?: boolean;
@@ -569,6 +593,12 @@ export interface CloudParticipantAvatarGetRequest extends CmuxRequestBase {
   "participant_id": string;
 }
 export type CloudParticipantAvatarGetResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudRequestsListRequest extends CmuxRequestBase {
+  cmd: "cloud-requests-list";
+}
+export type CloudRequestsListResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudSessionClearRequest extends CmuxRequestBase {
@@ -2187,6 +2217,7 @@ export type SelectWorkspaceResult = T.EmptyResult;
 export interface SendRequest extends CmuxRequestBase {
   cmd: "send";
   "bytes"?: (T.Base64) | null;
+  "expect_foreground"?: (string) | null;
   "paste"?: boolean;
   "surface"?: (T.Id) | null;
   "terminal_id"?: (string) | null;
@@ -2220,14 +2251,17 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 /** Protocol v6; authority: control. */
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
+  "api_revision"?: (number) | null;
   "capabilities"?: (Array<string>) | null;
   "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
   "device_name"?: (string) | null;
   "display_name"?: (string) | null;
+  "install"?: (string) | null;
   "kind"?: (string) | null;
   "name"?: (string) | null;
   "user_id"?: (string) | null;
+  "version"?: (string) | null;
 }
 export type SetClientInfoResult = T.EmptyResult;
 
@@ -2834,6 +2868,9 @@ export type CmuxRequest =
   | CloudConversationThreadRequest
   | CloudConversationTypingRequest
   | CloudConversationUnsubscribeRequest
+  | CloudHostReplicaClearRequest
+  | CloudHostReplicaSetRequest
+  | CloudHostReplicaStatusRequest
   | CloudInboxListRequest
   | CloudInboxOpRequest
   | CloudInboxSubscribeRequest
@@ -2842,6 +2879,7 @@ export type CmuxRequest =
   | CloudMuxSubscribeRequest
   | CloudMuxUnsubscribeRequest
   | CloudParticipantAvatarGetRequest
+  | CloudRequestsListRequest
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
@@ -3433,6 +3471,30 @@ export interface CmuxCommandDefinitionMap {
     capability: "cloud-conversations-v1";
     stream: null;
   };
+  "cloud-host-replica-clear": {
+    request: CloudHostReplicaClearRequest;
+    result: CloudHostReplicaClearResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-host-replica-v1";
+    stream: null;
+  };
+  "cloud-host-replica-set": {
+    request: CloudHostReplicaSetRequest;
+    result: CloudHostReplicaSetResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-host-replica-v1";
+    stream: null;
+  };
+  "cloud-host-replica-status": {
+    request: CloudHostReplicaStatusRequest;
+    result: CloudHostReplicaStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-host-replica-v1";
+    stream: null;
+  };
   "cloud-inbox-list": {
     request: CloudInboxListRequest;
     result: CloudInboxListResult;
@@ -3495,6 +3557,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "participant-avatars-v1";
+    stream: null;
+  };
+  "cloud-requests-list": {
+    request: CloudRequestsListRequest;
+    result: CloudRequestsListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
     stream: null;
   };
   "cloud-session-clear": {

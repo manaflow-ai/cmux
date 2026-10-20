@@ -1,0 +1,35 @@
+{
+  "info" : { "outcome" : "success" },
+  "result" : {
+    "devices" : [
+      {
+        "identifier" : "E4058DA9-F4C7-52DD-951D-0354061B8E89",
+        "connectionProperties" : { "pairingState" : "paired", "transportType" : "wired", "tunnelState" : "connected" },
+        "deviceProperties" : { "bootState" : "booted", "name" : "Test’s iPhone", "osVersionNumber" : "27.0.1" },
+        "hardwareProperties" : { "deviceType" : "iPhone", "marketingName" : "iPhone 16 Pro", "platform" : "iOS",
+          "productType" : "iPhone17,1", "reality" : "physical", "udid" : "00008140-0000000000000001" }
+      },
+      {
+        "identifier" : "AAAA0000-0000-4000-8000-000000000003",
+        "connectionProperties" : { "pairingState" : "paired", "transportType" : "localNetwork", "tunnelState" : "disconnected" },
+        "deviceProperties" : { "bootState" : "booted", "name" : "Lab iPhone", "osVersionNumber" : "26.5" },
+        "hardwareProperties" : { "deviceType" : "iPhone", "marketingName" : "iPhone 15", "platform" : "iOS",
+          "productType" : "iPhone15,4", "reality" : "physical", "udid" : "00008120-0000000000000002" }
+      },
+      {
+        "identifier" : "03ABAB0D-0A83-489F-BC98-C66950A14955",
+        "connectionProperties" : { "pairingState" : "unsupported" },
+        "deviceProperties" : { "bootState" : "shutdown", "name" : "chatmux-ios-w5a-chat", "osVersionNumber" : "26.3" },
+        "hardwareProperties" : { "deviceType" : "iPhone", "marketingName" : "iPhone 16 Pro", "platform" : "iOS",
+          "productType" : "iPhone17,1", "reality" : "simulated", "udid" : "03ABAB0D-0A83-489F-BC98-C66950A14955" }
+      },
+      {
+        "identifier" : "BBBB0000-0000-4000-8000-000000000004",
+        "connectionProperties" : { "pairingState" : "paired", "transportType" : "localNetwork", "tunnelState" : "disconnected" },
+        "deviceProperties" : { "bootState" : "booted", "name" : "Living Room", "osVersionNumber" : "26.0" },
+        "hardwareProperties" : { "deviceType" : "appleTV", "marketingName" : "Apple TV 4K", "platform" : "tvOS",
+          "reality" : "physical", "udid" : "00008110-0000000000000003" }
+      }
+    ]
+  }
+}

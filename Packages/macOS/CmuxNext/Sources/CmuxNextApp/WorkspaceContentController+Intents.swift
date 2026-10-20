@@ -3,25 +3,25 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
 
-// Layout intents -> daemon commands. Divider and column gestures carry one
-// daemon `transaction` per gesture; the final value's command settles or
-// rejects the gesture's LayoutTransactionID (no snapshot counting).
+// Layout intents -> daemon commands. A divider or column drag is local until
+// it ends: its one command (the final value, one daemon `transaction`)
+// settles or rejects the gesture's LayoutTransactionID (no snapshot counting).
 extension WorkspaceContentController {
     func handle(_ intent: LayoutIntent) {
         switch intent {
         case .focus(let pane):
             // Mouse-down in a pane or layout keyboard navigation.
             focus.send(.focusPane(pane.rawValue, source: .intent))
-        case .setSplitRatio(let split, let ratio, let transaction, let phase):
+        case .setSplitRatio(let split, let ratio, let transaction, _):
             guard let handle = handles.splits[split] else { return layoutModel.rejectTransaction(transaction) }
-            let daemonTransaction = gestureTransaction(transaction, phase: phase)
-            sendGesture(transaction, phase: phase, label: "set-split-ratio") { connection in
+            let daemonTransaction = nextDaemonTransaction()
+            sendGesture(transaction, label: "set-split-ratio") { connection in
                 try await connection.setSplitRatio(handle, ratio: ratio, transaction: daemonTransaction)
             }
-        case .setColumnWidth(_, let anyPane, let width, let transaction, let phase):
+        case .setColumnWidth(_, let anyPane, let width, let transaction, _):
             guard let handle = handles.panes[anyPane] else { return layoutModel.rejectTransaction(transaction) }
-            let daemonTransaction = gestureTransaction(transaction, phase: phase)
-            sendGesture(transaction, phase: phase, label: "set-viewport-pane-width") { connection in
+            let daemonTransaction = nextDaemonTransaction()
+            sendGesture(transaction, label: "set-viewport-pane-width") { connection in
                 try await connection.setColumnWidth(of: handle, width: width, transaction: daemonTransaction)
             }
         case .setColumnDock(_, let anyPane, let dock, let transaction):
@@ -34,9 +34,9 @@ extension WorkspaceContentController {
             if dock?.edge.isBand == true, !daemon.supports(DaemonCapabilities.shared.edgeDocks) {
                 return layoutModel.rejectTransaction(transaction)
             }
-            let daemonTransaction = gestureTransaction(transaction, phase: .ended)
+            let daemonTransaction = nextDaemonTransaction()
             let wire = dock.map(LayoutMapping.snapshot)
-            sendGesture(transaction, phase: .ended, label: "set-column-dock") { connection in
+            sendGesture(transaction, label: "set-column-dock") { connection in
                 try await connection.setColumnDock(of: handle, dock: wire, transaction: daemonTransaction)
             }
         case .setRowHeights(let column, let heights, let fit):
@@ -59,9 +59,9 @@ extension WorkspaceContentController {
             services.windows.recordSaver.stateDidChange(state)
         case .scrollTo:
             services.windows.recordSaver.stateDidChange(state)
-        case .cancelGesture(let transaction):
-            // No `.ended` will come for this gesture (its target went away).
-            if let value = gestureTransactions.removeValue(forKey: transaction) { daemon.store.layoutGestureTransaction(value, ended: true) }
+        case .cancelGesture:
+            // No `.ended` will come for this gesture (its target went away); nothing of it was sent.
+            return
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
         case .newColumn(let after, let width):
@@ -132,26 +132,15 @@ extension WorkspaceContentController {
         }
     }
 
-    private func gestureTransaction(_ id: LayoutTransactionID, phase: LayoutGesturePhase) -> UInt64 {
-        let value: UInt64
-        if let existing = gestureTransactions[id] {
-            value = existing
-        } else {
-            nextGestureTransaction += 1
-            value = nextGestureTransaction
-            gestureTransactions[id] = value
-        }
-        if phase == .ended { gestureTransactions[id] = nil }
-        return daemon.store.layoutGestureTransaction(value, ended: phase == .ended) // its live echoes do no work (I3)
+    private func nextDaemonTransaction() -> UInt64 {
+        nextGestureTransaction += 1
+        return nextGestureTransaction
     }
 
-    private func sendGesture(_ transaction: LayoutTransactionID, phase: LayoutGesturePhase, label: String,
-                             _ body: @escaping DaemonCommandBody) {
-        // One command in flight per gesture; a drag's live values coalesce to the newest (GestureCommandCoalescer).
-        gestureCommands.submit(transaction, phase: phase, label: label, body) { [layoutModel] ok, superseded in
-            // A failed live value with a newer one waiting needs no rollback: the newer value (or the end) decides.
-            guard phase == .ended || (!ok && !superseded) else { return }
-            if ok {
+    /// Sends a gesture's one command; its result settles or rolls back the layout's override.
+    private func sendGesture(_ transaction: LayoutTransactionID, label: String, _ body: @escaping DaemonCommandBody) {
+        Task { [daemon, layoutModel] in
+            if await daemon.run(label, body) {
                 layoutModel.settleTransaction(transaction)
             } else {
                 layoutModel.rejectTransaction(transaction)

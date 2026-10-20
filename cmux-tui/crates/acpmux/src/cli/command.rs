@@ -220,6 +220,22 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
+    /// Be an ACP agent backed by a UniiChat server (uniichat.com or your own
+    /// `unii serve`), over UniiChat's own protocol: streaming, stop, images.
+    /// Signs in with the token `unii login` keeps. In a profile:
+    /// `args = ["uniichat-agent"]`.
+    UniichatAgent {
+        /// The server; default `$UNII_URL`, else https://uniichat.com.
+        #[arg(long)]
+        url: Option<String>,
+        /// Where `unii` keeps its sign-ins; default `$UNII_HOME`, else ~/.unii.
+        #[arg(long)]
+        home: Option<std::path::PathBuf>,
+        /// Send every text block of a prompt (UniiChat keeps its own memory,
+        /// so by default only the last one: a Chief turn's new messages).
+        #[arg(long)]
+        whole_prompt: bool,
+    },
     /// Print the dashboard URL and open it in the browser.
     Web {
         /// Only print the URL.
@@ -268,6 +284,10 @@ pub enum Command {
     /// session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     OfferMcp,
+    /// The agent's sub-session tools (start_session and the rest): an MCP
+    /// stdio server for one agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    SubsessionMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {

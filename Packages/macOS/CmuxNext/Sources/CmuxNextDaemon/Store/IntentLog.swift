@@ -24,6 +24,9 @@ enum IntentUndo: Equatable {
     /// The daemon's tab or pane of a creation the person closed first (``CancelledCreation``).
     case hiddenTab(HiddenTab)
     case hiddenPane(HiddenPane)
+    /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
+    /// provisional one (inserted) rather than the daemon's.
+    case createdWorkspace(key: WorkspaceKey, inserted: Bool)
 }
 
 struct PendingIntent {
@@ -58,6 +61,8 @@ struct PendingIntent {
 /// and lifts the overlay (`DaemonStore+Intents.swift`).
 struct IntentLog {
     private(set) var entries: [PendingIntent] = []
+    /// The models Cmd-N's pending creates show (``DaemonStore/provisionalWorkspaces``).
+    var workspaceModels = ProvisionalWorkspaceModels()
     /// Closes the daemon's surface of a creation the person closed first (``DaemonCreations/onClose(_:)``).
     var closeCancelled: ((ClientTransactionID, SurfaceID) -> Void)?
     /// Recently settled transactions (bounded), so a late echo, reply or
