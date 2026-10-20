@@ -300,7 +300,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private func send(thread deferred: (root: MessageID?, parent: MessageID?)?) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
         let draft = store.state.ui.draft
-        let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = draft.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // without the attachment marks
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
         // MessagesLab d0017ba: the reducer's own rule first (Return with nothing to send does nothing:
         // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
@@ -426,7 +426,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let hash = attachment.ref.hash
         guard !stopped, let store = controller.store, !store.state.ui.draft.attachments.contains(where: { $0.id == hash }) else { return }
         drafts[hash] = attachment
-        controller.dispatch(.attach(HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil)))
+        // In the field's text at the caret (Draft+InlineMarks.swift); at the end when the field
+        // does not show this draft's text yet.
+        controller.dispatch(.attachAt(HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil), controller.composeCaret()))
     }
 
     /// The field's attachments, in order.
@@ -544,7 +546,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func draftChanged() {
         if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
-        let text = controller.store?.state.ui.draft.text ?? ""
+        let text = controller.store?.state.ui.draft.plainText ?? ""  // without the attachment marks
         homeStore.setDraft(text, for: conversation)
         // My typing dots for the other members (HomeStore+Typing); off once the field is empty.
         homeStore.composing(text, in: conversation)

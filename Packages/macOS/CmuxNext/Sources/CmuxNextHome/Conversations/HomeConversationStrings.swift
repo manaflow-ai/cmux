@@ -41,6 +41,17 @@ enum HomeConversationStrings {
     }
     static var untitled: String { String(localized: "home.list.untitled", defaultValue: "Conversation", bundle: .module) }
 
+    // MARK: Chiefs (HomeChiefRoster)
+
+    /// The main Chief's tag in the list.
+    static var mainChief: String { String(localized: "home.list.chief.main", defaultValue: "Main", bundle: .module) }
+    /// A Chief that runs on this Mac.
+    static var placeThisMac: String { String(localized: "home.list.chief.thisMac", defaultValue: "This Mac", bundle: .module) }
+    /// A Chief that runs in the cloud (the Hosted Chief).
+    static var placeCloud: String { String(localized: "home.list.chief.cloud", defaultValue: "Cloud", bundle: .module) }
+    /// A Chief on a paired server whose name is not known yet.
+    static var placeServer: String { String(localized: "home.list.chief.server", defaultValue: "Paired server", bundle: .module) }
+
     // MARK: Message requests (home-messaging-invites DESIGN 2.3, 2.5)
 
     /// The sender's row while the other person has not joined.
