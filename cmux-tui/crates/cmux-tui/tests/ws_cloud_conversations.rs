@@ -508,6 +508,94 @@ fn an_open_page_learns_that_the_app_signed_in() {
     assert_eq!(page.rpc(json!({"cmd":"cloud-session-status"}))["data"]["state"], "active");
 }
 
+/// Hide Alerts on a Cloud DM or group (plans/cmux-next/home-dm-group-chats/AUDIT.md item 13):
+/// the person's client sends `cloud-inbox-op` `inbox.mute` and the daemon forwards it to the
+/// person's UserDO inbox unchanged, with an optional `until` (Unix ms) and the client's key.
+#[test]
+fn the_persons_page_mutes_a_cloud_conversation_through_the_daemon() {
+    let fixture = Fixture::start("mute");
+    let cloud = FakeCloud::start();
+    let token = person_token();
+    let mut app = fixture.app();
+    assert_eq!(app.rpc(lease(&cloud.base, &token))["ok"], true);
+    let mut page = Page::open(&fixture.credential().0, &page_credential(&mut app));
+    let muted = page.rpc(json!({"cmd":"cloud-inbox-op","conversation":CONV,
+        "idempotency_key":"mute-1","op":{"kind":"inbox.mute","muted":true,"until":1_900_000_000_000_u64}}));
+    assert_eq!(muted["ok"], true, "{muted}");
+    let unmuted = page.rpc(json!({"cmd":"cloud-inbox-op","conversation":CONV,
+        "idempotency_key":"mute-2","op":{"kind":"inbox.mute","muted":false}}));
+    assert_eq!(unmuted["ok"], true, "{unmuted}");
+    let requests = cloud.requests();
+    assert_eq!(
+        requests.iter().map(|(path, _, body)| (path.clone(), body.clone())).collect::<Vec<_>>(),
+        vec![
+            (
+                "/v1/ops".to_string(),
+                json!({"op":"inbox.mute","params":{"muted":true,
+                "until":1_900_000_000_000_u64,"conversation":CONV},"idempotency_key":"mute-1"})
+            ),
+            (
+                "/v1/ops".to_string(),
+                json!({"op":"inbox.mute","params":{"muted":false,
+                "conversation":CONV},"idempotency_key":"mute-2"})
+            ),
+        ],
+        "{requests:?}"
+    );
+}
+
+/// Group roles through the daemon (plans/cmux-next/home-dm-group-chats/DESIGN.md section 4): the
+/// page's `cloud-conversation-op` forwards `participants.set_role`, `ownership.transfer`,
+/// `participants.unban`, a `participants.remove` with `ban`, and the group link ops
+/// `grant.create` and `grant.revoke` to `POST /v1/ops` unchanged.
+#[test]
+fn the_persons_page_manages_group_roles_through_the_daemon() {
+    let fixture = Fixture::start("roles");
+    let cloud = FakeCloud::start();
+    let token = person_token();
+    let mut app = fixture.app();
+    assert_eq!(app.rpc(lease(&cloud.base, &token))["ok"], true);
+    let mut page = Page::open(&fixture.credential().0, &page_credential(&mut app));
+    let ops = [
+        json!({"kind":"participants.set_role","participant":"user_ben","role":"admin"}),
+        json!({"kind":"ownership.transfer","participant":"user_ben"}),
+        json!({"kind":"participants.remove","participant":"user_cat","ban":true}),
+        json!({"kind":"participants.unban","participant":"user_cat"}),
+        json!({"kind":"grant.create","role":"read_only","max_uses":5}),
+        json!({"kind":"grant.revoke","grant_id":"grt_00000000000000000000000001"}),
+    ];
+    for (n, op) in ops.iter().enumerate() {
+        let reply = page.rpc(json!({"cmd":"cloud-conversation-op","conversation":CONV,
+            "idempotency_key":format!("roles-{n}"),"origin":"user","op":op}));
+        assert_eq!(reply["ok"], true, "{op}: {reply}");
+    }
+    let names: Vec<Value> = cloud
+        .requests()
+        .iter()
+        .filter(|(path, _, _)| path == "/v1/ops")
+        .map(|(_, _, body)| body["op"].clone())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            json!("participants.set_role"),
+            json!("ownership.transfer"),
+            json!("participants.remove"),
+            json!("participants.unban"),
+            json!("grant.create"),
+            json!("grant.revoke")
+        ]
+    );
+    let bodies: Vec<Value> = cloud
+        .requests()
+        .iter()
+        .filter(|(path, _, _)| path == "/v1/ops")
+        .map(|(_, _, body)| body["params"].clone())
+        .collect();
+    assert_eq!(bodies[0]["role"], "admin");
+    assert_eq!(bodies[2]["ban"], true);
+}
+
 /// The person's pin and "marked unread" of a Cloud conversation
 /// (`conversation-inbox-state-v1`): the page sends `cloud-inbox-op` and the
 /// daemon forwards the Cloud owner's own inbox ops (`inbox.pin`,

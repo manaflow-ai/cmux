@@ -91,10 +91,10 @@ fn a_worker_thread_panic_is_logged_and_the_owner_keeps_running() {
     // Tester rollout: a crash report names the release and the build it came
     // from, so Sentry groups thousands of testers' crashes by release and a
     // Linux arm64 crash is told apart from a Mac one.
-    let probe = command(&owner.dir).args(["remote-probe", "--json"]).output().unwrap();
-    let probe: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
-    assert_eq!(record["version"], probe["distribution_version"], "{record}");
-    assert_eq!(record["build_identity"], probe["build_identity"], "{record}");
+    let report = command(&owner.dir).args(["--version", "--json"]).output().unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&report.stdout).unwrap();
+    assert_eq!(record["version"], report["version"], "{record}");
+    assert_eq!(record["build_identity"], report["build_identity"], "{record}");
     assert_eq!(record["os"], std::env::consts::OS, "{record}");
     assert_eq!(record["arch"], std::env::consts::ARCH, "{record}");
 
