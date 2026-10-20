@@ -1693,6 +1693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // menu mounts: it is lazy, and its consumers only observe its
         // notification, so nothing else would bring it up (#10866).
         BrowserAvailabilityMonitor.shared.activate()
+        startChiefIfEnabled()
         // Composition root for surfaces: this Mac's panes and every cloud machine's
         // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
         // open through `SurfaceCatalog.project`.
@@ -4824,6 +4825,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     hasher.combine(0)
                 case .notifications:
                     hasher.combine(1)
+                case .home:
+                    hasher.combine(2)
                 }
 
                 if let window = liveRoute.window {
@@ -14535,6 +14538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switch sidebarSelection {
             case .tabs: return "tabs"
             case .notifications: return "notifications"
+            case .home: return "home"
             }
         }()
         writeMultiWindowNotificationTestData([
@@ -15421,6 +15425,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            matchConfiguredShortcut(event: event, action: .agentInbox) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             requestAgentInbox(preferredWindow: targetWindow, source: "shortcut.agentInbox")
+            return true
+        }
+
+        // Open Chief: toggles Home, so the same keys return to the workspace.
+        // When chief.enabled is off the shortcut is not consumed, so the
+        // keystroke still reaches the focused surface.
+        if matchConfiguredShortcut(event: event, action: .openChief),
+           openChiefHome(
+               preferredWindow: preferredMainWindowContextForShortcutRouting(event: event)?.window,
+               toggle: true,
+               source: "shortcut.openChief"
+           ) {
             return true
         }
 
@@ -17110,6 +17126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return nil
         }
+        leaveChiefHome(in: tabManager)
 
         let preferredProfileID =
             tabManager?.focusedBrowserPanel?.profileID
@@ -17603,6 +17620,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
         _ = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
+        leaveChiefHome(in: terminalContext?.tabManager ?? tabManager)
 
         let directionLabel: String
         switch direction {

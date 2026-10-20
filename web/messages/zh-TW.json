@@ -2266,6 +2266,13 @@
               "enabled": "選取遠端 tmux 工作區後，「新增工作區」會在該工作區的主機上啟動 tmux 工作階段。"
             }
           }
+        },
+        "chief": {
+          "description": "Chief（首頁代理）：是否顯示，以及使用的執行框架、模型和推理強度。",
+          "enabled": "顯示首頁列和 Chief 入口。設為 false 時，會隱藏首頁列、打開 Chief 快捷鍵、選單項目和命令面板項目。",
+          "harness": "Chief 使用的代理執行框架：claude（Claude Code）或 codex（Codex）。",
+          "model": "傳遞給執行框架的模型。留空則使用執行框架的預設值。",
+          "effort": "傳遞給執行框架的推理強度，例如 low、medium 或 high。留空則使用執行框架的預設值。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

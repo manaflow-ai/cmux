@@ -2266,6 +2266,13 @@
               "enabled": "Kada je izabran udaljeni tmux radni prostor, „Novi radni prostor“ pokreće tmux sesiju na hostu tog radnog prostora."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, agent početne stranice: da li se prikazuje i koji harness, model i napor koristi.",
+          "enabled": "Prikazuje red Početna i ulazne tačke za Chief. Kada je false, skriveni su red Početna, prečica Otvori Chief, stavka menija i unosi palete komandi.",
+          "harness": "Harness agenta na kojem radi Chief: claude (Claude Code) ili codex (Codex).",
+          "model": "Model koji se prosljeđuje harnessu. Ostavite prazno za zadanu vrijednost harnessa.",
+          "effort": "Napor rezonovanja koji se prosljeđuje harnessu, npr. low, medium ili high. Ostavite prazno za zadanu vrijednost harnessa."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

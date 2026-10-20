@@ -373,32 +373,21 @@ struct AgentFeedRow: View, Equatable {
                 .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
         )
 
-        return Group {
-            if message.contains("\n") {
-                // Multiline quotes use the entire text column.
-                bubbleSide(
-                    content,
-                    sender: sender,
-                    fullWidth: true
-                )
-                .overlay(
-                    AgentFeedBubbleShape(tailEdge: sender.tailEdge)
-                        .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
-                )
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    bubbleSide(compactContent, sender: sender, fullWidth: false)
-                    bubbleSide(
-                        content,
-                        sender: sender,
-                        fullWidth: true
-                    )
-                    .overlay(
-                        AgentFeedBubbleShape(tailEdge: sender.tailEdge)
-                            .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
-                    )
-                }
-            }
+        // Keep multiline prompts content-sized when their longest line fits;
+        // only expand a bubble when its intrinsic width cannot fit the row.
+        // This keeps an explicit line break from creating a full-column
+        // outline with a large empty leading area.
+        return ViewThatFits(in: .horizontal) {
+            bubbleSide(compactContent, sender: sender, fullWidth: false)
+            bubbleSide(
+                content,
+                sender: sender,
+                fullWidth: true
+            )
+            .overlay(
+                AgentFeedBubbleShape(tailEdge: sender.tailEdge)
+                    .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
+            )
         }
     }
 
@@ -542,23 +531,13 @@ struct AgentFeedRow: View, Equatable {
         )
 
         return VStack(alignment: .leading, spacing: 6) {
-            Group {
-                if reply.contains("\n") {
-                    bubbleSide(content, sender: .user, fullWidth: true)
-                        .background(
-                            AgentFeedBubbleShape(tailEdge: .trailing)
-                                .fill(Color.accentColor)
-                        )
-                } else {
-                    ViewThatFits(in: .horizontal) {
-                        bubbleSide(compactContent, sender: .user, fullWidth: false)
-                        bubbleSide(content, sender: .user, fullWidth: true)
-                            .background(
-                                AgentFeedBubbleShape(tailEdge: .trailing)
-                                    .fill(Color.accentColor)
-                            )
-                    }
-                }
+            ViewThatFits(in: .horizontal) {
+                bubbleSide(compactContent, sender: .user, fullWidth: false)
+                bubbleSide(content, sender: .user, fullWidth: true)
+                    .background(
+                        AgentFeedBubbleShape(tailEdge: .trailing)
+                            .fill(Color.accentColor)
+                    )
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(

@@ -2266,6 +2266,13 @@
               "enabled": "Quando è selezionato uno spazio di lavoro tmux remoto, «Nuovo spazio di lavoro» avvia una sessione tmux sull’host di quello spazio."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, l’agente Home: se viene mostrato e quale harness, modello e sforzo usa.",
+          "enabled": "Mostra la riga Home e i punti di accesso a Chief. Se false, la riga Home, la scorciatoia Apri Chief, la voce di menu e le voci della palette comandi vengono nascoste.",
+          "harness": "Harness dell’agente su cui gira Chief: claude (Claude Code) o codex (Codex).",
+          "model": "Modello passato all’harness. Lascia vuoto per usare il predefinito dell’harness.",
+          "effort": "Sforzo di ragionamento passato all’harness, ad esempio low, medium o high. Lascia vuoto per usare il predefinito dell’harness."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
