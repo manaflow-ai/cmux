@@ -57,7 +57,7 @@ pub(super) async fn handle(
             .ok_or_else(|| RpcError::invalid_params("surface is required"))?;
         let text = str_param(params, "text")
             .ok_or_else(|| RpcError::invalid_params("text is required"))?;
-        return hub.composer_set(&s, surface, text);
+        return hub.composer_set(&s, surface, text, &conn.label());
     }
     if m == method::MUX_DRAFT_GET {
         return Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}));

@@ -431,12 +431,12 @@ async fn dispatch_request(
             // A surface that names itself labels its prompt once the hub took it (composers.rs).
             let surface = mux_meta(&params).and_then(|m| m.get("surface"));
             let surface = crate::hub::composers::surface(surface)?;
-            let (notify, sent) = (conn.clone(), (hub.clone(), s.clone()));
+            let (notify, sent) = (conn.clone(), (hub.clone(), s.clone(), conn.label()));
             let opts = crate::hub::PromptOptions {
                 prompt_id,
                 on_accepted: Some(Box::new(move |v| {
                     if let Some(surface) = surface {
-                        sent.0.composer_accepted(&sent.1, surface, &v);
+                        sent.0.composer_accepted(&sent.1, surface, &sent.2, &v);
                     }
                     notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
                 })),

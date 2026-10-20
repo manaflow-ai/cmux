@@ -108,10 +108,13 @@ async fn each_surface_keeps_its_own_draft_and_others_see_it_composing() {
         .await
         .unwrap();
     // More typing on the Mac changes its draft but records nothing new: no record per key.
-    let view = mac
+    let ack = mac
         .request(method::MUX_COMPOSER_SET, set(surface("mac-1", "Mac"), "half a thought, more"))
         .await
         .unwrap();
+    // The answer is this surface's own state, never every surface's text.
+    assert_eq!(ack, json!({"sessionId": id, "surfaceId": "mac-1", "composing": true}));
+    let view = phone.request(method::MUX_COMPOSERS, json!({"sessionId": id})).await.unwrap();
     let texts: Vec<(&str, &str)> = view["composers"]
         .as_array()
         .unwrap()
@@ -147,6 +150,12 @@ async fn each_surface_keeps_its_own_draft_and_others_see_it_composing() {
     // Clearing the Mac's text says it stopped composing.
     mac.request(method::MUX_COMPOSER_SET, set(surface("mac-1", "Mac"), " \n")).await.unwrap();
     let last = composer_records(&hub, &id).pop().unwrap();
+    assert_eq!(last["surfaceId"], "mac-1");
+    assert_eq!(last["composing"], false);
+    // Beside the name the client chose, the connection the hub saw.
+    assert!(last["client"].as_str().is_some_and(|c| c.starts_with("test#")), "{last}");
+    let mut last = last;
+    last.as_object_mut().unwrap().remove("client");
     assert_eq!(last, json!({"surfaceId": "mac-1", "name": "Mac", "composing": false}));
     let view = mac.request(method::MUX_COMPOSERS, json!({"sessionId": id})).await.unwrap();
     assert!(view["composers"].as_array().unwrap().is_empty(), "{view}");
@@ -156,7 +165,13 @@ async fn each_surface_keeps_its_own_draft_and_others_see_it_composing() {
 async fn a_malformed_surface_is_refused_and_records_nothing() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "bad").await;
-    for bad in [json!("Mac"), json!({"id": "x"}), json!({"id": "x", "name": "two\nlines"})] {
+    for bad in [
+        json!("Mac"),
+        json!({"id": "x"}),
+        json!({"id": "x", "name": "two\nlines"}),
+        // A bidi override would let a name read as another one.
+        json!({"id": "x", "name": "\u{202E}caM"}),
+    ] {
         let e = c
             .request(
                 method::MUX_COMPOSER_SET,

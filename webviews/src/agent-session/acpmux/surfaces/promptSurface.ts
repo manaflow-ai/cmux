@@ -14,9 +14,10 @@ export function setPromptSurfaces(on: boolean): void {
 }
 
 /// The device a page runs on, as acpmux shows it to the other places typing into the chat.
-export function deviceName(userAgent: string): string {
+/// iPadOS Safari reports a Mac user agent; only its touch points tell it apart.
+export function deviceName(userAgent: string, touchPoints = 0): string {
   if (/iPhone/.test(userAgent)) return "iPhone";
-  if (/iPad/.test(userAgent)) return "iPad";
+  if (/iPad/.test(userAgent) || (/Macintosh/.test(userAgent) && touchPoints > 1)) return "iPad";
   if (/Macintosh|Mac OS X/.test(userAgent)) return "Mac";
   return "Web";
 }
@@ -27,7 +28,7 @@ export function promptSurfaceMeta(): { surface: PromptSurface } | Record<string,
   if (!labelled) return {};
   surface ??= {
     id: crypto.randomUUID(),
-    name: deviceName(typeof navigator === "undefined" ? "" : navigator.userAgent),
+    name: typeof navigator === "undefined" ? "Web" : deviceName(navigator.userAgent, navigator.maxTouchPoints),
     kind: "app",
   };
   return { surface };

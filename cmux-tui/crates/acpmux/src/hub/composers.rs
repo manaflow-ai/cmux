@@ -9,14 +9,16 @@
 //! - each surface keeps its own unsent text (`_acpmux/composer_set`), so two places typing do
 //!   not overwrite each other's draft the way the one shared `_acpmux/draft_set` slot would;
 //! - every attached client hears when a surface starts or stops composing, and which surface
-//!   sent a prompt: a `composer` record `{surfaceId, name, kind?, composing, promptId?}`, written
-//!   only when that changes (never per keystroke), and once the hub took a prompt (right after
-//!   its `queued` or `user_message` record; a refused or duplicate prompt writes none);
+//!   sent a prompt: a `composer` record `{surfaceId, name, kind?, client, composing, promptId?}`,
+//!   written only when that changes (never per keystroke), and once the hub took a prompt (right
+//!   after its `queued` or `user_message` record; a refused or duplicate prompt writes none);
 //! - `_acpmux/composers` answers every surface's draft and the queue, each prompt labelled with
 //!   the surface that sent it.
 //!
-//! A client opts in by naming its surface (`_meta.acpmux.surface` on `session/prompt`, and
-//! `composer_set`); one that never does sees nothing new. Drafts here live in memory: the
+//! A surface's name is what its client says (a label, never a right): `client` beside it is the
+//! connection the hub saw. A client opts in by naming its surface (`_meta.acpmux.surface` on
+//! `session/prompt`, and `composer_set`); one that never does sees nothing new. Drafts and the
+//! queue's labels live in memory, so a restarted or moved chat shows its queue unlabelled; the
 //! durable shared draft stays `_acpmux/draft_set`.
 
 use super::*;
@@ -47,6 +49,25 @@ impl Surface {
         }
         v
     }
+
+    /// The `composer` record for it: who, through which connection, and whether it composes.
+    fn composer(&self, client: &str, composing: bool) -> Value {
+        let mut v = self.record();
+        v["client"] = json!(client);
+        v["composing"] = json!(composing);
+        v
+    }
+}
+
+/// A character a surface's id or name may not hold: a control, or an invisible format
+/// character (a bidi override, a zero-width one) that could make a name read as another.
+fn hidden(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{FEFF}')
+        || ('\u{200B}'..='\u{200F}').contains(&c)
+        || ('\u{202A}'..='\u{202E}').contains(&c)
+        || ('\u{2060}'..='\u{206F}').contains(&c)
+        || ('\u{FFF9}'..='\u{FFFB}').contains(&c)
 }
 
 /// One surface's unsent text.
@@ -87,10 +108,7 @@ fn field(v: &Value, key: &str, required: bool) -> Result<Option<String>, RpcErro
     };
     let s = raw.as_str().ok_or_else(|| refusal(format!("surface.{key} must be a string")))?;
     let s = s.trim();
-    if s.is_empty()
-        || s.chars().count() > MAX_SURFACE_FIELD_CHARS
-        || s.chars().any(char::is_control)
-    {
+    if s.is_empty() || s.chars().count() > MAX_SURFACE_FIELD_CHARS || s.chars().any(hidden) {
         return Err(refusal(format!(
             "surface.{key} must be one line of 1-{MAX_SURFACE_FIELD_CHARS} characters"
         )));
@@ -112,14 +130,16 @@ pub fn surface(v: Option<&Value>) -> Result<Option<Surface>, RpcError> {
 }
 
 impl Hub {
-    /// `_acpmux/composer_set {sessionId, surface, text}`: the surface's unsent text. Whitespace
-    /// clears it. Records `composer` when the surface starts or stops composing (or renames
-    /// itself while it composes), so every client sees who is typing without a record per key.
+    /// `_acpmux/composer_set {sessionId, surface, text}` from the connection `client`: the
+    /// surface's unsent text. Whitespace clears it. Records `composer` when the surface starts or
+    /// stops composing (or renames itself while it composes), so every client sees who is typing
+    /// without a record per key. Answers only this surface's state; `_acpmux/composers` has all.
     pub fn composer_set(
         &self,
         session: &Session,
         surface: Surface,
         text: &str,
+        client: &str,
     ) -> Result<Value, RpcError> {
         if text.chars().count() > MAX_SURFACE_DRAFT_CHARS {
             return Err(RpcError::invalid_params(format!(
@@ -130,9 +150,10 @@ impl Hub {
             return Err(queue::moving_error());
         }
         let composing = !text.trim().is_empty();
-        let changed = {
+        let (changed, evicted) = {
             let mut c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
             let before = c.drafts.get(&surface.id).map(|d| d.surface.clone());
+            let mut evicted = None;
             if composing {
                 c.typed += 1;
                 let draft = Draft {
@@ -146,25 +167,34 @@ impl Hub {
                     && let Some(oldest) =
                         c.drafts.values().min_by_key(|d| d.order).map(|d| d.surface.id.clone())
                 {
-                    c.drafts.remove(&oldest);
+                    evicted = c.drafts.remove(&oldest).map(|d| d.surface);
                 }
             } else {
                 c.drafts.remove(&surface.id);
             }
-            before.as_ref() != composing.then_some(&surface)
+            (before.as_ref() != composing.then_some(&surface), evicted)
         };
-        if changed {
-            let mut rec = surface.record();
-            rec["composing"] = json!(composing);
-            self.append(session, "mux", "composer", rec);
+        // A draft pushed out by too many surfaces stops composing as far as every client knows.
+        if let Some(gone) = evicted {
+            self.append(session, "mux", "composer", gone.composer(client, false));
         }
-        Ok(self.composers_view(session))
+        if changed {
+            self.append(session, "mux", "composer", surface.composer(client, composing));
+        }
+        Ok(json!({"sessionId": session.id, "surfaceId": surface.id, "composing": composing}))
     }
 
-    /// The hub took a prompt a surface sent (`_meta.acpmux.surface` on `session/prompt`;
-    /// `accepted` is what `promptAccepted` carries): that surface's draft is sent, and a
-    /// `composer` record says who sent it. A duplicate prompt id was labelled the first time.
-    pub fn composer_accepted(&self, session: &Session, surface: Surface, accepted: &Value) {
+    /// The hub took a prompt a surface sent through the connection `client`
+    /// (`_meta.acpmux.surface` on `session/prompt`; `accepted` is what `promptAccepted` carries):
+    /// that surface's draft is sent, and a `composer` record says who sent it. A duplicate prompt
+    /// id was labelled the first time.
+    pub fn composer_accepted(
+        &self,
+        session: &Session,
+        surface: Surface,
+        client: &str,
+        accepted: &Value,
+    ) {
         if accepted.get("duplicate") == Some(&json!(true)) {
             return;
         }
@@ -177,12 +207,10 @@ impl Hub {
                 c.sent.pop_front();
             }
         }
-        let mut rec = surface.record();
-        rec["composing"] = json!(false);
+        let mut rec = surface.composer(client, false);
         rec["promptId"] = json!(prompt_id);
         self.append(session, "mux", "composer", rec);
     }
-
     /// `_acpmux/composers {sessionId}`: every surface's unsent text (latest first), the running
     /// turn and the queue in run order, each labelled with the surface that sent it when one did.
     pub fn composers_view(&self, session: &Session) -> Value {
