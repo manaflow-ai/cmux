@@ -80,9 +80,11 @@ public final class StreamedBrowserModel: BrowserTabState {
     @ObservationIgnored private var appliedScreen: RemoteBrowserWire.Screen?
     @ObservationIgnored private var screenSeq = 0
     @ObservationIgnored private var welcomed = false
-    /// The page is on screen: its stream keeps the WebRTC media session
-    /// beside a WireGuard link open (verify/hybrid-link.md).
-    @ObservationIgnored private var visible = true
+    /// The page is on screen and the app is active: its stream keeps the
+    /// WebRTC media session beside a WireGuard link open (verify/hybrid-link.md).
+    @ObservationIgnored private var onScreen = true
+    @ObservationIgnored private var appActive = true
+    private var visible: Bool { onScreen && appActive }
     @ObservationIgnored private var connecting = false
     @ObservationIgnored private var samples: [Meter.Sample] = []
     /// A Back or Forward sent and not yet committed on the Mac (finding 5 of
@@ -176,9 +178,16 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     /// The page appeared or disappeared.
     public func setVisible(_ visible: Bool) {
-        guard visible != self.visible else { return }
-        self.visible = visible
-        connection?.setVisible(visible)
+        let before = self.visible
+        onScreen = visible
+        if self.visible != before { connection?.setVisible(self.visible) }
+    }
+
+    /// The app went to the background or came back.
+    public func setAppActive(_ active: Bool) {
+        let before = visible
+        appActive = active
+        if visible != before { connection?.setVisible(visible) }
     }
 
     /// The link changed: a dropped stream comes back on the new link.

@@ -17,6 +17,7 @@ public final class StreamedBrowserDirectory {
 
     private var models: [String: StreamedBrowserModel] = [:]
     private var lastWarm: ContinuousClock.Instant?
+    private var appActive = true
 
     public init() {}
 
@@ -35,6 +36,7 @@ public final class StreamedBrowserDirectory {
             return try await link.openBrowser(tab: tab, url: url?.absoluteString, sink: sink)
         }
         models[tab] = model
+        if !appActive { model.setAppActive(false) }
         warmMedia()
         return model
     }
@@ -61,6 +63,13 @@ public final class StreamedBrowserDirectory {
         for model in models.values { model.reconnect() }
         lastWarm = nil
         if !models.isEmpty { warmMedia() }
+    }
+
+    /// The app went to the background (or came back): hidden pages let the
+    /// WebRTC media session go.
+    public func setAppActive(_ active: Bool) {
+        appActive = active
+        for model in models.values { model.setAppActive(active) }
     }
 
     public func reset() {

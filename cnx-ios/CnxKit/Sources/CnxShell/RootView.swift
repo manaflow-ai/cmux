@@ -1,5 +1,6 @@
 #if os(iOS)
 import CnxAuth
+import CnxBrowserStream
 import CnxDesign
 import CnxFeed
 import CnxLive
@@ -510,6 +511,7 @@ private struct LinkSettingsObserver: ViewModifier {
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { shell.live?.foreground() }
+                StreamedBrowserDirectory.shared.setAppActive(phase == .active)
             }
     }
 }
