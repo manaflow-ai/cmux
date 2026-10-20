@@ -153,6 +153,16 @@ public final class MockBrowserTab: BrowserTab {
         delegate?.browserTab(self, didRequest: intent)
     }
 
+    /// Queues a prompt as an engine's tab does: answering it removes it.
+    func enqueuePrompt(_ kind: BrowserPromptKind, origin: String, completion: @escaping (BrowserPromptResponse) -> Void) {
+        var prompt: BrowserPrompt?
+        prompt = BrowserPrompt(kind: kind, origin: origin) { [weak self] response in
+            self?.pendingPrompts.removeAll { $0 === prompt }
+            completion(response)
+        }
+        if let prompt { pendingPrompts.append(prompt) }
+    }
+
     // MARK: BrowserTab
 
     public func load(_ url: URL) {

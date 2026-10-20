@@ -6,8 +6,8 @@ import CmuxNextDesign
 /// title ("(3) Inbox") gets the unread dot until the tab is viewed. Only a
 /// change from a title already shown at the same URL counts, so a page's
 /// first title (a tab opened in the background) marks nothing. Plain state,
-/// read and written while the strip snapshot is built from the tab records:
-/// the snapshot already re-runs when a title or the selection changes.
+/// read and written while the strip snapshot is built from the tab records;
+/// a tab switch clears its mark through `viewed`, not by a new snapshot.
 @MainActor
 final class BrowserTitleAttention {
     /// The last title each background tab showed, with its URL.
@@ -34,5 +34,11 @@ final class BrowserTitleAttention {
            cache.existingBrowser(key)?.tab.state.isLoading != true { marked.insert(key) }
         seen[key] = (tab.url, tab.title)
         return marked.contains(key)
+    }
+
+    /// Tab `key` became the selected tab: its dot goes. True when it had one.
+    func viewed(_ key: String) -> Bool {
+        seen[key] = nil
+        return marked.remove(key) != nil
     }
 }

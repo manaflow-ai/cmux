@@ -1,5 +1,10 @@
 //! End-to-end tests through the real protocol handler with a fake agent.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
@@ -10,6 +15,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[path = "hub_integration/auto_resume.rs"]
+mod auto_resume;
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
@@ -40,6 +47,8 @@ mod session_offers;
 mod status_indicator;
 #[path = "hub_integration/steer_only.rs"]
 mod steer_only;
+#[path = "hub_integration/stop.rs"]
+mod stop;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
 #[path = "hub_integration/xai_requests.rs"]
@@ -916,16 +925,7 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
     );
     next.presets.insert(
         "flash".into(),
-        acpmux::config::Preset {
-            harness: "deepseek".into(),
-            model: None,
-            effort: None,
-            policy: None,
-            env: BTreeMap::new(),
-            args: Vec::new(),
-            system_prompt_sha256: None,
-            description: None,
-        },
+        serde_json::from_value::<acpmux::config::Preset>(json!({"harness": "deepseek"})).unwrap(),
     );
     std::fs::write(&path, serde_json::to_vec(&next).unwrap()).unwrap();
     let reload = c.request(method::MUX_RELOAD_CONFIG, json!({})).await.unwrap();
@@ -1196,25 +1196,6 @@ async fn watchers_get_permission_pending_and_auto_approvals() {
     assert_eq!(resolved["sessionId"], id);
     assert_eq!(resolved["recordKind"], "permission_auto");
     assert!(c.response(rid).await.0.is_ok());
-}
-
-#[tokio::test]
-async fn session_cancel_as_a_request_is_answered() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
-    let id = new_session(&mut c, "cancel-req").await;
-    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "slow", None)).await;
-    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
-        .await;
-    let cancel = c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
-    let (r, _) = c.response(cancel).await;
-    assert_eq!(r.unwrap(), json!({}));
-    let r = c.response(rid).await.0.unwrap();
-    assert_eq!(r["stopReason"], "cancelled");
-    // With no turn running it still answers.
-    assert_eq!(
-        c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap(),
-        json!({})
-    );
 }
 
 #[path = "hub_integration/handoff.rs"]

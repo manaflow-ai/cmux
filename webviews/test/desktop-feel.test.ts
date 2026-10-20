@@ -18,6 +18,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -100,7 +101,7 @@ const fenced = "code block text";
   }, 240_000);
 
   afterAll(() => {
-    server?.kill();
+    stopDevServer(server);
     for (const root of [markdownRoot, readOnlyRoot]) if (root) fs.rmSync(root, { recursive: true, force: true });
   });
 

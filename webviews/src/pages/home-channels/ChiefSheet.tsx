@@ -6,11 +6,25 @@
 import { useRef, useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
+import { DialogButton } from "../../ui/DialogButton";
 import { FormDialog } from "./FormDialog";
-import { readPicture, type HomeSheets } from "./sheets";
 import {
+  CENTERED,
+  preparePicture,
+  STILL_MAX_BYTES,
+  withinPixels,
+  type PictureCrop as Crop,
+  type PreparedPicture,
+} from "./picture";
+import { PictureCrop } from "./PictureCrop";
+import type { HomeSheets } from "./sheets";
+import {
+  CHIEF_BACKENDS,
   CHIEF_HARNESSES,
   CHIEF_TOOLS,
+  chiefBackend,
+  chiefBackendLabel,
+  DEFAULT_CHIEF_BACKEND,
   DEFAULT_CHIEF_TOOLS,
   type HomeChief,
   type HomeChiefGrant,
@@ -44,7 +58,16 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
     harnesses: chief && chief.harnesses.length > 0 ? chief.harnesses : [...CHIEF_HARNESSES],
   };
   const [grant, setGrant] = useState<HomeChiefGrant>(startGrant);
-  const [image, setImage] = useState<{ mediaType: string; data: string; url: string } | undefined>();
+  // The engine a new Chief starts on. An existing Chief's engine changes only in its settings in
+  // the app (`cmux chief engine`), so the edit sheet shows it and does not send it.
+  const [backend, setBackend] = useState<string>(DEFAULT_CHIEF_BACKEND);
+  // A GIF ready to send, null to go back to the default picture, undefined for no change.
+  const [image, setImage] = useState<(PreparedPicture & { url: string }) | null | undefined>();
+  // A still being placed in the circle; it is drawn at its crop when the sheet saves.
+  const [placing, setPlacing] = useState<
+    { file: File; url: string; size: { width: number; height: number } } | undefined
+  >();
+  const [crop, setCrop] = useState<Crop>(CENTERED);
   const [imageError, setImageError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -66,26 +89,60 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
       ...g,
       [key]: g[key].includes(name) ? g[key].filter((item) => item !== name) : [...g[key], name],
     }));
+  const refuse = (error: "type" | "size" | "tooBig" | "pixels" | "unreadable") =>
+    setImageError(
+      t(
+        {
+          type: "chief.picture.type",
+          size: "chief.picture.size",
+          tooBig: "chief.picture.tooBig",
+          pixels: "chief.picture.pixels",
+          unreadable: "chief.picture.type",
+        }[error],
+      ),
+    );
   const choose = async (file: File | undefined) => {
     if (!file) return;
-    const read = await readPicture(file);
-    if ("error" in read) {
-      setImageError(t(read.error === "type" ? "chief.picture.type" : "chief.picture.size"));
+    setImageError(undefined);
+    if (file.type !== "image/gif") {
+      // A still is placed first and drawn when the sheet saves. Its bytes and pixels are checked
+      // before the preview decodes it: a small file can decode to gigabytes.
+      if (file.size > STILL_MAX_BYTES) return refuse("tooBig");
+      const url = URL.createObjectURL(file);
+      const size = await naturalSize(url);
+      if (!size || !withinPixels(size)) {
+        URL.revokeObjectURL(url);
+        return refuse(size ? "pixels" : "unreadable");
+      }
+      setImage(undefined);
+      setCrop(CENTERED);
+      setPlacing({ file, url, size });
       return;
     }
-    setImageError(undefined);
+    const read = await preparePicture(file, CENTERED, { width: 1, height: 1 });
+    if ("error" in read) return refuse(read.error);
+    setPlacing(undefined);
     setImage({ ...read, url: `data:${read.mediaType};base64,${read.data}` });
   };
-  const submit = () => {
+  const submit = async () => {
     if (!ready) return;
     setBusy(true);
+    let sent = image === null ? null : image && { mediaType: image.mediaType, data: image.data };
+    if (placing) {
+      const drawn = await preparePicture(placing.file, crop, placing.size);
+      if ("error" in drawn) {
+        setBusy(false);
+        return refuse(drawn.error);
+      }
+      sent = drawn;
+    }
     const changed = grants && grantChanged ? grantChange : undefined;
     const done = chief
-      ? sheets.updateChief(chief, profile, changed, image)
-      : sheets.createChief(profile, changed, image).then(Boolean);
+      ? sheets.updateChief(chief, profile, changed, sent)
+      : sheets.createChief(profile, changed, sent ?? undefined, backend).then(Boolean);
     void done.finally(() => setBusy(false));
   };
-  const shownPicture = image?.url ?? picture;
+  const shownPicture = image === null ? undefined : (image?.url ?? picture);
   return (
     <FormDialog
       wide
@@ -96,16 +153,16 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
           : t(chief ? "sheet.editChief.lead" : "sheet.newChief.lead")
       }
       onClose={() => sheets.close()}
-      onSubmit={submit}
+      onSubmit={() => void submit()}
       busy={busy}
       actions={
         <>
-          <button type="button" className="hc-text-button" onClick={() => sheets.close()}>
+          <DialogButton dialogKey="escape" className="hc-text-button" onClick={() => sheets.close()}>
             {t("edit.cancel")}
-          </button>
-          <button type="submit" className="hc-text-button primary" disabled={!ready}>
+          </DialogButton>
+          <DialogButton dialogKey="return" type="submit" className="hc-text-button primary" disabled={!ready}>
             {t(chief ? "chief.save" : "chief.create")}
-          </button>
+          </DialogButton>
         </>
       }
     >
@@ -148,14 +205,30 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
       <div className="lg-form-field">
         <span className="lg-form-label">{t("chief.field.picture")}</span>
         <span className="lg-form-row">
-          <button
+          <DialogButton
+            dialogKey={null}
             type="button"
             className="hc-text-button"
             disabled={!chief && locked}
             onClick={() => fileInput.current?.click()}
           >
-            {t(shownPicture ? "chief.picture.change" : "chief.picture.choose")}
-          </button>
+            {t(shownPicture || placing ? "chief.picture.change" : "chief.picture.choose")}
+          </DialogButton>
+          {(shownPicture || placing) && (
+            <DialogButton
+              dialogKey={null}
+              type="button"
+              className="hc-text-button"
+              disabled={!chief && locked}
+              onClick={() => {
+                setPlacing(undefined);
+                setImageError(undefined);
+                setImage(chief?.avatar ? null : undefined);
+              }}
+            >
+              {t("chief.picture.useDefault")}
+            </DialogButton>
+          )}
           <input
             ref={fileInput}
             className="lg-hidden-file"
@@ -166,7 +239,48 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
           />
           {imageError && <span className="lg-form-error">{imageError}</span>}
         </span>
+        {placing && (
+          <PictureCrop
+            url={placing.url}
+            size={placing.size}
+            crop={crop}
+            onChange={setCrop}
+            labels={{ zoom: t("chief.picture.zoom"), hint: t("chief.picture.cropHint") }}
+          />
+        )}
       </div>
+      {chief ? (
+        <div className="lg-form-field">
+          <span className="lg-form-label">{t("chief.field.backend")}</span>
+          <span className="lg-chief-backend">{chiefBackendLabel(t, chief.engine?.harness)}</span>
+          <span className="lg-form-note">{t("chief.backend.changeInSettings")}</span>
+        </div>
+      ) : (
+        <label className="lg-form-field">
+          <span className="lg-form-label">{t("chief.field.backend")}</span>
+          <select
+            className="hc-link-field lg-chief-backend-select"
+            aria-label={t("chief.field.backend")}
+            value={backend}
+            disabled={locked}
+            onChange={(event) => setBackend(event.target.value)}
+          >
+            {CHIEF_BACKENDS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {t(option.label)}
+              </option>
+            ))}
+          </select>
+          {chiefBackend(backend) === "unii" && (
+            <span className="lg-form-note">
+              {/* The command stays as typed in every language: the catalog holds its place, %@. */}
+              {t("chief.backend.uniiNote")
+                .split("%@")
+                .flatMap((part, index) => (index === 0 ? [part] : [<code key={index}>unii login</code>, part]))}
+            </span>
+          )}
+        </label>
+      )}
       <label className="lg-form-field">
         <span className="lg-form-label">{t("chief.field.personality")}</span>
         <textarea
@@ -233,4 +347,15 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
       </fieldset>
     </FormDialog>
   );
+}
+
+/** An image's pixel size, or null when the browser cannot decode it. */
+function naturalSize(url: string): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () =>
+      resolve(image.naturalWidth > 0 ? { width: image.naturalWidth, height: image.naturalHeight } : null);
+    image.onerror = () => resolve(null);
+    image.src = url;
+  });
 }

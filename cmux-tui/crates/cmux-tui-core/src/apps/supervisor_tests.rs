@@ -132,10 +132,19 @@ fn scripted_app_host() {
                 }
                 send(FromHost::Done { cb, ok: true, body: json!({ "value": export }) });
             }
-            ToHost::Event { sub, .. } => {
+            ToHost::Event { sub, body } => {
                 send(FromHost::Log { level: "info".into(), message: format!("event {sub}") });
+                send(FromHost::Log {
+                    level: "info".into(),
+                    message: format!("event-body {sub} {body}"),
+                });
             }
-            ToHost::Unmount { .. } | ToHost::Settings { .. } => {}
+            ToHost::Settings { values } => {
+                if let Some(barrier) = values["test_event_barrier"].as_str() {
+                    send(FromHost::Log { level: "info".into(), message: barrier.into() });
+                }
+            }
+            ToHost::Unmount { .. } => {}
             ToHost::Shutdown => break,
         }
     }
@@ -550,53 +559,6 @@ fn a_failed_render_reports_mount_failed() {
 }
 
 #[test]
-fn runs_answer_through_the_responder_and_a_crash_restarts_with_reset() {
-    let f = fixture();
-    f.install("cmux/demo");
-    let (tx, rx) = channel();
-    let tx2 = tx.clone();
-    f.supervisor.run(
-        run_request("cmux/demo", "demo.go", None, Origin::User, None),
-        Box::new(move |r| tx.send(r).unwrap()),
-    );
-    assert_eq!(
-        rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap(),
-        json!({ "value": "go" })
-    );
-    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
-    f.supervisor.run(
-        run_request("cmux/demo", "demo.crash", None, Origin::User, None),
-        Box::new(move |r| tx2.send(r).unwrap()),
-    );
-    assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err().code, "apps.host");
-    f.wait("crash", |e| e["event"] == "apps-host" && e["state"] == "crashed");
-    let rerender = f.wait("re-render", |e| e["event"] == "apps-scene" && e["mount_id"] == "m1");
-    assert_eq!(rerender["reset"], true, "the first batch after a restart starts a fresh tree");
-    assert_eq!(f.supervisor.list()["apps"].as_array().unwrap().len(), 2);
-}
-
-#[test]
-fn idle_hosts_stop_after_the_last_mount_and_disconnect_unmounts() {
-    let f = fixture_with(&[], Duration::from_millis(50), temp_dir());
-    f.install("cmux/demo");
-    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
-    // A second connection observes the stop after the first one goes away.
-    let (tx, rx) = channel();
-    let tx = Mutex::new(tx);
-    f.supervisor
-        .register_client(8, Arc::new(move |v: &Value| tx.lock().unwrap().send(v.clone()).is_ok()));
-    f.supervisor.disconnect(CLIENT);
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let event =
-            rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).expect("idle stop");
-        if event["event"] == "apps-host" && event["state"] == "stopped" {
-            break;
-        }
-    }
-}
-
-#[test]
 fn daemon_events_reach_subscribed_apps() {
     let f = fixture();
     f.install("cmux/demo");
@@ -998,7 +960,14 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
 }
 
+#[path = "supervisor_inventory_demand_tests.rs"]
+mod inventory_demand;
 #[path = "supervisor_provider_tests.rs"]
 mod provider_channel;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
+#[path = "supervisor_subscription_tests.rs"]
+mod subscriptions;
+
+#[path = "supervisor_run_lifecycle_tests.rs"]
+mod run_lifecycle;

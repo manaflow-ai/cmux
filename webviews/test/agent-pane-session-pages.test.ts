@@ -8,7 +8,7 @@
 // would: #20644 sent params the policy lacked and local chats lost their list (cx-ibngi).
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -87,6 +87,21 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
   const holdPages = () => {
     held = new Promise((resolve) => (release = resolve));
   };
+  let releaseAttach: () => void = () => {};
+  let attachHeld = Promise.resolve();
+  const holdAttach = () => {
+    attachHeld = new Promise((resolve) => (releaseAttach = resolve));
+  };
+  /// A daemon that misbehaves: a cursor that never moves, later pages that fail, and whole-list
+  /// reads (watch without `limit`) that fail this many more times.
+  const faults = { repeatCursor: false, failPages: false, failWhole: 0 };
+  /// The socket of the page this test opened: an earlier test's page still closing never meets the faults.
+  let faultSocket: unknown;
+  beforeEach(() => {
+    Object.assign(faults, { repeatCursor: false, failPages: false, failWhole: 0 });
+    faultSocket = undefined;
+    attachHeld = Promise.resolve();
+  });
   const requests: { method: string; params: Record<string, any> }[] = [];
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
@@ -119,6 +134,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
       websocket: {
         open(ws) {
           socket = ws;
+          faultSocket = ws;
         },
         async message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
@@ -132,9 +148,20 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, error }));
             return;
           }
+          const failed =
+            ws === faultSocket &&
+            ((message.method === "_acpmux/sessions" && faults.failPages) ||
+              (message.method === "_acpmux/watch" && params.limit === undefined && faults.failWhole-- > 0));
+          if (failed) {
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "page lost" } }));
+            return;
+          }
           // The page is read now; a later page waits until the test lets it go, as a slow link would.
-          const result = answer(message.method, params);
+          let result = answer(message.method, params);
+          if (ws === faultSocket && message.method === "_acpmux/sessions" && faults.repeatCursor)
+            result = { ...(result as object), nextCursor: params.cursor };
           if (message.method === "_acpmux/sessions") await held;
+          if (message.method === "_acpmux/attach") await attachHeld;
           const text = JSON.stringify({ jsonrpc: "2.0", id: message.id, result });
           if (!attached) bytesBeforeAttach += text.length;
           if (message.method === "_acpmux/attach") attached = true;
@@ -303,6 +330,74 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     const after = await state(page);
     expect(after.sessionId).toBe(LATE);
     expect(after.missingSession).toBeNull();
+    await page.close();
+  });
+
+  const laterPages = () => requests.filter((request) => request.method === "_acpmux/sessions").length;
+  const listed = (page: Page, count: number, timeout = 15_000) =>
+    page.waitForFunction((count) => (window as any).cmuxAcpmuxDebug.chatState().sessions.length >= count, count, {
+      timeout,
+    });
+
+  test("a daemon whose cursor never moves ends the pages and still lists every session", async () => {
+    faults.repeatCursor = true;
+    const page = await open(NEWEST);
+    await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
+    await listed(page, COUNT);
+    await page.waitForTimeout(1000);
+    expect(laterPages()).toBeLessThanOrEqual(3);
+    const ids: string[] = (await state(page)).sessions.map((session: { sessionId: string }) => session.sessionId);
+    expect(new Set(ids).size).toBe(COUNT);
+    await page.close();
+  });
+
+  test("a later page and its whole-list fallback both failing are tried again, so the list ends whole", async () => {
+    faults.failPages = true;
+    faults.failWhole = 1;
+    const page = await open(NEWEST);
+    await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
+    await listed(page, COUNT);
+    expect((await state(page)).sessions.length).toBe(COUNT);
+    await page.close();
+  });
+
+  test("a lagged watch while the chat attaches ends the older list's pages", async () => {
+    holdAttach();
+    const page = await open(NEWEST);
+    for (let waited = 0; !requests.some((request) => request.method === "_acpmux/attach"); waited += 50) {
+      if (waited > 30_000) throw new Error("the pane never attached");
+      await Bun.sleep(50);
+    }
+    notify("_acpmux/lagged", { watch: true, dropped: 1 });
+    // The reread's own later pages: the list after its first page.
+    await laterPagesAsked(COUNT / 200 - 1);
+    await page.waitForTimeout(300);
+    releaseAttach();
+    await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
+    await listed(page, COUNT);
+    await page.waitForTimeout(1000);
+    expect(laterPages()).toBe(COUNT / 200 - 1);
+    await page.close();
+  });
+
+  test("after a lagged reread, a chat that changed meanwhile sorts by when it changed", async () => {
+    const page = await open(NEWEST);
+    await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
+    await listed(page, COUNT);
+    requests.length = 0;
+    holdPages();
+    notify("_acpmux/lagged", { watch: true, dropped: 1 });
+    await laterPagesAsked(1);
+    notify("_acpmux/session_changed", {
+      kind: "updated",
+      session: { ...sessions[900], title: "Answered just now", updatedAt: START + 60_000 },
+    });
+    release();
+    await laterPagesAsked(COUNT / 200 - 1);
+    await page.waitForTimeout(800);
+    const ids: string[] = (await state(page)).sessions.map((session: { sessionId: string }) => session.sessionId);
+    expect(ids[0]).toBe(MOVED);
+    expect(ids.length).toBe(COUNT);
     await page.close();
   });
 

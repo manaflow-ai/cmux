@@ -221,6 +221,13 @@ pub mod method {
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
+    /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
+    pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
+    pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
+    pub const MUX_MAIL_WAIT: &str = "_acpmux/mail/wait";
+    pub const MUX_MAIL_ACK: &str = "_acpmux/mail/ack";
+    /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
+    pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
@@ -245,6 +252,9 @@ pub mod method {
     /// The harness the pane is about to switch to: a hidden session for it
     /// starts (debounced), so the switch takes a ready session.
     pub const MUX_PREWARM: &str = "_acpmux/prewarm";
+    /// The permission mode a plain new chat on a harness would start in
+    /// (`hub/start_mode.rs`), for the pane's pending chat. Read only.
+    pub const MUX_START_MODE: &str = "_acpmux/start_mode";
     pub const MUX_HISTORY: &str = "_acpmux/history";
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
@@ -255,6 +265,9 @@ pub mod method {
     pub const MUX_BOOKMARK_GET: &str = "_acpmux/bookmark_get";
     pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
     pub const MUX_ASK: &str = "_acpmux/ask";
+    /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
+    /// cheap model, sent the question; answers with its session id at once.
+    pub const MUX_BTW: &str = "_acpmux/btw";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     /// The protocol IR this daemon was built with (`protocol::ir()`).
     pub const MUX_PROTOCOL: &str = "_acpmux/protocol";
@@ -283,6 +296,18 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// Local socket only: bounded, cached inventory snapshots; no health control.
+    pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
+    /// Local socket only: refresh registries for cached installs, never run CLIs or updates.
+    pub const MUX_HARNESS_INVENTORY_REFRESH: &str = "_acpmux/harness/inventory/refresh";
+    pub const MUX_HARNESS_UPDATE_PLAN: &str = "_acpmux/harness/update/plan";
+    pub const MUX_HARNESS_UPDATE_PREPARE: &str = "_acpmux/harness/update/prepare";
+    /// A complete partial-cache replacement on an explicitly subscribed local connection.
+    pub const MUX_HARNESS_INVENTORY: &str = "_acpmux/harness_inventory";
+    /// One cheap completion through the user's own harness login, for
+    /// naming chats and workspaces (hq#1957, `crate::complete`): no chat
+    /// session, tools, MCP, hooks or session file. The unix socket only.
+    pub const MUX_COMPLETE: &str = "_acpmux/complete";
     /// Update Everything (cx-1mbnu; `hub/health_view.rs`): run now the
     /// no-sudo updater of the named outdated harnesses. The unix socket only.
     pub const MUX_HARNESS_UPDATE: &str = "_acpmux/harness/update";
@@ -319,9 +344,20 @@ pub mod method {
     /// the person accepts or dismisses with `offer_respond`.
     pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";
     pub const MUX_OFFER_RESPOND: &str = "_acpmux/offer_respond";
+    /// Sub-sessions (`hub/subsessions.rs`, `server/subsessions.rs`): an agent
+    /// session's own children, with the caller proven by its token.
+    pub const MUX_SUBSESSION_START: &str = "_acpmux/subsession/start";
+    pub const MUX_SUBSESSION_LIST: &str = "_acpmux/subsession/list";
+    pub const MUX_SUBSESSION_GET: &str = "_acpmux/subsession/get";
+    pub const MUX_SUBSESSION_SEND: &str = "_acpmux/subsession/send";
+    pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
+    /// Sets a session's limits: the person, or an ancestor session.
+    pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
     /// The background-process registry (`hub/processes.rs`): list a chat's
-    /// (or every chat's) background processes, and stop one.
+    /// (or every chat's) background processes, read one's output, and stop
+    /// one.
     pub const MUX_PROCESS_LIST: &str = "_acpmux/process/list";
+    pub const MUX_PROCESS_TAIL: &str = "_acpmux/process/tail";
     pub const MUX_PROCESS_KILL: &str = "_acpmux/process/kill";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
@@ -330,6 +366,9 @@ pub mod method {
     /// To watchers when a harness profile source changed and the catalog
     /// reloaded: `{harnesses: string[], diagnostics}`.
     pub const MUX_HARNESSES_CHANGED: &str = "_acpmux/harnesses_changed";
+    /// To local watchers when a new chat's start mode may have changed (a
+    /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
+    pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";

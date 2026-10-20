@@ -20,7 +20,18 @@ pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
 pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents doctor [--json]\n";
+mod events;
+mod wait;
+
+pub(super) use events::{
+    DEFAULT_LIMIT as DEFAULT_EVENTS_LIMIT, DEFAULT_TIMEOUT_SECONDS as DEFAULT_EVENTS_SECONDS,
+    KINDS as EVENT_KINDS, MAX_LIMIT as MAX_EVENTS_LIMIT, MAX_TIMEOUT_SECONDS as MAX_EVENTS_SECONDS,
+};
+pub(super) use wait::{
+    DEFAULT_TIMEOUT_SECONDS as DEFAULT_WAIT_SECONDS, MAX_TIMEOUT_SECONDS as MAX_WAIT_SECONDS,
+};
+
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents doctor [--json]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -32,11 +43,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if command_args.get(1).map(String::as_str) == Some("doctor") {
         return Some(super::agents_doctor::run(&global, &command_args[2..]));
     }
+    // `agents events` prints one line per event for a person.
+    let lines = global.output == OutputMode::Human
+        && command_args.get(1).map(String::as_str) == Some("events");
     if global.output == OutputMode::Human {
         global.output = OutputMode::Json;
     }
-    let help_requested =
-        command_args[1..].iter().any(|arg| matches!(arg.as_str(), "--help" | "-h"));
+    let help_requested = asks_help(&command_args[1..]);
     if global.all_sessions && !command_args[1..].is_empty() && !help_requested {
         return Some(print_usage(
             &global,
@@ -46,7 +59,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if let Err(error) = normalize_qualified_targets(&mut global, &mut command_args[1..]) {
         return Some(print_usage(&global, &error.0));
     }
-    Some(run(global, &command_args[1..]))
+    Some(run(global, &command_args[1..], lines))
 }
 
 /// Routes a `<session>:<id>` target to its session (`global.session`) and
@@ -59,6 +72,9 @@ pub(super) fn normalize_qualified_targets(
         (Some("workspace" | "tab"), Some("select")) | (Some("terminal"), Some("focus")) => Some(2),
         (Some("terminal"), Some("split")) => {
             args.iter().position(|value| value == "--surface").map(|index| index + 1)
+        }
+        (Some("wait"), _) => {
+            args.iter().position(|value| value == "--target").map(|index| index + 1)
         }
         _ => None,
     };
@@ -93,8 +109,8 @@ fn normalize_qualified_target(
     Ok(())
 }
 
-fn run(global: GlobalArgs, args: &[String]) -> i32 {
-    if args.is_empty() || args.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h")) {
+fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
+    if args.is_empty() || asks_help(args) {
         println!("{HELP}");
         return 0;
     }
@@ -104,8 +120,36 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         Err(error) => return print_usage(&global, &error.0),
     };
     let backend = mcp::cli_backend(global.clone());
-    match execute(&backend, None, &command, global.idempotency_key.as_deref(), "agents") {
-        Ok(value) => wire::print_local_success(&value, global.output),
+    // A long wait shows the progress notes app waits show (app/wait.rs).
+    let notes = match &command {
+        AgentCommand::Wait(request) => Some(app::wait::notes(
+            &request.describe(),
+            crate::localization::catalog().app_control.agents_waiting_progress,
+            request.timeout,
+            global.output,
+        )),
+        _ => None,
+    };
+    let outcome = execute(&backend, None, &command, global.idempotency_key.as_deref(), "agents");
+    drop(notes);
+    match outcome {
+        // A wait that timed out prints its receipt and exits 1, as
+        // `screen wait` does (docs/cli-contract.md).
+        Ok(value) if matches!(command, AgentCommand::Wait(_)) && value["matched"] == false => {
+            wire::print_local_success(&value, global.output).max(1)
+        }
+        // The cursor goes to stderr, so stdout is only the events.
+        Ok(value) if lines => {
+            print!("{}", events::human_lines(&value));
+            eprintln!("next_after={}", value["next_after"].as_str().unwrap_or_default());
+            0
+        }
+        Ok(value) => {
+            let code = wire::print_local_success(&value, global.output);
+            // A chat message stored but not handed to its chat: the receipt
+            // is printed, and the exit status says it failed.
+            if code == 0 && chat::delivery_failed(&value) { 1 } else { code }
+        }
         Err(AgentFailure::Usage(message)) => print_usage(&global, &message),
         Err(AgentFailure::Owner(failure)) => {
             wire::print_local_error(&mcp::agent_failure_value(failure), global.output, 3)
@@ -113,10 +157,25 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
 }
 
+/// `--help` or `-h` before any `--` (chat text after `--` may hold either).
+fn asks_help(args: &[String]) -> bool {
+    args.iter().take_while(|arg| *arg != "--").any(|arg| matches!(arg.as_str(), "--help" | "-h"))
+}
+
 pub(super) enum AgentCommand {
     Snapshot,
-    Resource { action: String, args: Vec<String> },
-    App { action: String, args: Vec<String> },
+    Resource {
+        action: String,
+        args: Vec<String>,
+    },
+    App {
+        action: String,
+        args: Vec<String>,
+    },
+    Wait(wait::WaitRequest),
+    Events(events::EventsRequest),
+    /// Prompt another agent chat or read its transcript (chat.rs).
+    Chat(chat::ChatCommand),
 }
 
 /// Why an agent action answered without a receipt.
@@ -182,12 +241,15 @@ pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
             action: "dialog.list".into(),
             args: words[2..].iter().map(|value| (*value).into()).collect(),
         }),
+        ["chat", rest @ ..] => chat::parse(rest).map(AgentCommand::Chat),
         ["dialog", "answer", request_id, rest @ ..] => Ok(AgentCommand::App {
             action: "dialog.answer".into(),
             args: std::iter::once((*request_id).into())
                 .chain(rest.iter().map(|value| (*value).into()))
                 .collect(),
         }),
+        ["wait", rest @ ..] => wait::parse(rest).map(AgentCommand::Wait),
+        ["events", rest @ ..] => events::parse(rest).map(AgentCommand::Events),
         _ => Err(UsageError::new("unknown agents command; run `cmux agents --help`")),
     }
 }
@@ -257,6 +319,13 @@ pub(super) fn execute<B: Backend>(
         AgentCommand::App { action, args } => {
             (action, run_app(backend, action, args, idempotency_key, origin)?)
         }
+        // A chat verb answers its own receipt or page: a topology snapshot
+        // says nothing about what a chat was sent or answered.
+        AgentCommand::Chat(command) => {
+            return backend.chat(command, idempotency_key, origin).map_err(AgentFailure::Owner);
+        }
+        AgentCommand::Wait(request) => return wait::run(backend, session, request),
+        AgentCommand::Events(request) => return events::run(backend, session, request),
     };
     Ok(receipt(backend, session, action, result, key))
 }
@@ -415,18 +484,23 @@ fn receipt<B: Backend>(
     result: Value,
     idempotency_key: Option<String>,
 ) -> Value {
-    let state = compose_snapshot(
-        backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
-        backend
-            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false)
-            .map_err(mcp::agent_failure_value),
-    );
+    let state = fresh_state(backend, session);
     let mut receipt =
         json!({"schema_version": 1, "action": action, "result": result, "state": state});
     if let Some(key) = idempotency_key {
         receipt["idempotency_key"] = Value::String(key);
     }
     receipt
+}
+
+/// A fresh composed snapshot, the `state` of every receipt.
+fn fresh_state<B: Backend>(backend: &B, session: Option<&str>) -> Value {
+    compose_snapshot(
+        backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
+        backend
+            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false)
+            .map_err(mcp::agent_failure_value),
+    )
 }
 
 fn print_usage(global: &GlobalArgs, message: &str) -> i32 {
@@ -742,5 +816,6 @@ pub(super) fn snapshot_tool() -> Value {
     })
 }
 
+pub(super) mod chat;
 #[cfg(test)]
 mod tests;

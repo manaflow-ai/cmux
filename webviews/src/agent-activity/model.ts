@@ -1,4 +1,5 @@
 import type { Lane } from "./lanes";
+import { applyAgentStateEvent, initialPriorityState, priorityLanes, type AgentStateEvent } from "./priority";
 
 export type ActivityStatus = "active" | "idle" | "paused" | { ended: string };
 export type ActivityConnection = "connected" | "not_started" | "not_set_up" | "unreachable";
@@ -52,6 +53,10 @@ export type ActivityState = {
   layout: "split" | "timeline" | "grid";
   /** Every acpmux session with its lane (cx-v9k2f) while the lanes view is on; absent when off. */
   lanes?: Lane[] | null;
+  /** Monotonic hook revision; the view uses it to animate only changed rows. */
+  priorityRevision: number;
+  priorityChangedSessionId?: string;
+  prioritySeqBySession: Record<string, number>;
   strings: {
     title: string;
     filter: string;
@@ -196,7 +201,15 @@ export function scrubToEnd(state: ActivityState): ActivityState {
 
 export function reduceActivity(state: ActivityState, action: any): ActivityState {
   let next = state;
-  if (action.type === "snapshot") next = { ...state, ...action.state, filter: state.filter, layout: state.layout };
+  if (action.type === "snapshot")
+    next = {
+      ...state,
+      ...action.state,
+      filter: state.filter,
+      layout: state.layout,
+      priorityRevision: action.state.priorityRevision ?? state.priorityRevision,
+      prioritySeqBySession: action.state.prioritySeqBySession ?? state.prioritySeqBySession,
+    };
   if (action.type === "sessions") {
     const sessionsByMachine = { ...state.sessionsByMachine, [action.machine]: action.sessions };
     const all = (Object.values(sessionsByMachine) as ActivitySession[][]).flat();
@@ -238,6 +251,18 @@ export function reduceActivity(state: ActivityState, action: any): ActivityState
     };
   }
   if (action.type === "follow") next = { ...state, watching: action.ids };
+  if (action.type === "agentEvent") {
+    const event = action.event as AgentStateEvent;
+    if (event.seq <= (state.prioritySeqBySession[event.sessionId] ?? -1)) return state;
+    const applied = applyAgentStateEvent({ lanes: state.lanes ?? [], seqBySession: state.prioritySeqBySession }, event);
+    next = {
+      ...state,
+      lanes: priorityLanes(applied),
+      prioritySeqBySession: applied.seqBySession,
+      priorityRevision: state.priorityRevision + 1,
+      priorityChangedSessionId: event.sessionId,
+    };
+  }
   return next;
 }
 
@@ -249,6 +274,8 @@ export const initialActivityState = (): ActivityState => ({
   filter: "",
   watching: [],
   layout: "split",
+  priorityRevision: 0,
+  prioritySeqBySession: initialPriorityState().seqBySession,
   strings: {
     title: "Agent Activity",
     filter: "Filter",

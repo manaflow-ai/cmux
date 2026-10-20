@@ -138,7 +138,7 @@ final class TerminalScroller: NSScrollView {
 
 /// The scroller's empty document (top-left origin, like the terminal's rows).
 private final class TerminalScrollerDocument: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 }
 
 /// How Ghostty's scrollbar maps onto the scroller's document (pure, tested).

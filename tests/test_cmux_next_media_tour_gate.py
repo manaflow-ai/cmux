@@ -9,9 +9,11 @@ a pull request labeled `media-tour`. A pull request event without the label,
 or a label event for another label, starts no job and cancels no tour.
 
 This evaluates the workflow's own trigger, concurrency and job conditions for
-each event, and runs the publish job's pull request lookup with a fake gh.
+each event, runs the publish job's pull request lookup with a fake gh, and
+runs its comment step with a stub publisher to check the note it posts.
 """
 
+import json
 import os
 import re
 import stat
@@ -121,6 +123,13 @@ def push_event():
                        "event": {"before": "f" * 40}}, "vars": {}}
 
 
+def dispatch_event(base_sha=""):
+    """The batch queue's tour of a group branch (docs/ci/cmux-next-batch.md#groups)."""
+    return {"github": {"event_name": "workflow_dispatch", "repository": REPO, "repository_owner": "manaflow-ai",
+                       "ref": "refs/heads/next-batch/1-1", "sha": "c" * 40, "run_id": 9002, "event": {}},
+            "inputs": {"base_sha": base_sha}, "vars": {}}
+
+
 def main():
     workflow = yaml.safe_load(open(WORKFLOW, encoding="utf-8"))
     triggers = workflow.get(True) or workflow.get("on")
@@ -145,6 +154,8 @@ def main():
          pr_event("labeled", [LABEL, "dev-build"], label="dev-build"), False),
         ("a fork pull request never tours", pr_event("synchronize", [LABEL], fork=True), False),
         ("a merge to feat-cmux-next tours", push_event(), True),
+        ("a batch dispatch with a base tours", dispatch_event("d" * 40), True),
+        ("a dispatch without a base tours nothing", dispatch_event(""), False),
     ]
     for why, context, want in cases:
         got = bool(expression(route_if, context))
@@ -169,6 +180,17 @@ def main():
     _check(expression(tour_env["TOUR_TAG"], pr_event("synchronize", [LABEL])) == "ci-media-pr-42",
            "a pull request keeps its own tag")
     _check(expression(tour_env["TOUR_TAG"], push_event()) == "ci-media-feat-cmux-next", "merges share one warm tag")
+    _check(expression(tour_env["BASE_SHA"], dispatch_event("d" * 40)) == "d" * 40,
+           "a batch tour compares against the stack's base, so it maps the union of the group's tours")
+    _check(expression(tour_env["HEAD_SHA"], dispatch_event("d" * 40)) == "c" * 40, "a batch tour tours the group branch")
+    _check(str(expression(route_env["SAME_REPO"], dispatch_event("d" * 40))).lower() == "true",
+           "a batch dispatch counts as same-repository, so an owned Mac takes the tour")
+    _check(bool(expression(route_env["PR_XCODE_APP"], dict(dispatch_event("d" * 40), vars={"CMUX_CI_XCODE_APP_PR": "x"}))),
+           "a batch dispatch gets the PR Xcode pin")
+    _check(not expression(jobs["publish"]["if"], dispatch_event("d" * 40)),
+           "a batch dispatch publishes nothing; the queue reads the tour's artifact")
+    _check(expression(tour_env["TOUR_TAG"], dispatch_event("d" * 40)) == "ci-media-batch",
+           "batch tours keep their own tag, apart from the merge tours' DerivedData")
 
     # The publish job comments on the merged pull request for a merge tour.
     publish = jobs["publish"]
@@ -202,6 +224,47 @@ def main():
     _check(upload["env"].get("PR") == "${{ steps.target.outputs.pr }}"
            and upload["env"].get("HEAD_SHA") == "${{ steps.target.outputs.sha }}",
            "the comment goes to the looked-up pull request")
+    # A UI tour whose capture died before writing capture-receipt.json still
+    # leaves the tour job green (capture is continue-on-error), so the comment
+    # must say the capture failed, not "The tour produced no media" (#20763).
+    _check(jobs["tour"].get("outputs", {}).get("is_ui") == "${{ steps.scope.outputs.is_ui }}",
+           "the tour job tells the publish job whether it ran a UI tour")
+    for why, tour_result, receipt, want, unwanted in (
+        ("a UI tour whose capture wrote no receipt", "success", None,
+         "The capture step failed before writing a receipt; see the run log.", None),
+        ("a UI tour whose build failed", "failure", None,
+         "failed before the tour ran", "capture step failed"),
+        ("a UI tour with a receipt", "success", {"status": "ok", "tours": ["new-tab"]},
+         None, "capture step failed"),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            media = os.path.join(tmp, "temp", "media")
+            os.makedirs(media)
+            os.makedirs(os.path.join(tmp, "scripts", "cmux-next", "media"))
+            if receipt is not None:
+                with open(os.path.join(media, "capture-receipt.json"), "w") as handle:
+                    json.dump(receipt, handle)
+            argv_log = os.path.join(tmp, "publish-argv.json")
+            with open(os.path.join(tmp, "scripts", "cmux-next", "media", "publish.py"), "w") as handle:
+                handle.write("import json, sys\njson.dump(sys.argv[1:], open(%r, 'w'))\n" % argv_log)
+            context = pr_event("synchronize", [LABEL])
+            context["needs"] = {"route": {"result": "success", "outputs": {"reason": "", "runs_on": "gui"}},
+                                "tour": {"result": tour_result, "outputs": {"is_ui": "true"}}}
+            context["steps"] = {"target": {"outputs": {"pr": "42", "sha": "h" * 40}}}
+            env = {key: str(expression(value, context) or "") for key, value in upload["env"].items()}
+            env.update(PATH=os.environ["PATH"], RUNNER_TEMP=os.path.join(tmp, "temp"),
+                       GITHUB_REPOSITORY=REPO)
+            result = subprocess.run(["bash", "-e", "-c", upload["run"]], cwd=tmp, env=env,
+                                    capture_output=True, text=True)
+            args = json.load(open(argv_log)) if os.path.exists(argv_log) else []
+            note = args[args.index("--note") + 1] if "--note" in args else None
+            ok = result.returncode == 0 and note is not None
+            if want is not None:
+                ok = ok and want in note
+            if unwanted is not None:
+                ok = ok and unwanted not in (note or "")
+            _check(ok, f"{why}: the comment note is {note!r} ({result.returncode}, {result.stderr.strip()[-200:]})")
+
     checkout = publish["steps"][0]
     _check(expression(checkout["with"]["ref"], push_event()) == "a" * 40,
            "a merge tour's publisher comes from the merged feat-cmux-next head")

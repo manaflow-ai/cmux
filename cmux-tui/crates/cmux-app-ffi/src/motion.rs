@@ -13,7 +13,7 @@ use cmux_motion::{
 };
 
 /// Bumped on any change to a type or function in the header.
-const ABI_VERSION: u32 = 2;
+const ABI_VERSION: u32 = 3;
 
 /// `SpringParameters`.
 #[repr(C)]
@@ -195,10 +195,15 @@ pub struct CmuxMotionTabStripGeometry {
     pub closing_mode_exit_delay: f64,
 }
 
-/// The curve for a C ABI curve number: easeOutQuad is the only one (0);
-/// any other number takes it too.
-fn curve(_c: u8) -> TweenCurve {
-    TweenCurve::EaseOutQuad
+/// The curve for a C ABI curve number: 0 easeOutQuad, 1 easeOut, 2
+/// easeInOut, 3 linear; any other number takes easeOutQuad.
+fn curve(c: u8) -> TweenCurve {
+    match c {
+        1 => TweenCurve::EaseOut,
+        2 => TweenCurve::EaseInOut,
+        3 => TweenCurve::Linear,
+        _ => TweenCurve::EaseOutQuad,
+    }
 }
 
 impl From<CmuxMotionTweenState> for TweenValue {
@@ -298,10 +303,60 @@ pub unsafe extern "C" fn cmux_motion_tween_step(
     moving
 }
 
-/// Progress of `curve` (0 easeOutQuad) at time fraction `t` (clamped to 0..=1).
+/// Progress of `curve` (0 easeOutQuad, 1 easeOut, 2 easeInOut, 3 linear) at
+/// time fraction `t` (clamped to 0..=1).
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_ease(curve: u8, t: f64) -> f64 {
     self::curve(curve).progress_f64(t)
+}
+
+/// CSS `cubic-bezier(x1, y1, x2, y2)` at time fraction `t` (clamped to 0..=1;
+/// x1 and x2 clamped to 0..=1).
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_motion_cubic_bezier(x1: f64, y1: f64, x2: f64, y2: f64, t: f64) -> f64 {
+    cmux_motion::cubic_bezier_progress(t, x1, y1, x2, y2)
+}
+
+/// A spring from rest toward 1 at `time` seconds, with no overshoot: held at
+/// its running maximum, so it never decreases (0..=1).
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_motion_spring_progress_monotone(spring: CmuxMotionSpring, time: f64) -> f64 {
+    cmux_motion::spring_progress_monotone(time, spring.into())
+}
+
+/// Seconds until a spring from rest first comes within 0.5% of its target (at most 5).
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_motion_spring_arrival(spring: CmuxMotionSpring) -> f64 {
+    cmux_motion::spring_arrival(spring.into())
+}
+
+/// `from` mixed `t` of the way to `to` in `space` (0 OKLab, 1 sRGB; any other
+/// number OKLab). Inputs and output are straight (unpremultiplied) sRGB RGBA,
+/// 0..=1; the mix runs premultiplied and unpremultiplies the result (alpha 0
+/// gives 0, 0, 0, 0). False (and no write) when a pointer is null.
+///
+/// # Safety
+/// `from` and `to` are null or point to 4 readable doubles; `out` is null or
+/// points to 4 writable doubles.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_motion_mix_rgba(
+    from: *const f64,
+    to: *const f64,
+    t: f64,
+    space: u8,
+    out: *mut f64,
+) -> bool {
+    if from.is_null() || to.is_null() || out.is_null() {
+        return false;
+    }
+    // SAFETY: non-null and sized per the contract above.
+    let (a, b) = unsafe { (*(from as *const [f64; 4]), *(to as *const [f64; 4])) };
+    let space =
+        if space == 1 { cmux_motion::ColorSpace::Srgb } else { cmux_motion::ColorSpace::Oklab };
+    let mixed = cmux_motion::mix_rgba(a, b, t, space);
+    // SAFETY: `out` is non-null and points to 4 writable doubles per the contract.
+    unsafe { *(out as *mut [f64; 4]) = mixed };
+    true
 }
 
 /// The tab strip geometry for `density` (0 compact, 1 comfortable) from the

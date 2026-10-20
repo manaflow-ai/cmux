@@ -209,6 +209,7 @@ fn home_and_conversation_results_live_daemon() {
             pane: Optional::Missing,
             route: Optional::Missing,
             rows: Optional::Missing,
+            split: Optional::Missing,
             transaction: Optional::Missing,
             workspace: Optional::Value(raw_home),
         })

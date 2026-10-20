@@ -85,29 +85,19 @@ public struct TabLayoutEngine {
         if ideal >= metrics.maxTabWidth {
             return (Array(repeating: metrics.maxTabWidth, count: count), metrics.maxTabWidth)
         }
-        if ideal >= metrics.minActiveTabWidth {
+        // Crowded: every tab shrinks evenly down to the inactive minimum, then the strip scrolls.
+        // The selected tab gets no larger share (Chrome's active minimum): a selection never
+        // moves or resizes a tab (Lawrence 2026-10-19). A narrow selected tab shows its x and
+        // drops its title, then its icon (`TabChromeVisibility`).
+        if count == 1 {
+            let width = max(ideal.rounded(.down), metrics.minActiveTabWidth)
+            return ([width], width)
+        }
+        if ideal >= metrics.minInactiveTabWidth {
             let widths = distribute(available, count: count)
             return (widths, widths.last ?? 0)
         }
-
-        // Too narrow for everyone: the selected tab keeps its minimum and the
-        // rest share what is left, down to the inactive minimum (then scroll).
-        guard let selectedIndex = tabs.firstIndex(where: \.isSelected), count > 1 else {
-            let width = max(ideal.rounded(.down), metrics.minInactiveTabWidth)
-            let clamped = count == 1 ? max(width, metrics.minActiveTabWidth) : width
-            return (Array(repeating: clamped, count: count), clamped)
-        }
-        let othersAvailable = available - metrics.minActiveTabWidth
-        let perOther = othersAvailable / CGFloat(count - 1)
-        var others: [CGFloat]
-        if perOther >= metrics.minInactiveTabWidth {
-            others = distribute(othersAvailable, count: count - 1)
-        } else {
-            others = Array(repeating: metrics.minInactiveTabWidth, count: count - 1)
-        }
-        let standard = others.last ?? metrics.minInactiveTabWidth
-        others.insert(metrics.minActiveTabWidth, at: selectedIndex)
-        return (others, standard)
+        return (Array(repeating: metrics.minInactiveTabWidth, count: count), metrics.minInactiveTabWidth)
     }
 
     /// Splits `total` into `count` whole-point widths. Leftover points go to

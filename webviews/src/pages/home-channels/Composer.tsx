@@ -5,15 +5,20 @@
 // button, a drop on the composer or its drop zone, a paste) upload at once with their progress in
 // the tray above the field; Send waits until they are stored. There is no voice or scheduled send.
 // In an empty composer, Up edits my last message. The text clears only when the owner took the
-// message; the owner's event shows it.
-import { useEffect, useRef, useState, type RefObject } from "react";
+// message; the owner's event shows it. A right-click in the field opens the composer's own menu
+// (POLISH.md right-click contract): Cut, Copy, Paste, Paste as Plain Text, Attach Files… and
+// Insert Mention; the edits run in the app (composerEdit.ts).
+import { useContext, useEffect, useRef, useState, type RefObject } from "react";
 import { PromptEditor, type PromptEditorHandle } from "../../agent-session/acpmux/composer/PromptEditor";
 import type { MarkdownFormat } from "../../agent-session/acpmux/markdownFormat";
 import type { EmojiTable } from "../../icon-picker/emojiData";
+import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Popover } from "../../ui/Popover";
 import { Toolbar, ToolbarButton, ToolbarSeparator } from "../../ui/Toolbar";
 import type { Strings } from "../shared/i18n";
 import { AttachmentTray, type PendingAttachment } from "./AttachmentViews";
+import { ComposerEdit, type ComposerEditCommand } from "./composerEdit";
+import { QUOTE_EVENT, quoteMarkdown } from "./quoteSelection";
 import { MAX_ATTACHMENTS, attachmentClass, attachmentType, refusal, type AttachmentService } from "./attachmentService";
 import { Avatar } from "./Avatar";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
@@ -222,6 +227,73 @@ export function Composer({
     setPop({ kind: "emoji", anchor });
     loadEmoji().then(setEmoji, () => setPop(undefined));
   };
+  // Quote in Reply (quoteSelection.ts): the quote goes ahead of what is typed, and typing goes on after
+  // it. A composer that cannot send (offline, a thread I cannot post in) takes none.
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
+  useEffect(() => {
+    const node = root.current;
+    if (!node) return;
+    const take = (event: Event) => {
+      const text = (event as CustomEvent<string>).detail;
+      if (!text || disabledRef.current) return;
+      setValue((current) => quoteMarkdown(text) + current);
+      editor.current?.focus();
+    };
+    node.addEventListener(QUOTE_EVENT, take);
+    return () => node.removeEventListener(QUOTE_EVENT, take);
+  }, []);
+  // The field's right-click menu. Cut and Copy need a selection in the field, read as it opens.
+  const edit = useContext(ComposerEdit);
+  const [selected, setSelected] = useState(false);
+  const noteSelection = () => {
+    const selection = window.getSelection();
+    const element = editor.current?.element();
+    setSelected(Boolean(selection && !selection.isCollapsed && element?.contains(selection.anchorNode)));
+  };
+  const runEdit = (command: ComposerEditCommand) => {
+    editor.current?.focus();
+    edit?.(command);
+  };
+  const canAttach = Boolean(attachments) && !editing;
+  const fieldMenu: ContextMenuItem[] = [
+    {
+      id: "cut",
+      label: t("composer.menu.cut"),
+      disabled: !edit || !selected || disabled,
+      onSelect: () => runEdit("cut"),
+    },
+    { id: "copy", label: t("composer.menu.copy"), disabled: !edit || !selected, onSelect: () => runEdit("copy") },
+    { id: "paste", label: t("composer.menu.paste"), disabled: !edit || disabled, onSelect: () => runEdit("paste") },
+    {
+      id: "pasteAsPlainText",
+      label: t("composer.menu.pasteAsPlainText"),
+      disabled: !edit || disabled,
+      onSelect: () => runEdit("pasteAsPlainText"),
+    },
+    ...(canAttach
+      ? [
+          {
+            id: "attach",
+            label: t("composer.menu.attachFiles"),
+            separatorBefore: true,
+            disabled: disabled || files.length >= MAX_ATTACHMENTS,
+            onSelect: () => picker.current?.click(),
+          },
+        ]
+      : []),
+    ...(people.length > 0
+      ? [
+          {
+            id: "mention",
+            label: t("composer.menu.insertMention"),
+            separatorBefore: !canAttach,
+            disabled,
+            onSelect: () => setPop({ kind: "mention", anchor: glyph('[data-bar="mention"]') }),
+          },
+        ]
+      : []),
+  ];
   return (
     <div
       ref={root}
@@ -278,36 +350,38 @@ export function Composer({
           ))}
         </Toolbar>
       )}
-      <PromptEditor
-        ref={(handle) => {
-          editor.current = handle;
-          // Once, on mount: the handle exists before the editor, which applies the focus when ready.
-          if (handle && focusOnOpen && !focusedOnce.current) {
-            focusedOnce.current = true;
-            handle.focus();
-          }
-        }}
-        value={value}
-        onChange={(markdown) => {
-          setValue(markdown);
-          refreshFormats();
-        }}
-        onCaret={refreshFormats}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && onCancel) {
-            event.preventDefault();
-            onCancel();
-          } else if (event.key === "ArrowUp" && onEditLast && !event.shiftKey && editor.current?.value() === "") {
-            event.preventDefault();
-            onEditLast();
-          }
-        }}
-        onSubmit={(markdown, { cmd }) => (cmd ? undefined : submit(markdown))}
-        placeholder={placeholder}
-        attributes={{ "aria-label": label }}
-        features={{ multiline: true }}
-        className="hc-composer-field"
-      />
+      <ContextMenu className="hc-composer-field-menu" items={fieldMenu} selection="menu" onOpen={noteSelection}>
+        <PromptEditor
+          ref={(handle) => {
+            editor.current = handle;
+            // Once, on mount: the handle exists before the editor, which applies the focus when ready.
+            if (handle && focusOnOpen && !focusedOnce.current) {
+              focusedOnce.current = true;
+              handle.focus();
+            }
+          }}
+          value={value}
+          onChange={(markdown) => {
+            setValue(markdown);
+            refreshFormats();
+          }}
+          onCaret={refreshFormats}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && onCancel) {
+              event.preventDefault();
+              onCancel();
+            } else if (event.key === "ArrowUp" && onEditLast && !event.shiftKey && editor.current?.value() === "") {
+              event.preventDefault();
+              onEditLast();
+            }
+          }}
+          onSubmit={(markdown, { cmd }) => (cmd ? undefined : submit(markdown))}
+          placeholder={placeholder}
+          attributes={{ "aria-label": label }}
+          features={{ multiline: true }}
+          className="hc-composer-field"
+        />
+      </ContextMenu>
       <Toolbar label={t("composer.actions")} className="hc-composer-bar">
         <ToolbarButton
           label={t(showFormats ? "format.hide" : "format.show")}

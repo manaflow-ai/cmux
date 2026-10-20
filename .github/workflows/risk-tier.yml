@@ -1,0 +1,102 @@
+name: risk tier
+
+# Labels each feat-cmux-next pull request risk:low, risk:medium or risk:high from the paths it
+# changes, and reports the evidence that tier still needs in its description
+# (docs/ci/risk-tiers.md). gh-merge-green refuses a red `risk evidence` check on the exact head.
+#
+# pull_request_target so fork pull requests can be labeled. It never checks out or runs the
+# pull request's code: the classifier comes from the base branch and reads only the changed-file
+# list, the commit list and the description through the API.
+
+on:
+  pull_request_target:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    # Every event grades, with no job-level `if`: a skipped `risk evidence` run would be the newest
+    # check of that name and read as a pass. The unit tests live in risk-tier-tests.yml for the
+    # same reason. A newer event cancels an older grading run; gh-merge-green refuses a cancelled
+    # check, so the newest finished run is always a real verdict.
+    name: risk evidence
+    concurrency:
+      group: risk-evidence-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout the base's classifier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci/risk_tier.py
+          sparse-checkout-cone-mode: false
+      # The base's last 9 days of history, for the check that flags taking back a change another
+      # pull request merged recently (a stale base). A fresh repository with full blobs, not the
+      # sparse checkout above: actions/checkout makes that a blobless partial clone, and blame in
+      # one fetches blobs one by one, past its timeout on busy files. This takes about 60 s and
+      # 270 MB, then blame takes seconds. Capped at 150 s so the job (5 min) always finishes: a
+      # slow fetch skips the check with a warning instead of turning the check red.
+      - name: Fetch the base's recent history
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          history="$RUNNER_TEMP/base-history"
+          git init -q "$history"
+          if timeout 150 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+              "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+            echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
+          else
+            echo "::warning::recent-revert check skipped: base history unavailable"
+          fi
+      - name: Grade the pull request
+        id: grade
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" ${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"} \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Set the risk label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          LABEL: ${{ steps.grade.outputs.label }}
+        run: |
+          for tier in low medium high; do
+            gh label create "risk:$tier" --repo "$REPO" --color "$(case $tier in low) echo 0E8A16;; medium) echo FBCA04;; high) echo B60205;; esac)" \
+              --description "Path-based risk tier (docs/ci/risk-tiers.md)" 2>/dev/null || true
+          done
+          current=$(gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
+          for old in $(grep -E '^risk:(low|medium|high)$' <<<"$current" || true); do
+            [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"
+          done
+          grep -qx "$LABEL" <<<"$current" || gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
+      # Advisory until ENFORCE_FROM, so pull requests already in flight can add their evidence:
+      # until then a missing item is a warning and the check passes. gh-merge-green reads this
+      # value from the base and, after it, refuses a verdict that finished before it.
+      - name: Require the tier's evidence
+        if: steps.grade.outputs.ready != 'true'
+        env:
+          TIER: ${{ steps.grade.outputs.tier }}
+          ENFORCE_FROM: "2026-10-24T00:00:00Z"
+        run: |
+          if [ "$(date -u +%s)" -lt "$(date -u -d "$ENFORCE_FROM" +%s)" ]; then
+            echo "::warning::risk:$TIER needs more evidence in the description; this is advisory until $ENFORCE_FROM, then it blocks merge. The job summary lists it."
+            echo "Advisory until $ENFORCE_FROM: this check passes now and blocks merge after that." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::error::risk:$TIER needs more evidence in the description before merge; the job summary lists it."
+          exit 1

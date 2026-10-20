@@ -33,10 +33,10 @@
       "expect": {"action": "nextSurface"}
     },
     {
-      "name": "Cmd-Shift-] in a web page is the next sidebar item",
+      "name": "Cmd-Shift-] in a web page is the focused pane's next tab",
       "context": {"surfaceKind": "page", "browserFocused": true},
       "keys": ["cmd+shift+]"],
-      "expect": {"action": "nextSidebarTab"}
+      "expect": {"action": "nextSurface"}
     },
     {
       "name": "Cmd-R in a web page reloads",
@@ -137,7 +137,7 @@
     {
       "name": "A removal keeps the action's other keys",
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
-      "removals": [{"key": "cmd+shift+]", "command": "nextSidebarTab"}],
+      "removals": [{"key": "ctrl+cmd+]", "command": "nextSidebarTab"}],
       "keys": ["ctrl+pagedown"],
       "expect": {"action": "nextSidebarTab"}
     },

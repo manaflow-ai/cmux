@@ -7,11 +7,14 @@
 
 /** Sessions in one reply: the first page, and each later one. */
 export const SESSION_PAGE = 200;
+/** Later pages one list reads at most (a million sessions) before reading the whole list instead. */
+const MAX_PAGES = 5000;
 
 type Request = (method: string, params: Record<string, unknown>) => Promise<any>;
 type Summary = { sessionId: string } & Record<string, any>;
 
-export type SessionPage<S extends Summary> = { sessions: S[]; next?: string };
+/** A page, and (a first page) the list it starts: its later pages end when a newer list starts. */
+export type SessionPage<S extends Summary> = { sessions: S[]; next?: string; run?: number };
 
 function pageOf<S extends Summary>(reply: any): SessionPage<S> {
   const sessions = (Array.isArray(reply?.sessions) ? reply.sessions : []).filter(
@@ -40,7 +43,7 @@ export class SessionPager<S extends Summary> {
     this.purged.clear();
     this.changed.clear();
     const page = pageOf<S>(await this.request("_acpmux/watch", { enabled: true, limit: SESSION_PAGE }));
-    return run === this.run ? page : undefined;
+    return run === this.run ? { ...page, run } : undefined;
   }
 
   /**
@@ -63,26 +66,36 @@ export class SessionPager<S extends Summary> {
     this.purged.add(sessionId);
   }
 
-  /** `list` with every change since the list started laid over it. */
+  /** `list` with every change since the list started laid over it, newest first as acpmux sorts. */
   settle(list: S[]): S[] {
     const kept = list.filter((session) => !this.purged.has(session.sessionId) && !this.changed.has(session.sessionId));
-    return [...kept, ...this.changed.values()];
+    const updated = (session: S) => (typeof session.updatedAt === "number" ? session.updatedAt : 0);
+    return [...kept, ...this.changed.values()].sort(
+      (a, b) => updated(b) - updated(a) || (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0),
+    );
   }
 
   /**
-   * Reads every page after `cursor`, handing `add` the sessions the pane lacks. Answers false
-   * when a newer list replaced this one. A page that fails falls back to the whole list at once.
+   * Reads every page after `first`, handing `add` the sessions the pane lacks. Answers false when
+   * a newer list replaced the one `first` started. A page that fails, a cursor that comes back,
+   * or a list past `MAX_PAGES` falls back to the whole list at once; when that fails too, it throws.
    */
-  async rest(cursor: string, held: () => S[], add: (sessions: S[]) => void): Promise<boolean> {
-    const run = this.run;
-    let next: string | undefined = cursor;
+  async rest(first: SessionPage<S>, held: () => S[], add: (sessions: S[]) => void): Promise<boolean> {
+    const run = first.run;
+    let next = first.next;
+    const seen = new Set<string>();
     while (next) {
+      if (run !== this.run) return false;
       let page: SessionPage<S>;
-      try {
-        page = pageOf<S>(await this.request("_acpmux/sessions", { limit: SESSION_PAGE, cursor: next }));
-      } catch {
-        if (run !== this.run) return false;
-        page = { sessions: await this.whole() };
+      if (seen.has(next) || seen.size >= MAX_PAGES) page = { sessions: await this.whole() };
+      else {
+        seen.add(next);
+        try {
+          page = pageOf<S>(await this.request("_acpmux/sessions", { limit: SESSION_PAGE, cursor: next }));
+        } catch {
+          if (run !== this.run) return false;
+          page = { sessions: await this.whole() };
+        }
       }
       if (run !== this.run) return false;
       const known = new Set(held().map((session) => session.sessionId));
