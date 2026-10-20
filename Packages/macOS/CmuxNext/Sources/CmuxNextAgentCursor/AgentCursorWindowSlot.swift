@@ -29,7 +29,7 @@ public final class AgentCursorWindowSlot: AgentCursorRendering {
     }
 
     public init(
-        resolver: AgentCursorTargetResolving, color: @escaping AgentCursorLayerHost.Coloring = AgentCursorStack.sessionColor,
+        resolver: AgentCursorTargetResolving, color: @escaping AgentCursorLayerHost.Coloring = { _ in AgentCursorLayer.gray },
         label: @escaping AgentCursorLayerHost.Labeling = { AgentCursorSessionLabel(sessionID: $0).text },
         hostLayer: @escaping () -> CALayer
     ) {

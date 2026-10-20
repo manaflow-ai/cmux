@@ -16,6 +16,8 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
     var onDragEnded: ((CGFloat) -> Void)?
 
     private let density = DensityBinding()
+    /// The action last shown (`update`).
+    private var shown: CEFExtensionAction?
     /// Where the pointer is now (`OmnibarPointer`).
     private var hover: PointerHover?
     private var isHovering: Bool { hover?.isHovering ?? false }
@@ -41,6 +43,8 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         density.update { [weak self] in
             guard let self else { return }
             layer?.cornerRadius = OmnibarStyle.buttonCornerRadius
+            // The icon is sized for the density.
+            if let shown { applyIcon(shown) }
             needsLayout = true
         }
         density.start()
@@ -51,6 +55,19 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func update(_ action: CEFExtensionAction) {
+        // Every store change renders every button: decode only an icon that changed.
+        guard action != shown else { return }
+        let iconChanged = action.iconPNG != shown?.iconPNG || image == nil
+        shown = action
+        if iconChanged { applyIcon(action) }
+        themedToolTip = action.title.isEmpty ? action.name : action.title
+        setAccessibilityLabel(action.name)
+        // The badge is in the icon; VoiceOver reads it as the value.
+        setAccessibilityValue(action.badge.isEmpty ? nil : action.badge)
+        isEnabled = action.isEnabled
+    }
+
+    private func applyIcon(_ action: CEFExtensionAction) {
         let size = OmnibarStyle.buttonSize
         if let data = action.iconPNG, let icon = NSImage(data: data) {
             icon.size = NSSize(width: size, height: size)
@@ -60,11 +77,6 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
             icon.accessibilityDescription = action.name
             image = icon
         }
-        themedToolTip = action.title.isEmpty ? action.name : action.title
-        setAccessibilityLabel(action.name)
-        // The badge is in the icon; VoiceOver reads it as the value.
-        setAccessibilityValue(action.badge.isEmpty ? nil : action.badge)
-        isEnabled = action.isEnabled
     }
 
     @objc private func run() { onRun?() }
@@ -103,6 +115,16 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
 
     override var isHighlighted: Bool { didSet { updateFill() } }
 
+    /// Pressed while this action's context menu is open; when it closes the hover is read again
+    /// (the menu tracked the mouse, so no exit event arrived).
+    var isMenuOpen = false {
+        didSet {
+            guard isMenuOpen != oldValue else { return }
+            if !isMenuOpen { hover?.refresh() }
+            updateFill()
+        }
+    }
+
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
@@ -125,7 +147,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
 
     private func updateFill(animated: Bool = false) {
         performWithTheme {
-            let color: NSColor = isHighlighted ? Palette.selectionFill : (isHovering ? Palette.hoverFill : .clear)
+            let color: NSColor = isHighlighted || isMenuOpen ? Palette.selectionFill : (isHovering ? Palette.hoverFill : .clear)
             if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
         }
     }

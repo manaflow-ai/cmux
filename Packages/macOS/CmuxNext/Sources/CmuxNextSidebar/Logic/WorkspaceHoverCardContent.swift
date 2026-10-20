@@ -44,7 +44,7 @@ struct WorkspaceHoverCardContent: Equatable {
         /// reply): it reads in the primary ink. Every other row is metadata in the secondary ink,
         /// under the title (Claude desktop's session card: a title, muted metadata, the message).
         var isMessage: Bool { Self.messageKinds.contains(kind) }
-        static let messageKinds: Set<String> = ["needsInput", "notification", "task", lastReplyKind]
+        static let messageKinds: Set<String> = ["needsInput", "notification", "task", "description", lastReplyKind]
         /// The agent chat's last reply, the card's last line.
         static let lastReplyKind = "lastReply"
     }
@@ -69,6 +69,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// CPU of at least half a core, or memory of at least 1 GB, is worth a line.
     static let notableCPU = 0.5
     static let notableMemoryBytes: UInt64 = 1 << 30
+    /// The card lists this many checklist items, then how many more.
+    static let visibleChecklistLimit = 6
 
     /// The card for `workspace` with the default options and no history (the classic card's facts).
     static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date) -> Self {
@@ -167,6 +169,13 @@ struct WorkspaceHoverCardContent: Equatable {
         var facts: [Fact] = []
         let detail = workspace.detail
         if let reason = detail.needsInput { facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3, kind: "needsInput")) }
+        // The person's own notes and the lane they pinned (classic's description and status).
+        if let notes = workspace.workspaceDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
+            facts.append(Fact(icon: .textDescription, text: notes, lines: 6, kind: "description"))
+        }
+        if let status = workspace.taskStatus {
+            facts.append(Fact(icon: status.iconName, text: status.title, mark: status.symbol, kind: "taskStatus"))
+        }
         // The unread notification's text, which a compact row no longer draws by default; without
         // one, how many items are unread (rows draw no count, `SidebarRowBadgeStyle`).
         if let text = workspace.notificationText, !text.isEmpty {
@@ -203,6 +212,13 @@ struct WorkspaceHoverCardContent: Equatable {
         }
         if entries.count > SidebarWorkspaceStatus.visibleEntryLimit {
             facts.append(Fact(icon: .overflowMore, text: Strings.statusMore(entries.count - SidebarWorkspaceStatus.visibleEntryLimit), kind: "more"))
+        }
+        // The checklist, each item with its state's mark, as many as the status block shows.
+        for item in workspace.checklist.prefix(Self.visibleChecklistLimit) {
+            facts.append(Fact(icon: .listBulletItem, text: item.text, mark: item.state.symbol, kind: "checklist"))
+        }
+        if workspace.checklist.count > Self.visibleChecklistLimit {
+            facts.append(Fact(icon: .overflowMore, text: Strings.statusMore(workspace.checklist.count - Self.visibleChecklistLimit), kind: "more"))
         }
         // The agent chat's last reply, when no task says more: the card's last line, under the
         // metadata, two lines at most (Leo 2026-10-19, Claude desktop's session card).

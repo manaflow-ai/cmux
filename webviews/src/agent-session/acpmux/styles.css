@@ -332,9 +332,9 @@
 .acpmux-main[data-new-chat]>.acpmux-stage{flex:1 1 0;min-height:0}
 .acpmux-main[data-new-chat] .acpmux-empty{justify-content:center;padding-bottom:6%}
 /* Home lists (HomeLists.tsx): the welcome lists between the hero and the docked composer, in its column; they scroll when tall. */
-.acpmux-main[data-new-chat]>.acpmux-home-area{flex:0 1 auto;min-height:0;max-height:50%}
+.acpmux-main[data-new-chat]>.acpmux-dock>.acpmux-home-area{flex:0 1 auto;min-height:0;max-height:50%}
 /* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first. */
-.acpmux-main[data-new-chat]:has(>.acpmux-home-area:not(:empty))>.acpmux-stage{min-height:128px}
+.acpmux-main[data-new-chat]:has(>.acpmux-dock>.acpmux-home-area:not(:empty))>.acpmux-stage{min-height:128px}
 /* No lists to show: no wrapper either, so the hero centers exactly as without this feature. */
 .acpmux-home-area:empty{display:none}
 .acpmux-home-area{overflow:auto;padding:0 max(16px,calc((100% - 760px)/2)) 12px;font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}

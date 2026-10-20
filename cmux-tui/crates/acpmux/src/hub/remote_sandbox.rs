@@ -545,6 +545,14 @@ impl Hub {
         {
             plan.args[i + 1] = "default".into();
         }
+        // A dedicated agent VM (`vmHost`, off macOS): the VM is the sandbox.
+        // Bypass mode stays off (above); the session's permission policy
+        // answers Claude's prompts.
+        let vm_host = self.config.read().await.vm_host;
+        if vm_host_unsandboxed(vm_host, cfg!(target_os = "macos")) {
+            self.append(session, "mux", "remote_sandbox", json!({"vmHost": true}));
+            return Ok((plan, std::borrow::Cow::Borrowed(profile)));
+        }
         let (program, args) =
             self.sandboxed_claude_plan(session, profile, plan.program, plan.args).await?;
         let mut profile = profile.clone();
@@ -604,5 +612,25 @@ impl Hub {
                     .with_data(json!({"reason": "remote.sandbox_refused"})))
             }
         }
+    }
+}
+
+/// Whether a remote chain's Claude Code runs without the Seatbelt sandbox:
+/// only on a `vmHost` machine that is not a Mac (a dedicated agent VM, where
+/// the VM boundary is the sandbox). A Mac always sandboxes.
+pub(crate) fn vm_host_unsandboxed(vm_host: bool, macos: bool) -> bool {
+    vm_host && !macos
+}
+
+#[cfg(test)]
+mod vm_host_tests {
+    use super::vm_host_unsandboxed;
+
+    #[test]
+    fn only_a_vm_host_off_macos_runs_remote_claude_unsandboxed() {
+        assert!(vm_host_unsandboxed(true, false));
+        assert!(!vm_host_unsandboxed(true, true), "a Mac always sandboxes");
+        assert!(!vm_host_unsandboxed(false, false), "off by default");
+        assert!(!vm_host_unsandboxed(false, true));
     }
 }

@@ -126,11 +126,14 @@ extension ControlRouter {
         // pending until settlement records the final reply for a retry.
         let settling = Task { [self] () -> ControlIdempotencyCache.Outcome in
             let settled = await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline, replyBy: { call.movedDeadline })
+            // Settled: every result task already finished with the work that awaited it.
+            let value = await Self.resultValue(of: run.results)
             let result = settled.map { snapshot -> JSONValue in
                 var reply = reply
                 if let target = request.target { reply["resolved"] = resolvedJSON(target, in: snapshot.topology) }
                 reply["created"] = .array(scope.created.compactMap { PublicIDTargetResolver.publicID(of: $0, in: snapshot.topology) }.map(JSONValue.string))
                 reply["sequence"] = JSONValue.number(Double(snapshot.topology.daemonSequence))
+                if let value { reply["result"] = value }
                 return .object(reply)
             }
             if let key { idempotency.finish(key, with: result) }
@@ -145,6 +148,26 @@ extension ControlRouter {
             return .object(immediate)
         }
         return try await settling.value.get()
+    }
+
+    /// The fields the run's value-producing work returned (`ActionRegistry.track(result:)`),
+    /// merged in order, as the reply's `result`; nil when it produced none.
+    static func resultValue(of results: [ActionResultWork]) async -> JSONValue? {
+        var fields: [String: JSONValue] = [:]
+        for task in results {
+            guard case .success(let value) = await task.value else { continue }
+            for (key, field) in value { fields[key] = json(field) }
+        }
+        return results.isEmpty ? nil : .object(fields)
+    }
+
+    static func json(_ value: ActionResultValue) -> JSONValue {
+        switch value {
+        case .string(let text): .string(text)
+        case .int(let number): JSONValue(number)
+        case .double(let number): .number(number)
+        case .bool(let flag): .bool(flag)
+        }
     }
 
     /// `target` resolved to the object's public id, with the model key the handler got.

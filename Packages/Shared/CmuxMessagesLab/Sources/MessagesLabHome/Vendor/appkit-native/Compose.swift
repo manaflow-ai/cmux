@@ -307,6 +307,16 @@ final class FieldTextView: NSTextView {
     private var storageEdits = 0
     private var storageObserver: NSObjectProtocol?
     private var observedStorage: ObjectIdentifier?
+    /// cmux: the field's typing undo is on the window's undo stack, which does not retain its
+    /// targets. A field leaving its window (a rebuilt conversation or dock view) takes its entries
+    /// off that stack; a freed field's left behind crashed the next Edit > Undo
+    /// (`_undoRedoTextOperation:` to a freed text view, nightly 3934935376001).
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let window, newWindow !== window {
+            (undoManager ?? window.undoManager)?.removeAllActions(withTarget: self)
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyScale()
@@ -847,6 +857,7 @@ final class ComposeView: UIView {
         tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
         if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools }
         tv.setAccessibilityLabel(Strings.placeholder)
+        tv.setAccessibilityIdentifier("cmux.home.composer")
 
         caret.backgroundColor = Fixture.caret.cgColor
         caret.isHidden = true

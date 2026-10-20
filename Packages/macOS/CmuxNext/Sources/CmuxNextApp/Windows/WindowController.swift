@@ -347,7 +347,27 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting {
+    CursorRectHoldHosting, TrafficLightsResting {
+    /// The traffic lights' last windowed place: their left edge, their top's
+    /// distance from the window's top, and their size (the window may come
+    /// back from full screen at another height).
+    private var windowedLights: (x: CGFloat, fromTop: CGFloat, size: CGSize)?
+    /// Between `willExitFullScreen` and its end (WindowController+FullScreen).
+    var isLeavingFullScreen = false
+
+    /// Where the lights come back to while the window leaves full screen.
+    var restingTrafficLights: CGRect? {
+        guard isLeavingFullScreen, let windowedLights else { return nil }
+        return CGRect(x: windowedLights.x, y: frame.height - windowedLights.fromTop - windowedLights.size.height,
+                      width: windowedLights.size.width, height: windowedLights.size.height)
+    }
+
+    /// The root's layout reports the lights it found (window coordinates).
+    func noteTrafficLights(_ lights: CGRect) {
+        guard !styleMask.contains(.fullScreen), !isLeavingFullScreen else { return }
+        windowedLights = (lights.minX, frame.height - lights.maxY, lights.size)
+    }
+
     /// A pane policy that may hold cursor-rect invalidations (ShellWindow+Events.swift).
     weak var cursorRectHold: (any CursorRectHoldPolicy)?
     /// The incognito badge in the top row while the sidebar is hidden.
@@ -454,8 +474,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: controller.focus.state.pane, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
-        let accepted = super.makeFirstResponder(responder)
-        if accepted { cursorRectHold?.firstResponderDidChange(in: self); reportResponder() }
+        let accepted = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }
+        if accepted { cursorRectHold?.firstResponderDidChange(in: self); BenchSpans.measure("focus.reportResponder") { reportResponder() } }
         return accepted
     }
 }

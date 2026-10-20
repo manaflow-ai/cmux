@@ -212,3 +212,19 @@ test("an old local mark leaves localStorage only once acpmux keeps it", async ()
   await act(async () => second.root.unmount());
   second.host.remove();
 });
+
+test("a reconnect keeps the marks on screen until the new connection reads them", async () => {
+  // Leo, 2026-10-19: the bookmark dots left and came back on every reconnect.
+  const acpmux = daemon([7]);
+  setBookmarkTransport(acpmux.transport);
+  const { host, root } = await mount();
+  expect((await bookmarkOf(host, 1)).getAttribute("aria-pressed")).toBe("true");
+  // acpmux restarts: a new connection whose read has not answered yet.
+  await act(async () =>
+    setBookmarkTransport({ get: () => new Promise<never>(() => {}), set: () => new Promise<never>(() => {}) }),
+  );
+  await settle();
+  expect((await bookmarkOf(host, 1)).getAttribute("aria-pressed")).toBe("true");
+  await act(async () => root.unmount());
+  host.remove();
+});

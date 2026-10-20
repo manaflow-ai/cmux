@@ -435,6 +435,15 @@ pub fn session_env(
             session_env.insert(key.to_owned(), value);
         }
     }
+    // A host without its own app (the Cloud Chief VM): its turns reach the
+    // user's app through the relay that `CMUX_CHIEF_APP_SOCKET` names. An
+    // app's own `CMUX_SOCKET_PATH` wins.
+    if !session_env.contains_key("CMUX_SOCKET_PATH")
+        && let Some(relay) =
+            inherited(crate::cmux_env::REMOTE_APP_KEY).filter(|value| !value.is_empty())
+    {
+        session_env.insert("CMUX_SOCKET_PATH".to_owned(), relay);
+    }
     session_env.insert(
         "PATH".to_owned(),
         inherited("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
@@ -1261,7 +1270,13 @@ fn start(
         .with_pinned_harness(sub_set.is_some())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
-        .with_no_workspace_reason(no_workspace_reason.clone());
+        .with_no_workspace_reason(no_workspace_reason.clone())
+        // OPTCHAT_SUBAGENT_PEER: subagents run on that acpmux peer (a cloud
+        // VM) and take no local slot (plans/cmux-next/cloud-subagents-DESIGN.md).
+        .with_cloud(crate::subagents::CloudPlacement::from_env(
+            |k| env(k),
+            sub_text.clone(),
+        ));
         let spawner = Arc::new(spawner);
         sub_starter = Some(spawner.queue_starter());
         spawner as Arc<dyn crate::tools::Orchestrator>
