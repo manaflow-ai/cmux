@@ -298,6 +298,15 @@ async fn adopt_opens_a_finished_codex_run_directly() {
     let _ = writer.kill();
     let _ = writer.wait();
 
+    // A writer paused between the home's coordination lock and the thread lock holds only the
+    // coordination lock: the chat is busy, not free.
+    let mut taking = writer_lock_holder(&lock.with_file_name(".coordination.lock"));
+    let refused = c.request(method::SESSION_NEW, adopt("fakecodex", &done)).await.unwrap_err();
+    assert!(refused.contains("open in another process"), "{refused}");
+    assert!(hub.sessions().is_empty());
+    let _ = taking.kill();
+    let _ = taking.wait();
+
     // The writer exited: the lock is released and the chat opens directly.
     let opened = c.request(method::SESSION_NEW, adopt("fakecodex", &done)).await;
     let id = opened.expect("a finished Codex run reopens directly")["sessionId"]
