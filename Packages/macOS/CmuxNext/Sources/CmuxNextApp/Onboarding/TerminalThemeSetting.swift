@@ -60,14 +60,14 @@ final class TerminalThemeSetting {
     private let reloadTimer = DemandTimer(owner: "terminal-theme.background-reload")
     /// How long that reload waits after a step (tests lengthen it, so a slow host's steps still coalesce).
     var reloadDelay = TerminalThemeSetting.backgroundReloadDelay
-    /// Shuffle Daily: turns the backdrop to the next work at local midnight.
+    /// Shuffle: turns the backdrop to its next picture when the period ends (``BackdropRotation``).
     private let dailyTimer = DemandTimer(owner: "terminal-theme.daily-background")
-    /// The clock and calendar (read per pick, so a time zone change applies) Shuffle Daily reads; tests pin both.
+    /// The clock and calendar (read per pick, so a time zone change applies) a shuffle reads; tests pin both.
     var now: () -> Date = Date.init, calendar: () -> Calendar = { .current }
     /// Where it hears of a day, time zone or clock change (tests post to their own); set before `follow`.
     var notificationCenter: NotificationCenter = .default
-    /// Whether the background is Shuffle Daily, so a day, time zone or clock change re-picks the work.
-    private var shufflesDaily = false
+    /// The shuffle the background is, so a day, time zone or clock change re-picks its picture.
+    private var shuffling: BackdropShuffle?
     private var dayObservers: [any NSObjectProtocol] = []
     static let backgroundReloadDelay = Duration.milliseconds(60)
     private var observation: Task<Void, Never>?
@@ -85,31 +85,31 @@ final class TerminalThemeSetting {
         // repaints at once and reloads Ghostty after the steps stop (`apply`).
         take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
              background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
-             daily: BackdropSelectionSetting.shufflesDaily(settings.applied.root))
+             shuffle: BackdropSelectionSetting.shuffle(settings.applied.root))
         // A time zone or clock change moves local midnight, which the armed timer cannot see.
         for name in [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange] {
             dayObservers.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
-                    guard let self, self.shufflesDaily else { return }
-                    self.showDailyArt()
+                    guard let self, self.shuffling != nil else { return }
+                    self.showShuffledArt()
                 }
             })
         }
         observation = Task { [weak self] in
-            for await (snapshot, theme, edits, background, art, daily) in ObservationStream({
+            for await (snapshot, theme, edits, background, art, shuffle) in ObservationStream({
                 (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
-                 settings.applied.backdropSelection, BackdropSelectionSetting.shufflesDaily(settings.applied.root))
+                 settings.applied.backdropSelection, BackdropSelectionSetting.shuffle(settings.applied.root))
             }) {
-                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, daily: daily)
+                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, shuffle: shuffle)
             }
         }
     }
 
     private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride,
-                      art: BackdropSelection?, daily: Bool) {
-        shufflesDaily = daily
-        if daily {
-            showDailyArt()
+                      art: BackdropSelection?, shuffle: BackdropShuffle?) {
+        shuffling = shuffle
+        if shuffle != nil {
+            showShuffledArt()
         } else {
             dailyTimer.cancel()
             backdropScope.setBackdropSelection(art)
@@ -126,12 +126,13 @@ final class TerminalThemeSetting {
         apply(state)
     }
 
-    /// Shows the work of `now()`'s day and turns to the next one at the following midnight.
-    func showDailyArt() {
-        let (today, calendar) = (now(), calendar())
-        backdropScope.setBackdropSelection(.art(.daily(on: today, calendar: calendar)))
-        let wait = max(1, BackdropArt.nextDay(after: today, calendar: calendar).timeIntervalSince(today) + 1)
-        dailyTimer.schedule(after: .seconds(wait)) { @MainActor [weak self] in self?.showDailyArt() }
+    /// Shows the shuffle's picture of `now()` and turns to the next one when its period ends.
+    func showShuffledArt() {
+        guard let shuffling else { return }
+        let (now, calendar) = (now(), calendar())
+        backdropScope.setBackdropSelection(shuffling.pick(on: now, calendar: calendar))
+        let wait = max(1, shuffling.rotation.nextTurn(after: now, calendar: calendar).timeIntervalSince(now) + 1)
+        dailyTimer.schedule(after: .seconds(wait)) { @MainActor [weak self] in self?.showShuffledArt() }
     }
 
     /// Puts `snapshot`'s appearance on the Ghostty overrides before the

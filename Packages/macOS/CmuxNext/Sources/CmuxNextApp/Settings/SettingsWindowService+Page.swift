@@ -46,6 +46,8 @@ extension SettingsWindowService {
             "iphone": services.iphone.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": Self.backdrops.pageRows,
+            // The person's own pictures' folder: Shuffle Your Images is `folder:` it.
+            "backdrop_folder": Self.userImages.map { .string($0.folder.path) } ?? .null,
             "derived": .object(pageDerivedNumbers()),
             "derived_min": .object(pageDerivedMinimums()),
         ]

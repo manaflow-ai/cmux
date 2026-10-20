@@ -103,6 +103,8 @@ export type HostLists = {
   computer_use?: ComputerUseState | null;
   /** Settings > Mobile: the iPhone host's status, space and connected phones; every text localized by the host. */
   iphone?: IPhoneHostState | null;
+  /** The folder the person's own images are in: Shuffle Your Images is `folder:` it. */
+  backdrop_folder?: string | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -416,6 +418,7 @@ export type SettingsOps = {
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
   /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
   "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
+  "cmux.settings.backdrop.choose_folder": [Record<string, never>, { id: string | null }];
   /** Native: download an https image or movie and set it as a picked file is; errors carry the
    * cmux.settings.backdrop.* refusal codes the picker words. */
   "cmux.settings.backdrop.image.link": [{ url: string }, { id: string }];

@@ -16,14 +16,19 @@ import { SettingRow } from "./SettingRow";
 
 export const BACKGROUND_KEY = "appearance.background";
 export const BACKGROUND_OPACITY_KEY = "appearance.backgroundOpacity";
-/** Shuffle Daily (cx-t2x.5): one work of the art set a day. */
+/** Shuffle Paintings (cx-t2x.5): the art set, turning as often as appearance.backgroundRotation says. */
 const DAILY_ID = "daily";
 /** The person's own images (BackdropUserImages.collection): removable, and shown in Finder. */
 const YOURS = "yours";
 /** The rows the picker draws, left out of their group while it shows. */
 /** `appearance.backgroundBlur`: the window's Material, drawn in the card beside Opacity. */
 export const MATERIAL_KEY = "appearance.backgroundBlur";
-export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY, MATERIAL_KEY]);
+/** `appearance.backgroundRotation`: how often a shuffle turns, shown in the card while one is chosen. */
+export const ROTATION_KEY = "appearance.backgroundRotation";
+export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY, MATERIAL_KEY, ROTATION_KEY]);
+/** `folder:<absolute path>`: the pictures in that folder, shuffled. */
+const FOLDER_PREFIX = "folder:";
+const folderName = (id: string) => id.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? id;
 /** How long the pointer or keyboard focus rests on a tile before the window shows it: sweeping
  * or tabbing across the grid previews nothing, so it fetches no full-size art. */
 const PREVIEW_DWELL_MS = 150;
@@ -155,6 +160,12 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const ownPicture = own !== null && own.value !== "none";
   const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
   const material = rowsByKey.get(MATERIAL_KEY);
+  const rotation = rowsByKey.get(ROTATION_KEY);
+  // Shuffle Your Images: the folder the person's own images are in.
+  const yours = host?.backdrop_folder ? FOLDER_PREFIX + host.backdrop_folder : null;
+  // A folder shuffled that is not Your Images: its own tile, chosen, by the folder's name.
+  const otherFolder = !own && current.startsWith(FOLDER_PREFIX) && current !== yours ? current : null;
+  const shuffles = current === DAILY_ID || current.startsWith(FOLDER_PREFIX);
   const choose = async (id: string) => {
     cancelDwell();
     if (own) {
@@ -206,7 +217,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       >
         {id === "none" || id === FOLLOW_ID ? (
           <span className="backdrop-thumb backdrop-none" />
-        ) : id === DAILY_ID ? (
+        ) : id === DAILY_ID || id.startsWith(FOLDER_PREFIX) ? (
           <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
             ↻
           </span>
@@ -240,30 +251,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
-      {workspaceBackground && (
-        <BackdropScopePicker
-          title={workspaceBackground.title}
-          own={own !== null}
-          onChange={(choice) => {
-            endPreview();
-            setOwnScope(choice);
-          }}
-        />
-      )}
-      {own && ownPicture && (
-        <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
-      )}
-      <div className="rows">
-        {!own && opacity && (
-          <SettingRow
-            row={current === "none" ? opacity : overArt(opacity, host?.derived_min?.[BACKGROUND_OPACITY_KEY])}
-            focused={focus === BACKGROUND_OPACITY_KEY}
-          />
-        )}
-        {/* The window's other control, on either scope: Frosted, Glass, Clear Glass (the desktop
-          through the wallpaper) or None. It replaces the Window Glass switch, which set Clear Glass. */}
-        {material && <SettingRow row={material} focused={focus === MATERIAL_KEY} />}
-      </div>
+      {/* The happy path first: one background for every window, or one that turns on its own. */}
       <div className="backdrop-grid">
         {own &&
           tile(
@@ -274,12 +262,29 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         {tile("none", t("settingsWindow.backdropPicker.none"), t("settingsWindow.backdropPicker.none"))}
         {tile(
           DAILY_ID,
-          t("settingsWindow.backdropPicker.shuffleDaily"),
-          t("settingsWindow.backdropPicker.shuffleDailyHelp"),
+          t("settingsWindow.backdropPicker.shufflePaintings"),
+          t("settingsWindow.backdropPicker.shufflePaintingsHelp"),
         )}
-        {/* Both set the background for All Workspaces; this workspace picks its own images below. */}
+        {/* Folders shuffle for All Workspaces; a workspace picks its own images below. */}
+        {!own &&
+          yours &&
+          tile(yours, t("settingsWindow.backdropPicker.shuffleYours"), t("settingsWindow.backdropPicker.shuffleYoursHelp"))}
+        {otherFolder &&
+          tile(
+            otherFolder,
+            t("settingsWindow.backdropPicker.shufflingFolder", folderName(otherFolder)),
+            otherFolder.slice(FOLDER_PREFIX.length),
+          )}
+        {/* These set the background for All Workspaces; this workspace picks its own images below. */}
         {!own && (
           <>
+            <button type="button" className="backdrop-tile" onClick={() => void store.chooseBackdropFolder()}>
+              <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+                ▦
+              </span>
+              <span className="backdrop-title">{t("settingsWindow.backdropPicker.shuffleFolder")}</span>
+              <span className="row-help">{t("settingsWindow.backdropPicker.shuffleFolderHelp")}</span>
+            </button>
             <button type="button" className="backdrop-tile" onClick={() => void store.chooseBackdropImage()}>
               <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
                 +
@@ -313,6 +318,32 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
             </button>
           </>
         )}
+      </div>
+      {/* Secondary: Change Background… opens on All Workspaces; one workspace may keep its own. */}
+      {workspaceBackground && (
+        <BackdropScopePicker
+          title={workspaceBackground.title}
+          own={own !== null}
+          onChange={(choice) => {
+            endPreview();
+            setOwnScope(choice);
+          }}
+        />
+      )}
+      {own && ownPicture && (
+        <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
+      )}
+      <div className="rows">
+        {/* How often the shuffle turns: the app's, so only for All Workspaces. */}
+        {!own && shuffles && rotation && <SettingRow row={rotation} focused={focus === ROTATION_KEY} />}
+        {!own && opacity && (
+          <SettingRow row={current === "none" ? opacity : overArt(opacity, host?.derived_min?.[BACKGROUND_OPACITY_KEY])}
+            focused={focus === BACKGROUND_OPACITY_KEY}
+          />
+        )}
+        {/* The window's other control, on either scope: Frosted, Glass, Clear Glass (the desktop
+          through the wallpaper) or None. It replaces the Window Glass switch, which set Clear Glass. */}
+        {material && <SettingRow row={material} focused={focus === MATERIAL_KEY} />}
       </div>
       {browsing && !own && <ArtBrowser onClose={() => setBrowsing(false)} />}
       {linking && !own && <BackdropLink onClose={() => setLinking(false)} />}

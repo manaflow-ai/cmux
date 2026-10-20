@@ -329,6 +329,7 @@
             "key" : "settings.group.windowBackground",
             "rows" : [
               "appearance.background",
+              "appearance.backgroundRotation",
               "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur"
@@ -8948,8 +8949,8 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.shuffleDaily",
-            "text" : "Shuffle Daily"
+            "key" : "settings.choice.shufflePaintings",
+            "text" : "Shuffle Paintings"
           },
           "value" : "daily"
         },
@@ -10230,6 +10231,83 @@
         "text" : "Background"
       },
       "validation" : "domain:backdrop_selection"
+    },
+    {
+      "accepts" : [
+        "15m",
+        "hourly",
+        "daily"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.every15Minutes",
+            "text" : "Every 15 Minutes"
+          },
+          "value" : "15m"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.everyHour",
+            "text" : "Every Hour"
+          },
+          "value" : "hourly"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.everyDay",
+            "text" : "Every Day"
+          },
+          "value" : "daily"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "daily",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundRotation.help",
+        "text" : "How often a shuffled background turns to its next picture."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundRotation",
+      "keywords" : [
+        "shuffle",
+        "rotate",
+        "rotating",
+        "wallpaper",
+        "interval",
+        "change picture",
+        "background"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundRotation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.backgroundRotation.summary",
+        "text" : "How often Shuffle changes the picture"
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundRotation",
+        "text" : "Change Picture"
+      },
+      "validation" : "portable"
     },
     {
       "accepts" : [

@@ -338,6 +338,15 @@ export class SettingsStore {
     });
   }
 
+  /** Shuffle a Folder…: the app asks for a folder and shuffles its pictures (`folder:<path>`). */
+  async chooseBackdropFolder(): Promise<void> {
+    await this.trackAppearance([BACKGROUND], async () => {
+      const reply = await this.request("cmux.settings.backdrop.choose_folder", {});
+      if (!reply.ok) this.setError(BACKGROUND, rowError(reply.error));
+      else await Promise.all([this.refresh(), this.refreshHost()]);
+    });
+  }
+
   /** Downloads the image or movie at `url` and sets it (backgrounds plan phase 3). Resolves to the
    * refusal code the picker words, or null once it is the background. */
   async addBackdropLink(url: string): Promise<string | null> {
@@ -574,7 +583,7 @@ export class SettingsStore {
    * Runs `work` (a write, a host op that sets the background, a theme level) as one step of
    * Appearance's undo stack: the states of `keys` (and the keys their writes also change, and with
    * `themes` the theme levels) are read before and after it, and what changed is recorded, named
-   * `label` or by the first change ("Background → Shuffle Daily"). Other parts of Appearance (the
+   * `label` or by the first change ("Background → Shuffle Paintings"). Other parts of Appearance (the
    * Theme pane's rotation) call it to make their changes undoable too.
    */
   async trackAppearance<T>(

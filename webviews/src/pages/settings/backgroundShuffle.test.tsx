@@ -42,7 +42,7 @@ test("the first tiles are None and the shuffles", async () => {
   const labels = [...first.querySelectorAll<HTMLButtonElement>(":scope > button")].map(
     (tile) => tile.getAttribute("aria-label") ?? tile.querySelector(".backdrop-title")?.textContent,
   );
-  expect(labels.slice(0, 4)).toEqual(["None", "Shuffle Paintings", "Shuffle Your Images", "Shuffle a Folder…"]);
+  expect(labels.slice(0, 4)).toEqual(["No wallpaper", "Shuffle Paintings", "Shuffle Your Images", "Shuffle a Folder…"]);
   page.unmount();
 });
 
@@ -79,4 +79,13 @@ test("This Workspace comes after the shuffles: All Workspaces is the default", a
   expect(first.compareDocumentPosition(scope) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(card.querySelector<HTMLInputElement>('[aria-label="All Workspaces"]')!.checked).toBe(true);
   page.unmount();
+});
+
+test("Change Picture shows in the card while a shuffle is chosen", async () => {
+  const still = await picker();
+  expect(still.card.querySelector('[data-row-key="appearance.backgroundRotation"]')).toBeNull();
+  still.page.unmount();
+  const shuffling = await picker("/settings/appearance", "daily");
+  expect(shuffling.card.querySelector('[data-row-key="appearance.backgroundRotation"]')).not.toBeNull();
+  shuffling.page.unmount();
 });

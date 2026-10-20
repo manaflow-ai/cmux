@@ -291,6 +291,7 @@ export class MockSettingsProvider {
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.backdrop.choose_image": () => ({ id: null }),
+      "cmux.settings.backdrop.choose_folder": () => ({ id: null }),
       "cmux.settings.backdrop.wallpaper_settings": () => ({}),
       "cmux.settings.backdrop.image.link": (params) => {
         const url = String((params as { url: string }).url);
@@ -401,6 +402,7 @@ export class MockSettingsProvider {
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
       "cmux.settings.backdrop.choose_image",
+      "cmux.settings.backdrop.choose_folder",
       "cmux.settings.backdrop.wallpaper_settings",
       "cmux.settings.backdrop.image.link",
       "cmux.settings.backdrop.image.remove",

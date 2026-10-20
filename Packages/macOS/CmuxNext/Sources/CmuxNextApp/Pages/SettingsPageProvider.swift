@@ -156,6 +156,8 @@ final class SettingsPageProvider: PageProvider {
             return ["added": .array(added.map(JSONValue.string))]
         case "cmux.settings.backdrop.choose_image":
             return try await chooseBackdropImage()
+        case "cmux.settings.backdrop.choose_folder":
+            return try await chooseBackdropFolder()
         case "cmux.settings.backdrop.wallpaper_settings":
             AppleWallpapers.settingsURL.map { NSWorkspace.shared.openInBackground($0) }
             return .object([:])
