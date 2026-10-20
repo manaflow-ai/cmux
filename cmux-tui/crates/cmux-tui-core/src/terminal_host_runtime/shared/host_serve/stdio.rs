@@ -25,6 +25,10 @@ use super::*;
 /// bootstrap streams are stdio on Unix and two named pipes on Windows
 /// (`sys::host_bootstrap_streams`).
 pub fn serve_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    if unix::shared_host::is_shared_host(args) {
+        return unix::shared_host::serve(args);
+    }
     let (mut reader, mut writer) = sys::host_bootstrap_streams(args)?;
     serve_terminal_host_stdio(args, &mut reader, &mut writer)
 }
@@ -33,6 +37,27 @@ pub fn serve_terminal_host_stdio(
     args: &[String],
     reader: &mut impl Read,
     writer: &mut impl Write,
+) -> anyhow::Result<()> {
+    serve_terminal(args, reader, writer, None)
+}
+
+/// A shared host's terminal (unix/shared_host.rs): after `Ready` its accept
+/// loop runs on the host's event loop, and `keepalive` (the slot's guard and
+/// bootstrap socket) lives until the terminal ends.
+#[cfg(unix)]
+pub(crate) fn serve_shared_terminal(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    keepalive: Box<dyn Send>,
+) -> anyhow::Result<()> {
+    serve_terminal(&["--bootstrap-stdio".to_string()], reader, writer, Some(keepalive))
+}
+
+fn serve_terminal(
+    args: &[String],
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    keepalive: Option<Box<dyn Send>>,
 ) -> anyhow::Result<()> {
     let adopt_fd = adopt_launch::adopt_pty_fd(args)?;
     let mut bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
@@ -45,6 +70,15 @@ pub fn serve_terminal_host_stdio(
     let (launch, adopt) = adopt_launch::decode(&launch_frame, adopt_fd, &mut bootstrapped)?;
     crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
     crate::debug_spans::label_terminal(|| bootstrapped.terminal_id.to_hex());
+    if shared_host_process() {
+        // Every thread of this terminal names it, so a panic in a shared
+        // host flags only this terminal's end (host_crash.rs).
+        super::super::host_crash::enter_terminal(
+            Path::new(&launch.record_path).with_extension("crash"),
+            &bootstrapped.terminal_id.to_hex(),
+            &bootstrapped.incarnation.to_hex(),
+        );
+    }
     let (shared, _pty_lock) = match adopt_launch::start(&launch, adopt, &bootstrapped) {
         Ok(shared) => shared,
         Err(error) => {
@@ -57,20 +91,29 @@ pub fn serve_terminal_host_stdio(
         }
     };
 
+    #[cfg(unix)]
+    if shared_host_process() {
+        // Its launcher may already have given it up (shared_host.rs, `K`).
+        unix::shared_host::note_started(&shared);
+    }
     let stopping = shared.clone();
-    host_signals::on_service_manager_stop(Box::new(move || stopping.request_termination()));
+    let watched = shared.clone();
+    let owner_gone = shared.clone();
     // In a build with an orphan grace (tagged DEV, staging, debug), a plain
     // SIGTERM ends an orphaned host (no client stream for a while: its
     // daemon is gone); a host its daemon still serves, or one in a short
     // reconnect gap, records and survives it. A normal install's host has
     // no orphan grace and survives every stray SIGTERM: only an explicit
     // close or a service-manager stop (PID 1) ends it (cx-t2sqm.17).
-    let watched = shared.clone();
-    host_signals::on_orphan_check(Box::new(move || {
-        host_orphan_grace().is_some()
-            && watched.active_client_streams.load(Ordering::Acquire) == 0
-            && orphaned_for(HOST_SIGTERM_ORPHAN_MIN)
-    }));
+    let signals = host_signals::register(host_signals::TerminalSignalHooks {
+        terminate: Box::new(move || stopping.request_termination()),
+        orphaned: Box::new(move || {
+            host_orphan_grace().is_some()
+                && watched.active_client_streams.load(Ordering::Acquire) == 0
+                && watched.lifetime.orphaned_for(HOST_SIGTERM_ORPHAN_MIN)
+        }),
+        mark_owner_gone: Box::new(move || owner_gone.lifetime.mark_owner_gone()),
+    });
     let endpoint = PathBuf::from(&launch.endpoint);
     let mut unpublished =
         UnpublishedHostGuard { shared: shared.clone(), endpoint: endpoint.clone(), armed: true };
@@ -124,7 +167,7 @@ pub fn serve_terminal_host_stdio(
     // leave behind an undiscoverable terminal process.
     write_record(Path::new(&launch.record_path), &record)?;
     guard.published = true;
-    host_signals::set_breadcrumb_path(
+    signals.set_breadcrumb_path(
         Path::new(&launch.record_path).with_extension("signals"),
         record.terminal_id.clone(),
         record.incarnation,
@@ -160,6 +203,25 @@ pub fn serve_terminal_host_stdio(
     // record and connects through the already-listening Unix socket.
     let _ = write_frame(writer, &response);
 
+    #[cfg(unix)]
+    if let (Some(executor), Some(keepalive)) = (unix::shared_exec::executor(), keepalive) {
+        unix::shared_serve::serve(
+            executor,
+            unix::shared_serve::ServingParts {
+                shared,
+                listener,
+                guard,
+                publication_lock: Box::new(_publication_lock),
+                signals,
+                pty_lock: Box::new(_pty_lock),
+                keepalive,
+            },
+        );
+        return Ok(());
+    }
+    #[cfg(not(unix))]
+    drop(keepalive);
+
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
     let mut backoff = host_accept::AcceptBackoff::new();
     // No client stream since this instant: the owner daemon is gone. In a
@@ -194,15 +256,15 @@ pub fn serve_terminal_host_stdio(
         if shared.active_client_streams.load(Ordering::Acquire) == 0 {
             if orphan_since.is_none() {
                 orphan_since = Some(now);
-                set_orphan_since(orphan_since);
+                shared.lifetime.set_orphan_since(orphan_since);
             }
         } else if orphan_since.take().is_some() {
-            set_orphan_since(None);
+            shared.lifetime.set_orphan_since(None);
         }
         match listener.accept() {
             Ok(stream) => {
                 if orphan_since.take().is_some() {
-                    set_orphan_since(None);
+                    shared.lifetime.set_orphan_since(None);
                 }
                 match host_accept::serve_accepted(&shared, stream) {
                     Ok(()) => backoff.reset(),
@@ -223,7 +285,7 @@ pub fn serve_terminal_host_stdio(
                          terminal",
                         orphan_grace.as_secs()
                     );
-                    mark_owner_gone();
+                    shared.lifetime.mark_owner_gone();
                     shared.request_termination();
                     continue;
                 }
@@ -286,7 +348,7 @@ pub fn serve_terminal_host_stdio(
 /// host waiting 30 s at most. Only explicitly configured test daemons set
 /// the variable.
 #[cfg(debug_assertions)]
-fn wait_at_test_gate(variable: &str) {
+pub(crate) fn wait_at_test_gate(variable: &str) {
     let Some(gate) = std::env::var_os(variable).filter(|gate| Path::new(gate).exists()) else {
         return;
     };

@@ -84,10 +84,10 @@ impl HostShared {
             return;
         }
         let worker = self.clone();
-        if thread::Builder::new()
-            .name("terminal-host-terminate".into())
-            .spawn(move || worker.terminate_and_wait())
-            .is_err()
+        if super::super::host_crash::run_task("terminal-host-terminate", move || {
+            worker.terminate_and_wait();
+        })
+        .is_err()
         {
             // Bounded fallback: even thread exhaustion cannot turn an
             // accepted Terminate into an unbounded or ignored request.
@@ -105,6 +105,9 @@ impl HostShared {
         // dedicated host-owned worker keeps snapshots, client input, and
         // the listener accept loop independent of that durable write.
         let _ = self.exit_publish_requests.send(());
+        if let Some(wake) = self.exit_publish_wake.get() {
+            wake();
+        }
     }
 
     pub(crate) fn start_exit_publisher(
@@ -112,51 +115,62 @@ impl HostShared {
         requests: Receiver<()>,
     ) -> std::io::Result<()> {
         let host = Arc::downgrade(host);
-        thread::Builder::new()
-            .name("terminal-host-exit".into())
-            .spawn(move || Self::run_exit_publisher(host, requests))
-            .map(|_| ())
+        super::super::host_crash::spawn("terminal-host-exit", move || {
+            Self::run_exit_publisher(host, requests);
+        })
+        .map(|_| ())
     }
 
     pub(crate) fn run_exit_publisher(weak_host: Weak<Self>, requests: Receiver<()>) {
         while requests.recv().is_ok() {
-            let mut attempt = 0_u64;
-            let mut retry_delay = HOST_EXIT_PERSIST_RETRY_MIN;
-            let mut next_report = Instant::now();
-            loop {
-                let Some(host) = weak_host.upgrade() else {
-                    return;
-                };
-                let result = host.persist_and_publish_exit_if_drained();
-                drop(host);
-                match result {
-                    Ok(()) => {
+            if !Self::publish_exit_with_retries(&weak_host, &requests) {
+                return;
+            }
+        }
+    }
+
+    /// One publication request: persist and publish the exit, retrying a
+    /// failed durable write. False when the host is gone.
+    pub(crate) fn publish_exit_with_retries(
+        weak_host: &Weak<Self>,
+        requests: &Receiver<()>,
+    ) -> bool {
+        let mut attempt = 0_u64;
+        let mut retry_delay = HOST_EXIT_PERSIST_RETRY_MIN;
+        let mut next_report = Instant::now();
+        loop {
+            let Some(host) = weak_host.upgrade() else {
+                return false;
+            };
+            let result = host.persist_and_publish_exit_if_drained();
+            drop(host);
+            match result {
+                Ok(()) => {
+                    if let Some(host) = weak_host.upgrade() {
+                        clear_exit_persistence_diagnostic(&host.exit_record_path);
+                    }
+                    return true;
+                }
+                Err(error) => {
+                    // The host stays live and sends no Exit until the
+                    // durable sidecar succeeds. Reconnecting muxes can
+                    // still inspect the retained snapshot, and a disk
+                    // failure cannot erase the authoritative status.
+                    attempt = attempt.saturating_add(1);
+                    let now = Instant::now();
+                    if now >= next_report {
                         if let Some(host) = weak_host.upgrade() {
-                            clear_exit_persistence_diagnostic(&host.exit_record_path);
+                            let _ = write_exit_persistence_diagnostic(
+                                &host.exit_record_path,
+                                attempt,
+                                &error,
+                            );
                         }
-                        break;
+                        next_report = now + HOST_EXIT_PERSIST_REPORT_INTERVAL;
                     }
-                    Err(error) => {
-                        // The host stays live and sends no Exit until the
-                        // durable sidecar succeeds. Reconnecting muxes can
-                        // still inspect the retained snapshot, and a disk
-                        // failure cannot erase the authoritative status.
-                        attempt = attempt.saturating_add(1);
-                        let now = Instant::now();
-                        if now >= next_report {
-                            if let Some(host) = weak_host.upgrade() {
-                                let _ = write_exit_persistence_diagnostic(
-                                    &host.exit_record_path,
-                                    attempt,
-                                    &error,
-                                );
-                            }
-                            next_report = now + HOST_EXIT_PERSIST_REPORT_INTERVAL;
-                        }
-                        thread::sleep(retry_delay);
-                        while requests.try_recv().is_ok() {}
-                        retry_delay = next_exit_persistence_retry_delay(retry_delay);
-                    }
+                    thread::sleep(retry_delay);
+                    while requests.try_recv().is_ok() {}
+                    retry_delay = next_exit_persistence_retry_delay(retry_delay);
                 }
             }
         }
@@ -182,12 +196,12 @@ impl HostShared {
                             terminal_id: self.terminal_id.to_hex(),
                             incarnation: self.incarnation.to_hex(),
                         },
-                        owner_gone_exit(exit.clone()),
+                        self.lifetime.owner_gone_exit(exit.clone()),
                     ),
                 )
             },
         )?;
-        if let Some(exit) = exit.map(owner_gone_exit) {
+        if let Some(exit) = exit.map(|exit| self.lifetime.owner_gone_exit(exit)) {
             let _source_order = self.source_order_lock.lock().unwrap();
             // Snapshot capture keeps `term` held from the dead check
             // through smart subscription. Publish Exit under that same

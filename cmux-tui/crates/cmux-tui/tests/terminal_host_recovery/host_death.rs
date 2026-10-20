@@ -440,3 +440,6 @@ mod archive_on_close;
 
 #[path = "host_supervisor.rs"]
 mod host_supervisor;
+
+#[path = "shared_hosts.rs"]
+mod shared_hosts;

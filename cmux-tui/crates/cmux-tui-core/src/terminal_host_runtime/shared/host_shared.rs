@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, Sender, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, Sender, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -54,7 +54,7 @@ pub(crate) struct HostShared {
     /// resize keeps this lock until all prior parser commands drain, which
     /// gives both the host and smart clients the same output/resize order.
     pub(crate) source_order_lock: Mutex<()>,
-    pub(crate) parser_commands: SyncSender<ParserCommand>,
+    pub(crate) parser_commands: ParserSender,
     pub(crate) parser_budget: ParserBudget,
     pub(crate) clipboard: ClipboardReads,
     /// Generation advanced after each parser write. Snapshot admission
@@ -77,6 +77,11 @@ pub(crate) struct HostShared {
     pub(crate) exit_published: AtomicBool,
     pub(crate) exit_record_path: PathBuf,
     pub(crate) exit_publish_requests: Sender<()>,
+    /// Runs after each publication request: a shared host's exit job.
+    pub(crate) exit_publish_wake: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
+    /// Runs once the launch owner's stream is ready: a shared host starts
+    /// the PTY reader job there instead of a thread waiting for it.
+    pub(crate) on_launch_owner_stream_ready: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub(crate) force_pty_drain: AtomicBool,
     pub(crate) pty_drain_waker: Mutex<HostStream>,
     pub(crate) termination_started: AtomicBool,
@@ -88,17 +93,41 @@ pub(crate) struct HostShared {
     pub(crate) session_cleanup: unix::session_cleanup::SessionCleanup,
     /// Session of an adopted, non-child process (`adopted_child.rs`).
     pub(crate) adopted_session: Option<sys::SessionId>,
+    /// This terminal's orphan clock and owner-gone mark.
+    pub(crate) lifetime: HostLifetime,
     #[cfg(test)]
     pub(crate) fail_next_resize_publication: AtomicBool,
 }
 
 impl HostShared {
     pub(crate) fn mark_launch_owner_stream_ready(&self) {
-        let _gate = self.launch_owner_stream_gate.0.lock().unwrap();
-        if !self.launch_owner_stream_ready.swap(true, Ordering::AcqRel) {
-            self.launch_owner_stream_gate.1.notify_all();
+        let hook = {
+            let _gate = self.launch_owner_stream_gate.0.lock().unwrap();
+            if !self.launch_owner_stream_ready.swap(true, Ordering::AcqRel) {
+                self.launch_owner_stream_gate.1.notify_all();
+            }
+            self.publish_exit_if_drained();
+            self.on_launch_owner_stream_ready.lock().unwrap().take()
+        };
+        if let Some(hook) = hook {
+            hook();
         }
-        self.publish_exit_if_drained();
+    }
+
+    /// Run `hook` once the launch owner's stream is ready (now, when it is).
+    pub(crate) fn when_launch_owner_stream_ready(&self, hook: Box<dyn FnOnce() + Send>) {
+        let hook = {
+            let _gate = self.launch_owner_stream_gate.0.lock().unwrap();
+            if self.launch_owner_stream_ready.load(Ordering::Acquire) {
+                Some(hook)
+            } else {
+                *self.on_launch_owner_stream_ready.lock().unwrap() = Some(hook);
+                None
+            }
+        };
+        if let Some(hook) = hook {
+            hook();
+        }
     }
 
     pub(crate) fn wait_for_launch_owner_stream_ready(&self) {

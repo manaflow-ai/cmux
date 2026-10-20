@@ -624,6 +624,11 @@ mod unix {
     mod pty_custody;
     mod pty_lock;
     pub(crate) mod session_cleanup;
+    pub(crate) mod shared_client;
+    pub(crate) mod shared_exec;
+    pub(crate) mod shared_host;
+    pub(crate) mod shared_runtime;
+    pub(crate) mod shared_serve;
     mod standby;
     use super::shared::attachment::*;
     use super::shared::clipboard_read::OwnerIntent;
@@ -640,6 +645,7 @@ mod unix {
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
     pub(crate) use pty_lock::{remove_released, sweep_released_pty_locks};
+    pub(crate) use shared_host::SharedHostSlot;
     pub(crate) use standby::StandbyTerminalHost;
 
     pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {

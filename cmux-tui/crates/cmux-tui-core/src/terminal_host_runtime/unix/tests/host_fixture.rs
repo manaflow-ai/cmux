@@ -44,7 +44,7 @@ pub(super) fn test_host_shared_with(
         sequence: AtomicU64::new(0),
         smart: SmartStreamState::new(),
         source_order_lock: Mutex::new(()),
-        parser_commands,
+        parser_commands: parser_commands.into(),
         parser_budget: ParserBudget::new(1),
         clipboard,
         parser_progress: (Mutex::new(0), Condvar::new()),
@@ -65,6 +65,8 @@ pub(super) fn test_host_shared_with(
             RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         )),
         exit_publish_requests,
+        exit_publish_wake: std::sync::OnceLock::new(),
+        on_launch_owner_stream_ready: Mutex::new(None),
         force_pty_drain: AtomicBool::new(false),
         pty_drain_waker: Mutex::new(pty_drain_waker),
         termination_started: AtomicBool::new(false),
@@ -74,6 +76,7 @@ pub(super) fn test_host_shared_with(
         group_escalation_failed: AtomicBool::new(false),
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: None,
+        lifetime: HostLifetime::default(),
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();

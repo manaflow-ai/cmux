@@ -639,6 +639,25 @@ without systemd, hosts are not moved. A machine shutdown stops every scope;
 the host honors that `SIGTERM` from PID 1 and ends its terminal through the
 normal exit path.
 
+## Shared host processes
+
+A daemon started with `CMUX_TUI_SHARED_TERMINAL_HOSTS=1` runs many terminals
+in one host process (`__terminal-host --shared-host --capacity N`, default
+64): it hands the host each new terminal as a bootstrap socket over the
+host's private control socket, and on that socket the host runs the
+`Bootstrap`, `Ready`, `Launch`, `Ready` handshake above. Every terminal keeps
+its own endpoint, owner token, record, liveness lease, PTY lock, exit
+sidecar, signal breadcrumbs and PTY custody; nothing in the record or the
+protocol marks a shared host, so every daemon adopts these terminals like
+one-terminal hosts. Several records may therefore name the same `host_pid`.
+A record's `host_pid` identifies a process, not a terminal: signaling it to
+end one terminal ends every terminal of that process. End one terminal with
+`Terminate`. A shared host takes terminals only from the daemon that started
+it; after that daemon exits it serves its terminals until the last one ends.
+A `SIGTERM` from PID 1 ends each of its terminals as above, a stray one ends
+none; in a build with an orphan grace, a stray `SIGTERM` ends only the
+orphaned terminals.
+
 ## Durability boundary
 
 The append-only journal is exact while a mux daemon owns the authenticated host
