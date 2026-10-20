@@ -771,7 +771,9 @@ export function NewTabScreen(props: Props) {
         switch is the one Enter reuses. */}
         {/* Under Claude Code's split the chips move to the quiet row under the box (nt-foot);
         Cards keeps them here, in its row under the pill. */}
-        {(pill || !plainFooter) && Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+        {(pill || !plainFooter) && Chips && (
+          <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
+        )}
         <span className="acpmux-composer-actions">
           {props.accessory}
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
