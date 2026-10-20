@@ -1180,6 +1180,24 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "browser.agentMouse.maxMoveMs" : {
+      "default" : 350,
+      "description" : "The longest time one agent pointer move takes with human motion. Short moves take less.",
+      "maximum" : 1000,
+      "minimum" : 60,
+      "title" : "Longest Agent Pointer Move",
+      "type" : "number"
+    },
+    "browser.agentMouse.motion" : {
+      "default" : "human",
+      "description" : "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once.",
+      "enum" : [
+        "human",
+        "instant"
+      ],
+      "title" : "Agent Pointer Motion",
+      "type" : "string"
+    },
     "browser.builtInAdBlocker" : {
       "default" : true,
       "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",

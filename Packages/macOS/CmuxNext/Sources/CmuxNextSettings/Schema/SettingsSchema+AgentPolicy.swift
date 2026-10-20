@@ -233,6 +233,9 @@ extension SettingsSchema {
         "markdown.remoteImages": .privacy,
         // Off, a person no longer sees what an agent clicks and types: an agent must not hide itself.
         "browser.showAgentCursor": .userOnly,
+        // How agents move the pointer is the person's choice: an agent must not make itself faster or slower.
+        "browser.agentMouse.motion": .userOnly,
+        "browser.agentMouse.maxMoveMs": .userOnly,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openLinksInCmuxBrowser": .privacy,
         // Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.
