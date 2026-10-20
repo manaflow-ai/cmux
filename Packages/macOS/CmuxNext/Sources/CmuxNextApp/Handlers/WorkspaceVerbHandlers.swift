@@ -172,6 +172,8 @@ enum WorkspaceVerbHandlers {
         if moving.isEmpty { moving = [anchor] }
         guard let position = slot.position(moving: Set(moving.map(\.rawValue)), besides: workspace.id, in: sections)
         else { return false }
+        // Pinned and custom sections move only on the sidebar document; off it, a reorder there would pin the rows.
+        if sections[home].machine == nil, !SidebarDocWiring.isActive { return false }
         bridge.handle(.reorder(moving, to: position))
         return true
     }

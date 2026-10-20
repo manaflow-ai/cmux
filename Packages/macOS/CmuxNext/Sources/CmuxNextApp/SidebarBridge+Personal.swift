@@ -77,7 +77,9 @@ extension SidebarBridge {
     /// each in the home session; the workspace's own daemon is not written.
     func placePersonal(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection],
                        edit: SidebarPendingEdits.Token? = nil) {
-        let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
+        // A position the sidebar document listed names the group by its item (`itm_g_<id>`); the home session
+        // knows only the personal id, and an unknown one would take the rows out of their group.
+        let group = position.group.map { WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: $0.rawValue)) }
         let (failed, applied) = rows.outcome(edit, resync: { [weak self] in self?.resync() })
         guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return failed() }
         let regroup = statePersonal ? plan.regroup : []
