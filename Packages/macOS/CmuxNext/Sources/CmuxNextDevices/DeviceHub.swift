@@ -50,6 +50,8 @@ public final class DeviceHub {
     /// Makes a new identity when the hub refuses this one (`device_removed`, `device_key_mismatch`).
     @ObservationIgnored let renewIdentity: (@Sendable () throws -> DeviceIdentity)?
     @ObservationIgnored private var socketTask: Task<Void, Never>?
+    /// Relays this device saved that no listing has shown yet (kept from pruning).
+    @ObservationIgnored var savedNotListed: Set<String> = []
     /// Bumped by start and stop: an answer from an older run is dropped.
     @ObservationIgnored private var generation = 0
 
@@ -214,8 +216,13 @@ public final class DeviceHub {
         await load { try await $0.relays() } into: { hub, value in
             hub.relays = value
             // A relay deleted elsewhere: its opened secret leaves this Mac too.
+            // One this Mac just saved stays until a listing has shown it
+            // (a listing fetched before the save would not have it yet).
             let listed = Set(value.map(\.id))
-            for id in hub.secrets.relayIDs() where !listed.contains(id) { hub.secrets.remove(relayID: id) }
+            hub.savedNotListed.subtract(listed)
+            for id in hub.secrets.relayIDs() where !listed.contains(id) && !hub.savedNotListed.contains(id) {
+                hub.secrets.remove(relayID: id)
+            }
             let sealing = RelaySealing(identity: hub.identity)
             for relay in value {
                 guard let blob = relay.sealedForThisDevice, let secret = try? sealing.open(blob, relayID: relay.id) else { continue }
@@ -305,6 +312,7 @@ public final class DeviceHub {
     public func saveRelay(id: String? = nil, name: String, urls: [String], secret: RelaySecret, enabled: Bool = true,
                           priority: Int = 0) async throws -> HubRelay {
         let id = id ?? UUID().uuidString.lowercased()
+        savedNotListed.insert(id)
         let current = try await perform { try await $0.devices() }
         devices = current
         let sealed: [String: String]
@@ -320,6 +328,7 @@ public final class DeviceHub {
 
     public func deleteRelay(_ id: String) async throws {
         try await perform { try await $0.deleteRelay(id) }
+        savedNotListed.remove(id)
         secrets.remove(relayID: id)
         relays.removeAll { $0.id == id }
     }
