@@ -590,7 +590,7 @@ def configure_fake(home):
     # family, so the app treats them as Claude and Codex chats: picker, chips, resume path).
     for name, profile in CHAT_PROFILES.items():
         harnesses[name] = {"argv": ["python3", os.path.abspath(opts.fake_agent)], **profile}
-    ACPMUX_RESTORE.append((path, original))  # first, so an exit at any point after puts it back
+    ACPMUX_RESTORE.append((path, original, True))  # first, so an exit at any point after puts it back
     with open(path + ".rj", "w") as f:
         f.write(json.dumps(config, indent=2))
     os.replace(path + ".rj", path)
@@ -600,7 +600,7 @@ def configure_fake(home):
 
 
 def restore_acpmux_config():
-    for path, original in ACPMUX_RESTORE:
+    for path, original, reload in ACPMUX_RESTORE:
         try:
             if original is None:
                 os.remove(path)
@@ -610,6 +610,8 @@ def restore_acpmux_config():
                 os.replace(path + ".rj", path)
         except OSError as error:
             print("could not restore", path, error, file=sys.stderr)
+            continue
+        if not reload:
             continue
         try:
             Acpmux(acpmux_socket_of(os.path.dirname(path))).request("_acpmux/reload_config", {}, timeout=10)
@@ -1086,10 +1088,48 @@ def daemon_binary():
     return None
 
 
+def daemon_config_path():
+    """The cmux-tui.json the app's daemon reads: the app does not name one, so the daemon reads its
+    default under the app's own XDG_CONFIG_HOME or HOME (mux.json when only that legacy file exists)."""
+    env = APP.env
+    if env.get("CMUX_TUI_CONFIG") or env.get("CMUX_MUX_CONFIG"):
+        return env.get("CMUX_TUI_CONFIG") or env.get("CMUX_MUX_CONFIG")
+    base = env.get("XDG_CONFIG_HOME") or os.path.join(env.get("HOME", os.environ["HOME"]), ".config")
+    folder = os.path.join(base, "cmux")
+    preferred, legacy = os.path.join(folder, "cmux-tui.json"), os.path.join(folder, "mux.json")
+    return legacy if not os.path.exists(preferred) and os.path.exists(legacy) else preferred
+
+
+def opt_in_agent_resume():
+    """Running a restored terminal agent's resume is opt-in (`agents.resume: "run"`; by default it
+    is only typed): the gate checks the opted-in path, the one classic-level continuity needs.
+    The daemon reads it at its next start (the reboot's). The file is put back at exit."""
+    path = daemon_config_path()
+    try:
+        with open(path) as f:
+            original = f.read()
+    except FileNotFoundError:
+        original = None
+    try:
+        config = json.loads(original) if original else {}
+    except ValueError:
+        say(f"  {path} is not plain JSON; agents.resume not set")
+        return False
+    config.setdefault("agents", {})["resume"] = "run"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    ACPMUX_RESTORE.append((path, original, False))  # put back with the acpmux config at exit
+    with open(path + ".rj", "w") as f:
+        f.write(json.dumps(config, indent=2))
+    os.replace(path + ".rj", path)
+    say(f"  agents.resume = run in {path}")
+    return True
+
+
 def seed_tagents():
     ws = new_workspace("rj-tagents")
     if not ws.get("terminal_id"):
         return
+    opt_in_agent_resume()
     here = os.path.dirname(os.path.abspath(__file__))
     bindir = os.path.join(opts.out, "rj-bin")
     os.makedirs(bindir, exist_ok=True)
