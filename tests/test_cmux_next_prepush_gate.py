@@ -173,6 +173,25 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
 
+    def test_push_from_a_linked_worktree_leaves_the_repository_alone(self):
+        # git runs the hook with GIT_DIR=<repo>/.git/worktrees/<name>: the gate's own temp-tree
+        # git calls must not inherit it (2026-10-19: it set core.bare=true on the shared clone and
+        # staged the deletion of every file in the pushing worktree's index).
+        linked = self.root / "linked"
+        self.git("worktree", "add", "--quiet", "-b", "linked-work", str(linked), "feat-cmux-next")
+        (linked / f"{PKG}/Sources/CmuxNextKit/Fresh.swift").write_text(NEW_CLEAN)
+        run = lambda *args: subprocess.run(["git", "-C", str(linked), *args], env=self.env,
+                                           text=True, capture_output=True)
+        run("add", "-A")
+        run("commit", "--quiet", "--no-verify", "-m", "clean change from a linked worktree")
+
+        result = run("push", "origin", "linked-work:feat-cmux-next")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git("config", "--get", "core.bare").stdout.strip(), "false")
+        self.assertEqual(run("diff", "--cached", "--name-only").stdout, "", "the pushing worktree's index must not change")
+        self.assertEqual(self.git("diff", "--cached", "--name-only").stdout, "")
+
     def test_skip_reason_lets_the_push_through_and_says_so(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_WITH_TRY)
         self.commit("adds a try!")
