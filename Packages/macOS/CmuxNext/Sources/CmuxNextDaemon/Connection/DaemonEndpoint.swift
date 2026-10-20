@@ -119,6 +119,9 @@ public struct DaemonCapabilities: Sendable {
     /// `close-tabs` and `end_terminals` on the container closes: many tabs and
     /// the terminals they end close in one daemon commit.
     public let batchClose = "batch-close-v1"
+    /// `expect_foreground` on `send`: the daemon writes only while that program is still the
+    /// terminal's foreground (the Chief pet's typed reply).
+    public let sendExpectForeground = "send-expect-foreground-v1"
     /// `reason` on `close-tabs` (`session_end`: not recorded in closed history).
     public let closeReason = "close-reason-v1"
     /// `if_empty` on `close-workspace`: the daemon closes the workspace only
@@ -271,10 +274,10 @@ public struct DaemonCapabilities: Sendable {
     public let conversationInboxState = "conversation-inbox-state-v1"
     public let homeInbox = "home-inbox-v1"
     public let chiefEvents = "chief-events-v1"
-    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md): the `cloud-session-*`,
-    /// `cloud-inbox-*` and `cloud-conversation-*` commands and their `cloud-*` events. Advertised only when
-    /// the daemon has the cloud transport installed.
+    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md): `cloud-session-*`, `cloud-inbox-*`, `cloud-conversation-*`
+    /// and their `cloud-*` events, only with the cloud transport installed. `cloudHostReplica`: object-sync DESIGN.md phase 3, verified app only.
     public let cloudConversations = "cloud-conversations-v1"
+    public let cloudHostReplica = "cloud-host-replica-v1"
     /// `page-credential`: the verified app gets a credential for its own page, which then gets
     /// the person's Cloud lease (`ws-cloud-conversations-v1`, cx-hnmbt.4).
     public let pageCredential = "page-credential-v1"
@@ -427,12 +430,12 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
-                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission] }
+                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

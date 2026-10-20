@@ -297,6 +297,7 @@ fn creation_receipts_replay_exact_surfaces_across_control_connections() {
                 device_kind: None,
                 device_name: None,
                 device_id: None,
+                api_revision: None,
             },
             writer,
         )
@@ -403,6 +404,7 @@ fn browser_receipt_targets_an_exact_empty_workspace_without_focus_state() {
             device_kind: None,
             device_name: None,
             device_id: None,
+            api_revision: None,
         },
         &writer,
     )
@@ -495,6 +497,7 @@ fn creation_selector_fallbacks_are_negotiated_atomic_and_durably_replayed() {
                 device_kind: None,
                 device_name: None,
                 device_id: None,
+                api_revision: None,
             },
             writer,
         )
@@ -955,6 +958,7 @@ fn daemon_shutdown_force_preserves_the_identity_fence() {
             device_kind: None,
             device_name: None,
             device_id: None,
+            api_revision: None,
         },
         &owner_writer,
     )
@@ -1018,6 +1022,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             device_kind: None,
             device_name: None,
             device_id: None,
+            api_revision: None,
         },
         &owner_writer,
     )
@@ -1071,6 +1076,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             device_kind: None,
             device_name: None,
             device_id: None,
+            api_revision: None,
         },
         &late_writer,
     )

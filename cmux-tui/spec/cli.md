@@ -468,7 +468,8 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list
+agent list [--needs-me] [--state <state>] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+agent <agent_id|term_id> focus
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
@@ -838,6 +839,39 @@ started; once the folder is gone, a request naming it finds no repository.
 `sidebar plugin` commands read and write local plugin installation state. They
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
+
+## Agent list
+
+`agent list` is one `agent.list` read; the CLI ranks, limits and counts its
+rows, so the wire value is unchanged. `--state` and `--terminal` are the
+read's own filters. `--needs-me` lists the blocked agents (`state: blocked`)
+and is refused with any other `--state`.
+
+`--sort needs-me`, the default, puts blocked agents first, then working, then
+idle and done together, then unknown; `recent` ignores state; `none` keeps the
+daemon's order. Within a group the most recently updated agent comes first,
+and equal times fall back to the agent id. `--limit <n>` (at least 1) keeps
+the first `n` ranked rows.
+
+The command also reads `terminal.list` on the same connection, so each row
+can show its terminal's title and folder. A refused or failed terminal read
+leaves those out. AGE is the time since the agent's `updated_at_ms`, its
+last report.
+
+Human output starts with the counts by state over every listed agent, before
+`--limit` (`2 blocked · 1 working · 3 idle · 0 done`, plus `unknown` when
+there is one, and `(showing n of m)` when the limit hid rows), then one row per
+agent: STATE, AGE, AGENT (`extra.agent`), TITLE, FOLDER (with `~` for the
+home folder) and TERMINAL, with SESSION first under `--all-sessions`. With no
+agents it prints `No agents.`
+
+`--json` prints the ranked agents as a bare array, as it always has; only the
+default order changed (it was the daemon's order). Each agent is the
+`AgentSnapshot` plus `age_ms` and, when its terminal was listed, its `title`
+and `cwd`. `--json --counts` prints `{"agents": [...], "counts": {...}}`
+instead: `counts` has `blocked`, `working`, `idle`, `done`, `unknown` and
+`total`, counted before `--limit`. `--jsonl` prints one agent per line with
+or without `--counts`.
 
 ## Agent messages
 
