@@ -191,7 +191,7 @@ final class SettingsWindowService: InternalPageProvider {
                                     symbol: "cloud", isActive: Self.isConnected(session.daemon.store.connectionState))
         }
         // Remote hosts on the private network (`cmux host list`), connected or not.
-        let hosts = services.remoteHosts.hosts.map { session in
+        let hosts = machines.servers.filter(\.reach.isTailnetHost).map { session in
             SettingsListRow.machine(id: session.machineID, title: session.name, icon: machines.icon(machine: session.machineID),
                                     symbol: "network", isActive: Self.isConnected(session.daemon.store.connectionState))
         }

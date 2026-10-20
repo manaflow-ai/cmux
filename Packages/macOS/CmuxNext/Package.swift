@@ -210,6 +210,7 @@ let package = Package(
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHostedChief",
+                "CmuxNextRemoteHosting",
                 "CmuxNextDaemonService",
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
@@ -489,6 +490,17 @@ let package = Package(
         .target(
             name: "CmuxNextHostedChief",
             dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextHomeEngine"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Remote hosts (plans/cmux-next/remote-hosts.md 9): the host list reader and its
+        // reconciler, the Remote Hosting setting's follower and their strings. No AppServices;
+        // the App adapts MachineRegistry and ServerMachineSession to its protocols.
+        .target(
+            name: "CmuxNextRemoteHosting",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextRemote", "CmuxNextSettings"],
             resources: [
                 .process("Resources"),
             ],

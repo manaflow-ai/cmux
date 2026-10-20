@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextRemoteHosting
 import CmuxNextSidebar
 
 extension ServerMachineSession {

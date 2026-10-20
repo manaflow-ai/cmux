@@ -2,9 +2,9 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
-import CmuxNextSettings
-import Foundation
-import Observation
+public import CmuxNextSettings
+public import Foundation
+public import Observation
 import os
 
 /// Applies Settings > Accounts > Remote Hosting (`remoteHosting.enabled`;
@@ -23,9 +23,9 @@ import os
 /// RC, staging) shows the status and never runs enable or disable.
 @MainActor
 @Observable
-final class RemoteHostingFollower {
+public final class RemoteHostingFollower {
     /// What `cmux host status --remote --json` says (the fields the app shows or compares).
-    struct Status: Equatable {
+    public struct Status: Equatable {
         var enabled: Bool
         var serving: Bool
         var starting: Bool
@@ -37,14 +37,14 @@ final class RemoteHostingFollower {
     }
 
     /// One CLI run: exit status and stdout, or nil when the CLI could not run.
-    typealias Run = @MainActor ([String]) async -> (status: Int32, stdout: Data)?
+    public typealias Run = @MainActor ([String]) async -> (status: Int32, stdout: Data)?
 
     @ObservationIgnored private let run: Run
     /// The app's own daemon session (the one the listener serves).
     @ObservationIgnored private let session: String
     @ObservationIgnored private let available: Bool
     /// This build may change hosting (see the type's note).
-    let owner: Bool
+    public let owner: Bool
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.remote-hosting")
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var working: Task<Void, Never>?
@@ -54,12 +54,12 @@ final class RemoteHostingFollower {
     /// The key's last raw value, to tell its own edits from other settings edits.
     @ObservationIgnored private var lastRaw: Bool??
 
-    private(set) var status: Status?
+    public private(set) var status: Status?
     /// The last enable or disable failed.
-    private(set) var failed = false
-    private(set) var policyDisabled = false
+    public private(set) var failed = false
+    public private(set) var policyDisabled = false
 
-    init(session: String, available: Bool, owner: Bool, run: @escaping Run) {
+    public init(session: String, available: Bool, owner: Bool, run: @escaping Run) {
         self.session = session
         self.available = available
         self.owner = owner
@@ -67,7 +67,7 @@ final class RemoteHostingFollower {
     }
 
     /// Follows the setting from now on (once).
-    func start(settings: SettingsController) {
+    public func start(settings: SettingsController) {
         guard observers.isEmpty else { return }
         observers.append(Task { [weak self] in
             await settings.waitForLoad(atLeast: 1)
@@ -92,7 +92,7 @@ final class RemoteHostingFollower {
         })
     }
 
-    func stop() {
+    public func stop() {
         for observer in observers { observer.cancel() }
         observers.removeAll()
         working?.cancel()
@@ -100,14 +100,14 @@ final class RemoteHostingFollower {
     }
 
     /// `DisabledFeatures: remoteHosts`: hosting stops and the setting is ignored until it is lifted.
-    func applyPolicy(disabled: Bool) {
+    public func applyPolicy(disabled: Bool) {
         guard disabled != policyDisabled else { return }
         policyDisabled = disabled
         sync()
     }
 
     /// The Settings page's one line under Machines; nil while nothing is known.
-    var statusLine: String? {
+    public var statusLine: String? {
         guard available else { return nil }
         if policyDisabled { return RefusalStrings.turnedOffByOrganization }
         if let status, status.network != "Running" { return RemoteHostStrings.networkOff }
@@ -120,7 +120,7 @@ final class RemoteHostingFollower {
     }
 
     /// The Settings page's note for a build that may not change hosting; nil for an owner.
-    var readOnlyNote: String? {
+    public var readOnlyNote: String? {
         available && !owner ? RemoteHostStrings.readOnly : nil
     }
 
@@ -187,7 +187,7 @@ final class RemoteHostingFollower {
         return Self.parseStatus(result.stdout)
     }
 
-    nonisolated static func parseStatus(_ data: Data) -> Status? {
+    public nonisolated static func parseStatus(_ data: Data) -> Status? {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let enabled = object["enabled"] as? Bool else { return nil }
         return Status(enabled: enabled, serving: object["serving"] as? Bool ?? false, starting: object["starting"] as? Bool ?? false,
@@ -197,18 +197,17 @@ final class RemoteHostingFollower {
 }
 
 extension RemoteHostingFollower {
-    /// The app's follower: the bundle's own `cmux`, the app's daemon session. The CLI runs
-    /// with the app daemon's socket environment (`TMPDIR` the per-user temp directory, no
-    /// `XDG_RUNTIME_DIR`; ``DaemonLauncher/ensureEnvironment()``), so `--session` names the
-    /// socket the daemon and the launchd listener use, whatever the app was launched with.
-    static func app(services: AppServices) -> RemoteHostingFollower {
-        let cli = RemoteHostSource.bundledCLI()
-        let kind = services.environment.launch.build.kind
+    /// The app's follower: the bundle's own `cmux` (``RemoteHostList/bundledCLI()``), the app's
+    /// daemon `session`; `owner` for the release and NIGHTLY builds. The CLI runs with the app
+    /// daemon's socket environment (`TMPDIR` the per-user temp directory, no `XDG_RUNTIME_DIR`;
+    /// ``DaemonLauncher/ensureEnvironment()``), so `--session` names the socket the daemon and the
+    /// launchd listener use, whatever the app was launched with.
+    public static func bundled(session: String, owner: Bool) -> RemoteHostingFollower {
+        let cli = RemoteHostList.bundledCLI()
         var environment = ProcessInfo.processInfo.environment
         environment["XDG_RUNTIME_DIR"] = nil
         environment["TMPDIR"] = DaemonLauncher.userTemporaryDirectory().path
-        return RemoteHostingFollower(session: services.environment.daemonSession, available: cli != nil,
-                                     owner: kind == .release || kind == .nightly, run: { [environment] arguments in
+        return RemoteHostingFollower(session: session, available: cli != nil, owner: owner, run: { [environment] arguments in
             guard let cli,
                   let result = try? await ProcessRunner.run(executable: cli, arguments: arguments, environment: environment,
                                                             timeout: .seconds(30), clock: ContinuousClock()) else { return nil }
