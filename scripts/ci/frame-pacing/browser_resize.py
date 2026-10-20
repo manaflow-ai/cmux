@@ -47,7 +47,9 @@ def drive(driver, out: Path) -> None:
     """Opens the probe in a Chromium tab, then traces two drags out and back, then records one."""
     page = out / "browser-resize-probe.html"
     page.write_text(PROBE_PAGE)
-    opened = driver.call("action.run", {"action": "openBrowser.chromium", "url": page.as_uri(), "focus": True}, timeout=90)
+    # The action takes its URL under `args` (a top-level `url` is ignored and opens the New Tab page).
+    opened = driver.call("action.run", {"action": "openBrowser.chromium", "args": {"url": page.as_uri()}, "focus": True},
+                         timeout=90)
 
     def evaluate(script: str):
         result = driver.call("browser.page.eval", {"script": script}, timeout=20)
@@ -61,7 +63,8 @@ def drive(driver, out: Path) -> None:
             break
         time.sleep(0.5)
     if not ready:
-        driver.save("browser_resize", {"error": "the probe page never ran in a Chromium tab", "opened": opened})
+        state = driver.call("browser.page.state", {}, timeout=20)
+        driver.save("browser_resize", {"error": "the probe page never ran in a Chromium tab", "opened": opened, "state": state})
         return
     time.sleep(1.5)
 
