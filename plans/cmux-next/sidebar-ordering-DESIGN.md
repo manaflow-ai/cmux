@@ -47,7 +47,7 @@ do. It no longer opens the editor bubble. A click on the name or on ··· still
 
 Top-level rows (at most 12, the menu rule of 2026-10-01): New Workspace in Group · Rename…,
 Color ▸, Pin/Unpin Group, Options ▸ (Set Icon, Remove Icon, read state, Collapse All, Expand All,
-Collapse Others, Edit Group Config, Duplicate) · Collapse/Expand Group · Move to Top, Move ▸ (Up,
+Collapse Others, Edit Group Config, Duplicate, Copy Group ID) · Collapse/Expand Group · Move to Top, Move ▸ (Up,
 Down, Bottom, Window, New Window, Space, Section, Sort by Name/Last Used/Directory) · Ungroup,
 Close Group, Delete Group, Close Other Groups.
 
