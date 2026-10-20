@@ -855,6 +855,52 @@ class ContractRegistryTests(unittest.TestCase):
 
             self.assertEqual(CHECKER.check_contracts(tui), [])
 
+    def selector_table_contract(self, tui: Path, prefixes: tuple[str, ...]) -> Path:
+        """`matching_contract`, with the selector reading a `PUBLIC_ID_PREFIXES`
+        table of (prefix, CLI scope) as resource.rs does since 6b9b3e66bf16."""
+        matching_contract(tui)
+        path = tui / "crates/cmux-tui-core/src/resource.rs"
+        rows = "\n".join(f'    ("{prefix}", Some("scope_{prefix}")),' for prefix in prefixes)
+        table = (
+            f"const PUBLIC_ID_PREFIXES: &[(&str, Option<&str>)] = &[\n{rows}\n    (\"unscoped\", None),\n];\n\n"
+            "fn is_registered_public_id(value: &str) -> bool {\n"
+            "    PUBLIC_ID_PREFIXES.iter().any(|(known, _)| *known == value)\n"
+            "}"
+        )
+        text = path.read_text(encoding="utf-8")
+        start = text.index("fn is_registered_public_id")
+        end = text.index("}", start) + 1
+        write(path, text[:start] + table + text[end:])
+        return path
+
+    def test_selector_prefix_table_is_the_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = self.selector_table_contract(tui, CHECKER.EXPECTED_PREFIXES)
+            text = path.read_text(encoding="utf-8").replace('    ("unscoped", None),\n', "")
+            write(path, text)
+
+            self.assertEqual(CHECKER.check_contracts(tui), [])
+
+    def test_selector_prefix_table_drift_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = self.selector_table_contract(
+                tui, tuple(prefix for prefix in CHECKER.EXPECTED_PREFIXES if prefix != "agent")
+            )
+
+            messages = sorted(
+                item.message for item in CHECKER.check_contracts(tui) if item.path == path
+            )
+
+            self.assertEqual(
+                messages,
+                [
+                    "selector ID registry has unregistered prefix 'unscoped'",
+                    "selector ID registry is missing 'agent'",
+                ],
+            )
+
     def test_schema_prefix_drift_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
