@@ -250,8 +250,12 @@ extension DaemonConnection {
 
     // Input and sizing on the control connection (views use TerminalAttachment)
 
-    public func send(_ surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool = false) async throws {
-        _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil))
+    /// - Parameter expectForeground: write only while this executable is still the terminal's
+    ///   foreground (`send-expect-foreground-v1`); an older daemon ignores it.
+    public func send(_ surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool = false,
+                     expectForeground: String? = nil) async throws {
+        _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil,
+                                               expectForeground: expectForeground))
     }
 
     /// Input by host terminal id, also for a terminal still being created
