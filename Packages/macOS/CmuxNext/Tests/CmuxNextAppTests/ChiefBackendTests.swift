@@ -117,6 +117,35 @@ import Testing
         #expect(services.home.pendingSelection == ConversationID("conv_scout"))
     }
 
+    /// Home's compose button works as classic cmux's Chief list (ChiefConversationListView, #21063):
+    /// one click makes another Chief at once, named as the Chief is, with no sheet to fill first,
+    /// so the person can ask it something right away. New Message stays in compose's menu.
+    @MainActor @Test func homesComposeButtonStartsANewChiefInOneClick() async throws {
+        let calls = Calls()
+        let (opened, open) = AsyncStream<Void>.makeStream()
+        let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.home.localChiefCreator = {
+            HomeLocalChiefCreator(me: me, send: { operation, params, key in
+                await calls.sent(operation, params, key)
+                return .object(["value": .object(["id": .string("agent_compose01"), "display_name": params["display_name"] ?? .null])])
+            }, open: { request in
+                await calls.opened(request)
+                open.yield()
+                return "conv_compose"
+            })
+        }
+        let page = TopHomePageView(services: services, windowKey: { "compose-new-chief" })
+        #expect(page.list.compose.accessibilityLabel() == HomeConversationStrings.chiefTitle)
+        page.list.compose.performClick(nil)
+        var iterator = opened.makeAsyncIterator()
+        _ = await iterator.next()
+        let sent = try #require(await calls.sends.first)
+        #expect(sent.operation == "chief.profile.create")
+        #expect(sent.params == ["display_name": .string(HomeStrings.chiefName)])
+        #expect(await calls.opens.count == 1)
+    }
+
     @Test func theDefaultEngineIsNotNamedInALocalCreate() {
         #expect(HomeLocalChiefCreator.params(name: "A", backend: .claude) == ["display_name": .string("A")])
         #expect(HomeLocalChiefCreator.params(name: "A", backend: .codex)["harness"] == .string("codex"))

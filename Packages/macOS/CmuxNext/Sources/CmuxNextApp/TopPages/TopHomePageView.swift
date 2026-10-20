@@ -111,7 +111,6 @@ final class TopHomePageView: NSView {
             Task { _ = await home.startConversation([.contact(person)], title: "") }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
-        list.onNewChief = { [weak self] in self?.presentNewChief() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
