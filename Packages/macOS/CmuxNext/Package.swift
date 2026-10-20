@@ -261,6 +261,8 @@ let package = Package(
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
                 "CmuxNextCookieImport",
+                "CmuxNextImportCards",
+                "CmuxNextImportSuggestions",
                 "CmuxNextAgentPane",
                 "CmuxNextHistory",
                 "CmuxNextPages",
@@ -409,6 +411,30 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Import suggestion cards (Home, New Tab, Settings › Import): what this Mac has that cmux
+        // can bring over, found from folder listings only, the dismissals, the Chief's requests and
+        // the resumable import jobs. Pure model, no UI.
+        .target(
+            name: "CmuxNextImportSuggestions",
+            dependencies: ["CmuxNextBrowserImport"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextImportSuggestionsTests",
+            dependencies: ["CmuxNextImportSuggestions", "CmuxNextBrowserImport"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The cards' center and surfaces: the scan schedule, the job runner, the `import.*`
+        // actions, the agent pages' push and the Home strip. The App supplies `ImportCardsHost`.
+        .target(
+            name: "CmuxNextImportCards",
+            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
+                           "CmuxNextImportSuggestions", "CmuxNextOnboarding"],
             swiftSettings: uiSwiftSettings
         ),
         .target(

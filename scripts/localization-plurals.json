@@ -621,5 +621,47 @@
     "arguments": [
       1
     ]
+  },
+  "importSuggestions.facts.profiles": {
+    "source": "%lld profiles",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.facts.sessions": {
+    "source": "%lld sessions",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.facts.threads": {
+    "source": "%lld threads",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.facts.workspaces": {
+    "source": "%lld saved workspaces",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.count.pages": {
+    "source": "%lld pages",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.count.bookmarks": {
+    "source": "%lld bookmarks",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.count.cookies": {
+    "source": "%lld cookies",
+    "arguments": [
+      1
+    ]
   }
 }

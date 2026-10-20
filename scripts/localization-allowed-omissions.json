@@ -6817,5 +6817,9 @@
       "nb": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
       "pl": "Agent is the standard noun for an AI agent in this language; the translated entry is still required."
     }
+  },
+  "importSuggestions.request.chief": {
+    "class": "brand",
+    "source": "Chief"
   }
 }
