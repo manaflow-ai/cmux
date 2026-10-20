@@ -86,6 +86,7 @@ export function UpdateReadyHighlights({
   const titleId = useId();
   return (
     <section className="wn-pop" aria-labelledby={titleId}>
+      {/* tooltip-allow: the heading shows the short version; the tooltip names the full build (Leo 2026-10-19). */}
       <div className="wn-pop-title" id={titleId} title={data.version}>
         {strings.format("updates.popover.title", cardVersion(data.version))}
       </div>
