@@ -51,6 +51,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
     let keyboard: CGFloat
 
     @State private var chrome = ChromeState()
+    /// Close All Tabs is waiting for the person's answer.
+    @State private var confirmingCloseAll: CloseAllConfirmation?
     /// The page <-> grid transition (one interruptible progress value).
     @State private var zoomDriver = TabZoomDriver()
     /// Swipe-to-close offsets of the grid's cards.
@@ -154,7 +156,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onClose: { id in await closeFromGrid(id) },
                         onNewTab: newTabFromOverview,
                         onDone: { closeOverview(selecting: activeID) },
-                        onCloseAll: closeAll,
+                        onCloseAll: { confirmingCloseAll = CloseAllConfirmation(count: tabs.count) },
                         pending: newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil,
                         onScrolling: { source.overviewScrollingChanged($0) },
                         onQueueSelect: { queuedOpen = $0 },
@@ -162,6 +164,16 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 .opacity(overviewVisible ? 1 : 0)
                 .allowsHitTesting(overviewVisible)
                 .accessibilityHidden(!zoomState.gridInteractive)
+                // Close All Tabs asks first, as Safari does: every tab closes with no way back.
+                .confirmationDialog(confirmingCloseAll?.confirmTitle ?? "", isPresented: Binding(
+                    get: { confirmingCloseAll != nil }, set: { if !$0 { confirmingCloseAll = nil } }
+                ), titleVisibility: .hidden, presenting: confirmingCloseAll) { confirmation in
+                    Button(confirmation.confirmTitle, role: .destructive) { closeAll() }
+                        .accessibilityIdentifier("tabs.closeAll.confirm")
+                    Button("Cancel", role: .cancel) {}
+                } message: { confirmation in
+                    Text(confirmation.message)
+                }
 
             if chrome.swiping {
                 swipeNeighbor
