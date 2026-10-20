@@ -247,6 +247,25 @@ impl PreviewPort for FakeUploader {
         ));
         Ok(image)
     }
+
+    fn upload_attachment(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<DerivedImage, OpError> {
+        self.upload_image(
+            conversation,
+            bytes,
+            mime_type,
+            name,
+            width.unwrap_or(0),
+            height.unwrap_or(0),
+        )
+    }
 }
 
 impl ConversationPort for FakeDaemon {
@@ -486,6 +505,8 @@ pub struct Agents {
     pub released: usize,
     /// The next turn loses its acpmux connection instead of answering.
     pub lose: bool,
+    /// Every turn loses its acpmux connection instead of answering.
+    pub lose_always: bool,
     /// `events` fails with this error while set.
     pub events_error: Option<String>,
     /// Sessions whose turn was cancelled, in order.
@@ -744,7 +765,7 @@ impl AgentPort for FakeAgents {
             let (lose, answer, error, delay) = {
                 let mut inner = me.inner.lock().unwrap();
                 (
-                    std::mem::take(&mut inner.lose),
+                    std::mem::take(&mut inner.lose) || inner.lose_always,
                     inner.answer.take(),
                     inner.answer_error.take(),
                     inner.answer_delay,

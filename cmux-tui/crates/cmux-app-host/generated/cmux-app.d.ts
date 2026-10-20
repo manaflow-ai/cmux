@@ -40,9 +40,11 @@ declare namespace Cmux {
   type ChiefBrainPlace = { host: Cmux.HostId; install: Cmux.InstallId }
   type ChiefBrainStart = { state: string; reason?: string }
   type ChiefEngineChoice = { harness?: string; model?: string; effort?: string }
+  type ChiefHistory = { chief: string; revisions: Array<Cmux.ChiefRevision> }
   type ChiefId = string
   type ChiefList = { chiefs: Array<Cmux.ChiefRecord> }
-  type ChiefRecord = { id: string; display_name: string; role: string; personality: string; instructions: string; avatar: Cmux.ChiefAvatarRef | null; tools: Array<string>; harnesses: Array<string>; engine: Cmux.ChiefEngineChoice; self_edit: Array<string>; is_default: boolean; rev: number; created_at: string; updated_at: string; brain?: Cmux.ChiefBrainStart }
+  type ChiefRecord = { id: string; display_name: string; role: string; personality: string; instructions: string; avatar: Cmux.ChiefAvatarRef | null; tools: Array<string>; harnesses: Array<string>; engine: Cmux.ChiefEngineChoice; self_edit: Array<string>; locked: boolean; is_default: boolean; rev: number; created_at: string; updated_at: string; brain?: Cmux.ChiefBrainStart }
+  type ChiefRevision = { rev: number; at: string; actor: string; operation: string; record: Cmux.ChiefRecord }
   type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
@@ -454,6 +456,12 @@ declare namespace Cmux {
   type WorkspaceAgentStartKind = "seed" | "chosen" | "workspace" | "agent_home"
   type WorkspaceAgentStartSkip = { cwd: string; reason: Cmux.WorkspaceAgentStartSkipReason }
   type WorkspaceAgentStartSkipReason = "home" | "above_home" | "agent_home" | "missing"
+  type WorkspaceChecklist = { workspace_id: string /* workspace_… */; items: Array<Cmux.WorkspaceChecklistItem> }
+  type WorkspaceChecklistAttachment = { id: string; path: string; name: string }
+  type WorkspaceChecklistAttachmentInput = { id?: string; path: string; name?: string }
+  type WorkspaceChecklistItem = { id: string; text: string; state: Cmux.WorkspaceChecklistItemState; origin: Cmux.WorkspaceChecklistItemOrigin; attachments: Array<Cmux.WorkspaceChecklistAttachment>; created_at_ms: string; updated_at_ms: string }
+  type WorkspaceChecklistItemOrigin = "user" | "agent"
+  type WorkspaceChecklistItemState = "todo" | "in_progress" | "done"
   type WorkspaceCloseResult = { closed_ids?: Array<Cmux.StateId> }
   type WorkspaceGroupDeleteResult = { id: Cmux.StateId; ungrouped: Array<Cmux.WorkspaceRef> }
   type WorkspaceGroupSnapshot = { id: Cmux.StateId; room_id: Cmux.StateId; name: string; color: string | null; collapsed: boolean; index: number; top_index?: number | null; icon?: string | null; pinned?: boolean }
@@ -616,7 +624,7 @@ interface CmuxGlobal {
     list: CmuxOp<{ include_archived?: boolean }, { chiefs: Array<Cmux.HomeChief>; tombstones: Array<{ id: Cmux.ChiefId; owner_user: string; archived_at: Cmux.Timestamp }> }>
     profile: {
       /** `chief.profile.adopt` (mutation, scope `chief:write`) */
-      adopt: CmuxOp<{ machine?: string; session?: string; participant_id: string; display_name?: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string }, Cmux.MutationResult<Cmux.ChiefRecord>>
+      adopt: CmuxOp<{ machine?: string; session?: string; participant_id: string; display_name?: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string; locked?: boolean }, Cmux.MutationResult<Cmux.ChiefRecord>>
       avatar: {
         /** `chief.profile.avatar.get` (read, scope `chief:read`) */
         get: CmuxOp<{ machine?: string; session?: string; chief: string }, Cmux.ChiefAvatarPage>
@@ -624,15 +632,19 @@ interface CmuxGlobal {
         set: CmuxOp<{ machine?: string; session?: string; chief: string; expected_rev?: number; media_type?: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; data?: string; clear?: boolean }, Cmux.MutationResult<Cmux.ChiefRecord>>
       }
       /** `chief.profile.create` (mutation, scope `chief:write`) */
-      create: CmuxOp<{ machine?: string; session?: string; display_name: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string }, Cmux.MutationResult<Cmux.ChiefRecord>>
+      create: CmuxOp<{ machine?: string; session?: string; display_name: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string; locked?: boolean }, Cmux.MutationResult<Cmux.ChiefRecord>>
       /** `chief.profile.delete` (mutation, scope `chief:write`) */
       delete: CmuxOp<{ machine?: string; session?: string; chief: string; expected_rev?: number }, Cmux.MutationResult<Cmux.ChiefRecord>>
       /** `chief.profile.get` (read, scope `chief:read`) */
       get: CmuxOp<{ machine?: string; session?: string; chief: string }, Cmux.ChiefRecord>
+      /** `chief.profile.history` (read, scope `chief:read`) */
+      history: CmuxOp<{ machine?: string; session?: string; chief: string; limit?: number }, Cmux.ChiefHistory>
       /** `chief.profile.list` (read, scope `chief:read`) */
       list: CmuxOp<{ machine?: string; session?: string }, Cmux.ChiefList>
+      /** `chief.profile.undo` (mutation, scope `chief:write`) */
+      undo: CmuxOp<{ machine?: string; session?: string; chief: string; to_rev?: number; expected_rev?: number }, Cmux.MutationResult<Cmux.ChiefRecord>>
       /** `chief.profile.update` (mutation, scope `chief:write`) */
-      update: CmuxOp<{ machine?: string; session?: string; chief: string; expected_rev?: number; display_name?: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string }, Cmux.MutationResult<Cmux.ChiefRecord>>
+      update: CmuxOp<{ machine?: string; session?: string; chief: string; expected_rev?: number; display_name?: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string; locked?: boolean }, Cmux.MutationResult<Cmux.ChiefRecord>>
     }
     /** `chief.stop` (mutation, scope `chief:write`) */
     stop: CmuxOp<{ machine?: string; session?: string; chief?: string; name?: string }, Cmux.MutationResult<Cmux.ChiefStopResult>>
@@ -1663,6 +1675,16 @@ interface CmuxGlobal {
     run: CmuxOp<{ machine?: string; session?: string; workspace: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `workspace.update` (mutation, scope `workspace:write`) */
     update: CmuxOp<{ machine?: string; session?: string; workspace: string; title?: string | null; color?: string | null; icon?: string | null; description?: string | null; task_status?: "todo" | "working" | "needs-attention" | "review" | "done" | null; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceSnapshot>>
+  }
+  workspace_checklist: {
+    /** `workspace_checklist.add` (mutation, scope `workspace_checklist:write`) */
+    add: CmuxOp<{ machine?: string; session?: string; workspace: string; text: string; state?: Cmux.WorkspaceChecklistItemState; origin?: Cmux.WorkspaceChecklistItemOrigin; index?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceChecklist>>
+    /** `workspace_checklist.list` (read, scope `workspace_checklist:read`) */
+    list: CmuxOp<{ machine?: string; session?: string; workspace?: string }, Array<Cmux.WorkspaceChecklist>>
+    /** `workspace_checklist.remove` (mutation, scope `workspace_checklist:write`) */
+    remove: CmuxOp<{ machine?: string; session?: string; workspace: string; item: string; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceChecklist>>
+    /** `workspace_checklist.update` (mutation, scope `workspace_checklist:write`) */
+    update: CmuxOp<{ machine?: string; session?: string; workspace: string; item: string; text?: string; state?: Cmux.WorkspaceChecklistItemState; index?: number; attachments?: Array<Cmux.WorkspaceChecklistAttachmentInput>; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceChecklist>>
   }
   workspace_group: {
     /** `workspace_group.create` (mutation, scope `workspace_group:write`) */

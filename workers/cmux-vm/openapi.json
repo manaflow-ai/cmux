@@ -660,7 +660,7 @@
             }
           }
         },
-        "description": "Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "description": "Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Create a VM",
         "requestBody": {
           "content": {
@@ -1749,11 +1749,11 @@
         ],
         "responses": {
           "201": {
-            "description": "Vm",
+            "description": "CreatedVm",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Vm"
+                  "$ref": "#/components/schemas/CreatedVm"
                 }
               }
             }
@@ -1853,7 +1853,7 @@
             }
           }
         },
-        "description": "Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope. Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. The source must be running or paused (409 otherwise). On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete with the kept snapshot's id, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "description": "Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope. Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. A fresh source must be running or paused (409 otherwise); a retained snapshot or destination can be recovered after source deletion. On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete when allocation cannot be confirmed, with the kept snapshot's id and a server-issued creationKey when the caller omitted its key, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Fork a VM into a new VM with the same memory and disk",
         "requestBody": {
           "content": {
@@ -1865,6 +1865,492 @@
           },
           "required": true
         }
+      }
+    },
+    "/v1/vm-creations": {
+      "get": {
+        "tags": [
+          "vmCreations"
+        ],
+        "operationId": "vmCreations.listVmCreations",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending"
+              ]
+            },
+            "required": false
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string matching the pattern ^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$",
+              "pattern": "^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$"
+            },
+            "required": false,
+            "description": "a string matching the pattern ^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string to be decoded into a number"
+            },
+            "required": false,
+            "description": "a string to be decoded into a number"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmCreationList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmCreationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List server-issued VM creation handles. Requires the vm:read scope. Bounded creation history for requests that omitted their key. Never lists caller-supplied keys or contacts the provider. Current service labels apply; resource-allowlisted keys cannot list. Empty filtered pages can still have a nextCursor.",
+        "summary": "List server-issued VM creation handles"
+      }
+    },
+    "/v1/vm-creations/by-key": {
+      "get": {
+        "tags": [
+          "vmCreations"
+        ],
+        "operationId": "vmCreations.getVmCreation",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": true,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Inspect a VM creation by its Idempotency-Key. Requires the vm:read scope. Reads retained intent and ownership only; never contacts the provider. Unknown keys return 404.",
+        "summary": "Inspect a VM creation by its Idempotency-Key"
+      }
+    },
+    "/v1/vm-creations/by-key/reconcile": {
+      "post": {
+        "tags": [
+          "vmCreations"
+        ],
+        "operationId": "vmCreations.reconcileVmCreation",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": true,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reconcile a retained VM creation. Requires the vm:write scope. Records a verified allocation or finishes a previously requested cancellation. Never creates, starts or grows a VM. Provider absence alone is not cancellation.",
+        "summary": "Reconcile a retained VM creation"
+      }
+    },
+    "/v1/vm-creations/by-key/cancel": {
+      "post": {
+        "tags": [
+          "vmCreations"
+        ],
+        "operationId": "vmCreations.cancelVmCreation",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": true,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmCreationCancellation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmCreationCancellation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cancel a pending VM creation. Requires the vm:write scope. Fences future sends before cleanup. Unknown work stays cancelling; cancelled requires verified rejection or deletion. Completed or legacy creates return 409. Keys reported cancelled cannot be reused.",
+        "summary": "Cancel a pending VM creation"
       }
     },
     "/v1/vms/{vmId}/exec": {
@@ -2572,6 +3058,729 @@
         "summary": "List a directory in a VM"
       }
     },
+    "/v1/snapshot-creations": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.listSnapshotCreations",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string to be decoded into a number"
+            },
+            "required": false,
+            "description": "a string to be decoded into a number"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string matching the pattern ^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$",
+              "pattern": "^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$"
+            },
+            "required": false,
+            "description": "a string matching the pattern ^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List snapshot captures, newest first. Requires the snapshot:read scope. Reads retained public intent only. Current service labels apply; resource-allowlisted keys cannot list. Filtered empty pages may have a nextCursor.",
+        "summary": "List snapshot captures, newest first"
+      }
+    },
+    "/v1/snapshot-creations/by-key/cancel": {
+      "post": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.cancelSnapshotCreationByKey",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": true,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotKeyCancellation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotKeyCancellation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "PaymentRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Stop captures under an original key and delete its verified snapshot. Requires the snapshot:write scope. Fences before cleanup, including absent keys and already committed captures. Fenced with id:null stops future admission; it does not prove legacy unrecorded effects were deleted. Cancelling retains unknown work. Fencing a never-admitted key requires snapshot entitlement; existing captures and fences can be cancelled after plan loss. Resource-allowlisted keys must use id-addressed controls.",
+        "summary": "Stop captures under an original key and delete its verified snapshot",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelSnapshotKeyRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/snapshot-creations/by-key": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.getSnapshotCreationByKey",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": true,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Inspect a capture by its original Idempotency-Key. Requires the snapshot:read scope. Read only; never contacts the provider or requires the source VM. Legacy uncertain records return 409; unknown keys return 404.",
+        "summary": "Inspect a capture by its original Idempotency-Key"
+      }
+    },
+    "/v1/snapshot-creations/{snapshotId}": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.getSnapshotCreation",
+        "parameters": [
+          {
+            "name": "snapshotId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Inspect a snapshot capture. Requires the snapshot:read scope. Read only; never contacts the provider.",
+        "summary": "Inspect a snapshot capture"
+      }
+    },
+    "/v1/snapshot-creations/{snapshotId}/reconcile": {
+      "post": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.reconcileSnapshotCreation",
+        "parameters": [
+          {
+            "name": "snapshotId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reconcile a snapshot capture. Requires the snapshot:write scope. Adopts a verified capture or finishes a requested cancellation. Never takes a new snapshot.",
+        "summary": "Reconcile a snapshot capture"
+      }
+    },
+    "/v1/snapshot-creations/{snapshotId}/cancel": {
+      "post": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.cancelSnapshotCreation",
+        "parameters": [
+          {
+            "name": "snapshotId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cancel a pending snapshot capture. Requires the snapshot:write scope. Fences before cleanup. An absent provider snapshot does not prove cancellation. Completed captures return 409; delete their snapshot instead.",
+        "summary": "Cancel a pending snapshot capture"
+      }
+    },
     "/v1/vms/{vmId}/snapshots": {
       "post": {
         "tags": [
@@ -2711,7 +3920,7 @@
             }
           }
         },
-        "description": "Snapshot a running or paused VM. Requires the snapshot:write scope. The snapshot captures memory and disk; VMs can boot from it as soon as this returns. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
+        "description": "Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
         "summary": "Snapshot a running or paused VM",
         "requestBody": {
           "content": {
@@ -6704,6 +7913,14 @@
           "message": {
             "type": "string"
           },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
           "_tag": {
             "type": "string",
             "enum": [
@@ -6712,6 +7929,11 @@
           }
         },
         "additionalProperties": false
+      },
+      "VmCreationKey": {
+        "type": "string",
+        "description": "Server-issued recovery handle; use as Idempotency-Key. Not an authentication credential.",
+        "pattern": "^vcr_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
       },
       "NotFound": {
         "type": "object",
@@ -6722,6 +7944,14 @@
         "properties": {
           "message": {
             "type": "string"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
           "_tag": {
             "type": "string",
@@ -6741,6 +7971,14 @@
         "properties": {
           "message": {
             "type": "string"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
           "retryAfterSeconds": {
             "$ref": "#/components/schemas/Int"
@@ -6935,6 +8173,13 @@
           },
           "updatedAt": {
             "type": "string"
+          },
+          "creation": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ],
+            "description": "Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM."
           }
         },
         "additionalProperties": false
@@ -6979,6 +8224,14 @@
           "message": {
             "type": "string"
           },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
           "_tag": {
             "type": "string",
             "enum": [
@@ -6997,6 +8250,14 @@
         "properties": {
           "message": {
             "type": "string"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
           "_tag": {
             "type": "string",
@@ -7239,7 +8500,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot."
+        "description": "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic. A failed or unconfirmed grow retains the allocation and quota; inspect or retry the same creation intent, or cancel it. The error is 503, or 429 for capacity. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot."
       },
       "CreatedVm": {
         "type": "object",
@@ -7328,6 +8589,16 @@
           },
           "updatedAt": {
             "type": "string"
+          },
+          "creation": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ],
+            "description": "Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM."
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
           },
           "initialNetwork": {
             "$ref": "#/components/schemas/InitialVmNetworkReceipt"
@@ -7489,6 +8760,14 @@
             "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
             "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
           "_tag": {
             "type": "string",
             "enum": [
@@ -7497,7 +8776,229 @@
           }
         },
         "additionalProperties": false,
-        "description": "The fork's snapshot was taken but the new VM was not created. The snapshot is kept in the caller's tenant; retry with the same Idempotency-Key to create from it without a second snapshot."
+        "description": "The fork's snapshot was taken but the VM allocation could not be confirmed. The snapshot stays in the caller's tenant. Inspect or retry with the original Idempotency-Key or returned creationKey; an unknown allocation may already exist."
+      },
+      "VmCreationList": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VmCreationListItem"
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pendingIndex": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "building",
+              "unavailable"
+            ],
+            "description": "Present for state=pending. Building needs the next cursor; unavailable means some older retained slots have no recoverable journal. Never treat either as complete history."
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmCreationListItem": {
+        "type": "object",
+        "required": [
+          "state",
+          "id",
+          "creationKey",
+          "createdAt",
+          "operation",
+          "displayName"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "committed",
+              "deleted",
+              "unresolved"
+            ]
+          },
+          "cancellation": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "completed"
+            ],
+            "description": "Requested retains unknown provider work; completed means verified rejection/deletion. A completed cancellation permanently fences this key."
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/VmCreationReceipt"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "create",
+              "fork"
+            ]
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sourceId": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmCreationReceipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "labels",
+          "idleTimeoutSeconds"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "labels": {
+            "type": "object",
+            "required": [],
+            "properties": {},
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "idleTimeoutSeconds": {
+            "type": "number"
+          },
+          "bootImage": {
+            "$ref": "#/components/schemas/VmImage"
+          },
+          "initialNetwork": {
+            "$ref": "#/components/schemas/InitialVmNetworkReceipt"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Original accepted creation intent. Contains no provider identifiers or proxy credentials."
+      },
+      "VmCreationStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "id"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "committed",
+              "deleted",
+              "unresolved"
+            ]
+          },
+          "cancellation": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "completed"
+            ],
+            "description": "Requested retains unknown provider work; completed means verified rejection/deletion. A completed cancellation permanently fences this key."
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/VmCreationReceipt"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmCreationCancellation": {
+        "type": "object",
+        "required": [
+          "state",
+          "id"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "cancelling",
+              "cancelled",
+              "deleted"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/VmCreationReceipt"
+          }
+        },
+        "additionalProperties": false
       },
       "ExecRequest": {
         "type": "object",
@@ -7704,6 +9205,181 @@
         },
         "additionalProperties": false
       },
+      "SnapshotCreationList": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SnapshotCreationStatus"
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SnapshotCreationStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "id",
+          "receipt"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "committed",
+              "deleted"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/SnapshotSummary"
+          },
+          "cancellation": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "completed"
+            ]
+          },
+          "retryCreate": {
+            "type": "boolean",
+            "description": "True only when admission needs the original create request retried with its original key; false for an uncertain capture send."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SnapshotSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "sourceVmId",
+          "displayName",
+          "labels",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "sourceVmId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "labels": {
+            "$ref": "#/components/schemas/SnapshotLabels"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SnapshotLabels": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": {
+          "type": "string",
+          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
+          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
+        }
+      },
+      "CancelSnapshotKeyRequest": {
+        "type": "object",
+        "required": [
+          "expectedSnapshotId"
+        ],
+        "properties": {
+          "expectedSnapshotId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The capture id just inspected; null fences only an absent key. A different current id returns 409 without deleting anything."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SnapshotKeyCancellation": {
+        "type": "object",
+        "required": [
+          "state",
+          "id"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "fenced",
+              "cancelling",
+              "cancelled"
+            ]
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/SnapshotSummary"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateSnapshotRequest": {
         "type": "object",
         "required": [],
@@ -7734,16 +9410,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "SnapshotLabels": {
-        "type": "object",
-        "required": [],
-        "properties": {},
-        "additionalProperties": {
-          "type": "string",
-          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
-          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
-        }
       },
       "Snapshot": {
         "type": "object",
@@ -7847,52 +9513,6 @@
                 "type": "null"
               }
             ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "SnapshotSummary": {
-        "type": "object",
-        "required": [
-          "id",
-          "sourceVmId",
-          "displayName",
-          "labels",
-          "createdAt"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
-            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
-          },
-          "sourceVmId": {
-            "anyOf": [
-              {
-                "type": "string",
-                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
-                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "displayName": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "labels": {
-            "$ref": "#/components/schemas/SnapshotLabels"
-          },
-          "createdAt": {
-            "type": "string"
           }
         },
         "additionalProperties": false
@@ -9080,6 +10700,9 @@
     },
     {
       "name": "vms"
+    },
+    {
+      "name": "vmCreations"
     },
     {
       "name": "exec"

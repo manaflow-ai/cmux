@@ -178,8 +178,8 @@ struct SidebarGroupFlow {
     /// group as their target, the same path as the palette, menus and CLI.
     func wireEditor() {
         let container = bridge.container
-        container.groupEditorItems = { [weak bridge = self.bridge] _ in
-            bridge.map { SidebarGroupFlow(bridge: $0).editorItems() } ?? SidebarContainerView.standardGroupEditorItems()
+        container.groupEditorItems = { [weak bridge = self.bridge] group in
+            bridge.map { SidebarGroupFlow(bridge: $0).editorItems(group) } ?? SidebarContainerView.standardGroupEditorItems()
         }
         container.onGroupEditorItem = { [weak bridge = self.bridge] group, item in
             guard let bridge else { return }
@@ -187,10 +187,11 @@ struct SidebarGroupFlow {
         }
     }
 
-    /// The standard rows with each action's current shortcut.
-    private func editorItems() -> [[SidebarGroupEditorItem]] {
+    /// The standard rows with each action's current shortcut; the pin row reads as the change it makes.
+    private func editorItems(_ group: CmuxNextSidebar.GroupID) -> [[SidebarGroupEditorItem]] {
         let registry = bridge.services.registry
-        return SidebarContainerView.standardGroupEditorItems().map { section in
+        let pinned = bridge.model.group(group)?.isPinned ?? false
+        return SidebarContainerView.standardGroupEditorItems(pinned: pinned).map { section in
             section.map { item in
                 var item = item
                 item.shortcut = registry.shortcutDisplay(for: ActionID(rawValue: item.id))

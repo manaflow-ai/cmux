@@ -29,8 +29,37 @@ fn now_ms() -> u64 {
 }
 
 impl Brain {
+    /// Where a spawn's subagents run: `place` (`cloud`/`local`), else the
+    /// saved `control cloud` default, else the env's peer; None: here.
+    pub(super) fn spawn_peer(
+        &self,
+        env: Option<&str>,
+        place: Option<&str>,
+    ) -> Result<Option<String>, String> {
+        let saved = self.state.cloud_peer.as_deref();
+        let peer = match saved {
+            Some(p) if !p.is_empty() => Some(p),
+            _ => env.filter(|p| !p.is_empty()),
+        };
+        match place {
+            Some("local") => Ok(None),
+            Some("cloud") => peer.map(|p| Some(p.to_owned())).ok_or_else(|| {
+                "no cloud peer is set up: `control cloud PEER` names the acpmux peer (`acpmux host ls`) cloud subagents run on".to_owned()
+            }),
+            Some(other) => Err(format!("spawn: no place {other}; cloud or local")),
+            None => Ok(match saved {
+                Some("") => None,
+                _ => peer.map(str::to_owned),
+            }),
+        }
+    }
+
     /// Gives a spawn its id and its subagents theirs (`a<N>`, unique per home).
-    pub(super) fn register_spawn(&mut self, tasks: &[String]) -> Result<SpawnPlan, String> {
+    pub(super) fn register_spawn(
+        &mut self,
+        tasks: &[String],
+        peer: Option<&str>,
+    ) -> Result<SpawnPlan, String> {
         if tasks.is_empty() {
             return Err("spawn needs at least one task".into());
         }
@@ -48,8 +77,11 @@ impl Brain {
                 .iter()
                 .zip(tasks)
                 .map(|(id, task)| {
-                    // Over the cap it waits for a free slot.
-                    let status = if free > 0 {
+                    // Over the cap it waits for a free slot; a cloud one
+                    // (on a peer) takes none.
+                    let status = if peer.is_some() {
+                        SubStatus::Starting
+                    } else if free > 0 {
                         free -= 1;
                         SubStatus::Starting
                     } else {
@@ -60,6 +92,7 @@ impl Brain {
                         title: crate::workspaces::name(id, task),
                         run_ms: now_ms(),
                         status,
+                        peer: peer.map(str::to_owned),
                         ..SubRecord::default()
                     }
                 })
@@ -85,8 +118,9 @@ impl Brain {
             spawn,
             ids,
             queued,
-            limit: self.live_cap(),
+            limit: self.live_cap_source(),
             engine: self.spawn_engine(),
+            peer: peer.map(str::to_owned),
         })
     }
 
@@ -445,7 +479,7 @@ impl Brain {
                 sub.status = SubStatus::Done;
                 sub.stopped = false;
                 sub.report = Some(format!(
-                    "stopped: {reason}. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
+                    "stopped after a retryable network error. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
                     crate::auto_resume::NETWORK_WAIT_MAX.as_secs() / 60
                 ));
             }
@@ -621,6 +655,19 @@ impl Brain {
             return Ok(format!(
                 "outcome: refused. {id} was cancelled; control(action: \"restart\", id: \"{id}\") brings it back"
             ));
+        }
+        // The messages this tell is for: its next report answers them, in
+        // their thread (chief-replies-reactions-DESIGN.md).
+        let told_for = self
+            .state
+            .turn
+            .as_ref()
+            .map(|t| t.answers.clone())
+            .unwrap_or_default();
+        if !told_for.is_empty()
+            && let Some(sub) = self.state.sub_mut(id)
+        {
+            sub.answers = told_for;
         }
         if let Some(key) = key
             && let Some(sub) = self.state.sub_mut(id)
@@ -831,19 +878,27 @@ impl Brain {
 
     /// The live cap: `control cap` (0: none) over the env's.
     pub(super) fn live_cap(&self) -> Option<usize> {
+        self.live_cap_source().map(crate::subagents::LiveCap::n)
+    }
+
+    /// The live cap with where it came from (`control cap` over the env).
+    pub(super) fn live_cap_source(&self) -> Option<crate::subagents::LiveCap> {
+        use crate::subagents::LiveCap;
         match self.state.live_cap {
             Some(0) => None,
-            Some(n) => Some(n),
-            None => self.max_live,
+            Some(n) => Some(LiveCap::Control(n)),
+            None => self.max_live.map(LiveCap::Env),
         }
     }
 
-    /// Subagents starting or running now.
+    /// Subagents starting or running now on this machine (cloud ones, on a
+    /// peer, take no slot).
     pub(super) fn live_subs(&self) -> usize {
         self.state
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
+            .filter(|s| s.peer.is_none())
             .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
             .count()
     }

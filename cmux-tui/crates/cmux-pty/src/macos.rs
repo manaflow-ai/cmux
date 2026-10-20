@@ -161,6 +161,11 @@ fn require_cloexec(file: &File, role: &str) -> anyhow::Result<()> {
 }
 
 fn set_window_size(slave: &File, size: PtySize) -> anyhow::Result<()> {
+    set_fd_window_size(slave.as_raw_fd(), size).context("failed to configure PTY window size")
+}
+
+/// TIOCSWINSZ on `fd`, retried on EINTR.
+fn set_fd_window_size(fd: RawFd, size: PtySize) -> io::Result<()> {
     let window_size = libc::winsize {
         ws_row: size.rows,
         ws_col: size.cols,
@@ -168,19 +173,14 @@ fn set_window_size(slave: &File, size: PtySize) -> anyhow::Result<()> {
         ws_ypixel: size.pixel_height,
     };
     loop {
-        if unsafe {
-            libc::ioctl(
-                slave.as_raw_fd(),
-                libc::TIOCSWINSZ as _,
-                &window_size as *const libc::winsize,
-            )
-        } == 0
+        if unsafe { libc::ioctl(fd, libc::TIOCSWINSZ as _, &window_size as *const libc::winsize) }
+            == 0
         {
             return Ok(());
         }
         let error = io::Error::last_os_error();
         if error.raw_os_error() != Some(libc::EINTR) {
-            return Err(error).context("failed to configure PTY window size");
+            return Err(error);
         }
     }
 }
@@ -447,19 +447,8 @@ struct MacOsMasterPty {
 
 impl MasterPty for MacOsMasterPty {
     fn resize(&self, size: PtySize) -> anyhow::Result<()> {
-        let window_size = libc::winsize {
-            ws_row: size.rows,
-            ws_col: size.cols,
-            ws_xpixel: size.pixel_width,
-            ws_ypixel: size.pixel_height,
-        };
-        if unsafe {
-            libc::ioctl(self.file.as_raw_fd(), libc::TIOCSWINSZ as _, &window_size as *const _)
-        } != 0
-        {
-            bail!("failed to resize PTY: {}", io::Error::last_os_error());
-        }
-        Ok(())
+        set_fd_window_size(self.file.as_raw_fd(), size)
+            .map_err(|error| anyhow::anyhow!("failed to resize PTY: {error}"))
     }
 
     fn get_size(&self) -> anyhow::Result<PtySize> {

@@ -49,6 +49,7 @@ final class CEFPaneHost {
         self.runtime = runtime
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
+        hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
@@ -134,6 +135,7 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = tab.isContentHidden
         visibleTab = tab
+        tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !isPopupHost { runtime.lastShownHost = self }
         if attachPopupWindowIfNeeded(tab) { return }

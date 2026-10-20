@@ -118,7 +118,8 @@ public final class SessionStateStore {
         workspace.applyState(ephemeral: id.map { state?.ephemeralWorkspaces.contains($0) ?? false } ?? false,
                              agentFolder: id.flatMap { state?.agentFolders[$0] },
                              notes: id.flatMap { state?.workspaceNotes[$0] } ?? .init(),
-                             status: id.flatMap { state?.workspaceStatus[$0] }, screenGroups: groups)
+                             status: id.flatMap { state?.workspaceStatus[$0] },
+                             checklist: id.flatMap { state?.workspaceChecklists[$0]?.items } ?? [], screenGroups: groups)
     }
 
     /// Lays `state`'s tab record and terminal records over `tab` (`overlay`'s tab step).

@@ -94,6 +94,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
     public var newPanePlacement: NewPanePlacement = CmuxConfigSnapshot.newPanePlacementFallback
     public var tileBrowsers: Bool = CmuxConfigSnapshot.tileBrowsersFallback
+    /// `layout.linkPlacement`: where an opened link or path lands (``LinkPlacement``).
+    public var linkPlacement: LinkPlacement = .fallback
     /// `workspaces.newPlacement` (`WorkspaceListSettings`).
     public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementFallback
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
@@ -147,6 +149,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var spacesVisibility: SpacesVisibilityMode = .hover
     /// `tabs.barPosition` (R109).
     public var tabBarPosition: TabBarPosition = .top
+    /// `appearance.paneBackgrounds`: one background for the window or one per pane.
+    public var paneBackgrounds: PaneBackgroundMode = .shared
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
     /// `app.quitBehavior`; "ask" when unset or invalid.
@@ -201,6 +205,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sessions = SessionSettings()
     /// `agents.subsessions.*`: sub-session limits; the acpmux daemon enforces them.
     public var subsessions = SubsessionSettings()
+    /// `mobile.*`: whether the app runs its iPhone host.
+    public var mobile = MobileSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -308,6 +314,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.plusButton = plusButton
         if let plusButtonDiagnostic { snapshot.diagnostics.append(plusButtonDiagnostic) }
         ChromePlacementSetting.parse(root, into: &snapshot)
+        let (paneBackgrounds, paneBackgroundsDiagnostic) = PaneBackgroundsSetting.parse(root)
+        snapshot.paneBackgrounds = paneBackgrounds
+        if let paneBackgroundsDiagnostic { snapshot.diagnostics.append(paneBackgroundsDiagnostic) }
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
@@ -344,6 +353,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)
         snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
         snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)
