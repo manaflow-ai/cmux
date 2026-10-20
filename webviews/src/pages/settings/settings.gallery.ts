@@ -167,6 +167,29 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
+  // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
+  "appearance-undo-bar": variant("appearance", {
+    host: {
+      ...host,
+      derived: { "appearance.backgroundOpacity": 1 },
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] .backdrop-tile[aria-label="Shuffle Daily"]'),
+      wait("[data-appearance-bar] [data-undo]:not([disabled])"),
+      { selector: "[data-appearance-bar] [data-undo]", action: "focus" },
+    ],
+    note: "Appearance's floating bar at the bottom right after picking Shuffle Daily: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
+  }),
+  // Unset surface rows rest on the window's values, dimmed under an "Inherits window" badge.
+  "surfaces-inherit-window": variant("appearance", {
+    focus: "appearance.surfaces.sidebar.opacity",
+    options: { values: { "appearance.backgroundOpacity": 0.8 } },
+    host: { ...host, derived: { "appearance.backgroundOpacity": 0.8 } },
+    steps: [wait(row("appearance.surfaces.sidebar.opacity"))],
+    note: "Surfaces: each unset opacity rests on the window's 80% and each unset color on the window's color, dimmed with an Inherits window badge; no row reads a truncated default label.",
+  }),
   "backdrops-pending": variant("appearance", {
     options: { values: { "appearance.background": "system:/S/Sonoma.heic" } },
     host: {
@@ -210,6 +233,19 @@ Object.assign(variants, {
     host: { ...host, backdrops: [] },
     steps: [wait('[data-card="backdrop"]')],
     note: "Background picker with no artwork returned yet: the real empty state keeps the setting usable while the host list loads or is unavailable.",
+  }),
+  // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
+  "backdrops-link": variant("appearance", {
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] button[aria-expanded] ~ button[aria-expanded]'),
+      input('[data-card="backdrop-link"] input[type="url"]', "https://example.com/harbor.jpg"),
+    ],
+    note: "Add from a Link: an https image or movie downloads into the backgrounds folder and becomes the background.",
   }),
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
   "backdrops-workspace": variant("appearance", {
@@ -438,6 +474,11 @@ Object.assign(variants, {
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
+  "search-results-theme": variant("general", {
+    allThemes: true,
+    steps: [input("[data-settings-search]", "theme")],
+    note: "Theme rows in search results use the Theme section's picker and accent popup.",
+  }),
   "search-empty": variant("general", { steps: [input("[data-settings-search]", "no-such-setting")] }),
   "reset-confirmation": variant("advanced", { steps: [click("[data-reset-all]"), wait("[data-confirm-reset-all]")] }),
   "theme-picker": variant("theme", {
@@ -474,6 +515,30 @@ Object.assign(variants, {
     allThemes: true,
     options: { values: { "appearance.theme": "Gruvbox Dark", "appearance.appTheme": "Rose Pine" } },
     note: "An app theme apart from the terminal theme (appearance.appTheme).",
+  }),
+  "theme-app-light-dark": variant("theme", {
+    allThemes: true,
+    options: {
+      values: {
+        "appearance.theme": "light:Catppuccin Latte,dark:Catppuccin Mocha",
+        "appearance.appTheme": "light:Rose Pine Dawn,dark:Rose Pine",
+        "appearance.accent": "magenta",
+      },
+    },
+    note: "One Theme card: the terminal and the app theme each with Match System Appearance, then the accent.",
+  }),
+  "theme-long-name": variant("theme", {
+    allThemes: true,
+    options: {
+      values: { "appearance.theme": "Builtin Pastel Dark Solarized Tango Long Name", "appearance.accent": "blue" },
+    },
+    note: "A long theme name ellipsizes; every popup keeps its one width.",
+  }),
+  "theme-accent": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula", "appearance.accent": "theme" } },
+    steps: [click("[data-accent-picker]"), wait("[data-accent-option]")],
+    note: "The accent swatch popup: each choice's color on the app theme, the check on the right.",
   }),
   "theme-managed": variant("theme", {
     allThemes: true,
@@ -771,6 +836,7 @@ export default settingsPageEntry({
   widths: { narrow: 480, normal: 1000, wide: 1440 },
   covers: [
     "page:cmux.settings",
+    "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
@@ -778,6 +844,7 @@ export default settingsPageEntry({
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
     "pages/settings/components/ArtBrowser.tsx",
+    "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
@@ -802,6 +869,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
+    "pages/settings/editors/AccentRowEditor.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",
     "pages/settings/editors/DomainListEditor.tsx",
@@ -812,6 +880,7 @@ export default settingsPageEntry({
     "pages/settings/editors/NumberEditor.tsx",
     "pages/settings/editors/NumberField.tsx",
     "pages/settings/editors/SearchTemplateEditor.tsx",
+    "pages/settings/editors/ThemeRowEditor.tsx",
     "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",

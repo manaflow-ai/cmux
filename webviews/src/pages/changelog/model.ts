@@ -11,6 +11,7 @@ import type {
   WhatsNewCategory,
   WhatsNewEntry,
 } from "./types";
+import { readableChange, revertedSubject, shortTitle, tidyTitle, titleTail } from "./readableChange";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
 
@@ -36,8 +37,10 @@ export interface ReleaseItem {
 export interface ReleaseView {
   hero?: ReleaseItem;
   groups: { category: WhatsNewCategory; items: ReleaseItem[] }[];
-  /** Every change (titles with their pull requests), shown folded. */
+  /** Every change a person would notice (readable titles, each pull request once), shown folded. */
   changes: ChangeItem[];
+  /** Changes left out of `changes` as internal work (CI, tests, perf measurement). */
+  internalChanges: number;
   /** Every change the release lists (hero and groups), for counts. */
   count: number;
 }
@@ -121,21 +124,101 @@ function pickHero(items: ReleaseItem[]): ReleaseItem | undefined {
   return items.find((i) => i.category === "new" && i.media) ?? items.find((i) => i.media);
 }
 
+/** The item as a person reads it, or undefined for internal work. A machine-made line (a summary
+    line, or a digest entry made from one) gets the commit rules; a human-written title only loses
+    bead ids and the product's own label. A title an older pipeline cut with "…" is made whole from
+    the line it came from; a summary that repeats the title keeps only what it adds; a long title
+    with no summary ends at its first clause and the rest becomes the summary. */
+function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean): ReleaseItem | undefined {
+  const clean = (text: string) => (machine ? readableChange(text).title : tidyTitle(text));
+  if (machine && readableChange(item.title).internal) return undefined;
+  let full = clean(item.title);
+  const stem = stemOf(full);
+  const line = item.summary && !item.summary.includes("\n") ? clean(item.summary) : "";
+  // The summary repeats the title, maybe cut with "…" itself: the line the entry was made from.
+  const echoes = !!line && (stemOf(line).startsWith(stem) || stem.startsWith(stemOf(line)));
+  const lineWhole = echoes && !line.endsWith("…");
+  if (full.endsWith("…")) {
+    const whole = lineWhole
+      ? line
+      : changes
+          .map((c) => readableChange(c.title).title)
+          .find((text) => !text.endsWith("…") && stemOf(text).startsWith(stem) && text.length > stem.length);
+    full = whole ?? full.slice(0, -1).trim();
+  }
+  let summary = !echoes ? item.summary : lineWhole ? capitalized(titleTail(line, full)) : "";
+  let title = full;
+  const short = shortTitle(full);
+  if (short && short !== full && !distinctSummary(full, summary)) {
+    title = short;
+    summary = capitalized(titleTail(full, short));
+  }
+  return { ...item, title, summary: distinctSummary(title, summary) };
+}
+
+function stemOf(text: string): string {
+  return text.replace(/[.!…\s]+$/u, "").toLowerCase();
+}
+
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** A subject without its "(#123)": how a revert names the change it undoes. */
+function bareSubject(text: string): string {
+  return text.replace(/\s*\(#\d+\)\s*$/u, "").trim();
+}
+
+/** The changes a person would notice, readable and each pull request (or title) once, and how
+    many internal ones were left out. A pull request reads as its human commit when it has one; a
+    change reverted in the same span, and its revert, are left out. */
+export function readableChanges(items: ChangeItem[]): { changes: ChangeItem[]; internal: number } {
+  const reverted = new Set(
+    items.map((item) => revertedSubject(item.title)).flatMap((subject) => (subject ? [bareSubject(subject)] : [])),
+  );
+  const rows: { key: string; item: ChangeItem; internal: boolean }[] = [];
+  const byKey = new Map<string, number>();
+  for (const item of items) {
+    if (revertedSubject(item.title) || reverted.has(bareSubject(item.title))) continue;
+    const readable = readableChange(item.title);
+    const key = item.pr !== undefined ? `#${item.pr}` : readable.title.toLowerCase();
+    const row = { key, item: { ...item, title: readable.title }, internal: readable.internal };
+    const at = byKey.get(key);
+    if (at === undefined) {
+      byKey.set(key, rows.length);
+      rows.push(row);
+    } else if (rows[at]!.internal && !readable.internal) rows[at] = row;
+  }
+  return {
+    changes: rows.filter((r) => !r.internal).map((r) => r.item),
+    internal: rows.filter((r) => r.internal).length,
+  };
+}
+
 export function releaseView(notes: ReleaseNotes, language: string): ReleaseView {
   // The reviewed document first, then the highlights it does not carry (a nightly digest drops
-  // an entry the validator refuses), then the summary lines no highlight already says.
-  const items: ReleaseItem[] = (notes.whatsNew?.entries ?? []).map((e) => fromEntry(e, language));
-  const ids = new Set(items.map((i) => i.id));
-  const seen = new Set(items.map((i) => i.title.toLowerCase()));
-  for (const highlight of notes.highlights) {
-    if (ids.has(highlight.id) || seen.has(highlight.title.toLowerCase())) continue;
-    seen.add(highlight.title.toLowerCase());
-    items.push(fromHighlight(highlight));
-  }
+  // an entry the validator refuses), then the summary lines no highlight already says. Each as a
+  // person reads it; internal work is left out.
+  const raw = changeItems(notes);
+  const items: ReleaseItem[] = [];
+  const ids = new Set<string>();
+  const seen = new Set<string>();
+  const add = (item: ReleaseItem, byId: boolean, machine: boolean) => {
+    if (byId && ids.has(item.id)) return;
+    const readable = readableItem(item, raw, machine);
+    if (!readable) return;
+    const key = readable.title.toLowerCase();
+    if (seen.has(key)) return;
+    ids.add(item.id);
+    seen.add(key);
+    items.push(readable);
+  };
+  // A digest the pipeline made from summary lines names its entries "summary-N".
+  for (const entry of notes.whatsNew?.entries ?? [])
+    add(fromEntry(entry, language), false, entry.id.startsWith("summary-"));
+  for (const highlight of notes.highlights) add(fromHighlight(highlight), true, false);
   for (const [index, line] of (notes.summary ?? []).entries()) {
-    if (seen.has(line.title.toLowerCase())) continue;
-    seen.add(line.title.toLowerCase());
-    items.push({ id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: "" });
+    add({ id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: "" }, false, true);
   }
   const hero = pickHero(items);
   const rest = items.filter((i) => i !== hero);
@@ -143,7 +226,8 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
     category,
     items: rest.filter((i) => i.category === category),
   })).filter((g) => g.items.length > 0);
-  return { hero, groups, changes: changeItems(notes), count: items.length };
+  const { changes, internal } = readableChanges(raw);
+  return { hero, groups, changes, internalChanges: internal, count: items.length };
 }
 
 /** The notes' structured changes, else one item per commit subject (no PR without the provider). */
@@ -173,16 +257,8 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
     category,
     items: rest.filter((i) => i.category === category),
   })).filter((g) => g.items.length > 0);
-  const changeSeen = new Set<string>();
-  const changes = views
-    .flatMap((v) => v.changes)
-    .filter((c) => {
-      const key = c.pr ? `#${c.pr}` : c.title;
-      if (changeSeen.has(key)) return false;
-      changeSeen.add(key);
-      return true;
-    });
-  return { hero, groups, changes, count: items.length };
+  const { changes, internal } = readableChanges(notes.flatMap(changeItems));
+  return { hero, groups, changes, internalChanges: internal, count: items.length };
 }
 
 /** Builds (newest first) in runs of one release day. */

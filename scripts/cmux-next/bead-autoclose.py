@@ -14,8 +14,11 @@ and the bead is not an epic and has no open children. It closes with
 comment with the pull request link: a partial close is worse than none. A closed
 or unknown bead is skipped. Open
 pull requests on feat-cmux-next that name no bead get a task created from
-their title, with the pull request as its external reference, and a GraphQL
-comment links the new bead back to the PR. The board is reached through BEADS_SSH_HOST
+their title, with the pull request as its external reference, and the bead
+line of the PR's status comment links it back (a dispatch of pr-status.yml,
+so the line posts as github-actions and not under this token's account; with
+CMUX_CI_GITHUB_APP_ID_FILE and CMUX_CI_GITHUB_APP_KEY_FILE the dispatch itself
+runs as the org App, see scripts/ci/pr_status.py). The board is reached through BEADS_SSH_HOST
 (the host whose ~/agent-tasks holds the board) or, for tests, BEADS_BD_COMMAND
 (an executable run with bd's arguments); with neither set it refuses to run.
 State lives in BEAD_AUTOCLOSE_STATE: the latest merge handled, the pull
@@ -39,6 +42,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
+import pr_status  # noqa: E402
+
 REPO = "manaflow-ai/cmux"
 BASES = ("feat-cmux-next", "main")
 OVERLAP = timedelta(hours=1)
@@ -54,13 +60,6 @@ query($q: String!, $after: String) {
       commits(first: 100) { nodes { commit { message } } }
       comments(first: 50) { nodes { body } }
     } }
-  }
-}
-"""
-COMMENT_MUTATION = """
-mutation($subjectId: ID!, $body: String!) {
-  addComment(input: {subjectId: $subjectId, body: $body}) {
-    commentEdge { node { url } }
   }
 }
 """
@@ -148,12 +147,12 @@ def beads_named(pull: dict, *, include_comments: bool = False) -> list[str]:
     return list(dict.fromkeys(match.lower() for text in texts for match in BEAD_ID.findall(text)))
 
 
-def add_pull_request_comment(pull: dict, body: str) -> None:
-    args = ["gh", "api", "graphql", "-f", f"query={COMMENT_MUTATION}", "-f",
-            f"subjectId={pull['id']}", "-f", f"body={body}"]
-    result = subprocess.run(args, capture_output=True, text=True)
-    if result.returncode:
-        raise BoardUnreachable((result.stderr or result.stdout).strip())
+def link_bead_on_pull_request(pull: dict, bead_id: str) -> None:
+    """The bead line of the PR's status comment, through pr-status.yml (scripts/ci/pr_status.py)."""
+    try:
+        pr_status.dispatch(REPO, int(pull["number"]), bead=bead_id)
+    except (RuntimeError, ValueError) as error:
+        raise BoardUnreachable(str(error)) from error
 
 
 def handle(pull: dict, bead_id: str, dry_run: bool) -> str:
@@ -213,7 +212,12 @@ def create_for_pull(pull: dict, dry_run: bool) -> tuple[str, str]:
     bead_id = str(created.get("id") or "").strip()
     if not bead_id:
         return "", f"failed create for #{pull['number']}: bd returned no id"
-    add_pull_request_comment(pull, f"Bead `{bead_id}` created for this PR by the cmux coordinator.")
+    try:
+        link_bead_on_pull_request(pull, bead_id)
+    except BoardUnreachable as error:
+        # The bead exists and names the PR as its external reference: record the PR, so the
+        # next run does not create a second bead, and report the missing link.
+        return bead_id, f"create {bead_id} for #{pull['number']}; linking it on the PR failed: {error}"
     return bead_id, f"create {bead_id} for #{pull['number']} and link it on the PR"
 
 
@@ -297,7 +301,7 @@ def main() -> int:
                 continue
             _, outcome = create_for_pull(pull, args.dry_run)
             print(f"#{pull['number']} {outcome}")
-            open_failed = open_failed or outcome.startswith("failed ")
+            open_failed = open_failed or outcome.startswith("failed ") or "linking it on the PR failed" in outcome
             if not outcome.startswith("failed "):
                 open_handled[number] = pull.get("createdAt") or format_time(datetime.now(timezone.utc))
     except BoardUnreachable as error:

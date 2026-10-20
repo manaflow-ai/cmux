@@ -14,9 +14,9 @@ import { EditorEmptyState } from "../../viewer-empty/EditorEmptyState";
 import { viewerEmptyStrings } from "../../viewer-empty/strings";
 import table from "./generated/strings.json";
 import { EditorPage, StatusStore } from "./EditorPage";
-import { EDITOR_FLUSH_OP, EDITOR_OPEN_LINK_OP } from "./host";
+import { APP_ACTION_RUN_OP, EDITOR_FLUSH_OP, EDITOR_KEY_SEQUENCE_OP, EDITOR_OPEN_LINK_OP } from "./host";
 import { isEditorCommand } from "./keys";
-import { applyEditorLook, resolveEditorSettings } from "./settings";
+import { applyEditorLook, PREFERENCE_KEYS, resolveEditorSettings } from "./settings";
 import { EditorStore } from "./store";
 import { EMPTY, L } from "./strings";
 import type { MonacoView, ViewLook } from "./view";
@@ -114,7 +114,22 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
           if (client && path) void client.call(EDITOR_OPEN_LINK_OP, { path, href }).catch(() => undefined);
         },
         label: (key, path) =>
-          key === "editor" ? strings.format(L.editorLabel, fileName(path)) : strings.t(L.readOnly),
+          key === "editor"
+            ? strings.format(L.editorLabel, fileName(path))
+            : key === "wordWrap"
+              ? strings.t(L.wordWrap)
+              : strings.t(L.readOnly),
+        toggleWordWrap: () => {
+          const current = resolveEditorSettings(store.getState().look.settings).wordWrap;
+          void store.setPreference(PREFERENCE_KEYS.wordWrap, current === "off" ? "on" : "off");
+        },
+        onKeySequence: (pending) => {
+          if (client) void client.call(EDITOR_KEY_SEQUENCE_OP, { pending }).catch(() => undefined);
+        },
+        // The one bridge from web code to the native palette: the app's action, run by the host.
+        openCommandPalette: () => {
+          if (client) void client.call(APP_ACTION_RUN_OP, { action: "commandPalette" }).catch(() => undefined);
+        },
       });
       view = next;
       store.attachView(next);

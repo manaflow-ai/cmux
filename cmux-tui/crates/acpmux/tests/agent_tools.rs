@@ -33,6 +33,14 @@ fn hub() -> Arc<Hub> {
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
+            "fakecodex": {"argv": ["python3", FAKE], "family": "codex"},
+            "fakeclaude-nosearch": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                "env": {"ENABLE_TOOL_SEARCH": "false"}},
+            // Another provider, as the `cmux` profile's open-source model router.
+            "fakeclaude-router": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                "env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/router"}},
+            "fakecodex-router": {"argv": ["python3", FAKE], "family": "codex",
+                "env": {"OPENAI_BASE_URL": "http://127.0.0.1:9/v1"}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -74,7 +82,12 @@ impl Client {
     }
 
     async fn new_session(&mut self, harness: &str) -> String {
-        let params = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}});
+        self.new_session_with(json!({"harness": harness})).await
+    }
+
+    async fn new_session_with(&mut self, meta: Value) -> String {
+        let params =
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": meta}});
         let (reply, _) = self.call_text("session/new", params).await;
         assert!(reply.get("error").is_none(), "{reply}");
         reply["result"]["sessionId"].as_str().unwrap().to_owned()
@@ -104,6 +117,8 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     std::fs::create_dir_all(&bin).unwrap();
     let cua = fake_bin(&bin, "cmux-cua");
     let cmux = fake_bin(&bin, "cmux");
+    // Agent memory is off until cmux.json turns it on (asserted below).
+    let chief = fake_bin(&bin, "optchat-chief");
     // A settings file that does not mention MCP: every agent chat still gets
     // the cmux MCP server (cx-wx93i: on by default, `mcp.enabled: false` is off).
     let cmux_json = root.join("cmux-next.json");
@@ -130,7 +145,11 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         .iter()
         .filter_map(|s| s["name"].as_str())
         .collect();
-    assert_eq!(names, ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux"], "{servers}");
+    assert_eq!(
+        names,
+        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux"],
+        "{servers}"
+    );
     assert_eq!(servers[0]["command"], json!(cua), "{servers}");
     assert_eq!(servers[1]["args"], json!(["secret-mcp"]), "{servers}");
     let secret_env = servers[1]["env"].to_string();
@@ -138,10 +157,40 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     assert_eq!(servers[2]["args"], json!(["offer-mcp"]), "{servers}");
     let offer_env = servers[2]["env"].to_string();
     assert!(offer_env.contains("ACPMUX_OFFER_SESSION") && offer_env.contains(&id), "{servers}");
-    assert_eq!(servers[3]["args"], json!(["mcp", "serve"]), "{servers}");
+    // Sub-sessions (`subsession_mcp.rs`), on by default: the server acts as
+    // this session with its caller token, on this daemon's socket only.
+    assert_eq!(servers[3]["args"], json!(["subsession-mcp"]), "{servers}");
+    let sub_env = servers[3]["env"].to_string();
+    for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+        assert!(sub_env.contains(key), "{key}: {servers}");
+    }
+    assert!(sub_env.contains(&id), "{servers}");
+    assert_eq!(servers[4]["args"], json!(["mcp", "serve"]), "{servers}");
+    // No allowlist: the cmux server speaks code mode.
+    assert!(!servers[4]["env"].to_string().contains("CMUX_MCP_TOOLS"), "{servers}");
 
-    // Claude Code: the same servers in --mcp-config, the skills as a plugin.
+    // A client cannot set the list on its session: only a preset (the
+    // Chief's turns, `chief_builtin_presets.rs`) does.
+    let params = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "fake", "env": {"CMUX_MCP_TOOLS": "render"}}}});
+    let (refused, _) = local.call_text("session/new", params).await;
+    assert_eq!(refused["error"]["data"]["reason"], "env.key_refused", "{refused}");
+
+    // A harness with its own tool search (Codex; Claude Code below) gets
+    // every cmux tool and loads what a turn needs; the rest get code mode.
+    let cmux_args = |list: &Value| {
+        list.as_array().unwrap().iter().find(|s| s["name"] == "cmux").unwrap()["args"].clone()
+    };
+    assert_eq!(cmux_args(&servers), json!(["mcp", "serve"]), "code mode: {servers}");
+    let codex = local.new_session("fakecodex").await;
+    let listed: Value = serde_json::from_str(&local.ask(&codex, "mcp").await).unwrap();
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve", "--all-tools"]), "{listed}");
+
+    // Claude Code: the same servers in --mcp-config, the skills as a plugin,
+    // every cmux tool, and its tool search on (it turns it off behind a
+    // router by itself).
     let id = local.new_session("fakeclaude").await;
+    assert_eq!(local.ask(&id, "env: ENABLE_TOOL_SEARCH").await, "ENABLE_TOOL_SEARCH=true");
     let argv: Vec<String> = serde_json::from_str(&local.ask(&id, "hi").await).unwrap();
     let at = argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
     // The config is a 0600 file, so the socket token stays out of argv.
@@ -155,6 +204,28 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(config["mcpServers"]["cmux-cua"]["command"], json!(cua), "{config}");
     assert_eq!(config["mcpServers"]["cmux"]["command"], json!(cmux), "{config}");
+    assert_eq!(config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve", "--all-tools"]));
+    // Fail safe: a Claude Code whose profile turns tool search off keeps it
+    // off and gets code mode, never every schema in every turn.
+    let off = local.new_session("fakeclaude-nosearch").await;
+    assert_eq!(local.ask(&off, "env: ENABLE_TOOL_SEARCH").await, "ENABLE_TOOL_SEARCH=false");
+    let off_argv: Vec<String> = serde_json::from_str(&local.ask(&off, "hi").await).unwrap();
+    let at = off_argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
+    let off_config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&off_argv[at + 1]).unwrap()).unwrap();
+    assert_eq!(off_config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]), "{off_config}");
+    // Fail safe: a session sent to another provider gets code mode and no
+    // forced tool search (that provider may not forward deferred tools).
+    let routed = local.new_session("fakeclaude-router").await;
+    assert_eq!(local.ask(&routed, "env: ENABLE_TOOL_SEARCH").await, "ENABLE_TOOL_SEARCH=");
+    let routed_argv: Vec<String> = serde_json::from_str(&local.ask(&routed, "hi").await).unwrap();
+    let at = routed_argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
+    let routed_config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&routed_argv[at + 1]).unwrap()).unwrap();
+    assert_eq!(routed_config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
+    let codex_routed = local.new_session("fakecodex-router").await;
+    let listed: Value = serde_json::from_str(&local.ask(&codex_routed, "mcp").await).unwrap();
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
     assert_eq!(config["mcpServers"]["cmux-sessions"]["args"], json!(["offer-mcp"]), "{config}");
     assert!(!argv.iter().any(|a| a == "--strict-mcp-config"), "the user's servers stay: {argv:?}");
     let at = argv.iter().position(|a| a == "--plugin-dir").expect("--plugin-dir");
@@ -164,11 +235,30 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     assert!(plugin.join("skills/cmux-browser/references/repl-guide.md").is_file());
     let cua_skill = std::fs::read_to_string(plugin.join("skills/cmux-cua/SKILL.md")).unwrap();
     assert!(cua_skill.contains("disable-model-invocation: true"), "the consent rule stays");
+    // The acpmux CLI guide, pointing at the sub-session tools first.
+    let acpmux_skill = std::fs::read_to_string(plugin.join("skills/acpmux/SKILL.md")).unwrap();
+    assert!(acpmux_skill.contains("name: acpmux"), "{acpmux_skill}");
+    assert!(acpmux_skill.contains("cmux-subsessions") && acpmux_skill.contains("start_session"));
     let manifest: Value = serde_json::from_str(
         &std::fs::read_to_string(plugin.join(".claude-plugin/plugin.json")).unwrap(),
     )
     .unwrap();
     assert_eq!(manifest["name"], "cmux");
+
+    // `agents.memory.enabled` adds the memory server for the next session,
+    // with the session as its provenance.
+    std::fs::write(&cmux_json, r#"{"agents": {"memory": {"enabled": true}}}"#).unwrap();
+    let id = local.new_session("fake").await;
+    let servers: Value = serde_json::from_str(&local.ask(&id, "mcp").await).unwrap();
+    let memory = servers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "cmux-agent-memory")
+        .unwrap_or_else(|| panic!("{servers}"));
+    assert_eq!(memory["command"], json!(chief), "{servers}");
+    assert_eq!(memory["args"], json!(["agent-memory", "mcp"]), "{servers}");
+    assert!(memory["env"].to_string().contains(&id), "{servers}");
 
     // The switch turns it off for the next session.
     // SAFETY: as above; no session is starting concurrently.
