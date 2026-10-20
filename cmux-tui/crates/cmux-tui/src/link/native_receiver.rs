@@ -1,0 +1,206 @@
+//! A VM's receiving mesh is addressed by host id. Its peers may source only
+//! their install /128, and their service futures end before a WG peer goes away.
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::future::Future;
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use anyhow::{anyhow, bail};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use cmux_host::cloud::receiver::ReceiverBinding;
+use cmux_link::native_token::{NativePolicy, NativeTokenVerifier};
+use cmux_link::overlay_addr::overlay_address;
+use cmux_wg::{
+    InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
+};
+use futures_util::{StreamExt as _, stream::FuturesUnordered};
+use tokio::net::UdpSocket;
+use tokio::sync::{mpsc, oneshot};
+use zeroize::Zeroizing;
+
+use super::host_inbound::{HostIdentity, serve_host_inbound};
+
+const MAX_STREAMS: usize = 4096;
+type ServiceTask = Pin<Box<dyn Future<Output = u64> + Send>>;
+
+struct Service {
+    peer: [u8; 32],
+    stop: Option<oneshot::Sender<()>>,
+}
+
+/// The source owns the verifier and installs each authenticated snapshot before
+/// sending its policy here. No caller hello or WG packet can publish a peer.
+pub(super) struct NativeReceiver {
+    binding: ReceiverBinding,
+    session: PathBuf,
+    sshd: SocketAddr,
+    verifier: Arc<NativeTokenVerifier>,
+    mesh: WgMesh,
+    listener: WgMeshListener,
+    peers: BTreeMap<[u8; 32], Ipv6Addr>,
+    services: HashMap<u64, Service>,
+    inflight: FuturesUnordered<ServiceTask>,
+    serial: u64,
+}
+
+impl NativeReceiver {
+    pub(super) async fn start(
+        binding: ReceiverBinding,
+        private: Zeroizing<[u8; 32]>,
+        socket: UdpSocket,
+        session: PathBuf,
+        sshd: SocketAddr,
+        verifier: Arc<NativeTokenVerifier>,
+    ) -> anyhow::Result<Self> {
+        // The existing link has no VM receiving runtime attached yet.
+        // Retain a typed, closed entry while its encrypted behavior is tested.
+        let _config = WgMeshConfig {
+            private_key: private,
+            addresses: vec![InterfaceAddress {
+                address: IpAddr::V6(overlay_address(&binding.host)),
+                prefix: 128,
+            }],
+            mtu: super::state::LINK_MTU,
+        };
+        let _ = (socket, session, sshd, verifier);
+        bail!("cloud.receiver.runtime_unavailable");
+    }
+
+    /// `None` retires the current policy. Closing the source or stopping the
+    /// role drains all copies and pending hellos before shutting down WG.
+    pub(super) async fn serve(
+        mut self,
+        mut policies: mpsc::Receiver<Option<NativePolicy>>,
+        stop: impl Future<Output = ()>,
+    ) -> anyhow::Result<()> {
+        tokio::pin!(stop);
+        let result = loop {
+            tokio::select! {
+                biased;
+                () = &mut stop => break Ok(()),
+                policy = policies.recv() => {
+                    let Some(policy) = policy else { break Ok(()) };
+                    if let Err(error) = self.reconcile(policy.as_ref()).await {
+                        break Err(error);
+                    }
+                }
+                completed = self.inflight.next(), if !self.inflight.is_empty() => {
+                    if let Some(id) = completed { self.services.remove(&id); }
+                }
+                accepted = self.listener.accept() => {
+                    let Some((stream, key)) = accepted else { break Ok(()) };
+                    self.accept(stream, key);
+                }
+            }
+        };
+        // Fence a concurrent policy read before dropping any service future.
+        self.verifier.clear_authority();
+        let all = self.peers.keys().copied().collect();
+        self.drain(&all).await;
+        self.mesh.shutdown().await;
+        result
+    }
+
+    fn accept(&mut self, stream: WgStream, key: [u8; 32]) {
+        if self.services.len() >= MAX_STREAMS || !self.peers.contains_key(&key) {
+            return;
+        }
+        let Some(id) = self.serial.checked_add(1) else { return };
+        self.serial = id;
+        let (stop, cancelled) = oneshot::channel();
+        self.services.insert(id, Service { peer: key, stop: Some(stop) });
+        let verifier = self.verifier.clone();
+        let host = self.binding.host.clone();
+        let epoch = self.binding.epoch;
+        let session = self.session.clone();
+        let sshd = self.sshd;
+        self.inflight.push(Box::pin(async move {
+            let source = stream.peer_addr();
+            let me = HostIdentity { host: &host, epoch, session_socket: &session, sshd };
+            tokio::select! {
+                biased;
+                _ = cancelled => {},
+                _ = serve_host_inbound(stream, key, source, &*verifier, &me) => {},
+            }
+            id
+        }));
+    }
+
+    async fn reconcile(&mut self, policy: Option<&NativePolicy>) -> anyhow::Result<()> {
+        let mut desired = BTreeMap::new();
+        let mut addresses = BTreeSet::new();
+        if let Some(policy) = policy {
+            if policy.host != self.binding.host
+                || policy.epoch != self.binding.epoch
+                || policy.team != self.binding.team
+                || policy.peers.len() > 128
+            {
+                bail!("cloud.receiver.self_policy_refused");
+            }
+            for peer in &policy.peers {
+                let key: [u8; 32] = STANDARD
+                    .decode(&peer.binding.wg_public_key)?
+                    .try_into()
+                    .map_err(|_| anyhow!("cloud.receiver.peer_key_refused"))?;
+                let address = overlay_address(&peer.install);
+                if key.iter().all(|byte| *byte == 0)
+                    || desired.insert(key, address).is_some()
+                    || !addresses.insert(address)
+                {
+                    bail!("cloud.receiver.peer_policy_refused");
+                }
+            }
+        }
+        let removed: BTreeSet<_> = self
+            .peers
+            .iter()
+            .filter(|(key, address)| desired.get(*key) != Some(*address))
+            .map(|(key, _)| *key)
+            .collect();
+        // Service cancellation is observable at both sockets before the
+        // cryptographic peer and its source /128 are removed or replaced.
+        self.drain(&removed).await;
+        for key in &removed {
+            self.mesh.remove_peer(*key).await?;
+        }
+        for (key, address) in &desired {
+            if self.peers.get(key) == Some(address) {
+                continue;
+            }
+            self.mesh
+                .add_peer(WgPeer {
+                    public_key: *key,
+                    preshared_key: None,
+                    allowed_ips: vec![IpNetwork::new(IpAddr::V6(*address), 128)?],
+                    route: None,
+                    persistent_keepalive: None,
+                })
+                .await?;
+        }
+        self.peers = desired;
+        Ok(())
+    }
+
+    async fn drain(&mut self, peers: &BTreeSet<[u8; 32]>) {
+        let mut pending = BTreeSet::new();
+        for (id, service) in &mut self.services {
+            if peers.contains(&service.peer) {
+                pending.insert(*id);
+                if let Some(stop) = service.stop.take() {
+                    let _ = stop.send(());
+                }
+            }
+        }
+        while !pending.is_empty() {
+            let Some(id) = self.inflight.next().await else { break };
+            self.services.remove(&id);
+            pending.remove(&id);
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "native_receiver_tests.rs"]
+mod tests;

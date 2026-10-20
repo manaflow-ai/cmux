@@ -14,6 +14,9 @@ mod enrollment;
 mod ensure;
 mod native_broker;
 mod native_route;
+// Private root/child composition attaches this receiving runtime.
+#[cfg_attr(not(test), allow(dead_code))]
+mod native_receiver;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.

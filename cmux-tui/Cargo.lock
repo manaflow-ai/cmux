@@ -1518,6 +1518,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "ring",
  "rusqlite",
  "rustls",
  "serde",
