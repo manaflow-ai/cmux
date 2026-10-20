@@ -43,7 +43,7 @@ extension Workspace {
         return tabs.first(where: \.isAgent)
     }
 
-    /// "feat-cnx-ios", else the directory.
+    /// "feat-cmux-next-ios", else the directory.
     public var place: String { branch ?? directory }
 }
 

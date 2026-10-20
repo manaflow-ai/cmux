@@ -34,7 +34,7 @@ struct MockOutput {
             ("4f98088", "cmux-next-ios: design specification", "HEAD -> main, origin/main"),
             ("c9676a2", "cmux-next-ios: app shell with native tabs and team sidebar", nil),
             ("3469bce", "cmux-next-ios: plan and v1 wire contract", nil),
-            ("35e87a8", "Merge feat-imsg-integration into feat-cnx-ios", nil),
+            ("35e87a8", "Merge feat-imsg-integration into feat-cmux-next-ios", nil),
             ("d191aee", "nx-remote: SwiftPM and xcodebuild never use the keychain", nil),
             ("e580583", "nx-remote: tests for keychain-free package resolution", nil),
             ("7b69ed9", "build-fleet/data: fleet dump 2026/10/07", "tag: v0.81.0"),

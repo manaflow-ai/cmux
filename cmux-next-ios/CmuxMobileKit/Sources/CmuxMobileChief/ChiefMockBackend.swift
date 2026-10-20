@@ -266,7 +266,7 @@ struct ChiefMockScript {
 
     static func history(identity: ChiefIdentity, now: Date) -> [ConversationMessage] {
         let lines: [(me: Bool, minutesAgo: Double, text: String)] = [
-            (false, 26 * 60, "Morning. Overnight: Codex finished the pricing page fix on cmux.com (14 tests pass), and the fleet build for feat-cnx-ios is green."),
+            (false, 26 * 60, "Morning. Overnight: Codex finished the pricing page fix on cmux.com (14 tests pass), and the fleet build for feat-cmux-next-ios is green."),
             (true, 26 * 60 - 2, "nice. anything waiting on me?"),
             (false, 26 * 60 - 3, "One thing: Claude in cmux wants to know which transport to default to on cellular. I left it in your Feed."),
             (true, 95, "Can you start a Claude session on the cmux-next-ios workspace to build the workspaces tab?"),

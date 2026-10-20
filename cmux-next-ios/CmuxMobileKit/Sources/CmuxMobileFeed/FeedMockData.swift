@@ -50,7 +50,7 @@ extension FeedStore {
         return [
             claude("f-question", .question(question), """
             The release branch is green: **412 tests pass** and the dogfood build is signed. Before I tag it I need three decisions.
-            """, quote: .init("Cut a release once CI is green on feat-cnx-ios"), ago: 50, now: now),
+            """, quote: .init("Cut a release once CI is green on feat-cmux-next-ios"), ago: 50, now: now),
             codex("f-pricing", .response, """
             Fixed the pricing table overflow on small screens. The grid now wraps instead of forcing three columns:
 

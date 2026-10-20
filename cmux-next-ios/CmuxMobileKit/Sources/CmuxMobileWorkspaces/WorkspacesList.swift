@@ -786,7 +786,7 @@ public struct WorkspacesList: View {
         }
     }
 
-    /// "Aziz's Mac Studio · feat-cnx-ios", "· Offline" for an offline Mac.
+    /// "Aziz's Mac Studio · feat-cmux-next-ios", "· Offline" for an offline Mac.
     private func menuHeader(_ ws: Workspace, macName: String, offline: Bool) -> String {
         var parts = [macName]
         if !ws.place.isEmpty { parts.append(ws.place) }

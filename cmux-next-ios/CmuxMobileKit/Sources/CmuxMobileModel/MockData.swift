@@ -26,7 +26,7 @@ extension AppStore {
         // Needs you (2), working (2), done (1), idle, then the asleep MacBook Pro's.
         let workspaces = [
             Workspace(
-                id: "ws-cmux", macID: "mac-studio", title: "cmux", directory: "~/Development/cmux", branch: "feat-cnx-ios",
+                id: "ws-cmux", macID: "mac-studio", title: "cmux", directory: "~/Development/cmux", branch: "feat-cmux-next-ios",
                 tabs: [
                     WorkspaceTab(id: "t-claude", kind: .agent, title: "Claude", subtitle: "Refactor transport layer", harness: "claude",
                                  agentStatus: .waiting),
@@ -47,7 +47,7 @@ extension AppStore {
                 lastActivityAt: ago(3), isWorking: true, colorHex: "#BF5AF2", icon: "globe"
             ),
             Workspace(
-                id: "ws-ios", macID: "mac-studio", title: "cmux-next-ios", directory: "~/Development/cmux/cmux-next-ios", branch: "feat-cnx-ios-wsdesign",
+                id: "ws-ios", macID: "mac-studio", title: "cmux-next-ios", directory: "~/Development/cmux/cmux-next-ios", branch: "feat-cmux-next-ios-wsdesign",
                 tabs: [
                     WorkspaceTab(id: "t-ios-build", kind: .terminal, title: "xcodebuild", subtitle: "~/Development/cmux/cmux-next-ios"),
                     WorkspaceTab(id: "t-ios-claude", kind: .agent, title: "Claude", subtitle: "Redesign the workspaces list", harness: "claude",
