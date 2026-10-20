@@ -4,6 +4,14 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes team.device.compliance declares.
+    TeamDeviceComplianceError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
 wire_op! {
     /// Make this team the calling install's managing team: with an MDM enrollment token's hash, or without one as the user's explicit acceptance.
     TeamDeviceEnrollOp {
@@ -892,11 +900,5 @@ wire_op! {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamVmRebuildParams {
-    pub epoch: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmRebuildResult {
-    pub retired: String,
     pub epoch: i64,
 }

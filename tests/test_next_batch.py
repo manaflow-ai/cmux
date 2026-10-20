@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -574,6 +575,219 @@ class Bisect(unittest.TestCase):
                 self.assertLessEqual(len(controller.probes), 3)  # log2(8)
 
 
+CHECKS_LOG = """\
+2026-10-19T03:02:59.3742502Z \x1b[36;1m  echo "### ${#failed[@]} cmux-next check(s) failed"\x1b[0m
+2026-10-19T03:02:59.3742784Z \x1b[36;1m  printf -- '- %s\\n' "${failed[@]}"\x1b[0m
+2026-10-19T03:02:59.3791306Z ### 2 cmux-next check(s) failed
+2026-10-19T03:02:59.3791407Z 
+2026-10-19T03:02:59.3791459Z - Type scale (failure)
+2026-10-19T03:02:59.3791577Z - Tier routing (failure)
+2026-10-19T03:02:59.3791651Z 
+2026-10-19T03:02:59.3791707Z Each check's own step log has the details.
+2026-10-19T03:02:59.3792894Z ##[error]Process completed with exit code 1.
+"""
+
+
+class BaseReds(unittest.TestCase):
+    """Base pushes and dispatches skip the checks job, so the batch validates the
+    base itself and compares single checks, not the whole job."""
+
+    def controller(self) -> nb.Controller:
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r", dry_run=False, keep_branches=False)
+        controller.gh = mock.Mock()
+        controller.base_failures = None
+        controller.base_probe = None
+        controller.base_probe_result = {}
+        controller.base_probe_stop = threading.Event()
+        controller.base_tree_waited = False
+        controller.base_sha = "b" * 40
+        controller.batch_id = "local-1"
+        return controller
+
+    def test_reads_the_red_checks_from_the_jobs_last_step(self):
+        self.assertEqual(nb.red_subchecks(CHECKS_LOG), ["Type scale", "Tier routing"])
+        self.assertEqual(nb.red_subchecks("no listing here\n"), [])
+
+    def test_a_red_checks_job_counts_each_red_check(self):
+        controller = self.controller()
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 7, "name": nb.CHECKS_JOB, "conclusion": "failure"},
+            {"id": 8, "name": "cmux-next swift test", "conclusion": "failure"},
+            {"id": 9, "name": "cmux-next daemon tests", "conclusion": "success"},
+        ]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, CHECKS_LOG, "")
+        self.assertEqual(controller.failed_jobs(1), [
+            f"{nb.CHECKS_JOB}: Tier routing", f"{nb.CHECKS_JOB}: Type scale", "cmux-next swift test"])
+        self.assertIn("actions/jobs/7/logs", " ".join(controller.gh.gh.call_args.args))
+
+    def test_an_unreadable_log_keeps_the_job(self):
+        controller = self.controller()
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "not found")
+        self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7), {nb.CHECKS_JOB})
+
+    def test_the_probes_reds_are_the_inherited_ones(self):
+        controller = self.controller()
+        controller.base_probe_result = {"failed": {f"{nb.CHECKS_JOB}: Type scale"}}
+        self.assertEqual(controller.failing_on_base("b" * 40), {f"{nb.CHECKS_JOB}: Type scale"})
+        controller.gh.runs.assert_not_called()
+
+    def test_without_a_probe_only_outright_failures_in_the_push_run_count(self):
+        controller = self.controller()
+        controller.gh.runs.return_value = [{"id": 1, "status": "completed", "head_branch": nb.BASE}]
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 7, "name": "cmux-next generated files", "conclusion": "cancelled"},
+            {"id": 8, "name": "cmux app scheme compile (Debug)", "conclusion": "failure"},
+        ]}
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug)"})
+        self.assertIn("event=push", controller.gh.runs.call_args.args[1])
+
+    def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
+        controller = self.controller()
+        controller.gh.runs.return_value = [
+            {"id": 3, "status": "in_progress", "head_branch": nb.BASE, "html_url": "u"},
+            {"id": 4, "status": "in_progress", "head_branch": "next-batch/x-1", "html_url": "u"},
+            {"id": 5, "status": "completed", "head_branch": nb.BASE, "html_url": "u"},
+        ]
+        waited = []
+        controller.wait_run = lambda run_id, timeout: waited.append(run_id) or {"status": "completed"}
+        controller.wait_base_tree()
+        controller.wait_base_tree()
+        self.assertEqual(waited, [3])
+        self.assertEqual(controller.gh.runs.call_args.args[0], nb.TUI_WORKFLOW)
+
+    def test_a_cancelled_probe_is_never_rerun(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        controller.wait_run = lambda run_id, timeout: {"status": "completed", "conclusion": "cancelled"}
+        controller.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test"]
+        controller.probe_base()
+        self.assertNotIn("rerun", [call.args[0] for call in controller.gh.gh.call_args_list])
+        self.assertNotIn("failed", controller.base_probe_result)
+
+    def test_a_batch_that_ends_first_cancels_the_probes_run(self):
+        controller = self.controller()
+        controller.base_probe = mock.Mock(is_alive=lambda: True)
+        controller.base_probe_result = {"run": 42}
+        controller.stop_base_probe()
+        self.assertEqual(controller.gh.gh.call_args.args[:3], ("run", "cancel", "42"))
+
+    def test_the_probe_validates_the_base_on_its_own_branch(self):
+        controller = self.controller()
+        pushed = []
+        controller.push = lambda sha, ref: pushed.append((sha, ref))
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        controller.wait_run = lambda run_id, timeout: {"status": "completed"}
+        controller.failed_jobs = lambda run_id, detail=False: [f"{nb.CHECKS_JOB}: Type scale"]
+        with mock.patch.object(nb.time, "sleep"):
+            controller.probe_base()
+        self.assertEqual(pushed, [("b" * 40, "next-batch/local-1-base")])
+        controller.gh.dispatch.assert_called_once_with(nb.HEAVY_WORKFLOW, "next-batch/local-1-base")
+        self.assertEqual(controller.base_probe_result["failed"], {f"{nb.CHECKS_JOB}: Type scale"})
+        self.assertEqual(controller.base_probe_result["url"], "https://probe")
+
+
+    def test_a_base_red_job_excuses_only_the_tests_that_fail_on_the_base(self):
+        """A red swift test on the base must not excuse a stack that breaks another test."""
+        controller = self.controller()
+        steps = [{"name": "Set up job", "conclusion": "success"}, {"name": "Run tests", "conclusion": "failure"}]
+        job = {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}
+        controller.gh.api.return_value = {"jobs": [job]}
+
+        def failing(*tests):
+            text = "".join(f"2026-10-19T03:02:59.1Z \u2718 Test {name} recorded an issue at A.swift:1:2: x\n" for name in tests)
+            return subprocess.CompletedProcess([], 0, text, "")
+
+        controller.gh.gh.return_value = failing("alpha()")
+        base = set(controller.failed_jobs(1, detail=True))
+        controller.gh.gh.return_value = failing("alpha()", "beta()")
+        stack = set(controller.failed_jobs(2, detail=True))
+        self.assertIn("cmux-next swift test: test beta()", stack - base)
+        controller.gh.gh.return_value = failing("alpha()")
+        self.assertEqual(set(controller.failed_jobs(3, detail=True)) - base, set())
+        # Job-level names stay for gh-merge-green's lanes.
+        self.assertEqual(controller.failed_jobs(1), ["cmux-next swift test"])
+
+    def test_a_job_with_nothing_to_compare_is_never_excused_by_its_steps(self):
+        """A timeout or a crash leaves only the failed step; the base failing that step for another reason excuses nothing."""
+        controller = self.controller()
+        steps = [{"name": "Run tests", "conclusion": "failure"}]
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess(
+            [], 0, "2026-10-19T03:02:59.1Z \u2718 Test alpha() recorded an issue at A.swift:1:2: x\n", "")
+        base = set(controller.failed_jobs(1, detail=True))
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z still running\n", "")
+        self.assertEqual(set(controller.failed_jobs(2, detail=True)) - base, {"cmux-next swift test"})
+        crash = "2026-10-19T03:02:59.1Z error: Exited with unexpected signal code 5\n".replace("Exited", "exited")
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crash, "")
+        self.assertIn("cmux-next swift test: crash signal 5", set(controller.failed_jobs(3, detail=True)) - base)
+
+    def test_a_probe_stopped_before_its_run_is_found_cancels_it(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        deleted = []
+        controller.delete_branch = deleted.append
+
+        def find_run(workflow, branch, match, since):
+            controller.base_probe_stop.set()  # the batch ended while the probe looked for its run
+            return {"id": 5, "html_url": "https://probe"}
+
+        controller.find_run = find_run
+        controller.wait_run = mock.Mock()
+        controller.probe_base()
+        controller.wait_run.assert_not_called()
+        self.assertIn(("run", "cancel", "5"), [call.args[:3] for call in controller.gh.gh.call_args_list])
+        self.assertEqual(deleted, ["next-batch/local-1-base"])
+        self.assertNotIn("failed", controller.base_probe_result)
+
+    def test_a_probe_whose_rerun_does_not_finish_records_nothing(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        states = iter([{"status": "completed", "conclusion": "failure"}, {"status": "in_progress"}])
+        controller.wait_run = lambda run_id, timeout: next(states)
+        controller.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test: test flaky()"]
+        with mock.patch.object(nb.time, "sleep"):
+            controller.probe_base()
+        self.assertNotIn("failed", controller.base_probe_result)
+
+    def test_a_batch_that_raises_still_cleans_up(self):
+        controller = self.controller()
+        controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, keep_branches=False, prs="7")
+        controller.reported = lambda pr, kinds: ""
+        controller.validations = []
+        controller.base_probe_result = {"branch": "next-batch/local-1-base", "run": 9}
+        controller.base_probe = mock.Mock(is_alive=lambda: True)
+        deleted = []
+        controller.delete_branch = deleted.append
+
+        def validate(prs, name):
+            controller.validations.append(nb.Validation(name=name, stack=nb.Stack(base="b", head="c"),
+                                                        branch="next-batch/local-1-1"))
+            raise RuntimeError("HTTP 502")
+
+        controller.validate = validate
+        with mock.patch.object(nb, "open_prs", return_value=[]), \
+                mock.patch.object(nb, "select", return_value=([pr(7)], {})), \
+                mock.patch.object(nb, "admit_reviewed", return_value=([pr(7)], {})):
+            with self.assertRaises(RuntimeError):
+                controller.run()
+        self.assertEqual(deleted, ["next-batch/local-1-1", "next-batch/local-1-base"])
+        self.assertIn(("run", "cancel", "9"), [call.args[:3] for call in controller.gh.gh.call_args_list])
+
+class TreeInputs(unittest.TestCase):
+    def test_a_tree_input_outside_cmux_tui_counts_and_other_files_do_not(self):
+        root = Path(tempfile.mkdtemp())
+        (root / "scripts/cmux-next").mkdir(parents=True)
+        (root / nb.TREE_INPUTS).write_text("# inputs\ntree first-party-apps/cloud/server\nfile schemas/x/vectors.json\n")
+        self.assertTrue(nb.touches_tree(["schemas/x/vectors.json"], root))
+        self.assertTrue(nb.touches_tree(["first-party-apps/cloud/server/main.rs"], root))
+        self.assertTrue(nb.touches_tree(["cmux-tui/crates/a.rs"], root))
+        self.assertFalse(nb.touches_tree(["webviews/src/a.tsx", "schemas/x/other.json"], root))
+
+
 class RemoteRegeneration(unittest.TestCase):
     """Generators run the stack's code, so they run in a dispatched job and
     send back a patch; the controller never runs them on its own host."""
@@ -1100,19 +1314,80 @@ class LandingRetry(unittest.TestCase):
         controller.args = Namespace(repo="o/r")
         controller.run_url = "https://example.test/run/1"
         controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
+        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
+                                   heavy_passed=["cmux-next swift test"])
         calls = []
 
         def fake_run(command, **_):
             calls.append(command)
             if "--override" not in command:
-                return subprocess.CompletedProcess(command, 1, "", "not green: 'cmux-next swift test' is not successful on abc\n")
+                return subprocess.CompletedProcess(command, 1, "", "not green: 'cmux-next swift test' on abc1234, not excused by feat-cmux-next (x)\n")
             return subprocess.CompletedProcess(command, 0, "", "")
 
         with mock.patch.object(nb.subprocess, "run", fake_run):
             outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
         self.assertTrue(outcome.startswith("landed"))
         self.assertIn("https://example.test/run/1", calls[-1][calls[-1].index("--override") + 1])
+        self.assertEqual(calls[-1][calls[-1].index("--match-head-commit") + 1], pr(7).sha)
+
+    def test_each_override_is_checked_against_its_own_refusal(self):
+        """A lane that turns red while landing waits must be judged again, not waived."""
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r")
+        controller.run_url = "u"
+        controller.writer = nb.GitHub("o/r")
+        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
+                                   heavy_passed=["cmux-next swift test"])
+        tail = " on abc1234, not excused by feat-cmux-next (x)\n"
+        replies = iter([
+            "not green: 'cmux-next swift test'" + tail,  # waivable: retry with --override
+            "not green: 'web / Web status' is queued/" + tail,  # pending under the override
+            "not green: 'cmux app scheme compile (Debug)'" + tail,  # a new red: not waivable
+        ])
+        calls = []
+
+        def fake_run(command, **_):
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 1, "", next(replies))
+
+        with mock.patch.object(nb.subprocess, "run", fake_run), mock.patch.object(nb.time, "sleep"):
+            outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
+        self.assertTrue(outcome.startswith("not landed"))
+        self.assertEqual(["--override" in call for call in calls], [False, True, False])
+
+    def test_waives_only_lanes_the_stack_passed(self):
+        controller = nb.Controller.__new__(nb.Controller)
+        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
+                                   heavy_passed=["cmux-next swift test", "cmux app scheme compile (Debug)"])
+        controller.failed_jobs = lambda run_id: {1: ["cmux-next swift test"], 2: ["cmux-next daemon tests"]}[run_id]
+        tail = " on abc1234, not excused by feat-cmux-next (no match)"
+        cases = {
+            "'cmux-next swift test'; 'cmux app scheme compile (Debug)'": True,
+            "cmux-next run 1 attempt 1 (pull_request) is failure; 'cmux-next swift test'": True,
+            "cmux-next run 2 attempt 1 (pull_request) is failure; 'cmux-next swift test'": False,
+            "'cmux-next swift test'; 'ci-status'": False,
+            "'cmux-next Release compile (Xcode 26)'": False,
+        }
+        for lanes, expected in cases.items():
+            with self.subTest(lanes=lanes):
+                self.assertEqual(controller.waivable("not green: " + lanes + tail, validation), expected)
+        self.assertFalse(controller.waivable("not green: cmux-next run still pending on abc1234", validation))
+        controller.failed_jobs = mock.Mock(side_effect=RuntimeError("HTTP 502"))
+        self.assertFalse(controller.waivable(
+            "not green: cmux-next run 1 attempt 1 (pull_request) is failure" + tail, validation))
+
+    def test_no_override_for_a_heavy_check_the_stack_did_not_pass(self):
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r")
+        controller.run_url = "u"
+        controller.writer = nb.GitHub("o/r")
+        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
+                                   heavy_passed=["cmux-next swift test"])
+        red = subprocess.CompletedProcess([], 1, "", "not green: 'cmux app scheme compile (Debug)' on abc1234, not excused by feat-cmux-next (x)\n")
+        with mock.patch.object(nb.subprocess, "run", return_value=red) as run:
+            outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
+        self.assertTrue(outcome.startswith("not landed"))
+        self.assertTrue(all("--override" not in call.args[0] for call in run.call_args_list))
 
     def test_github_refusal_is_reported_not_retried(self):
         controller = nb.Controller.__new__(nb.Controller)
