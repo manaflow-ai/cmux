@@ -903,6 +903,15 @@ and marks them `delivered`. Any other terminal agent's message, or one Codex
 cannot take now, stays `queued` until the agent's hooks take it. The command exits 1 when this message's own delivery failed; the message is
 stored either way, and problems with older messages are reported on stderr.
 
+`terminal <t> write` (and `send-keys -l`) into a terminal whose hooks report a
+live agent (any state but `done`) still types the text, then prints on stderr
+the `agent message` command that would send it as a message instead, with the
+caller's `--machine`, `--session` and `--socket`, and `--` before the text so
+text that starts with a dash stays the message. Text with a control character, a line
+break or more than 200 characters shows as `'…'`. `--quiet` prints no hint,
+`terminal <t> keys` gets none, and the lookup (`terminal.get`, `agent.list`)
+gives up silently when a read waits 500 ms.
+
 `agent message release` is the person's decision on a held delivery of
 `<message-id>` to `--recipient`: `--approve` queues it, `--decline` declines
 it (one `agent.message.release`). Only the verified cmux app may decide, so
