@@ -10,8 +10,10 @@
 //!   `BRIDGE_ASKING_MODES`, `NON_ASKING_MODES`, `REFUSED_FAMILIES`,
 //!   `start_mode::FULL_ACCESS_MODES`, and a command that skips the
 //!   permission checks or the sandbox). A caller whose mode the lists do not
-//!   name counts as asking; a child's, as not asking, unless it is the
-//!   caller's own mode on the caller's own family. A folder profile
+//!   name counts as asking; a child's (or a child that reports no mode) as
+//!   full access, unless it is the caller's own mode on the caller's own
+//!   family: another family may name full autonomy anything (Goose `auto`,
+//!   a custom ACP agent with no modes). A folder profile
 //!   (`<folder>/.cmux/harnesses/<id>.toml`) other than the caller's own
 //!   counts as full access: its command is the folder's, not the caller's.
 //! - The folder: resolved once, then allowed under the person's own
@@ -221,7 +223,7 @@ impl Hub {
         self.listed_access(m).unwrap_or_else(|| {
             let same = crate::web_modes::family_of(m) == crate::web_modes::family_of(caller)
                 && crate::web_modes::mode_of(m) == crate::web_modes::mode_of(caller);
-            if same { self.caller_access(caller) } else { Access::DoesNotAsk }
+            if same { self.caller_access(caller) } else { Access::Full }
         })
     }
 
