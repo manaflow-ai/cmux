@@ -9,7 +9,7 @@ import AppKit
 extension ChatController {
     // MARK: Context menu
 
-    func menu(at p: CGPoint) -> NSMenu? {
+    @MainActor func menu(at p: CGPoint) -> NSMenu? {
         guard let hit = demo?.hit(p) else { return nil }
         let ref = hit.row.ref
         let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
