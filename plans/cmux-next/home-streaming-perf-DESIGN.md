@@ -63,6 +63,12 @@ frame slower until input lags.
 
 ## Design
 
+Since 0c0b107df48 (user, Oct 20: "drop per-token streaming") Home shows each
+reply as whole messages with typing dots by default; the growing stream bubble
+is `HomeReplyDisplay.streaming`, which the stream tests opt into. Everything
+here applies to that mode, and the renderer parts (sections 3, the long-text
+index, the width pass) apply to any long message.
+
 All five sections are on feat-cmux-next. The projection side (the per-frame
 pacer `HomeStreamPacer`, flushed before a send, and the incremental mapping
 `HomeStreamMapper`) sits inside the Home chat pipeline model's projection
