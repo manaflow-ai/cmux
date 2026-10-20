@@ -94,10 +94,10 @@ enum HomeLinkChip {
         let parts = url.path.split(separator: "/").map(String.init)
         guard parts.count >= 4 else { return nil }
         switch parts[2] {
-        case "pull": return Int(parts[3]) != nil ? .pullRequest : nil
-        case "issues": return Int(parts[3]) != nil ? .issue : nil
+        case "pull": return Int(parts[3], radix: 10) != nil ? .pullRequest : nil
+        case "issues": return Int(parts[3], radix: 10) != nil ? .issue : nil
         case "commit": return parts[3].count >= 7 && parts[3].allSatisfy(\.isHexDigit) ? .commit : nil
-        case "actions": return parts.count >= 5 && parts[3] == "runs" && Int(parts[4]) != nil ? .run : nil
+        case "actions": return parts.count >= 5 && parts[3] == "runs" && Int(parts[4], radix: 10) != nil ? .run : nil
         default: return nil
         }
     }
