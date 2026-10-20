@@ -63,5 +63,8 @@ struct PageFileDropDragTests {
         _ = web.draggingEntered(second)
         _ = web.draggingUpdated(second)
         #expect(reads == 2)
+        // A new drag enter reads again (the exit and end resets call WebKit, which a fake drag cannot serve).
+        _ = web.draggingEntered(second)
+        #expect(reads == 3)
     }
 }
