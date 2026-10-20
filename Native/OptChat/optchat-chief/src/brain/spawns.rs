@@ -146,7 +146,13 @@ impl Brain {
             self.cloud_paused.remove(p);
             self.cloud_idle_since.remove(p);
         }
-        let first = self.state.next_subagent.max(1);
+        // Never below an id already handed out: a reset or unreadable
+        // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
+        let prior = self.state.next_subagent;
+        let first = self
+            .state
+            .next_subagent
+            .max(highest_subagent(&self.state.spawns) + 1);
         let ids: Vec<String> = (0..tasks.len() as u64)
             .map(|k| format!("a{}", first + k))
             .collect();
@@ -193,7 +199,13 @@ impl Brain {
             .map(|s| s.id.clone())
             .collect();
         self.state.spawns.insert(spawn.clone(), record);
-        self.save();
+        // The ids are durable before anyone sees them: a failed save hands
+        // out none, so a crash can never give them again.
+        if let Err(e) = self.file.save_with(&self.state, Vec::new()) {
+            self.state.spawns.remove(&spawn);
+            self.state.next_subagent = prior;
+            return Err(format!("spawn not saved, no ids given: {e}"));
+        }
         (self.log)(&format!("spawn {spawn}: {}", ids.join(", ")));
         Ok(SpawnPlan {
             spawn,
@@ -1467,4 +1479,14 @@ fn user_text(msg: &serde_json::Map<String, Value>) -> String {
         .filter_map(|b| b.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The highest `a<N>` any recorded spawn gave, 0 when none did.
+pub(crate) fn highest_subagent(spawns: &std::collections::BTreeMap<String, SpawnRecord>) -> u64 {
+    spawns
+        .values()
+        .flat_map(|record| record.subs.iter())
+        .filter_map(|sub| sub.id.strip_prefix('a')?.parse::<u64>().ok())
+        .max()
+        .unwrap_or(0)
 }

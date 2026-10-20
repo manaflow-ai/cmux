@@ -563,6 +563,7 @@ conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
 chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] [--compactor-harness <h>] [--compactor-model <m>] | chief stop [<subagent>]
 chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief> | chief history <chief> [--limit <n>] | chief undo <chief> [--to-rev <n>]
+chief usage [--chief <id>] [--since <24h|7d|30d|90d|1y|all>] [--until <d>] [--bucket hour|day|week|month] [--by chief|agent|model|harness|kind] [--top <n>] [--json]
 agent list|message|inbox|report
 agent plugin list|install|use|update|remove
 pairing request list
@@ -711,7 +712,9 @@ the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
 Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and
 `/effort` read or set the engine (`chief.engine.get|set`), `/help` lists the
 commands. `chief engine` and `chief stop` make one such call without the
-chat. `chief list`, `chief new`, `chief edit` and `chief delete` make the
+chat. `chief usage` reads this Mac's Chief usage ledgers (tokens by kind, cost, cache hit,
+turn time over time; plans/cmux-next/chief-usage-analytics-DESIGN.md) through the bundled
+`optchat-chief usage`; no daemon or brain needs to run. `chief list`, `chief new`, `chief edit` and `chief delete` make the
 person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.create`,
 `chief.profile.update`, `chief.profile.delete`, `chief.profile.avatar.set`): `<chief>` is an id or one
 Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,

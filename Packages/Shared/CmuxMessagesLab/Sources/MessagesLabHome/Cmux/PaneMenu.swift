@@ -59,6 +59,10 @@ extension ChatController {
         if let link = intents?.messageLink(ref.messageId) {
             menu.addItem(MenuAction(title: CmuxStrings.copyLink, symbol: "link") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(link, forType: .string) })
         }
+        // cmux: Forward… (u5402): the text goes to another chat or agent the host asks for.
+        if case let .text(text, _) = hit.row.part, intents?.canForward == true {
+            menu.addItem(MenuAction(title: CmuxStrings.forward, symbol: "arrowshape.turn.up.right") { [weak self] in self?.intents?.forward(text) })
+        }
         if menu.items.last.map({ !$0.isSeparatorItem }) == true { menu.addItem(.separator()) }
         // cmux: a video plays in place; opening it in an app is only here.
         if case let .attachment(a) = hit.row.part {
