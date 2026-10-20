@@ -68,9 +68,7 @@ pub(crate) fn closes_for_reset(
     doc: &Doc,
     ops: &mut Vec<Op>,
 ) -> anyhow::Result<()> {
-    if !ops.iter().any(|op| matches!(op, Op::Reset))
-        || !crate::state::store::state_tables_ready(connection)?
-    {
+    if !returns_closed_items(ops) || !crate::state::store::state_tables_ready(connection)? {
         return Ok(());
     }
     let local = crate::state::values::local_registry_id(connection)?;
@@ -91,6 +89,12 @@ pub(crate) fn closes_for_reset(
         ops.push(Op::Close { refs });
     }
     Ok(())
+}
+
+/// Whether `ops` can move closed workspaces out of a section that keeps them
+/// (Pinned, custom) into a machine section, which does not.
+fn returns_closed_items(ops: &[Op]) -> bool {
+    ops.iter().any(|op| matches!(op, Op::Reset))
 }
 
 /// Whether a commit changed what Pinned shows (an item that is in Pinned,
@@ -178,5 +182,20 @@ impl Mux {
                 })
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Unpin moves a pinned tree, closed members and all, back into its machine
+    /// section; the close that follows removes them and the groups they empty,
+    /// as closing the last workspace does there (a283, pinning-DESIGN.md).
+    #[test]
+    fn unpin_and_reset_close_what_is_not_open() {
+        assert!(returns_closed_items(&[Op::Reset]));
+        assert!(returns_closed_items(&[Op::Unpin { items: vec!["g".into()] }]));
+        assert!(!returns_closed_items(&[Op::Pin { items: vec!["g".into()] }]));
     }
 }
