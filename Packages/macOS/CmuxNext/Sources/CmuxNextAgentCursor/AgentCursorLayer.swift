@@ -151,6 +151,11 @@ public final class AgentCursorLayer {
                     forKey: Self.captionHideKey)
     }
 
+    /// The name tag's text, nil without a tag (diagnostics: `debug.agent_cursor`).
+    public var tagText: String? { hasName ? nameText.string as? String : nil }
+    /// The keystroke caption's last text (diagnostics).
+    public var captionString: String? { captionText.string as? String }
+
     /// The person paused or took over: an outline, no fill.
     public var isPaused = false {
         didSet { arrow.fillColor = isPaused ? nil : fill }
