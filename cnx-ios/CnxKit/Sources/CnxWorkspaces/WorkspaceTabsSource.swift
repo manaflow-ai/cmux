@@ -481,8 +481,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         let kind = Self.kind(of: option)
         let tab: WorkspaceTab
+        let asked = Self.uptime
         do {
             tab = try await creator.backend.createTab(kind, in: workspace)
+            // T-TABS-06 timing: the Mac's create and list (the page's attach
+            // and first output follow in the terminal log).
+            tabsLog.notice("new tab \(tab.id, privacy: .public) (\(option.id, privacy: .public)) listed by the Mac \(Int((Self.uptime - asked) * 1000), privacy: .public) ms after the pick")
         } catch let error as WorkspaceCreationError where error.isForPerson {
             tabsLog.error("tab request refused on \(self.macName, privacy: .public): \(error.message, privacy: .public)")
             show(named(error.message))
