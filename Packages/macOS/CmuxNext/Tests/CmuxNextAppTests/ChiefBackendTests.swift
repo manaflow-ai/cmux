@@ -120,7 +120,7 @@ import Testing
     /// Home's compose button works as classic cmux's Chief list (ChiefConversationListView, #21063):
     /// one click makes another Chief at once, named as the Chief is, with no sheet to fill first,
     /// so the person can ask it something right away. New Message stays in compose's menu.
-    @MainActor @Test func homesComposeButtonStartsANewChiefInOneClick() async throws {
+    @MainActor @Test(.timeLimit(.minutes(1))) func homesComposeButtonStartsANewChiefInOneClick() async throws {
         let calls = Calls()
         let (opened, open) = AsyncStream<Void>.makeStream()
         let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")
@@ -142,8 +142,28 @@ import Testing
         _ = await iterator.next()
         let sent = try #require(await calls.sends.first)
         #expect(sent.operation == "chief.profile.create")
+        // No Chief is listed in this page yet, so the name is the Chief's own.
         #expect(sent.params == ["display_name": .string(HomeStrings.chiefName)])
         #expect(await calls.opens.count == 1)
+    }
+
+    /// Each click's Chief gets the next free name ("Chief 2", "Chief 3"), never a second "Chief":
+    /// identical rows could not be told apart, and the owner refuses a Chief named by an ambiguous name.
+    @Test func aNewChiefTakesTheNextFreeName() {
+        let base = HomeStrings.chiefName
+        #expect(HomeChiefName.next(taken: []) == base)
+        #expect(HomeChiefName.next(taken: [base]) == "\(base) 2")
+        #expect(HomeChiefName.next(taken: [base, "\(base) 2", "Scout"]) == "\(base) 3")
+        #expect(HomeChiefName.next(taken: [base, "\(base) 3"]) == "\(base) 2")
+    }
+
+    /// A Chief with no message yet says what it is for, as classic cmux's list does ("Ask Chief
+    /// anything"), so its name and that line sit beside its avatar as every other row's do.
+    @Test func aChiefRowWithNoMessageYetSaysWhatItIsFor() {
+        #expect(HomeSidebarItem.shownPreview("", isChief: true) == HomeConversationStrings.chiefEmptyPreview)
+        #expect(HomeSidebarItem.shownPreview("Hi", isChief: true) == "Hi")
+        #expect(HomeSidebarItem.shownPreview("", isChief: false).isEmpty)
+        #expect(HomeConversationStrings.chiefEmptyPreview == "Ask Chief anything")
     }
 
     @Test func theDefaultEngineIsNotNamedInALocalCreate() {
