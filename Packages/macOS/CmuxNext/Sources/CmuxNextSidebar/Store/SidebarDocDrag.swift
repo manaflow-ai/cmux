@@ -133,7 +133,11 @@ public struct SidebarDocDrag {
     /// that machine's section, `sec_m_<session>`, which the rows' adopt (sent first) makes. Nil unless every
     /// moving row is a live workspace of one session with no item, outside a group.
     public func unplacedTarget(_ position: DropPosition, moving ids: [WorkspaceID]) -> SidebarDocTarget? {
-        nil
+        guard position.group == nil, !ids.isEmpty, ids.allSatisfy({ item(.workspace($0)) == nil }) else { return nil }
+        let sessions = Set(ids.compactMap { adoptRef($0)?["session_id"] })
+        guard sessions.count == 1, let session = sessions.first, !session.isEmpty,
+              ids.allSatisfy({ adoptRef($0)?["session_id"] != nil }) else { return nil }
+        return SidebarDocTarget(section: SidebarDocStore.machineSectionPrefix + session, index: position.index)
     }
 
     /// The anchor target of a band position: `index` among `section`'s items in `layout`.
