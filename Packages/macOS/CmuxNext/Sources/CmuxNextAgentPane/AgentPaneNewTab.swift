@@ -19,6 +19,11 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var hotkeys: [String: String]
     /// The folder a terminal or chat opened from the page starts in.
     public var cwd: String?
+    /// The machine the page runs on, for its machine chip: this Mac's name once the launch's read
+    /// answered (``AgentPaneModel/localMachineDisplayName``), so the chip names it on the first
+    /// frame instead of "This Mac" until the handshake. nil on another machine, whose handshake
+    /// names it, or before the read answers.
+    public var host: String?
     /// The tab the page opened from, as the location bar shows it (its URL or
     /// folder): in the field and selected, so typing replaces it.
     public var location: String?
@@ -76,6 +81,16 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.inputToken = nil
         // nil follows the Debug Settings toggle, read as each page context is made.
         self.widgets = (widgets ?? AgentPaneTunables.newTabWidgets.value) ? true : nil
+    }
+}
+
+extension AgentPaneNewTab {
+    /// The page with this Mac's name as its `host` when it runs on this Mac (`local`) and the
+    /// launch's read has answered, so its machine chip names the Mac on the first frame.
+    @MainActor public func namingThisMac(_ local: Bool = true) -> AgentPaneNewTab {
+        var page = self
+        if local { page.host = AgentPaneModel.localMachineDisplayName }
+        return page
     }
 }
 
