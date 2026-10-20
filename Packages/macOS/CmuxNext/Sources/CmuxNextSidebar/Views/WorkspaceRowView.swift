@@ -15,7 +15,7 @@ final class WorkspaceRowView: SidebarRowView {
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     let activity = StatusIndicatorView()
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
-    internal let agentMark = NSImageView()
+    internal let agentMark = DecorativeImageView() // the row's label says the agent's state
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
@@ -26,7 +26,7 @@ final class WorkspaceRowView: SidebarRowView {
     let presenceDots = PresenceDotsView()
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
-    let mutedMark = NSImageView()
+    let mutedMark = DecorativeImageView()
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
@@ -113,7 +113,6 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.isHidden = true
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
-        mutedMark.setAccessibilityElement(false)
         [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
             .forEach(addSubview)
         disclosureButton.isHidden = true
@@ -284,6 +283,9 @@ final class WorkspaceRowView: SidebarRowView {
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
         setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue)")
+        for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin"), (disclosureButton, "disclosure")] {
+            button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
+        }
         setAccessibilityLabel(accessibilityText(ws, content: shown))
         needsLayout = true
         needsDisplay = true

@@ -225,6 +225,7 @@
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
         "CmuxNextUpdater",
+        "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
         "CmuxNextWorkspaceNaming",
         "CmuxNextWorkspaceRepair"
@@ -268,6 +269,7 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDiff",
+        "CmuxNextFeed",
         "CmuxNextFileGrid",
         "CmuxNextFloating",
         "CmuxNextFocus",
@@ -284,7 +286,9 @@
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
-        "CmuxNextWakeups"
+        "CmuxNextVSCodeServer",
+        "CmuxNextWakeups",
+        "CmuxNextWorkspaceNaming"
       ],
       "packages": [
         "CmuxAgentQuestion",
@@ -858,9 +862,11 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextBrowser",
         "CmuxNextCompat",
+        "CmuxNextSettings",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
@@ -1223,6 +1229,21 @@
       "packages": [
         "CmuxUpdater"
       ]
+    },
+    "CmuxNextVSCodeServer": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextVSCodeServer",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextVSCodeServerTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextVSCodeServerTests",
+      "targets": [
+        "CmuxNextVSCodeServer"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextWakeups": {
       "kind": "regular",

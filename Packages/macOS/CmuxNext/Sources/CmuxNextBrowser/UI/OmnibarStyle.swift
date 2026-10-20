@@ -31,14 +31,26 @@ enum OmnibarStyle {
         guard Metrics.paneBorder == .subtle else { return 0 }
         return (Metrics.paneBorderWidth ?? 1 / max(scale, 1)) + chromeGap(scale: scale)
     }
-    /// Toolbar row: the top padding, the bar, then `chromeGap` down to the page.
-    static func toolbarHeight(scale: CGFloat) -> CGFloat { toolbarTopPadding(scale: scale) + barHeight + chromeGap(scale: scale) }
+    /// The toolbar row's content height: the tallest thing in it, the toolbar
+    /// buttons (Chrome's 34 pt) beside the 28 pt omnibar; the omnibar-only row
+    /// (`OmnibarToolbarView`) has no buttons and is the bar's height.
+    static func rowContentHeight(withButtons: Bool = true) -> CGFloat { withButtons ? max(barHeight, buttonSize) : barHeight }
+    /// The omnibar's top in the toolbar row: the top padding, then half the
+    /// difference to the buttons, so the bar sits on their center line.
+    static func barTop(scale: CGFloat, withButtons: Bool = true) -> CGFloat {
+        toolbarTopPadding(scale: scale) + (rowContentHeight(withButtons: withButtons) - barHeight) / 2
+    }
+    /// Toolbar row: the top padding, the row's content, then `chromeGap` down to the page.
+    static func toolbarHeight(scale: CGFloat, withButtons: Bool = true) -> CGFloat {
+        toolbarTopPadding(scale: scale) + rowContentHeight(withButtons: withButtons) + chromeGap(scale: scale)
+    }
     /// Horizontal interior margin: the pane's chrome line, so the first
     /// button's hover shape starts where the tab pills above it start and
     /// its glyph near the tabs' icons (`Metrics.paneChromeInset`).
     static var toolbarInset: CGFloat { Metrics.paneChromeInset }
-    /// Toolbar buttons: square, bar height, circular hover shape.
-    static var buttonSize: CGFloat { barHeight }
+    /// Toolbar buttons: square, Chrome's 34 pt (`kToolbarButtonSize` 28 dp plus its
+    /// 3 dp insets on each side), a 20 pt icon in a circular hover shape.
+    static var buttonSize: CGFloat { 34 }
     /// Toolbar buttons highlight in a circle on hover and press, as Chrome's toolbar ink drop does.
     static var buttonCornerRadius: CGFloat { buttonSize / 2 }
     /// Toolbar button icons draw at Chrome's toolbar icon size (`kToolbarButtonIconSize`, 20 dp).

@@ -159,6 +159,84 @@ fn a_queued_subagent_gets_its_messages_with_its_task_when_the_cap_rises() {
     assert!(again.starts_with("outcome: noop."), "{again}");
 }
 
+/// 2026-10-20 the user: "we need to remove 40 agent limit by default".
+/// With no env cap and no `control cap`, 48 subagents (more than the old
+/// 40) all start at once: none waits.
+#[test]
+fn with_no_cap_set_every_spawn_starts_at_once() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    for batch in 0..6 {
+        let a = sp.clone();
+        let tasks: Vec<String> = (0..8).map(|i| format!("task {batch}-{i}")).collect();
+        let spawned = run(&mut h, move || a.spawn(tasks, None)).unwrap();
+        assert!(!spawned.contains("queued"), "{spawned}");
+    }
+    let a = sp.clone();
+    let status = run(&mut h, move || {
+        a.control(ControlCall {
+            action: "status".into(),
+            ..ControlCall::default()
+        })
+    })
+    .unwrap();
+    assert!(status.contains("(no cap)"), "{status}");
+}
+
+/// A cap set with `control cap` (2026-10-20: the Chief set 40 and the
+/// queued line blamed OPTCHAT_MAX_LIVE_SUBAGENTS, so the user saw a limit
+/// with no visible source): the queued line names `control cap` and says
+/// how to lift it.
+#[test]
+fn a_queued_line_names_the_control_cap_and_how_to_lift_it() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    let a = sp.clone();
+    let cap = run(&mut h, move || {
+        a.control(ControlCall {
+            action: "cap".into(),
+            n: Some(1),
+            ..ControlCall::default()
+        })
+    })
+    .unwrap();
+    assert!(cap.starts_with("outcome: done."), "{cap}");
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["task one".into(), "task two".into()], None)
+    })
+    .unwrap();
+    assert!(spawned.contains("a2: queued"), "{spawned}");
+    assert!(spawned.contains("control cap 1"), "{spawned}");
+    assert!(spawned.contains("control cap 0"), "{spawned}");
+    assert!(!spawned.contains("OPTCHAT_MAX_LIVE_SUBAGENTS"), "{spawned}");
+}
+
+/// A cap from the env: the queued line names the env and how to lift it.
+#[test]
+fn a_queued_line_names_the_env_cap() {
+    let mut h = Harness::new(default_script());
+    h.brain.set_max_live(Some(1));
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["task one".into(), "task two".into()], None)
+    })
+    .unwrap();
+    assert!(spawned.contains("a2: queued"), "{spawned}");
+    assert!(
+        spawned.contains("OPTCHAT_MAX_LIVE_SUBAGENTS=1"),
+        "{spawned}"
+    );
+    assert!(spawned.contains("control cap 0"), "{spawned}");
+}
+
 #[test]
 fn keyed_tells_and_cancels_are_idempotent() {
     let mut h = Harness::new(default_script());

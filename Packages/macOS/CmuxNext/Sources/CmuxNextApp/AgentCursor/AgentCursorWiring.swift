@@ -39,9 +39,9 @@ enum AgentCursorWiring {
         let services = controller.services
         let slot = AgentCursorWindowSlot(
             resolver: services.agentCursorVisibility.resolver(forWindow: controller.state.id),
-            color: { [weak services] session in
-                AgentCursorPresenceColors.shared.color(for: session, store: services?.daemon.store)
-            },
+            // Every browser agent cursor is gray (user, 2026-10-20); the name
+            // tag tells agents apart.
+            color: { _ in AgentCursorLayer.gray },
             label: { session in
                 AgentCursorSessionLabel(
                     sessionID: session,
