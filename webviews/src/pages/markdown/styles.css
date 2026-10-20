@@ -1377,7 +1377,7 @@ body {
 
 .cmux-comment-card {
   position: absolute;
-  z-index: 5;
+  z-index: var(--layer-dropdown);
   top: 1.6em;
   left: -28px;
   width: min(360px, 80vw);
@@ -1386,8 +1386,8 @@ body {
   border-radius: 10px;
   background: var(--page-elevated);
   color: var(--cmux-md-text-color);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
 }
 
