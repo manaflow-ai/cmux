@@ -52,6 +52,23 @@ struct WorkspaceAgentSessionsTests {
         #expect(sessions.last?.tab == store.tab(surface: 2)?.id)
     }
 
+    /// A hook's SessionEnd reports `done` and keeps the id; the session no longer runs there.
+    @Test func anEndedSessionIsNoCandidate() {
+        let store = store()
+        store.apply(.agentChanged(AgentStatus(surface: 1, state: .done, source: "hook", agent: "claude",
+                                              agentSessionID: "ses-1", updatedAtMs: 12)))
+        #expect(store.workspaces[0].agentHarnessSessions.map(\.tab) == [store.tab(surface: 2)?.id].compactMap { $0 })
+    }
+
+    /// The harness session a tab's agent runs (Copy Session ID and agent links): the hook's id
+    /// first, else a direct report's session; hook bookkeeping markers are none.
+    @Test func harnessSessionIDPrefersTheHookID() {
+        #expect(AgentStatus(surface: 1, state: .working, session: "cmux-hook-sequence:3", agentSessionID: "h-1").harnessSessionID == "h-1")
+        #expect(AgentStatus(surface: 1, state: .working, session: "direct-1").harnessSessionID == "direct-1")
+        #expect(AgentStatus(surface: 1, state: .done, session: "cmux-hook-ended:4").harnessSessionID == nil)
+        #expect(AgentStatus(surface: 1, state: .idle, session: "").harnessSessionID == nil)
+    }
+
     @Test(arguments: [DaemonEvent.disconnected(reason: "socket closed"), .daemonShutdown])
     func aDisconnectedMachineHasNoReachableSession(_ event: DaemonEvent) {
         let store = store()
