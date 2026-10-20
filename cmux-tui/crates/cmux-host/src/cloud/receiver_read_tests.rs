@@ -15,6 +15,10 @@ use super::client::{CloudClient, Http};
 use super::receiver::{REQUEST_BUDGET, install_point};
 use super::wire::{Bound, Env};
 
+#[cfg(target_os = "linux")]
+#[path = "receiver_producer_root_tests.rs"]
+mod producer_root;
+
 const NOW: u64 = 1_792_000_010_000;
 const MACHINE: &str = "vm_00000000000000000004";
 const INSTALL: &str = "inst_00000000000000000004";

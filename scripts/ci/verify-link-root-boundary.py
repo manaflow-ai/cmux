@@ -9,9 +9,10 @@ import sys
 import tempfile
 
 
-def build_artifacts(workspace: Path, package: str, target: str) -> list[dict]:
+def build_artifacts(workspace: Path, package: str, target: str | None) -> list[dict]:
+    selector = ["--test", target] if target else ["--lib"]
     build = subprocess.run(
-        ["cargo", "test", "-p", package, "--test", target, "--locked",
+        ["cargo", "test", "-p", package, *selector, "--locked",
          "--no-run", "--message-format=json"],
         cwd=workspace, text=True, stdout=subprocess.PIPE, check=True,
     )
@@ -46,6 +47,7 @@ def main() -> int:
     workspace = Path(__file__).resolve().parents[2] / "cmux-tui"
     link = build_artifacts(workspace, "cmux-link", "receiver_root")
     native = build_artifacts(workspace, "cmux-tui", "receiver_native_root")
+    producer = build_artifacts(workspace, "cmux-host", None)
     # A dropped uid must be able to exec the fixture without opening the source
     # checkout or cargo cache. Only copied current-source artifacts are exposed.
     with tempfile.TemporaryDirectory(prefix="cmux-root-boundary-", dir="/tmp") as directory:
@@ -76,6 +78,15 @@ def main() -> int:
             raise SystemExit("Native encrypted daemon process chain did not execute")
         if "ROOT_BOUNDARY_EXECUTED native_private_process_inspection" not in output:
             raise SystemExit("Native private process inspection boundary did not execute")
+        producer_target = Path(directory) / "receiver-producer-root-tests"
+        shutil.copy2(executable(producer, "cmux_host", "lib"), producer_target)
+        os.chmod(producer_target, 0o755)
+        output = run_root(["env", "GITHUB_ACTIONS=true", f"CMUX_NATIVE_ROOT_BINARY={binary}",
+                           str(producer_target), "--ignored", "receiver_root_privileged_",
+                           "--test-threads=1", "--nocapture"])
+        for case in ("native_original_producer_chain", "native_canceled_producer_read"):
+            if f"ROOT_BOUNDARY_EXECUTED {case}" not in output:
+                raise SystemExit(f"Native original producer case did not execute: {case}")
     return 0
 
 
