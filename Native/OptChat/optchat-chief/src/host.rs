@@ -1274,7 +1274,7 @@ fn start(
         // OPTCHAT_SUBAGENT_PEER: subagents run on that acpmux peer (a cloud
         // VM) and take no local slot (plans/cmux-next/cloud-subagents-DESIGN.md).
         .with_cloud(crate::subagents::CloudPlacement::from_env(
-            |k| env(k),
+            env,
             sub_text.clone(),
         ));
         let spawner = Arc::new(spawner);
