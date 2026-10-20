@@ -6,7 +6,7 @@ import Testing
 /// hunk of a file by its lines as `git.diff` showed them; the App finds that hunk in its own read
 /// of the file's diff and applies only it to the index. A hunk the App cannot find (the file
 /// changed since, or the page edited the lines) stages nothing.
-@MainActor
+@Suite(.serialized) @MainActor
 struct AgentPaneGitStageHunkTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
@@ -65,6 +65,43 @@ struct AgentPaneGitStageHunkTests {
         let unstaged = await model.respond(to: Self.request("git.unstageHunk", repo, Self.second))
         #expect(unstaged["ok"] as? Bool == true, "\(unstaged)")
         #expect(try Self.git(repo, "diff", "--cached").isEmpty)
+    }
+
+    /// The page's hunk is Git's clean-filtered diff, and the index keeps those canonical bytes.
+    @Test func stagingAHunkUsesASystemConfiguredCleanFilter() async throws {
+        let (model, repo) = try Self.rig()
+        try Self.git(repo, "checkout", "--", "a.txt")
+        let config = repo + "/system.gitconfig"
+        try "[filter \"uppercase\"]\n\tclean = tr '[:lower:]' '[:upper:]'\n\trequired = true\n"
+            .write(toFile: config, atomically: true, encoding: .utf8)
+        try "a.txt filter=uppercase\n".write(toFile: repo + "/.git/info/attributes", atomically: true, encoding: .utf8)
+        let key = "GIT_CONFIG_SYSTEM"
+        let previous = ProcessInfo.processInfo.environment[key]
+        setenv(key, config, 1)
+        defer {
+            if let previous { setenv(key, previous, 1) } else { unsetenv(key) }
+        }
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 978_307_200)],
+                                              ofItemAtPath: repo + "/a.txt")
+        try Self.git(repo, "add", "a.txt")
+        try Self.git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "filtered baseline")
+        #expect(try Self.git(repo, "show", ":a.txt").contains("LINE 19"))
+        let lines = (1...20).map { value in
+            switch value {
+            case 2: "line two"
+            case 19: "line nineteen"
+            default: "line \(value)"
+            }
+        }
+        try (lines.joined(separator: "\n") + "\n").write(toFile: repo + "/a.txt", atomically: true, encoding: .utf8)
+
+        let filteredSecond = [" LINE 16", " LINE 17", " LINE 18", "-LINE 19", "+LINE NINETEEN", " LINE 20"]
+        model.transport.gestures.record()
+        let reply = await model.respond(to: Self.request("git.stageHunk", repo, filteredSecond))
+        #expect(reply["ok"] as? Bool == true, "\(reply)")
+        let index = try Self.git(repo, "show", ":a.txt")
+        #expect(index.contains("LINE NINETEEN"))
+        #expect(!index.contains("LINE TWO"))
     }
 
     /// Lines that are not a hunk of the file's diff (edited by the page, or stale) stage nothing,
