@@ -1174,9 +1174,7 @@ export function ModelPicker(props: ModelPickerProps) {
             </ScrollArea>
             {update && (
               <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
-                <span className="min-w-0 flex-1 truncate text-detail text-muted" title={updateText}>
-                  {updateText}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
                 <button
                   type="button"
                   className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}

@@ -351,9 +351,7 @@ export function QuickModelMenu({
         <>
           <MenuSeparator />
           <MenuItem className="acpmux-quick-item acpmux-quick-update" onSelect={() => menu.update?.run()}>
-            <span className="acpmux-menu-label min-w-0 flex-1 truncate" title={menu.update.text}>
-              {menu.update.text}
-            </span>
+            <span className="acpmux-menu-label min-w-0 flex-1 truncate">{menu.update.text}</span>
             <span className="acpmux-quick-value">{t("harness.update")}</span>
           </MenuItem>
         </>
@@ -383,6 +381,7 @@ export function QuickModelMenu({
                   type="button"
                   aria-label={family.name}
                   aria-pressed={family.id === tab}
+                  // tooltip-allow: the rail tab draws only the harness's mark or initial, never its name.
                   title={family.note ? `${family.name} · ${family.note}` : family.name}
                   className="acpmux-quick-rail-tab"
                   // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
