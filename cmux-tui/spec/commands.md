@@ -7325,7 +7325,8 @@ Forward to the cloud owners (ConversationDO, UserDO inbox) with the lease and
 answer from a worker thread, so replies may arrive out of order (match by
 `id`). `cloud-conversation-op {conversation?, idempotency_key, origin?, op}`
 forwards one op tagged by `kind` (`dm.open`, `conversation.create`,
-`participants.add`, `participants.remove`, `message.send`, `message.edit`,
+`participants.add`, `participants.remove`, `participants.set_role`,
+`participants.unban`, `ownership.transfer`, `message.send`, `message.edit`,
 `message.retract`, `reaction.add`, `reaction.remove`, `read_cursor.set`,
 `title.set`, `thread.update`, `invite.create`) with the client's key and origin and returns
 `object{value, rev?, seq?, change?, replayed, transaction, stream, sequence}`.
