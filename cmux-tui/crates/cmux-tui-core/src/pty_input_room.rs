@@ -11,9 +11,6 @@
 //! reports are only ever written whole, while the queue keeps room for keys:
 //! one that would not fit is dropped, as a terminal coalesces the wheel.
 
-// Windows writes every input; only the tests read the report parser there.
-#![cfg_attr(not(unix), allow(dead_code))]
-
 use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::fd::RawFd;
@@ -61,7 +58,7 @@ fn admits_fd(master_fd: Option<MasterFd>, payload: &[u8]) -> bool {
 }
 
 /// [`write_input`] for the PTY master `master_fd`.
-#[cfg(all(test, unix))]
+#[cfg(all(test, target_os = "macos"))]
 pub(crate) fn write_input_fd(
     master_fd: Option<RawFd>,
     writer: &mut dyn Write,
