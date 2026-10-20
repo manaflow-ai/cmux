@@ -392,7 +392,7 @@ export class SettingsStore {
     return reply.ok;
   }
 
-  /** Saves the workspace `id`'s own glass tint over art; null follows the work's own tint. */
+  /** Saves the workspace `id`'s own glass tint over art; null follows All Workspaces' opacity. */
   async setWorkspaceOpacity(id: string, opacity: number | null): Promise<boolean> {
     const reply = await this.request("cmux.settings.backdrop.workspace.set", {
       workspace: id,

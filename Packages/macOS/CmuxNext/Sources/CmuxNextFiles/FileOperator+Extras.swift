@@ -103,6 +103,7 @@ extension FileOperator {
     }
 
     /// Runs `/usr/bin/ditto` (the tool Finder's Compress uses) and waits for it.
+    @concurrent
     static func ditto(_ arguments: [String]) async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
@@ -121,6 +122,7 @@ extension FileOperator {
             }
         }
         guard status == 0 else {
+            // concurrency-allow: @concurrent, after ditto exited; ditto starts no children, so EOF is immediate.
             let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             throw FileBrowserError.failed(message.isEmpty ? "ditto exited with \(status)" : message)
         }
