@@ -2791,8 +2791,10 @@ function AcpmuxPane() {
     handoff.target.sessionId === snapshot.sessionId &&
     ["draft", "starting"].includes(handoff.state) &&
     !snapshot.handoff?.receipt;
-  const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
-  const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
+  // Until the chat's handoff is read the pane draws no review (reviews are rare): the composer and
+  // a new chat's hero stay, and a review that arrives takes their place (Leo 2026-10-19: the
+  // composer left for the read on every open, switch and reconnect).
+  const freshChat = !reviewing && isNewChat(snapshot, newSession);
   /// The chat's start folder (startFolder.tsx): the host's folder for a new chat or the user's
   /// pick, for every start of this new chat (the agent row, a harness pick, the first Send).
   /// Undefined: the host fills the chat's folder (the workspace's agent-home folder).
@@ -5260,7 +5262,7 @@ function AcpmuxPane() {
         : {})}
     />
   );
-  const composer = !reviewing && !handoffLoading && (
+  const composer = !reviewing && (
     <>
       <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
       <DictationNotice dictation={dictation} />
