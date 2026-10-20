@@ -111,7 +111,7 @@ final class HomeNewMessageView: NSView {
         guard let services else { return }
         let home = services.home
         let match = field.draft.existingConversation(in: home.homeStore.rows, me: home.homeStore.me?.id)
-        guard match != existing else { return layoutSubtreeIfNeeded() }
+        guard match != existing else { needsLayout = true; return }
         let text = messageText
         if let existing { home.homeStore.setDraft("", for: existing) }
         if let match {
@@ -171,15 +171,12 @@ final class HomeNewMessageView: NSView {
     /// path restores it).
     func firstSend(_ parts: [MessagePart]) async throws -> HomeOpResult {
         let draft = field.draft
-        if let invalid = draft.tokens.first(where: { !$0.isValid }) {
-            say(HomeConversationStrings.unknownRecipient(invalid.text))
-            throw HomeRejection.invalid("new_message.invalid_recipient")
-        }
-        guard !draft.recipients.isEmpty, let services else {
-            say(HomeConversationStrings.needsRecipient)
+        if let blocker = draft.sendBlocker {
+            say(blocker)
             focusRecipients()
-            throw HomeRejection.invalid("new_message.no_recipients")
+            throw HomeRejection.invalid("new_message.recipients")
         }
+        guard let services else { throw HomeRejection.invalid("new_message.closed") }
         let home = services.home
         let addressesOnly = draft.recipients.allSatisfy { if case .address = $0 { true } else { false } }
         let outcome = await home.startConversation(draft.recipients, title: "", firstMessage: addressesOnly ? parts : [])
@@ -195,7 +192,7 @@ final class HomeNewMessageView: NSView {
             if let id { onSent(id) }
             return HomeOpResult(rev: 0, conversation: id)
         default:
-            say(outcome.message ?? HomeConversationStrings.needsRecipient)
+            say(outcome.message ?? HomeNewMessageDraft.needsRecipientNotice)
             throw HomeRejection.invalid("new_message.refused")
         }
     }

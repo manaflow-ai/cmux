@@ -56,6 +56,17 @@ struct HomeNewMessageTests {
         #expect(draft.existingConversation(in: [Self.row("dm-ada", [Self.ada.id])], me: Self.me) == nil)
     }
 
+    @Test func theFirstSendWaitsForAValidRecipient() {
+        var draft = HomeNewMessageDraft()
+        #expect(draft.sendBlocker == HomeConversationStrings.needsRecipient)
+        draft.query = "nobody"
+        draft.commit(contacts: Self.contacts)
+        draft.add(.contact(Self.ada))
+        #expect(draft.sendBlocker == HomeConversationStrings.unknownRecipient("nobody"))
+        draft.remove(at: 0)
+        #expect(draft.sendBlocker == nil)
+    }
+
     @Test func backspaceWithNothingTypedRemovesTheLastToken() {
         var draft = HomeNewMessageDraft()
         draft.add(.contact(Self.ada))

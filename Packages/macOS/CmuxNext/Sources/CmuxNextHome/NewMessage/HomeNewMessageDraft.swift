@@ -129,6 +129,16 @@ public struct HomeNewMessageDraft: Hashable, Sendable {
         return match?.id
     }
 
+    /// Why the first send cannot go yet (shown under the To: field), or nil
+    /// when it can: a red token first, then nobody chosen.
+    public var sendBlocker: String? {
+        if let invalid = tokens.first(where: { !$0.isValid }) { return HomeConversationStrings.unknownRecipient(invalid.text) }
+        return recipients.isEmpty ? Self.needsRecipientNotice : nil
+    }
+
+    /// "Add someone in To: first."
+    public static var needsRecipientNotice: String { HomeConversationStrings.needsRecipient }
+
     /// The title of the list's draft row (Messages keeps "New Message" until the first send).
     public static var rowTitle: String { HomeConversationStrings.composeTitle }
 
