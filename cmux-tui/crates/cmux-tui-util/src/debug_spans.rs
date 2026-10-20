@@ -255,3 +255,19 @@ pub fn traced(connection: rusqlite::Connection) -> rusqlite::Connection {
     }
     connection
 }
+
+/// [`traced`] for a connection whose commits may skip their own sync (a
+/// creation's group commit, `deferred_sync` in cmux-tui-core): a commit for
+/// which `deferred` answers true is marked `sqlite.commit.deferred`, its gap
+/// is the write alone. Replaces the hook [`traced`] installed.
+pub fn trace_commits(
+    connection: &rusqlite::Connection,
+    deferred: impl Fn() -> bool + Send + 'static,
+) {
+    if enabled() {
+        let _ = connection.commit_hook(Some(move || {
+            mark(if deferred() { "sqlite.commit.deferred" } else { "sqlite.commit" });
+            false
+        }));
+    }
+}

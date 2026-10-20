@@ -16,6 +16,9 @@ impl Mux {
         debug_assert!(is_created_path_operation(operation));
         crate::debug_spans::mark("creation.start");
         let _execution = self.resource_creation_execution.lock().unwrap();
+        // Every commit below shares one WAL sync, taken before the new
+        // terminal starts and before the reply (create_txn).
+        let txn = self.begin_create_txn();
         crate::debug_spans::mark("creation.execution_locked");
         let operation_name = operation_name(operation);
         let correlation_key =
@@ -139,8 +142,10 @@ impl Mux {
                     }
                 }
             }
-        }?;
+        };
         crate::debug_spans::mark("creation.projection_committed");
+        txn.finish();
+        let commit = commit?;
         self.activate_created_terminal_launch(&commit.result)?;
         crate::debug_spans::mark("creation.launch_activated");
         Ok(commit)

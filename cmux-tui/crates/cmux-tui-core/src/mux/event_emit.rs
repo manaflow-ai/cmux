@@ -68,6 +68,8 @@ impl Mux {
     }
 
     pub fn emit(&self, event: MuxEvent) {
+        // A creation's events wait for its commits to be durable (create_txn).
+        let Some(event) = self.hold_event_in_create_txn(event) else { return };
         self.activity.observe(&event);
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);

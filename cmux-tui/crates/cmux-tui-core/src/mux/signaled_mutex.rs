@@ -3,17 +3,23 @@
 //! [`Mux::lock_state_pinned`], the state lock taken under the registry.
 
 use std::ops::{Deref, DerefMut};
-use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, LockResult, Mutex, MutexGuard, PoisonError};
 #[cfg(test)]
 use std::sync::{TryLockError, TryLockResult};
 use std::time::Instant;
 
 use super::{Mux, State, WorkspaceRegistry};
 use crate::lock_rank::{HeldRank, LockRank};
+use crate::workspace_registry::deferred_sync::DeferredSync;
 use crate::workspace_registry::registry_connection::RegistryConnectionPin;
 
 pub(crate) struct SignaledMutex<T> {
     value: Mutex<T>,
+    /// The workspace registry's group commit barrier (`deferred_sync`): a
+    /// thread that is not inside a creation passes it when it takes the
+    /// lock, since a creation keeps registry memory (the public fold) in
+    /// step with commits that may not be synced yet.
+    barrier: Option<Arc<DeferredSync>>,
     release_epoch: Mutex<u64>,
     released: Condvar,
     /// Contention record with `#[track_caller]` attribution, reported by
@@ -22,8 +28,14 @@ pub(crate) struct SignaledMutex<T> {
 }
 
 impl<T> SignaledMutex<T> {
+    #[cfg(test)]
     pub(super) fn new(value: T) -> Self {
+        Self::with_barrier(value, None)
+    }
+
+    pub(super) fn with_barrier(value: T, barrier: Option<Arc<DeferredSync>>) -> Self {
         Self {
+            barrier,
             value: Mutex::new(value),
             release_epoch: Mutex::new(0),
             released: Condvar::new(),
@@ -59,12 +71,16 @@ impl<T> SignaledMutex<T> {
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
-        match self.value.lock() {
+        let locked = match self.value.lock() {
             Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
             Err(error) => {
                 Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, blocker)))
             }
+        };
+        if let Some(barrier) = self.barrier.as_ref() {
+            barrier.sync_for_reader();
         }
+        locked
     }
 
     #[cfg(test)]
@@ -206,7 +222,11 @@ impl<T> Drop for SignaledMutexGuard<'_, T> {
 /// The mux state mutex. It counts holds per thread (`note_state_lock`) so
 /// the registry connection lock can assert it is never first taken while
 /// this thread holds state (lock order: registry -> connection -> state).
-pub(crate) struct StateMutex(Mutex<State>);
+///
+/// A thread that is not inside a creation syncs the registry WAL when it
+/// takes the lock while a creation's commits are unsynced: the creating
+/// thread installs committed revisions in state (`deferred_sync`).
+pub(crate) struct StateMutex(Mutex<State>, Arc<DeferredSync>);
 
 /// A held mux state lock.
 pub(crate) struct StateGuard<'a> {
@@ -252,28 +272,37 @@ impl DerefMut for StateGuard<'_> {
 }
 
 impl StateMutex {
-    pub(crate) fn new(state: State) -> Self {
-        Self(Mutex::new(state))
+    pub(crate) fn new(state: State, deferred: Arc<DeferredSync>) -> Self {
+        Self(Mutex::new(state), deferred)
     }
 
     #[track_caller]
     pub(crate) fn lock(&self) -> LockResult<StateGuard<'_>> {
         HeldRank::check(LockRank::MuxState, STATE_LOCK_NAME);
-        match self.0.lock() {
+        // Sync before the lock, so state is rarely held across a sync...
+        self.1.sync_for_reader();
+        let locked = match self.0.lock() {
             Ok(guard) => Ok(StateGuard::new(guard)),
             Err(poison) => Err(PoisonError::new(StateGuard::new(poison.into_inner()))),
-        }
+        };
+        // ...and again under it (a no-op unless a creation committed in
+        // between): the creating thread cannot install anything more until
+        // this hold ends.
+        self.1.sync_for_reader();
+        locked
     }
 
     #[cfg(test)]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
-        match self.0.try_lock() {
+        let locked = match self.0.try_lock() {
             Ok(guard) => Ok(StateGuard::new(guard)),
-            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
+            Err(TryLockError::WouldBlock) => return Err(TryLockError::WouldBlock),
             Err(TryLockError::Poisoned(poison)) => {
                 Err(TryLockError::Poisoned(PoisonError::new(StateGuard::new(poison.into_inner()))))
             }
-        }
+        };
+        self.1.sync_for_reader();
+        locked
     }
 }
 
