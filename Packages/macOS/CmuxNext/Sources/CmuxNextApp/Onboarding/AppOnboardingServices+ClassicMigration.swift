@@ -169,7 +169,7 @@ extension AppOnboardingServices {
         }
         let hosts = connecting
         let run = ClassicMigrationRunState(
-            ledger: ledger, outcome: outcome, plan: plan, groups: groups, hosts: hosts, repository: repository,
+            ledger: ledger, outcome: outcome, mode: mode, plan: plan, groups: groups, hosts: hosts, repository: repository,
             targets: plan.windows.indices.map { $0 == 0 ? windows.targetWindow(preferring: firstWindow) : UUID().uuidString.lowercased() })
 
         // One window after another: creating windows side by side was five
@@ -261,8 +261,34 @@ extension AppOnboardingServices {
         run.ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .done, nextWorkspace: made)
         try await save(run.ledger, to: repository)
         run.outcome.opened.append(made)
+        // The launch's run only: Import from Classic is the person asking now, its terminals open live.
+        if run.mode == .automatic, saved.key != window.selectedKey { await parkClassicTerminals(of: made, saved: saved) }
         if index == 0 { run.openedInFirstWindow = true }
         if index == 0, saved.key == window.selectedKey { run.reveal = made }
+    }
+
+    /// Parks the terminals of a workspace that came over in the background
+    /// (`park-tabs`): their shells end and their tabs stay, each starting when
+    /// the workspace is first shown (`DaemonService.wakeParkedTabs`). So a
+    /// session with more terminals than macOS has PTYs (`kern.tty.ptmx_max`)
+    /// comes over whole. A workspace whose classic terminals carry scrollback
+    /// keeps running: its shell prints the scrollback at its first prompt.
+    private func parkClassicTerminals(of id: String, saved: ClassicSessionWorkspace) async {
+        let local = services.machines.local
+        guard local.supports(DaemonCapabilities.shared.tabPark), local.supports(DaemonCapabilities.shared.tabRestartKeptLayout),
+              saved.remote == nil, !saved.layout.tabs.contains(where: { $0.scrollback != nil || $0.agent != nil }),
+              let connection = local.connection else { return }
+        let store = local.store
+        let terminals: @MainActor @Sendable () -> [SurfaceID] = {
+            store.workspace(id: id)?.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty && !$0.dead }.map(\.surface) ?? []
+        }
+        let expected = saved.layout.tabs.filter { $0.url == nil }.count
+        guard expected > 0, await Self.awaitStore({ terminals().count >= expected }) else { return }
+        do {
+            _ = try await connection.request(ParkTabsRequest(surfaces: terminals()))
+        } catch {
+            services.daemon.logger.error("classic workspace not parked: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// Whether `ready` holds, now or within 5 s, woken by the store's own changes.
@@ -429,6 +455,8 @@ fileprivate struct ClassicWorkspaceTurn: Sendable {
 fileprivate final class ClassicMigrationRunState {
     var ledger: ClassicMigrationLedger
     var outcome: ClassicMigrationOutcome
+    /// Who started the run (only the launch's run parks background workspaces).
+    let mode: ClassicMigrationPlanner.Mode
     let plan: ClassicMigrationPlan
     /// cmux-next group ids by classic group id.
     let groups: [String: WorkspaceGroupID]
@@ -442,10 +470,11 @@ fileprivate final class ClassicMigrationRunState {
     var reveal: String?
     var openedInFirstWindow = false
 
-    init(ledger: ClassicMigrationLedger, outcome: ClassicMigrationOutcome, plan: ClassicMigrationPlan,
+    init(ledger: ClassicMigrationLedger, outcome: ClassicMigrationOutcome, mode: ClassicMigrationPlanner.Mode, plan: ClassicMigrationPlan,
          groups: [String: WorkspaceGroupID], hosts: [String: DaemonService], repository: ClassicMigrationRepository, targets: [String]) {
         self.ledger = ledger
         self.outcome = outcome
+        self.mode = mode
         self.plan = plan
         self.groups = groups
         self.hosts = hosts
