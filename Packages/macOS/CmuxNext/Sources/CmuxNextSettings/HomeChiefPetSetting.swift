@@ -32,8 +32,11 @@ extension HomeChiefPetSetting {
     /// settings are not loaded.
     public static let toggleAction: ActionID = "home.toggleChiefPet"
 
+    /// The toggle's title while the pet shows.
+    public static var hideTitle: String { SettingsText.text("chiefPet.hide", "Hide Chief Pet") }
+
     @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
-                                unavailable: String, hideTitle: String) {
+                                unavailable: String) {
         registry.bind(Self.toggleAction, invoke: { invocation in
             guard let settings = settings() else { return registry.refuse(unavailable) }
             let on = !settings.snapshot.homeChiefPetEnabled
@@ -45,8 +48,18 @@ extension HomeChiefPetSetting {
                 return nil
             })
         })
-        let title: @MainActor () -> String? = { settings()?.snapshot.homeChiefPetEnabled == true ? hideTitle : nil }
+        let title: @MainActor () -> String? = { settings()?.snapshot.homeChiefPetEnabled == true ? Self.hideTitle : nil }
         ActionTargetTitles.set(Self.toggleAction, in: registry) { _ in title() }
         ActionTargetTitles.setPaletteTitle(Self.toggleAction, in: registry, title)
+    }
+}
+
+/// The Home settings' palette and CLI toggles: Enable / Disable Channels and Show / Hide Chief Pet,
+/// bound together so the App target binds them in one call.
+public enum HomeSettingActions {
+    @MainActor public static func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
+                                       unavailable: String) {
+        HomeChannelsSetting().bind(into: registry, settings: settings, unavailable: unavailable)
+        HomeChiefPetSetting().bind(into: registry, settings: settings, unavailable: unavailable)
     }
 }
