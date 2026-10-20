@@ -310,6 +310,9 @@ final class HomeHostView: NSView {
     var debugNamedChief: String? { control.named }
     #endif
 
+    /// The transcript header's height (New Message's To: field covers it).
+    var headerHeight: CGFloat { transcript.headerHeight }
+
     /// The view that takes the keyboard when the tab's pane is focused.
     /// Home's primary input: the message box itself. Focusing the transcript
     /// view would leave it the responder after it forwards to the box.

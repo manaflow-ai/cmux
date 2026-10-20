@@ -508,6 +508,17 @@ const postStartInBackground = (sessionId: string, cwd: string | undefined, name:
   }).catch(() => undefined);
 
 /// Folder trust lives with acpmux (or the mock daemon), else the native host.
+/// Each harness's last health answer on this page (signed out, outdated, fine), drawn at once for
+/// the next chat on that harness while it is read again (Leo 2026-10-19: the notice popped in late
+/// and pushed the composer on each switch and reconnect).
+const knownHarnessHealth = new Map<string, HarnessHealth | undefined>();
+
+/// Each local folder's GitHub repository (`#123` links in the transcript) from its last read.
+const knownGithubRepositories = new Map<string, string | undefined>();
+
+/// The last measured transcript box on this page: a transcript mounting again starts from it.
+const lastTranscriptBox = { height: 600, width: 760 };
+
 const trustSource: TrustSource = {
   get: (cwd) => callNative("acp.trust.get", { cwd }),
   set: (cwd, level) => callNative("acp.trust.set", { cwd, level }),
@@ -1175,6 +1186,13 @@ function scrollRangeIn(scroller: HTMLElement, range: Range) {
   if (box.top < view.top || box.bottom > view.bottom)
     scroller.scrollTop += box.top - view.top - scroller.clientHeight / 3;
 }
+/// Scrolls `range` into view in the scrollers between it and `transcript` (a command's capped
+/// output scrolls on its own), innermost first; the transcript itself is left to the caller.
+function scrollRangeInBoxes(transcript: HTMLElement, range: Range) {
+  for (let box = range.startContainer.parentElement; box && box !== transcript; box = box.parentElement)
+    if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
+      scrollRangeIn(box, range);
+}
 /// How long Find keeps a new match in view while its groups open and the rows above it measure:
 /// at least 600 ms and 36 frames, so a page the machine starves (fewer frames) still holds the
 /// match through the measures that come late. A page hidden meanwhile draws no frames and finishes
@@ -1323,9 +1341,10 @@ export function VirtualTranscript({
     setFollowing(next);
   };
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [height, setHeight] = useState(600);
+  // The last transcript box on this page until this one is measured (before its first paint, below).
+  const [height, setHeight] = useState(() => lastTranscriptBox.height);
   const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(760);
+  const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
   // Rows place by their drawn height once drawn, and by the estimate until then.
@@ -1555,19 +1574,23 @@ export function VirtualTranscript({
   };
   useEffect(() => () => clearTimeout(seekTimer.current), []);
   const previousSession = useRef(sessionId);
-  useEffect(() => {
+  // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
+  // load, a new chat's first send, back from Harnesses) never draws a frame at a guessed size.
+  useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
+    const measure = (resized: boolean) => {
+      // A box not laid out yet (hidden, 0 high) keeps the last height rather than showing no rows.
+      if (resized || node.clientHeight > 0) setHeight(node.clientHeight);
+      setWidth(node.clientWidth);
+      if (node.clientHeight > 0) lastTranscriptBox.height = node.clientHeight;
+      if (node.clientWidth > 0) lastTranscriptBox.width = node.clientWidth;
+    };
     // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
     // transcript at its old offset and caught up a frame later.
-    const observer = new ResizeObserver(() =>
-      flushSync(() => {
-        setHeight(node.clientHeight);
-        setWidth(node.clientWidth);
-      }),
-    );
+    const observer = new ResizeObserver(() => flushSync(() => measure(true)));
     observer.observe(node);
-    setWidth(node.clientWidth);
+    measure(false);
     return () => observer.disconnect();
   }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
@@ -2114,6 +2137,7 @@ export function VirtualTranscript({
         // and a move with no render (a block that grew) is brought back here, not only on a commit.
         const range = findActiveRange();
         if (range && range.getBoundingClientRect().height > 0) {
+          scrollRangeInBoxes(node, range);
           const before = node.scrollTop;
           scrollRangeIn(node, range);
           if (node.scrollTop !== before) findMoved(node);
@@ -2130,9 +2154,7 @@ export function VirtualTranscript({
     }
     if (current.getBoundingClientRect().height === 0) return;
     // Inner scrollers first (a command's output scrolls on its own), then the transcript.
-    for (let box = current.startContainer.parentElement; box && box !== node; box = box.parentElement)
-      if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
-        scrollRangeIn(box, current);
+    scrollRangeInBoxes(node, current);
     const before = node.scrollTop;
     scrollRangeIn(node, current);
     if (node.scrollTop !== before) findMoved(node);
@@ -2736,11 +2758,15 @@ function AcpmuxPane() {
       setGithubRepository(undefined);
       return;
     }
+    // The folder's repository from its last read draws now (no links to the chat before's repo, no
+    // links popping in late); unknown, the transcript links nothing until the read answers.
+    setGithubRepository(knownGithubRepositories.get(cwd));
     let current = true;
     void callNative<{ repository?: unknown }>("git.githubRepository", { cwd })
       .then((value) => {
-        if (!current) return;
-        setGithubRepository(typeof value?.repository === "string" && value.repository ? value.repository : undefined);
+        const repository = typeof value?.repository === "string" && value.repository ? value.repository : undefined;
+        knownGithubRepositories.set(cwd, repository);
+        if (current) setGithubRepository(repository);
       })
       .catch(() => {});
     return () => {
@@ -2795,7 +2821,7 @@ function AcpmuxPane() {
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
   // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
-  const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
+  const [readHealth, setHarnessHealth] = useState<HarnessHealth>();
   const healthHarness = snapshot.summary?.harness;
   const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
   /// `harness.health {id, refresh?, rescan?}` answered by this Mac's acpmux (the Harnesses page asks
@@ -2839,21 +2865,37 @@ function AcpmuxPane() {
     };
   }, []);
   useEffect(() => {
-    if (!connected || !healthHarness || !healthLocal) {
+    if (!healthHarness || !healthLocal) {
       setHarnessHealth(undefined);
       return;
     }
+    // Reconnecting keeps the last answer on screen; the read follows the connect.
+    if (!connected) return;
     let live = true;
     // Only the fetch a recheck started asks acpmux to check again.
     const refresh = healthRecheck !== healthRechecked.current;
     healthRechecked.current = healthRecheck;
     void readHarnessHealth({ id: healthHarness, ...(refresh ? { refresh: true } : {}) })
-      .then((reply) => live && setHarnessHealth(reply.health ?? undefined))
+      .then((reply) => {
+        // A reply a newer read replaced changes nothing, the remembered answer included.
+        if (!live) return;
+        knownHarnessHealth.set(healthHarness, reply.health ?? undefined);
+        setHarnessHealth(reply.health ?? undefined);
+      })
       .catch(() => undefined);
     return () => {
       live = false;
     };
   }, [connected, healthHarness, healthLocal, healthRecheck, readHarnessHealth]);
+  // Another chat's harness draws its last known health in this render (no notice popping in late).
+  const harnessHealth =
+    healthHarness && healthLocal
+      ? readHealth?.id === healthHarness
+        ? readHealth
+        : knownHarnessHealth.has(healthHarness)
+          ? knownHarnessHealth.get(healthHarness)
+          : readHealth
+      : undefined;
   // Every harness this Mac's acpmux last found signed out, for the model picker's rail (cx-ae9eb):
   // read once the pane's direct client connects (a restored pane connects after its first render),
   // and again when a Log In comes back.
@@ -3091,7 +3133,13 @@ function AcpmuxPane() {
   }, [snapshot.rows]);
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const summaryCard = useSummaryCard(useSummaryColumn(shell, artifact !== undefined || freshView), summaryHasContent);
-  useEffect(() => setSubagentView(undefined), [shownSessionId]);
+  // Another chat closes the subagent view in the render that shows it, not an effect later (which
+  // drew one frame of the old subagent id against the new chat's rows: an empty child view).
+  const [subagentChat, setSubagentChat] = useState(shownSessionId);
+  if (subagentChat !== shownSessionId) {
+    setSubagentChat(shownSessionId);
+    setSubagentView(undefined);
+  }
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
   useEffect(() => {
     if (!requestedSubagent || !shownSessionId) return;
@@ -4160,7 +4208,9 @@ function AcpmuxPane() {
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
         )
-          setSnapshot(emptySnapshot());
+          // The chats list and peers stay (the New Tab page, the hero's projects and Recents draw from
+          // them); the client's first frame replaces them.
+          setSnapshot((previous) => ({ ...emptySnapshot(), sessions: previous.sessions, peers: previous.peers }));
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
         // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).

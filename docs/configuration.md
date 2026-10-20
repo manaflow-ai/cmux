@@ -842,6 +842,7 @@ shows the same keys.
       "inlineAutocomplete": true,
       "maxRows": 8,
       "calculator": true,
+      "showFullURLs": false,
       "glass": "off",
       "glassTint": "background",
       "glassTintStrength": 0.35,
@@ -868,6 +869,9 @@ shows the same keys.
   when the text is the start of the host and you typed that address before or visited it
   at least 4 times. Default: `true`.
 - `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.showFullURLs`: show the whole address, with `https://` and `www.`, when you are not
+  editing it (Chrome's "Always Show Full URLs"; the address bar's right-click menu toggles it).
+  Default: `false`.
 - `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
   parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
 
@@ -892,7 +896,7 @@ shows the same keys.
   `1` makes the bar solid. An opaque window with the theme's toolbar color looks the same at any
   value.
 
-Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator` and the look
+Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator`, `showFullURLs` and the look
 keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 

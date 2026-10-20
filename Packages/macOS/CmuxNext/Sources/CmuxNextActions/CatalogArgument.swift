@@ -31,6 +31,12 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string)
     }
 
+    /// Tabs by id, comma-separated (`--arg tabs=<id>,<id>`): a tab action's tabs for the CLI and
+    /// MCP, which have no strip selection. The palette never asks for it.
+    static var tabsList: ActionArgument {
+        ActionArgument(name: "tabs", title: String(localized: "argument.tabs", defaultValue: "Tabs", bundle: .module), kind: .string, isRequired: false)
+    }
+
     static var descriptionString: ActionArgument {
         ActionArgument(name: "description", title: String(localized: "argument.description", defaultValue: "Description", bundle: .module), kind: .string)
     }

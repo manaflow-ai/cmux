@@ -333,6 +333,7 @@ final class AppServices {
             PageInfoHandlers.installRouter(on: entry, registry: registry)
             CertificateWarningHandlers.installRouter(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
+            installOmnibarHooks(on: entry)
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
             attachMachineBadgeMenu(entry)
