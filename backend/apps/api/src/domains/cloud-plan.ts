@@ -1,4 +1,5 @@
 import { cloudEntryPlan, type CloudMachine, type CloudPlan } from "@cmux/protocol"
+import type { CloudTransport } from "../cloud-vm-api-config.ts"
 
 /**
  * Plan limits for CloudDO (state-placement.md 5.7, contract 1.5).
@@ -38,6 +39,7 @@ export const STUB_PLAN: PlanLimits = {
 
 /** What CloudDO's reducer needs from the deployment. Fixed per object instance, so the reducer stays pure. */
 export interface CloudConfig {
+  readonly transport?: CloudTransport
   readonly environment: string
   /** CLOUD_ALLOWED_TEAMS: the only teams with the stub plan and provider calls; empty = nobody. */
   readonly allowedTeams: ReadonlySet<string>
