@@ -80,6 +80,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         let windowTint = WindowBackdrop.currentTint(tokens)
         let page = surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens, windowTint: windowTint) }
             ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
+        let cardMaterial = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value,
+                                        minimumOpacity: ChromeTunables.cardOpacity.value)
         variables = [
             "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),
@@ -95,6 +97,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The tooltip's frosted tint (`TooltipSurface`, the native tooltip's): the popup
             // surface at the least alpha that keeps the text 4.5:1 over any backdrop.
             "--cmux-tooltip-tint": Self.css(TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint),
+            // Floating cards' material (`CardMaterial`, the native `makeOverlayPanel` cards and the
+            // find pill): the popup surface, mostly opaque, at the least alpha that keeps primary
+            // and secondary text 4.5:1 over any backdrop, and its rim.
+            "--cmux-card-tint": Self.css(cardMaterial.tint),
+            "--cmux-card-rim": Borders.drawsLines ? Self.css(cardMaterial.rim) : "transparent",
             "--cmux-text": Self.css(tokens.textPrimary),
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
             "--cmux-text-tertiary": Self.css(tokens.textTertiary),
