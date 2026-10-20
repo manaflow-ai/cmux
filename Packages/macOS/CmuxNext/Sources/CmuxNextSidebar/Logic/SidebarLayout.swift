@@ -1,4 +1,5 @@
 public import CoreGraphics
+import Accelerate
 import Foundation
 
 /// Flattened sidebar: rows with frames, plus the live gap when dragging.
@@ -40,14 +41,32 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
     mutating func replaceRows(_ range: Range<Int>, with new: [SidebarRow], shiftingFollowingBy dy: CGFloat) {
         rows.replaceSubrange(range, with: new)
         if dy != 0 {
-            // Through the buffer: each later row's y moves in place, with no copy of the row (its content).
-            let start = range.lowerBound + new.count
-            rows.withUnsafeMutableBufferPointer { buffer in
-                for i in start..<buffer.count { buffer[i].y += dy }
-            }
+            Self.shiftY(of: &rows, from: range.lowerBound + new.count, by: dy)
             totalHeight += dy
         }
         index.splice(start: range.lowerBound, removed: range.count, inserted: new.map(\.key), rows: rows)
+    }
+
+    /// Moves the y of `rows[start...]` by `dy`: one strided vector add over the rows' `y` field (no row is
+    /// copied), so a fold at 10,000 workspaces moves the rows below it in microseconds; a plain loop without it.
+    private static func shiftY(of rows: inout [SidebarRow], from start: Int, by dy: CGFloat) {
+        let count = rows.count - start
+        guard count > 0 else { return }
+        let stride = MemoryLayout<SidebarRow>.stride
+        guard CGFloat.NativeType.self == Double.self, let offset = MemoryLayout<SidebarRow>.offset(of: \SidebarRow.y),
+              stride % MemoryLayout<Double>.stride == 0, offset % MemoryLayout<Double>.alignment == 0 else {
+            for i in start..<rows.count { rows[i].y += dy }
+            return
+        }
+        var add = Double(dy)
+        rows.withUnsafeMutableBytes { bytes in
+            // crash-allow: `y` is a stored CGFloat (Double) at `offset` in each row, rows are `stride` bytes apart,
+            // and the buffer holds `rows.count` rows; the add writes only those `count` doubles.
+            guard let base = bytes.baseAddress else { return }
+            let first = (base + start * stride + offset).assumingMemoryBound(to: Double.self)
+            vDSP_vsaddD(first, vDSP_Stride(stride / MemoryLayout<Double>.stride), &add, first,
+                        vDSP_Stride(stride / MemoryLayout<Double>.stride), vDSP_Length(count))
+        }
     }
 
     /// Replaces the row at `position` with `row` of the same key and frame (a header's fold flag).
