@@ -63,7 +63,8 @@ run_lane() { # repo lane wt range pathspecs...
       -s read-only --skip-git-repo-check -o "$out" "$prompt" \
       > "$OUT_DIR/$repo-$lane.jsonl" 2> "$OUT_DIR/$repo-$lane.err" ) &
   local worker=$!
-  ( sleep "$LANE_TIMEOUT"; kill -TERM "$worker" 2>/dev/null ) &
+  # sr runs codex as a child; stop the children too, or codex keeps running orphaned.
+  ( sleep "$LANE_TIMEOUT"; pkill -TERM -P "$worker" 2>/dev/null; kill -TERM "$worker" 2>/dev/null ) &
   local watchdog=$!
   wait "$worker"; local rc=$?
   kill "$watchdog" 2>/dev/null; wait "$watchdog" 2>/dev/null
