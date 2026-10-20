@@ -61,6 +61,23 @@ struct AgentCursorNameTagTests {
         #expect(cursor.nameTag.isHidden)
     }
 
+    /// Seen in the browser use proof (2026-10-19): mid-drag the tag read upside down.
+    @Test func aGlideTurnsTheArrowButNeverItsNameTagOrCaption() throws {
+        let layer = CALayer()
+        let host = AgentCursorLayerHost(hostLayer: layer, color: { _ in CGColor(gray: 1, alpha: 1) })
+        host.apply(.place(session: "s", point: CGPoint(x: 400, y: 100)))
+        let plan = GlideMotion().plan(fromX: 400, fromY: 100, toX: 100, toY: 300, endHeading: 2.5)
+        host.apply(.glide(session: "s", plan: plan))
+        let cursor = try #require(host.cursorLayer(for: "s"))
+        let rootTurn = (cursor.root.value(forKeyPath: "transform.rotation.z") as? Double) ?? 0
+        #expect(abs(rootTurn) < 1e-9, "the tag and caption stay level")
+        #expect(cursor.root.animation(forKey: "agentCursor.heading") == nil)
+        let arrowTurn = (cursor.heading.value(forKeyPath: "transform.rotation.z") as? Double) ?? 0
+        let last = try #require(plan.samples.last)
+        #expect(abs(arrowTurn - (last.heading - AgentCursorOverlayModel.restingHeading)) < 1e-6, "the arrow points along travel")
+        #expect(cursor.heading.animation(forKey: "agentCursor.heading") != nil)
+    }
+
     @Test func aDragGlidesToTheGrabThenEndsAtTheDrop() throws {
         let host = Recording()
         let model = AgentCursorOverlayModel(resolver: Visible(), host: host)

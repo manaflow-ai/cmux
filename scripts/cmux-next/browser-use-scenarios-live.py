@@ -146,9 +146,15 @@ class Run:
 
 def open_tab(engine, url):
     action = "openBrowser.webkit" if engine == "webkit" else "openBrowser.chromium"
-    reply = rpc("action.run", {"action": action, "args": {"url": url}, "focus": True}, timeout=90)
-    created = [c for c in (reply.get("created") or []) if str(c).startswith("tab_")]
-    return created[0] if created else None
+    for attempt in range(2):
+        reply = rpc("action.run", {"action": action, "args": {"url": url}, "focus": True}, timeout=90)
+        created = [c for c in (reply.get("created") or []) if str(c).startswith("tab_")]
+        if created:
+            return created[0]
+        # A launch can open on Home with no workspace: make one, so the browser has a pane.
+        rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
+        time.sleep(2)
+    return None
 
 
 def navigate(run, url, title):
