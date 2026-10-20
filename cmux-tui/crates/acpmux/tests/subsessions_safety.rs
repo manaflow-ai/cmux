@@ -605,3 +605,25 @@ async fn a_prompt_preview_is_masked_before_it_is_cut() {
     assert!(!got.to_string().contains(&key[..10]), "{got}");
     assert!(!list.to_string().contains(&key[..10]), "{list}");
 }
+
+#[tokio::test]
+async fn the_callers_own_folder_profile_is_its_own_only_from_its_own_folder() {
+    let s = Scratch::new("ownprofile");
+    let a = s.dir("a");
+    let b = s.dir("b");
+    s.decide(&a, "trusted");
+    s.decide(&b, "trusted");
+    let gate = gate_of(&s);
+    // Two folders with a profile of the same id and the same command.
+    folder_profile(&gate, &a);
+    folder_profile(&gate, &b);
+    let hub = hub_with(&s, json!({}), Some(gate));
+    let mut app = Client::new(&hub);
+    let parent = app.new_session(&a, "fakefolder").await;
+    let mut p = Client::as_session(&hub, &parent).await;
+    // Its own folder's profile is its own harness.
+    p.ok(START, json!({"prompt": "echo x"})).await;
+    // The other folder's is that folder's.
+    let e = p.refused(START, json!({"prompt": "echo x", "cwd": b})).await;
+    assert_eq!(e["data"]["reason"], "subsessions.folder_profile", "{e}");
+}
