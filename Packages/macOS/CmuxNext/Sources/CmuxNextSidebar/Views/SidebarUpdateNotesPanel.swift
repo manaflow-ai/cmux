@@ -15,6 +15,8 @@ final class SidebarUpdateNotesPanel: NSPanel {
     let glass: OverlaySurfaceView
     /// The close finished: the highlights page can go back to wait in the card.
     var onClosed: (() -> Void)?
+    /// A close starts (any cause: the card, an action, the app resigning active), before its animation.
+    var onDismiss: (() -> Void)?
     /// Shown (or opening) and not yet dismissed.
     private(set) var isPresented = false
     private let width: CGFloat
@@ -97,6 +99,7 @@ final class SidebarUpdateNotesPanel: NSPanel {
     func dismiss() {
         guard isPresented else { return }
         isPresented = false
+        onDismiss?()
         ignoresMouseEvents = true
         generation += 1
         let closing = generation

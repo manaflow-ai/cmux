@@ -195,6 +195,7 @@ const ROW_CHANGING = new Set([
   "invite.create",
   "invite.revoke",
   "invite.accept",
+  "invite.accept_verified",
   "invite.approve_join"
 ])
 

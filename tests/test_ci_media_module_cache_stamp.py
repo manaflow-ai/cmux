@@ -12,6 +12,17 @@ The build step now runs scripts/ci/media_module_cache_stamp.py around each
 reload.sh: `clear` removes the precompiled module dirs when the binary pins
 differ from the stamp of the tag's last good build, and `record` stamps it.
 
+Removing only the module dirs broke every warm tour it touched: Xcode's
+build description (Build/Intermediates.noindex/XCBuildData) still listed the
+removed .pcm files as built, so the next compile died within a minute on
+"module file '.../ExplicitPrecompiledModules/Darwin-*.pcm' not found". All 14
+such failures on 2026-10-19 (e.g. job 118285853270) came right after a clear
+in that same dir, and since a failed build never recorded the stamp, each
+retry cleared and failed again (7 in a row on cmux-ci-media-feat-cmux-next-base).
+`clear` now removes the whole Build dir with the module caches (the package
+checkouts in SourcePackages stay) and stamps the dir right away: what is left
+was built from no other pin, whether the build then succeeds or not.
+
 Each tour now builds in the slot it claims on the Mac (scripts/ci/
 media_tag_lock.py claim, DerivedData/cmux-ci-media-slot<N>-{base,head}), reused
 by whichever pull request tours next, so each slot dir has its own stamp and a
@@ -19,7 +30,8 @@ pin change clears each slot's modules on that slot's own next build.
 
 This checks the script on a fake source tree and DerivedData, then runs the
 workflow's build step with a stand-in reload.sh that fails like Xcode did
-when a module precompiled from an older pin is still there.
+when a module precompiled from an older pin is still there, or when its build
+description lists a module file that is gone.
 """
 
 import os
@@ -37,6 +49,8 @@ STEP_NAME = "Build base and head tagged apps"
 PIN_A = "a" * 64
 PIN_B = "b" * 64
 MODULES = "Build/Intermediates.noindex/SwiftExplicitPrecompiledModules"
+BUILD_DB_DIR = "Build/Intermediates.noindex/XCBuildData"
+CHECKOUTS = "SourcePackages/checkouts"
 FAILURES = []
 
 # Stands in for reload.sh: like Xcode, it fails when a module precompiled from
@@ -48,12 +62,23 @@ tag="$2"
 derived="$HOME/Library/Developer/Xcode/DerivedData/cmux-$tag"
 pin="$(grep -o -E '[0-9a-f]{64}' Packages/Kit/Package.swift)"
 pcm="$derived/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules/GhosttyNextKit.pcm"
+darwin="$derived/Build/Intermediates.noindex/ExplicitPrecompiledModules/Darwin-B8F87C0RKU9WKGDHPXYECQVCK.pcm"
+db="$derived/Build/Intermediates.noindex/XCBuildData/build.db"
 if [ -f "$pcm" ] && [ "$(cat "$pcm")" != "$pin" ]; then
   echo "error: file 'include/ghostty.h' has been modified since the module file '$pcm' was built"
   exit 1
 fi
-mkdir -p "$(dirname "$pcm")" "$derived/Build/Products/Debug/cmux DEV $tag.app"
+# A warm build description trusts the modules it built and does not rebuild one that is gone.
+if [ -f "$db" ]; then
+  while read -r built; do
+    [ -f "$built" ] || { echo "fatal error: module file '$built' not found"; exit 1; }
+  done < "$db"
+fi
+mkdir -p "$(dirname "$pcm")" "$(dirname "$darwin")" "$(dirname "$db")" "$derived/Build/Products/Debug/cmux DEV $tag.app" \
+  "$derived/SourcePackages/checkouts/sparkle"
 echo "$pin" > "$pcm"
+echo "$pin" > "$darwin"
+printf '%s\n%s\n' "$pcm" "$darwin" > "$db"
 printf 'App path:\n  %s\n' "$derived/Build/Products/Debug/cmux DEV $tag.app"
 """
 
@@ -91,7 +116,7 @@ def make_source(path, pin):
 
 
 def make_derived(path):
-    for relative in (MODULES, "ModuleCache.noindex", "Build/Products/Debug/app.app"):
+    for relative in (MODULES, "ModuleCache.noindex", "Build/Products/Debug/app.app", BUILD_DB_DIR, CHECKOUTS):
         os.makedirs(os.path.join(path, relative))
         write(os.path.join(path, relative, "file"), "x")
 
@@ -123,8 +148,12 @@ def scenario_script():
         make_derived(derived)
         run("clear", source, derived)
         _check(not modules_present(derived), "a warm dir with no stamp drops its precompiled modules")
-        _check(os.path.isdir(os.path.join(derived, "Build/Products/Debug/app.app")),
-               "the rest of the DerivedData stays warm")
+        _check(not os.path.exists(os.path.join(derived, BUILD_DB_DIR)),
+               "it drops the build description that still lists them")
+        _check(os.path.isdir(os.path.join(derived, CHECKOUTS)), "the package checkouts stay")
+        make_derived_modules_again(derived)
+        run("clear", source, derived)
+        _check(modules_present(derived), "a cleared dir is stamped: the next tour does not clear it again")
 
         make_derived_modules_again(derived)
         run("record", source, derived)
@@ -199,6 +228,8 @@ def scenario_workflow_step():
         def head_pin(slot=0):
             pcm = os.path.join(home, f"Library/Developer/Xcode/DerivedData/cmux-ci-media-slot{slot}-head",
                                MODULES, "GhosttyNextKit.pcm")
+            if not os.path.isfile(pcm):
+                return None
             with open(pcm) as handle:
                 return handle.read().strip()
 
@@ -207,7 +238,9 @@ def scenario_workflow_step():
         # The next pull request toured in this slot moves the GhosttyNextKit pin.
         set_pin(workspace, PIN_B)
         _check(tour().returncode == 0, "a warm tour after a GhosttyNextKit pin change builds")
-        _check(head_pin() == PIN_B, "the head's module is rebuilt from the new pin")
+        _check(tour().returncode == 0, "the next tour at the new pin builds warm")
+        built = head_pin()
+        _check(built == PIN_B, f"the head's module is rebuilt from the new pin (found {built and built[:9]})")
 
         # A concurrent tour builds slot 1 at the old pin; the next pin change
         # reaches slot 1 first, then slot 0.

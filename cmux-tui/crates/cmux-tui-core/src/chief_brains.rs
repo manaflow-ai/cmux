@@ -548,6 +548,25 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
     Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux) })
 }
 
+/// The engine a Chief's record names (`cmux chief new --harness unii`, the
+/// `chiefs` tool's `harness`), as the brain's starting engine: the
+/// `OPTCHAT_CHIEF_*` values it reads before `MUX_HARNESS` and its defaults.
+/// The brain's own `engine.json` (`cmux chief engine`) still wins, so a
+/// switch made later is not undone at the next start.
+pub(crate) fn record_engine_env(engine: &crate::chief_registry::Engine) -> Vec<(String, String)> {
+    [
+        ("OPTCHAT_CHIEF_HARNESS", &engine.harness),
+        ("OPTCHAT_CHIEF_MODEL", &engine.model),
+        ("OPTCHAT_CHIEF_EFFORT", &engine.effort),
+    ]
+    .into_iter()
+    .filter_map(|(key, value)| {
+        let value = value.as_deref()?.trim();
+        (!value.is_empty() && value != "default").then(|| (key.to_owned(), value.to_owned()))
+    })
+    .collect()
+}
+
 /// The record fields the brain renders into its prompt or grant at start.
 fn prompt_key(record: &ChiefRecord) -> String {
     serde_json::json!([
@@ -987,6 +1006,7 @@ impl Supervisor {
                 Some(&record.display_name),
                 &inherited,
             ))
+            .envs(record_engine_env(&record.engine))
             .current_dir(&mux_home)
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)
@@ -1227,4 +1247,27 @@ fn list_chiefs(mux: &Mux) -> Vec<ChiefRecord> {
         }
     }
     store.as_ref().and_then(|s| s.list().ok()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod record_engine_tests {
+    use super::record_engine_env;
+    use crate::chief_registry::Engine;
+
+    #[test]
+    fn a_record_harness_becomes_the_brains_starting_harness() {
+        let engine =
+            Engine { harness: Some("unii".into()), model: None, effort: Some("default".into()) };
+        assert_eq!(
+            record_engine_env(&engine),
+            vec![("OPTCHAT_CHIEF_HARNESS".to_owned(), "unii".to_owned())]
+        );
+        assert!(record_engine_env(&Engine::default()).is_empty());
+        let full = Engine {
+            harness: Some("codex".into()),
+            model: Some("gpt-5.5".into()),
+            effort: Some("high".into()),
+        };
+        assert_eq!(record_engine_env(&full).len(), 3);
+    }
 }

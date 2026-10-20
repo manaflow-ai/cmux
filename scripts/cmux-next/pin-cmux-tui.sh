@@ -388,12 +388,15 @@ github_api() {
 # commit has tree <key>, or nothing. A commit missing locally is fetched once
 # (depth 1, best effort); one it cannot read does not count.
 active_publisher_for_key() {
-  local key="$1" body candidate
+  local key="$1" body candidate depth=()
   body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || return 0
+  # Depth 1 only in a shallow checkout: in a full clone --depth writes
+  # .git/shallow and truncates history for every worktree sharing it.
+  [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
   while read -r candidate; do
     [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
     git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null \
-      || git -C "$repo_root" fetch -q --no-tags --depth=1 origin "$candidate" 2>/dev/null || continue
+      || git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$candidate" 2>/dev/null || continue
     if [[ "$(tree_key "$candidate" 2>/dev/null)" == "$key" ]]; then echo "$candidate"; return 0; fi
   done < <(python3 -c '
 import json, sys

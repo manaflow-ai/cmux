@@ -26491,6 +26491,120 @@
             "state": "translated",
             "value": "acpmux は実行中ですが、%1$@ が所有しているため (%2$@)、このビルドでは使えません。%1$@ を終了するか、そのビルドを使ってください。"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux قيد التشغيل، لكن %1$@ يملكه (%2$@) ولا يمكن لهذا الإصدار استخدامه. أغلق %1$@، أو استخدم ذلك الإصدار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux radi, ali ga posjeduje %1$@ (%2$@) i ovaj build ga ne smije koristiti. Zatvorite %1$@ ili koristite taj build."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux kører, men %1$@ ejer den (%2$@), og denne build må ikke bruge den. Afslut %1$@, eller brug den build."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux läuft, gehört aber %1$@ (%2$@) und dieser Build darf es nicht verwenden. Beende %1$@ oder verwende diesen Build."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux se está ejecutando, pero pertenece a %1$@ (%2$@) y esta compilación no puede usarlo. Cierra %1$@ o usa esa compilación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux est en cours d’exécution, mais %1$@ en est propriétaire (%2$@) et cette build ne peut pas l’utiliser. Quittez %1$@ ou utilisez cette build."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux è in esecuzione, ma appartiene a %1$@ (%2$@) e questa build non può usarlo. Chiudi %1$@ o usa quella build."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux កំពុងដំណើរការ ប៉ុន្តែ %1$@ ជាម្ចាស់ (%2$@) ហើយ build នេះមិនអាចប្រើវាបានទេ។ បិទ %1$@ ឬប្រើ build នោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux가 실행 중이지만 %1$@이(가) 소유하고 있어(%2$@) 이 빌드에서는 사용할 수 없습니다. %1$@을(를) 종료하거나 해당 빌드를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux kjører, men %1$@ eier den (%2$@), og denne builden kan ikke bruke den. Avslutt %1$@, eller bruk den builden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux działa, ale należy do %1$@ (%2$@) i ta kompilacja nie może go używać. Zamknij %1$@ albo użyj tamtej kompilacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux está em execução, mas pertence a %1$@ (%2$@) e esta build não pode usá-lo. Encerre %1$@ ou use essa build."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux запущен, но принадлежит %1$@ (%2$@), и эта сборка не может его использовать. Закройте %1$@ или используйте ту сборку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux กำลังทำงาน แต่ %1$@ เป็นเจ้าของ (%2$@) และบิลด์นี้ใช้ไม่ได้ ปิด %1$@ หรือใช้บิลด์นั้นแทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux çalışıyor, ancak %1$@ ona sahip (%2$@) ve bu derleme onu kullanamaz. %1$@ uygulamasından çıkın veya o derlemeyi kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux запущено, але він належить %1$@ (%2$@), і ця збірка не може його використовувати. Закрийте %1$@ або скористайтеся тією збіркою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux đang chạy, nhưng %1$@ sở hữu nó (%2$@) và bản build này không thể dùng. Hãy thoát %1$@ hoặc dùng bản build đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 正在运行，但归 %1$@ 所有（%2$@），此版本无法使用。请退出 %1$@，或使用该版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 正在執行，但歸 %1$@ 所有（%2$@），此版本無法使用。請結束 %1$@，或使用該版本。"
+          }
         }
       }
     },
@@ -26507,6 +26621,120 @@
           "stringUnit": {
             "state": "translated",
             "value": "acpmux は %1$@ で実行中ですが、このビルドでは使えません: %2$@。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux قيد التشغيل على %1$@، لكن لا يمكن لهذا الإصدار استخدامه: %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux radi na %1$@, ali ga ovaj build ne smije koristiti: %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux kører på %1$@, men denne build må ikke bruge den: %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux läuft unter %1$@, aber dieser Build darf es nicht verwenden: %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux se está ejecutando en %1$@, pero esta compilación no puede usarlo: %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux est en cours d’exécution sur %1$@, mais cette build ne peut pas l’utiliser : %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux è in esecuzione su %1$@, ma questa build non può usarlo: %2$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux កំពុងដំណើរការនៅ %1$@ ប៉ុន្តែ build នេះមិនអាចប្រើវាបានទេ៖ %2$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux가 %1$@에서 실행 중이지만 이 빌드에서는 사용할 수 없습니다: %2$@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux kjører på %1$@, men denne builden kan ikke bruke den: %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux działa pod adresem %1$@, ale ta kompilacja nie może go używać: %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux está em execução em %1$@, mas esta build não pode usá-lo: %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux запущен по адресу %1$@, но эта сборка не может его использовать: %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux กำลังทำงานที่ %1$@ แต่บิลด์นี้ใช้ไม่ได้: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux %1$@ konumunda çalışıyor, ancak bu derleme onu kullanamaz: %2$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux запущено за адресою %1$@, але ця збірка не може його використовувати: %2$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux đang chạy tại %1$@, nhưng bản build này không thể dùng: %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 正在 %1$@ 运行，但此版本无法使用：%2$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 正在 %1$@ 執行，但此版本無法使用：%2$@。"
           }
         }
       }
