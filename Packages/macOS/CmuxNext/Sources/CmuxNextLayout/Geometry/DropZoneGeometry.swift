@@ -54,15 +54,32 @@ public nonisolated enum DropZoneGeometry {
     }
 
     /// Drop target under `point` (content space). Column gap zones win over
-    /// pane edges so "new column" is reachable between columns. A point in
-    /// no pane goes to the nearest pane.
+    /// pane edges so "new column" is reachable between columns. The shown
+    /// gap holds `dropZoneHysteresis` horizontally past its frame; entering
+    /// from another target shrinks it by at most a quarter of its width.
+    /// With no `previous`, gaps use their original frames. A point in no
+    /// pane goes to the nearest pane, with its own zone hysteresis.
     public static func target(at point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, headers: [PaneID: CGFloat] = [:],
                               footers: [PaneID: CGFloat] = [:], style: LayoutStyle, previous: DropTarget? = nil) -> DropTarget? {
-        for zone in geometry.gapZones where zone.frame.contains(point) {
-            return .newColumn(screen: screen, after: zone.after)
-        }
+        if let gap = gapTarget(at: point, screen: screen, geometry: geometry, style: style, previous: previous) { return gap }
         let candidates = geometry.panes.map { (pane: $0.key, cell: $0.value, visible: $0.value) }
         return paneTarget(at: point, candidates, headers: headers, footers: footers, style: style, previous: previous)
+    }
+
+    /// A column gap grows horizontally while shown, and shrinks when entering from another target.
+    static func gapTarget(at point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, style: LayoutStyle,
+                          previous: DropTarget? = nil) -> DropTarget? {
+        let margin = max(0, style.dropZoneHysteresis)
+        for zone in geometry.gapZones {
+            let target = DropTarget.newColumn(screen: screen, after: zone.after)
+            let inset: CGFloat = switch previous {
+            case target?: -margin
+            case nil: 0
+            default: min(margin, zone.frame.width / 4)
+            }
+            if zone.frame.insetBy(dx: inset, dy: 0).contains(point) { return target }
+        }
+        return nil
     }
 
     /// bonsplit's shared edge (#22287): a terminal tab dragged out of
@@ -105,7 +122,9 @@ public nonisolated enum DropZoneGeometry {
     /// rim, a docked column's edge band) goes to the nearest docked pane, so
     /// nothing lands in a strip pane hidden under it. The strip resolves as
     /// `target(at:)`. Every point resolves while the screen has a pane.
-    /// `previous` is the target the preview shows now.
+    /// `previous` is the target the preview shows now: pane zones hold near
+    /// their lines, and gaps grow horizontally while shown or shrink for
+    /// entry from another target, using `dropZoneHysteresis` as in `target(at:)`.
     public static func target(atView point: CGPoint, offset: CGFloat, screen: ScreenID, geometry: ScreenGeometry,
                               headers: [PaneID: CGFloat] = [:], footers: [PaneID: CGFloat] = [:], style: LayoutStyle,
                               previous: DropTarget? = nil) -> DropTarget? {
@@ -116,9 +135,7 @@ public nonisolated enum DropZoneGeometry {
                               footers: footers, style: style, previous: previous)
         }
         let content = CGPoint(x: point.x - shift, y: point.y)
-        for zone in geometry.gapZones where zone.frame.contains(content) {
-            return .newColumn(screen: screen, after: zone.after)
-        }
+        if let gap = gapTarget(at: content, screen: screen, geometry: geometry, style: style, previous: previous) { return gap }
         // Every pane, in view coordinates, clipped to what the docks leave
         // visible: the pane the point is in, else the nearest one.
         let uncovered = geometry.dock.isEmpty ? nil : CGRect(x: geometry.uncoveredMinX, y: geometry.uncoveredMinY,
@@ -167,25 +184,33 @@ public nonisolated enum DropZoneGeometry {
     }
 
     /// DD1: an edge band that opens a dock, while that edge has none (view
-    /// coordinates). Nil elsewhere. Top and bottom bands are `dockDropBand`
-    /// deep; the side bands are half that, so the outer panes keep their
-    /// left and right split zones. Top and bottom win in the corners.
+    /// coordinates). Nil elsewhere. The top band is `dockTopDropBand` deep,
+    /// the bottom `dockDropBand`; the side bands are half `dockDropBand`, so
+    /// the outer panes keep their left and right split zones. Top and bottom
+    /// win in the corners. The same dock in `previous` grows its band inward
+    /// by `dropZoneHysteresis`; another target shrinks it toward the edge by
+    /// at most half its depth. Nil keeps the original bands.
     /// `topInset` is the tab bar height at the top edge: the tab bar takes
     /// drops into the strip, so the top band starts below it (dogfood
     /// 2026-10-03: a band inside the tab bar was never reached).
     /// `bottomInset` is the same for a tab bar at the bottom (R109).
     public static func dockTarget(atView point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, style: LayoutStyle,
-                                  topInset: CGFloat = 0, bottomInset: CGFloat = 0) -> DropTarget? {
+                                  topInset: CGFloat = 0, bottomInset: CGFloat = 0, previous: DropTarget? = nil) -> DropTarget? {
         let size = geometry.viewport
         let band = min(style.dockDropBand, size.height / 4)
         let topBand = min(style.dockTopDropBand, size.height / 4)
         let side = min(style.dockDropBand / 2, size.width / 8)
+        let margin = max(0, style.dropZoneHysteresis)
+        func extra(_ edge: DockEdge, _ depth: CGFloat) -> CGFloat {
+            if previous == .newDock(screen: screen, edge: edge) { return margin }
+            return previous == nil ? 0 : -min(margin, depth / 2)
+        }
         let free = { (edge: DockEdge) in !geometry.dock.contains { $0.dock.edge == edge } }
-        if point.y >= topInset, point.y <= topInset + topBand, free(.top) { return .newDock(screen: screen, edge: .top) }
+        if point.y >= topInset, point.y <= topInset + topBand + extra(.top, topBand), free(.top) { return .newDock(screen: screen, edge: .top) }
         let bottom = size.height - bottomInset
-        if point.y >= bottom - band, point.y <= bottom, free(.bottom) { return .newDock(screen: screen, edge: .bottom) }
-        if point.x <= side, free(.left) { return .newDock(screen: screen, edge: .left) }
-        if point.x >= size.width - side, free(.right) { return .newDock(screen: screen, edge: .right) }
+        if point.y >= bottom - band - extra(.bottom, band), point.y <= bottom, free(.bottom) { return .newDock(screen: screen, edge: .bottom) }
+        if point.x <= side + extra(.left, side), free(.left) { return .newDock(screen: screen, edge: .left) }
+        if point.x >= size.width - side - extra(.right, side), free(.right) { return .newDock(screen: screen, edge: .right) }
         return nil
     }
 
