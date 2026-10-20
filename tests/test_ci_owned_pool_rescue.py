@@ -1307,6 +1307,45 @@ class SideLanes(unittest.TestCase):
         self.assertNotIn("cancel", api.calls)
         self.assertIn("watch limit reached", summary)
 
+    def test_a_run_a_code_failure_already_decided_is_not_re_run(self):
+        # feat-cmux-next, 2026-10-20: the Linux `checks` job failed on the base's own red checks,
+        # the Release compile waited on the side minis, and the rescue cancelled and re-ran the
+        # run twice; each attempt failed `checks` the same way (run 39382369248, attempts 1 to 3).
+        def checks_failed():
+            failed = job("cmux-next checks (god files, concurrency, string tables)", status="completed",
+                         labels=["blacksmith-16vcpu-ubuntu-2404"], runner="blacksmith-1")
+            failed.update(conclusion="failure", started_at=stamp(1), completed_at=stamp(120), steps=[
+                {"name": "Set up job", "conclusion": "success"},
+                {"name": "God files and types (Swift)", "conclusion": "success"},
+                {"name": "Fail on any red check", "conclusion": "failure"}])
+            return failed
+
+        def cmux_next(seconds):
+            return [checks_failed(), job("cmux-next Release compile (Xcode 26)", labels=[SIDE], created=0)]
+
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next)
+        code, summary = run_main(api, clock, payload=side_event(path=".github/workflows/cmux-next.yml"),
+                                 env_extra={"SIDE_RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("already failed", summary)
+
+        # The same holds for a CI run on the minis: a stuck shard is left queued when a guard already failed.
+        stuck = job("macos / shard 2", labels=[MINI], created=0)
+        late = START + dt.timedelta(seconds=600)
+        look = rescue.assess([checks_failed(), stuck], now=late, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        self.assertIn("already failed", look.reason)
+        # A refusal is still re-run: it is the fleet's failure, not the change's.
+        look = rescue.assess([checks_failed(), stuck, refused_job("macos / shard 3")], now=late, budget_seconds=90)
+        self.assertEqual(look.action, "refused")
+        # A refused sibling alone does not count as a decided run: the stuck job is still moved.
+        look = rescue.assess([refused_job("macos / shard 3"), stuck], now=late, budget_seconds=90)
+        self.assertEqual(look.action, "rescue")
+
     def test_a_sibling_on_a_mini_does_not_hide_a_refusal_or_a_held_job(self):
         running = job("macos / shard 1", status="in_progress", labels=[MINI], runner="mini-2")
         running["started_at"] = stamp(5)
