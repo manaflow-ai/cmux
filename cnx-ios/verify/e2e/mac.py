@@ -88,6 +88,12 @@ def refuse_other_rigs(own_bundle_id):
     """Refuse to start while another tag's rig Mac app runs: both sign in to the same
     dev account, so the phone would list (and a step could act on) the other rig's Mac."""
     others = [a for a in running_rig_apps() if a[1] != own_bundle_id]
+    if others and os.environ.get("CNX_E2E_ALLOW_OTHER_RIGS") == "1":
+        # Opt-in for runs that pick their Mac by device id only (the bench's
+        # mac_discovered step) and never act on another rig's Mac: the other
+        # app keeps running untouched.
+        print(f"note: {len(others)} other rig Mac app(s) running; CNX_E2E_ALLOW_OTHER_RIGS=1, choosing ours by device id")
+        return
     if others:
         lines = "\n".join(f"  pid {pid}  {bundle}  {path}" for pid, bundle, path in others)
         raise SystemExit(
