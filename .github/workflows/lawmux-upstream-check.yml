@@ -35,8 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           failed=0
-          gh api --paginate "repos/$GH_REPO/actions/workflows" \
-            --jq '.workflows[] | select(.state == "active") | select(.path | test("/lawmux-[^/]+\\.ya?ml$") | not) | "\(.id) \(.path)"' |
+          # Process substitution keeps the loop in this shell so `failed` survives.
           while read -r id path; do
             if gh api -X PUT "repos/$GH_REPO/actions/workflows/$id/disable" >/dev/null; then
               echo "disabled $path"
@@ -45,7 +44,8 @@ jobs:
               failed=1
             fi
             sleep 1
-          done
+          done < <(gh api --paginate "repos/$GH_REPO/actions/workflows" \
+            --jq '.workflows[] | select(.state == "active") | select(.path | test("/lawmux-[^/]+\\.ya?ml$") | not) | "\(.id) \(.path)"')
           exit "$failed"
 
       - name: Report pending upstream commits
