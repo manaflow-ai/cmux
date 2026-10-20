@@ -158,6 +158,19 @@ struct WorktreeSeedRepositoryTests {
         #expect(!entry.escapesRepository)
     }
 
+    /// `future/..` names the repository only while `future` is missing or a
+    /// plain directory. Created later as a link, it would climb out, so a
+    /// target that steps back up through a missing component is refused.
+    @Test func aDanglingSymlinkThatClimbsThroughAMissingComponentIsAnEscape() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        try tree.file("inside")
+        let target = URL(fileURLWithPath: tree.root.path + "/future/../inside")
+        try tree.symlink("climbing", to: target)
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "climbing" })
+        #expect(entry.escapesRepository)
+    }
+
     @Test func aDanglingSymlinkInsideTheRepositoryIsNotAnEscape() throws {
         let tree = try WorktreeSeedTemporaryTree()
         let target = tree.root.appendingPathComponent("future/secret")

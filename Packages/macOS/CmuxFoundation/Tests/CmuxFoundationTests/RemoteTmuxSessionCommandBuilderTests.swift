@@ -218,8 +218,8 @@ struct RemoteTmuxSessionCommandBuilderTests {
         }
     }
 
-    /// A failed managed refresh must stop reconnect before it attaches, without
-    /// exposing the remote tmux diagnostic directly to the caller.
+    /// A failed managed refresh must stop reconnect before it attaches. It says
+    /// why in cmux's own words, without passing on the remote tmux diagnostic.
     @Test("existing session stops before attach when managed default refresh fails")
     func existingSessionStopsWhenManagedDefaultRefreshFails() throws {
         try withFakeTmux(sessionExists: true, setOptionStatus: 23) { directory, environment in
@@ -236,7 +236,7 @@ struct RemoteTmuxSessionCommandBuilderTests {
             )
 
             #expect(result.status == 23)
-            #expect(result.stderr.isEmpty)
+            #expect(result.stderr == "cmux: could not update the shell command of tmux session existing-managed\n")
             let calls = try invocations(in: directory)
             #expect(calls.contains(["set-option", "-t", "=existing-managed:", "default-command", shellCommand]))
             #expect(!calls.contains { $0.first == "attach-session" })

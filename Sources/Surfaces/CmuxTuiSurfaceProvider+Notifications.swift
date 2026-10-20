@@ -69,6 +69,17 @@ extension CmuxTuiSurfaceProvider {
         #endif
     }
     // MARK: Agent hooks
+    /// The remote workspaces whose tabs show `terminalID` in the accepted graph,
+    /// in graph order. Hook routing and notification placement both use it.
+    nonisolated static func remoteWorkspaceIDs(showing terminalID: String, in state: CloudVMState) -> [String] {
+        state.tabs.compactMap { tab in
+            guard tab.contentID == terminalID,
+                  let pane = state.lookupIndex.pane(id: tab.paneID),
+                  let screen = state.lookupIndex.screen(id: pane.screenID) else { return nil }
+            return screen.workspaceID
+        }
+    }
+
     /// Selects the pane for a mirrored hook from the terminal's catalog projections.
     ///
     /// `remoteWorkspaceIDs` are the remote workspaces the accepted daemon graph
@@ -103,12 +114,7 @@ extension CmuxTuiSurfaceProvider {
         let machine = self.machine
         let catalog = self.catalog
         func remoteWorkspaceIDs(for terminalID: String) -> [String] {
-            state.tabs.compactMap { tab in
-                guard tab.contentID == terminalID,
-                      let pane = state.lookupIndex.pane(id: tab.paneID),
-                      let screen = state.lookupIndex.screen(id: pane.screenID) else { return nil }
-                return screen.workspaceID
-            }
+            Self.remoteWorkspaceIDs(showing: terminalID, in: state)
         }
         func panel(for terminalID: String) -> SurfaceProjection? {
             Self.mirroredAgentHookProjection(
@@ -144,14 +150,9 @@ extension CmuxTuiSurfaceProvider {
         CloudNotificationPlacementResolver(
             machine: machine,
             projections: { [catalog] in catalog.projections(of: $0) },
-            remoteWorkspaceID: { [weak self] terminalID in
-                guard let state = self?.cloudState else { return nil }
-                for tab in state.tabs where tab.contentID == terminalID {
-                    guard let pane = state.lookupIndex.pane(id: tab.paneID),
-                          let screen = state.lookupIndex.screen(id: pane.screenID) else { continue }
-                    return screen.workspaceID
-                }
-                return nil
+            remoteWorkspaceIDs: { [weak self] terminalID in
+                guard let state = self?.cloudState else { return [] }
+                return Self.remoteWorkspaceIDs(showing: terminalID, in: state)
             },
             boundWorkspaces: { [machineID] in
                 (AppDelegate.shared?.tabManager?.tabs ?? []).compactMap { workspace in

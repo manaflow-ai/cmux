@@ -8,6 +8,7 @@ import { claimNextRunAttempt, renewRunAttemptLease, checkpointRunAttempt, finish
 import { normalizeRunSpec } from "./spec";
 import { parseSourceVerificationReceipt, sourceVerificationCommand } from "./sourceVerification";
 import { storeRunArtifact } from "./repository";
+import { withVariantExecution } from "./agentCommand";
 
 const LEASE_MS = 90_000;
 const quote = (text: string) => `'${text.replace(/'/g, `'"'"'`)}'`;
@@ -59,10 +60,9 @@ async function executeClaim(attempt: ClaimedRunAttempt, client: RunCloudClient) 
   const marker = `${attempt.runId}:${attempt.attemptId}:completed`;
   const source = sourceVerificationCommand(spec, marker);
   const instruction = spec.variants[attempt.ordinal]?.instruction;
-  const work = instruction ? `\ncodex exec --json --full-auto ${quote(instruction)} >/tmp/cmux-agent-output-${attempt.attemptId}.jsonl\n` : "";
   // Source/setup verifier owns the workspace and inserts the optional recipe
   // before its final receipt; no deployment token is passed to guest commands.
-  const script = source.replace("# CMUX_VARIANT_EXECUTION", work);
+  const script = withVariantExecution(source, instruction, attempt.attemptId);
   const command = replaySafeGuestCommand(attempt.attemptId, script);
   const response = await client("POST", `/api/vm/${encodeURIComponent(providerVmId)}/exec`, { command, timeoutMs: spec.resources.wallTimeoutMs });
   if (response.exitCode === 75) throw new RunPending("Guest command remains active");
@@ -75,8 +75,8 @@ async function executeClaim(attempt: ClaimedRunAttempt, client: RunCloudClient) 
 }
 
 async function processClaim(attempt: ClaimedRunAttempt): Promise<string> {
-  if (!attempt.ownerTeamId) throw new Error("Queued Run lacks an immutable owner");
-  const client = await runCloudClient(attempt.userId, attempt.ownerTeamId);
+  // Renew before opening the owner's session: that setup has no timeout of
+  // its own, and failClaim can only record 'failed' under a live lease.
   let lost = false;
   let renewing = false;
   const timer = setInterval(() => {
@@ -85,6 +85,16 @@ async function processClaim(attempt: ClaimedRunAttempt): Promise<string> {
     void renewRunAttemptLease({ ...attempt, leaseMs: LEASE_MS }).then((ok) => { if (!ok) lost = true; }).catch(() => { lost = true; }).finally(() => { renewing = false; });
   }, 20_000);
   try {
+    // Every failure after the claim, including opening the owner's session,
+    // must end the attempt. An escaped throw left it 'running', and each later
+    // cron claim failed the same way, so the Run never ended.
+    let client: RunCloudClient;
+    try {
+      if (!attempt.ownerTeamId) throw new Error("Queued Run lacks an immutable owner");
+      client = await runCloudClient(attempt.userId, attempt.ownerTeamId);
+    } catch {
+      return await failClaim(attempt, "Run worker could not open the owner's Cloud session");
+    }
     const executed = await executeClaim(attempt, client);
     if (lost) throw new RunInterrupted("Run lease lost");
     let cleanupState = "retained";
@@ -98,13 +108,17 @@ async function processClaim(attempt: ClaimedRunAttempt): Promise<string> {
     return applied ? "succeeded" : "fenced";
   } catch (error) {
     if (error instanceof RunPending) return "pending";
-    // Raw provider/database errors must never enter durable receipts.
-    const applied = await finishRunAttempt({ ...attempt, status: "failed", error: "Run source/setup, recipe, or Cloud operation failed" });
-    if (!applied) await cancelClaimedRunAttempt(attempt);
-    return applied ? "failed" : "fenced";
+    return await failClaim(attempt, "Run source/setup, recipe, or Cloud operation failed");
   } finally {
     clearInterval(timer);
   }
+}
+
+/** Raw provider/database errors must never enter durable receipts. */
+async function failClaim(attempt: ClaimedRunAttempt, error: string): Promise<string> {
+  const applied = await finishRunAttempt({ ...attempt, status: "failed", error });
+  if (!applied) await cancelClaimedRunAttempt(attempt);
+  return applied ? "failed" : "fenced";
 }
 
 /** Protected cron is the durable trigger; after() only reduces first-run latency. */
