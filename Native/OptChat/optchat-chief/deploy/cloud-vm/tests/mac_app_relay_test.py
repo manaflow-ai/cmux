@@ -81,7 +81,7 @@ class RelayTest(unittest.TestCase):
         self.assertTrue(ready.wait(5))
         return listen
 
-    def test_requests_reach_the_app_and_answers_come_back(self):
+    def test_diagnostics_reach_the_app_but_actions_do_not(self):
         listen = self.start_relay(self.app_path)
         self.assertEqual(stat.S_IMODE(os.stat(listen).st_mode), 0o600)
         ping, run = ask(listen,
@@ -89,7 +89,8 @@ class RelayTest(unittest.TestCase):
                         {"id": 2, "method": "action.run", "params": {
                             "action": "tab new page", "cli": True, "origin": "mcp", "after": "sync"}})
         self.assertEqual(ping, {"id": 1, "ok": True, "result": {"app": "cmux-next", "pong": True}})
-        self.assertEqual(run["result"]["echo"]["action"], "tab new page")
+        self.assertFalse(run["ok"])
+        self.assertEqual(run["error"]["code"], "app.remote_denied")
 
     def test_non_allowlisted_methods_and_actions_never_reach_the_mac(self):
         listen = self.start_relay(self.app_path)
