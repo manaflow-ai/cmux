@@ -6,11 +6,16 @@ public import AppKit
 @MainActor
 public final class CmuxDialogButtonView: NSButton {
     public private(set) var button: CmuxDialogButton
+    /// The key that presses this button, drawn after its title (u2647); nil draws none.
+    public var keyHint: CmuxDialogKeyHint? { nil }
     private var isHovering = false { didSet { refresh() } }
     private var tracking: NSTrackingArea?
     private var hasFocus = false { didSet { refresh() } }
 
-    public init(_ button: CmuxDialogButton, target: AnyObject?, action: Selector) {
+    /// A button drawing `hint` after its title. The hint only labels the key: the host
+    /// answers it (``CmuxDialogView`` through ``CmuxDialogKeys``), so pass the hint that
+    /// ``CmuxDialogKeys/hint(for:in:)`` gives for the host's spec.
+    public init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, target: AnyObject?, action: Selector) {
         self.button = button
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
