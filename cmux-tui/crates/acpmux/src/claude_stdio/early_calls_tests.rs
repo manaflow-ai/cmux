@@ -124,3 +124,51 @@ async fn a_background_subagents_call_named_early_runs_on_past_the_turns_result()
     let call = whole.iter().find(|u| u["toolCallId"] == "toolu_w").expect("the whole call");
     assert_eq!(call["sessionUpdate"], "tool_call_update");
 }
+
+#[tokio::test]
+async fn a_call_named_early_fails_when_claude_exits_while_its_input_streams() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&block_start("toolu_w", "Write")).await;
+    // A background subagent's call ends with the process too.
+    t.background_subagents.lock().await.insert("toolu_bg".to_owned());
+    let mut start = block_start("toolu_b", "Edit");
+    start["parent_tool_use_id"] = json!("toolu_bg");
+    t.inbound(&start).await;
+    let ended = updates(&t.end_background_shells().await);
+    for id in ["toolu_w", "toolu_b"] {
+        assert!(
+            ended.iter().any(|u| u["sessionUpdate"] == "tool_call_update"
+                && u["toolCallId"] == id
+                && u["status"] == "failed"),
+            "{id}: {ended:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_background_subagents_call_named_early_fails_when_the_subagent_ends() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let spawn = whole_call(
+        "toolu_bg",
+        "Agent",
+        json!({"description": "look around", "prompt": "look", "run_in_background": true}),
+    );
+    t.inbound(&spawn).await;
+    t.background_subagents.lock().await.insert("toolu_bg".to_owned());
+    let mut start = block_start("toolu_w", "Write");
+    start["parent_tool_use_id"] = json!("toolu_bg");
+    t.inbound(&start).await;
+    let stopped = json!({"type": "system", "subtype": "task_notification", "task_id": "task-1",
+        "tool_use_id": "toolu_bg", "status": "stopped"});
+    let ended = updates(&t.inbound(&stopped).await);
+    assert!(
+        ended.iter().any(|u| u["sessionUpdate"] == "subagent_state_update"),
+        "the subagent ends: {ended:?}"
+    );
+    assert!(
+        ended.iter().any(|u| u["sessionUpdate"] == "tool_call_update"
+            && u["toolCallId"] == "toolu_w"
+            && u["status"] == "failed"),
+        "{ended:?}"
+    );
+}
