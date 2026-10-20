@@ -456,6 +456,15 @@ async fn dispatch_request(
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
+            // A prompt sent while a turn runs stops that turn and runs next, unless it asks to
+            // wait (`_meta.acpmux.queue`) or the daemon is set to queue (`busyPrompt`).
+            let queue = match flag("queue") {
+                Some(queue) => queue,
+                None => {
+                    hub.config.read().await.busy_prompt.unwrap_or_default()
+                        == crate::config::BusyPrompt::Queue
+                }
+            };
             let prompt_id = mux_meta(&params)
                 .and_then(|m| m.get("promptId"))
                 .and_then(Value::as_str)
@@ -471,7 +480,7 @@ async fn dispatch_request(
                 control: super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 steer_only: flag("steerOnly") == Some(true),
-                interrupt: steer && flag("interrupt") == Some(true),
+                interrupt: if steer { flag("interrupt") == Some(true) } else { !queue },
                 provenance,
                 after_turn: None,
             };

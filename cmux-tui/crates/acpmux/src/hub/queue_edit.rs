@@ -13,7 +13,7 @@ mod withdraw;
 
 /// The stricter of two controls: an edit never runs a prompt under looser rules than either
 /// the prompt's sender's or the editor's.
-fn stricter(a: Control, b: Control) -> Control {
+pub(super) fn stricter(a: Control, b: Control) -> Control {
     match (a, b) {
         (Control::Web, _) | (_, Control::Web) => Control::Web,
         (Control::Peer, _) | (_, Control::Peer) => Control::Peer,
@@ -108,6 +108,7 @@ impl Hub {
             };
             q.run = Arc::new(PromptRun {
                 blocks,
+                carried: q.run.carried.clone(),
                 control: stricter(q.run.control, control),
                 trust_gate: q.run.trust_gate || trust_gate,
                 // The person rewrote it: it is no longer the sender's message.
@@ -176,6 +177,7 @@ impl Hub {
                 };
                 let run = PromptRun {
                     blocks: q.run.blocks.clone(),
+                    carried: q.run.carried.clone(),
                     control,
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),

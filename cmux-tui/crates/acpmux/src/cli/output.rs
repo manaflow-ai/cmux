@@ -31,13 +31,15 @@ pub(crate) struct PromptId {
     /// The id came from `--prompt-id`: the daemon also looks for it in the
     /// session's log, which outlives a daemon restart.
     pub resend: bool,
+    /// Wait behind a running turn (`--queue`) instead of stopping it (the default).
+    pub queue: bool,
 }
 
 impl PromptId {
     pub(crate) fn new(given: Option<String>) -> Self {
         match given {
-            Some(id) => Self { id, resend: true },
-            None => Self { id: uuid::Uuid::now_v7().to_string(), resend: false },
+            Some(id) => Self { id, resend: true, queue: false },
+            None => Self { id: uuid::Uuid::now_v7().to_string(), resend: false, queue: false },
         }
     }
 
@@ -51,6 +53,9 @@ impl PromptId {
         provenance: Option<&Value>,
     ) -> Value {
         let mut mux = json!({"steer": steer, "promptId": self.id, "resend": self.resend});
+        if self.queue {
+            mux["queue"] = json!(true);
+        }
         if let Some(p) = provenance {
             mux["provenance"] = p.clone();
         }
@@ -820,7 +825,7 @@ mod prompt_tests {
         let session = hub.resolve(&id).unwrap();
         assert!(session.turn().is_some(), "the turn should still be running");
         // The same id again is answered by the first run, not a second turn.
-        let again = PromptId { id: prompt.id.clone(), resend: true };
+        let again = PromptId { id: prompt.id.clone(), resend: true, queue: false };
         let dup = queue_prompt(client.clone(), &id, "slow", false, None, &again).await.unwrap();
         assert_eq!(dup["duplicate"], true);
         let user_messages =

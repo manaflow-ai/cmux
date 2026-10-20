@@ -329,7 +329,8 @@ impl SessionFold {
             }
             "turn_result" if record.dir == "mux" => {
                 let status = match record.msg.get("status").and_then(Value::as_str) {
-                    Some("cancelled") => TurnStatus::Cancelled,
+                    // An interrupt carried into the next prompt (`queue.rs` `carry_into_next`).
+                    Some("cancelled" | "carried") => TurnStatus::Cancelled,
                     Some("failed") => TurnStatus::Failed,
                     _ => TurnStatus::Completed,
                 };

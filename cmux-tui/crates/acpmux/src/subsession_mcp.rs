@@ -88,13 +88,14 @@ fn tools() -> Value {
         },
         {
             "name": "send_message",
-            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). It queues behind a running turn; with interrupt: true it stops that turn first. The receiver sees it came from you.",
+            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). A message to a sub-session stops its running turn and runs next; queue: true waits for the turn to end instead. A message to your parent always waits for its turn. The receiver sees it came from you.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "sessionId": {"type": "string"},
                     "text": {"type": "string"},
-                    "interrupt": {"type": "boolean"}
+                    "interrupt": {"type": "boolean"},
+                    "queue": {"type": "boolean"}
                 },
                 "required": ["sessionId", "text"]
             }

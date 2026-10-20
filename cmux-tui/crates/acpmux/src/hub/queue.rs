@@ -33,9 +33,13 @@ pub struct QueuedPrompt {
 }
 
 /// A queued prompt and the rules it runs under.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct PromptRun {
     pub(super) blocks: Vec<Value>,
+    /// Prompts an interrupt overtook before their own turn started (`carry_into_next`): sent
+    /// to the agent ahead of `blocks`, in the order they were sent. Not part of what the
+    /// transcript shows as this prompt.
+    pub(super) carried: Vec<Value>,
     pub(super) control: Control,
     pub(super) trust_gate: bool,
     /// Who sent it (`prompt_provenance.rs`); an edit drops it.
@@ -116,9 +120,12 @@ impl Hub {
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                 let withdraw = waiting.then(|| {
                     let withdraw = self.enqueue(session, &p, position, &turn_id);
-                    accept(
-                        json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position}),
-                    );
+                    let mut accepted = json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position});
+                    // It waits only for the running turn to stop (`put_interrupting`).
+                    if p.interrupt {
+                        accepted["interrupt"] = json!(true);
+                    }
+                    accept(accepted);
                     withdraw
                 });
                 (turn_id, withdraw)
@@ -133,16 +140,18 @@ impl Hub {
             }
             let run = PromptRun {
                 blocks: p.blocks.to_vec(),
+                carried: Vec::new(),
                 control: p.control,
                 trust_gate: p.trust_gate,
                 provenance: p.provenance.cloned(),
             };
             return Ok((turn_id, false, guard, Arc::new(run)));
         };
-        // A steer the agent cannot take goes next, and stops the turn that runs now.
+        // An interrupt (the default for a prompt sent mid-turn, and a steer the agent cannot
+        // take) goes next, after interrupts sent before it, and stops the turn that runs now.
         if p.interrupt {
             let running = session.turn().map(|t| t.turn_id);
-            if self.put_next(session, p.prompt_id)
+            if self.put_interrupting(session, p.prompt_id)
                 && let Some(running) = running
             {
                 self.cancel_turn(session, &running).await;
@@ -180,7 +189,10 @@ impl Hub {
             provenance,
             ..Default::default()
         };
-        Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
+        // A steer has no turn of its own to carry prompts in: they go first, in its text.
+        let mut blocks = run.carried.clone();
+        blocks.extend(run.blocks.iter().cloned());
+        Box::pin(self.run_prompt(session, blocks, client, true, opts)).await
     }
 
     /// Stops the turn `turn_id` if it still runs: a bare cancel stops whatever turn runs now,
@@ -217,6 +229,7 @@ impl Hub {
                 withdraw: withdraw.clone(),
                 run: Arc::new(PromptRun {
                     blocks: p.blocks.to_vec(),
+                    carried: Vec::new(),
                     control: p.control,
                     trust_gate: p.trust_gate,
                     provenance: p.provenance.cloned(),
@@ -233,7 +246,10 @@ impl Hub {
         drop(queue);
         // `prompt`, `control`, `trustGate` and the provenance let a new daemon run it
         // (`restore_queues`).
-        let queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
+        let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
+        if p.interrupt {
+            queued["interrupt"] = json!(true);
+        }
         self.append(
             session,
             "mux",
@@ -383,6 +399,66 @@ impl Hub {
         true
     }
 
+    /// Puts an interrupting prompt next, after the interrupts that wait already (they run in the
+    /// order they were sent), ahead of every prompt that only queued. False when it no longer
+    /// waits.
+    pub(super) fn put_interrupting(&self, session: &Arc<Session>, prompt_id: &str) -> bool {
+        let order: Vec<String> = {
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
+                return false;
+            };
+            let mut q = queue.remove(from);
+            (q.held, q.sent_now) = (false, true);
+            let at = queue.iter().take_while(|q| q.sent_now).count();
+            queue.insert(at, q);
+            queue.iter().map(|q| q.prompt_id.clone()).collect()
+        };
+        session.queue_moved.notify_waiters();
+        let msg = json!({"promptId": prompt_id, "order": order, "next": true});
+        self.append(session, "mux", "queue_order", msg);
+        true
+    }
+
+    /// An interrupting prompt that got its turn while another interrupt waits behind it was
+    /// overtaken before it started: rather than start a turn the next prompt stops at once, it
+    /// goes to the agent at the head of that next prompt (`PromptRun::carried`), which runs
+    /// under the stricter rules of the two. Nothing is lost and the agent reads both in the
+    /// order they were sent. Returns the prompt id it was carried into; `None` (it runs) when
+    /// no interrupt waits next.
+    pub(super) fn carry_into_next(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        run: &PromptRun,
+    ) -> Option<String> {
+        let (next, turn_id, carried) = {
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let q = queue.iter_mut().find(|q| !q.held)?;
+            if !q.sent_now || q.steer {
+                return None;
+            }
+            let mut carried = run.carried.clone();
+            carried.extend(run.blocks.iter().cloned());
+            carried.extend(q.run.carried.iter().cloned());
+            q.run = Arc::new(PromptRun {
+                carried,
+                control: super::queue_edit::stricter(q.run.control, run.control),
+                trust_gate: q.run.trust_gate || run.trust_gate,
+                ..(*q.run).clone()
+            });
+            (q.prompt_id.clone(), q.turn_id.clone(), q.run.clone())
+        };
+        // A new daemon rebuilds the carried prompt with what it carries (`restore_queue`).
+        self.append(
+            session,
+            "mux",
+            "queue_carried",
+            json!({"promptId": next, "turnId": turn_id, "from": prompt_id, "prompt": carried.carried, "control": carried.control.as_str(), "trustGate": carried.trust_gate}),
+        );
+        Some(next)
+    }
+
     /// With the turn lock held, takes a queued prompt out of the queue for its turn, with what it
     /// runs. A prompt `remove_queued` withdrew just as the lock freed (and counted off) gets no
     /// turn: the reply its `session/prompt` answers instead.
@@ -508,6 +584,15 @@ impl Hub {
                         }
                     }
                 }
+                // An overtaken interrupt carried into this prompt (`carry_into_next`).
+                "queue_carried" => {
+                    if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id) {
+                        q.msg["carried"] = e.msg.get("prompt").cloned().unwrap_or(Value::Null);
+                        for k in ["control", "trustGate"] {
+                            q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
+                        }
+                    }
+                }
                 "queue_paused" => {
                     let ids = e.msg.get("held").and_then(Value::as_array);
                     held.extend(ids.into_iter().flatten().cloned());
@@ -558,7 +643,18 @@ impl Hub {
                 preview: short_text(&text, 200),
                 queued_at: e.at,
                 withdraw: Arc::new(Notify::new()),
-                run: Arc::new(PromptRun { blocks, control, trust_gate, provenance }),
+                run: Arc::new(PromptRun {
+                    blocks,
+                    carried: e
+                        .msg
+                        .get("carried")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default(),
+                    control,
+                    trust_gate,
+                    provenance,
+                }),
                 restored: true,
                 resume: true,
                 steer: false,
