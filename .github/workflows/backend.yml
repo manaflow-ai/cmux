@@ -61,6 +61,10 @@ on:
         description: "API test filename prefix for verify"
         type: string
         default: cloud-vm-api-receiver
+      generate_catalog:
+        description: "Generate catalog/client patch instead of tests (verify only)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -76,7 +80,7 @@ env:
 
 jobs:
   verify:
-    if: github.event_name == 'workflow_dispatch' && inputs.target == 'verify'
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'verify' && !inputs.generate_catalog
     name: focused API verification
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
@@ -126,6 +130,65 @@ jobs:
         run: bun run test "test/$TEST_FILTER" --reporter=verbose
       - name: Verify tracked source stayed unchanged
         run: git diff --exit-code
+
+  generate-catalog:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'verify' && inputs.generate_catalog
+    name: generate protocol artifacts
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: ${{ inputs.commit }}
+    steps:
+      - name: Validate generation request
+        run: |
+          python3 - <<'PY'
+          import os, re
+          if not re.fullmatch(r"[0-9a-f]{40}", os.environ["SOURCE_SHA"]):
+              raise SystemExit("generation needs an exact source SHA")
+          PY
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - name: Verify generation source
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git log -1 --format=%H
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - name: Install locked dependencies
+        working-directory: backend
+        run: bun install --frozen-lockfile
+      - name: Generate catalog and clients
+        working-directory: backend
+        run: |
+          bun run catalog:export
+          bun run catalog:client
+          bun run catalog:rust
+      - name: Package generated changes
+        run: |
+          git add --intent-to-add -- cmux-tui/crates/cmux-cloud-wire/src/generated
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          files = subprocess.check_output(["git", "diff", "--name-only", "-z"]).decode().strip("\0").split("\0")
+          files = [p for p in files if p]
+          exact = {"backend/catalog/cloud-operations.json", "clients/ts/cloud/src/generated.ts", "clients/ts/cloud/src/automation-cmux.ts"}
+          if any(p not in exact and not (p.startswith("cmux-tui/crates/cmux-cloud-wire/src/generated/") and p.endswith(".rs")) for p in files):
+              raise SystemExit("generator changed an unexpected source path")
+          patch = subprocess.check_output(["git", "diff", "--binary"])
+          output = Path(os.environ["RUNNER_TEMP"]) / "protocol-codegen"
+          output.mkdir()
+          (output / "catalog.patch").write_bytes(patch)
+          (output / "receipt.json").write_text(json.dumps({"purpose": "generation-only", "source_sha": os.environ["SOURCE_SHA"], "files": files, "patch_sha256": hashlib.sha256(patch).hexdigest()}, indent=2) + "\n")
+          print("Generated source files:", len(files))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: protocol-codegen-${{ inputs.commit }}
+          path: ${{ runner.temp }}/protocol-codegen/
+          if-no-files-found: error
 
   test:
     # A manual focused run must not create a skipped check named `test` that
