@@ -30,8 +30,10 @@ A Chief home (`~/.cmux/chief/<name>`, cmux-tui `cli/chief/home.rs`) is self-cont
 | Agent token, adopted list, migration record | `agent-token`, `adopted.json`, `migration.json` | files | yes |
 | Sockets, locks, pids, logs, traces, caches, launchers, per-session Claude/Codex config, login env | `*.sock`, `*.lock`, `*.pid`, `*.log`, `optchat/traces`, `optchat/claude`, `compactor-*`, `turn-codex`, `session`, `bin`, `codex`, `acpmux/run`, `acpmux/live-models`, `acpmux/login-env.json`, `acpmux/router`, `acpmux/hosts` | machine-local | never: the target rebuilds them; login env and router stay per machine |
 
-The list is an allowlist in code (`migrate::INCLUDE`), so a new file is machine-local until
-someone adds it on purpose.
+The machine-local list is a denylist in code (`migrate::LOCAL_NAMES`, `LOCAL_SUFFIXES`,
+`LOCAL_DIRS`): a new file moves unless someone marks it machine-local on purpose, because a file
+left behind can lose messages and a file carried along only costs bytes. `optchat/subagent`
+(the subagent working directory the host writes) is machine-local too.
 
 ## 2. Checkpoint format `cmux-chief-checkpoint/1`
 

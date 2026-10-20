@@ -552,6 +552,11 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         .map(PathBuf::from)
         .unwrap_or_else(mux_home);
     let _ = HOST_HOME.set(home.clone());
+    // A moved Chief answers from its new host only (chief-migration-DESIGN.md 4).
+    if let Some(why) = crate::migrate::refusal(&home) {
+        eprintln!("optchat-chief host: {why}");
+        return crate::migrate::MOVED_EXIT;
+    }
     let source = match conversation_source(flags) {
         Ok(source) => source,
         Err(why) => {
