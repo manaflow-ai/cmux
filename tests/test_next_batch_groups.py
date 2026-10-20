@@ -156,6 +156,9 @@ class GroupBisectAndLand(unittest.TestCase):
         item = controller()
         item.args.dry_run = dry_run
         item.frozen = lambda target: "frozen by #1" if target.number in frozen else ""
+        unproven = getattr(self, "unproven", set())
+        item.risk_evidence = lambda target: ("risk evidence has not passed on this head"
+                                             if target.number in unproven else "")
         comments, merges = [], []
         item.comment_once = lambda target, kind, body: comments.append((target.number, kind))
         item.report_drop = lambda target, blocking: None
@@ -209,6 +212,14 @@ class GroupBisectAndLand(unittest.TestCase):
         outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None, base_moved=True)
         self.assertEqual(merges, [])
         self.assertTrue(all("revalidate" in text for _, text in outcome))
+
+    def test_a_member_without_passing_risk_evidence_holds_the_whole_group(self):
+        """merge_one refuses a head whose risk evidence hasn't passed; checked for every
+        member first, so the members before it never land alone."""
+        self.unproven = {2}
+        outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None)
+        self.assertEqual(merges, [])
+        self.assertTrue(all("#2 risk evidence has not passed" in text for _, text in outcome))
 
     def test_a_frozen_member_holds_the_whole_group(self):
         outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None, frozen={2})
@@ -410,6 +421,24 @@ class GroupCycle(unittest.TestCase):
         self.assertEqual(nb.group_hold(pr(1, checks=checks)), "red check docs, lint")
         clean = [item for item in rollup if item["name"] in {"ci-status", "build / release-compile"}]
         self.assertIsNone(nb.group_hold(pr(1, checks=nb.newest_checks(nb.parse_contexts(clean)))))
+
+    def test_newest_run_edge_cases(self):
+        def run(name, conclusion, started, workflow="ci", status="COMPLETED"):
+            return {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion,
+                    "startedAt": started, "checkSuite": {"workflowRun": {"workflow": {"name": workflow}}}}
+
+        # A cancelled newest run gives way to the newest run that finished, not to an older pass.
+        between = [run("lint", "SUCCESS", "2026-10-06T01:00:00Z"), run("lint", "FAILURE", "2026-10-06T02:00:00Z"),
+                   run("lint", "CANCELLED", "2026-10-06T03:00:00Z")]
+        self.assertEqual(nb.newest_checks(nb.parse_contexts(between)), [("lint", "completed", "failure")])
+        # Same job name in two workflows: two checks, so one's pass never hides the other's red.
+        twins = [run("build", "FAILURE", "2026-10-06T01:00:00Z", workflow="a"),
+                 run("build", "SUCCESS", "2026-10-06T02:00:00Z", workflow="b")]
+        self.assertEqual(sorted(nb.newest_checks(nb.parse_contexts(twins))),
+                         [("build", "completed", "failure"), ("build", "completed", "success")])
+        # A queued rerun (no start time yet) is the newest run.
+        queued = [run("lint", "FAILURE", "2026-10-06T01:00:00Z"), run("lint", None, None, status="QUEUED")]
+        self.assertEqual(nb.newest_checks(nb.parse_contexts(queued)), [("lint", "queued", "")])
 
     def test_open_prs_keep_only_each_checks_newest_run(self):
         """End to end through the details query: a superseded red never reaches a PR's checks."""
