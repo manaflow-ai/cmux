@@ -81,7 +81,8 @@ test("Browser opens the chat's local page beside it, lights while it is open, an
   act(() => applyHostEvent({ kind: "headerState", value: { lit: [HEADER_ACTIONS.preview] } }));
   expect(browser()?.getAttribute("aria-pressed")).toBe("true");
   act(() => browser()!.click());
-  expect(runs).toEqual(["preview toggle http://localhost:5173/", "preview toggle undefined"]);
+  // The page goes along: a preview closed since the last state push opens again rather than nothing.
+  expect(runs).toEqual(["preview toggle http://localhost:5173/", "preview toggle http://localhost:5173/"]);
 
   // A plain browser split already open: the click closes that one, not opens the page.
   runs.length = 0;

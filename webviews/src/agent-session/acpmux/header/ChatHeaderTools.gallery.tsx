@@ -85,8 +85,8 @@ const openMenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
 };
 
-// The App reports Terminal's, Browser's, Changes' and Preview's panels open and panes beside the chat
-// (its headerState push).
+// The App reports Terminal's, Browser's (a plain browser and the chat's page, both Browser's to close),
+// and Changes' panels open and panes beside the chat (its headerState push).
 const panelsOpen: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
   setHeaderState({ lit: ["splitRight", "splitBrowserRight", "openDiffViewer", "preview"], sideTabs: true });

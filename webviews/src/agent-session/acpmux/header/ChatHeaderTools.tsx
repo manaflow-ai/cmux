@@ -262,7 +262,9 @@ export function ChatHeaderTools({
   // browser it opened: the page's preview or the plain split.
   const previewInBrowser = onPreview !== undefined && !actions.some((action) => action.id === "preview");
   const browserRun = (mode: QuickActionMode) => {
-    if (previewInBrowser && on(HEADER_ACTIONS.preview, mode)) return onPreview(undefined, mode);
+    // The page goes along, as the Preview button sent it: a preview the person closed since the last
+    // state push opens again instead of the click doing nothing.
+    if (previewInBrowser && on(HEADER_ACTIONS.preview, mode)) return onPreview(previewUrl, mode);
     if (previewInBrowser && previewUrl && !on(HEADER_ACTIONS.browser, mode)) return onPreview(previewUrl, mode);
     onBrowser(mode);
   };
