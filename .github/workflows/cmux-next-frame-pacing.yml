@@ -41,7 +41,7 @@ on:
         default: "3"
         type: string
       suites:
-        description: "What to run: fling, golden (the golden interactions), both, or instant (Cmd-N/T/D/Shift-D key to frame, idle and loaded)"
+        description: "What to run: fling, golden (the golden interactions), both, instant (Cmd-N/T/D/Shift-D key to frame, idle and loaded), or perf (cold and warm launch, browser tab memory at 1/10/20 tabs)"
         required: false
         default: fling,golden
         type: string
@@ -54,8 +54,8 @@ concurrency:
   # One bench at a time: every run uses the same tag, socket and console session. A
   # golden-only run (a pull request's) has a tag and a group per ref, where a newer push
   # supersedes the older run and other branches' runs never cancel its build.
-  group: ${{ (inputs.suites == 'golden' || inputs.suites == 'instant') && format('cmux-next-frame-pacing-{0}-{1}', inputs.suites, inputs.ref) || 'cmux-next-frame-pacing' }}
-  cancel-in-progress: ${{ inputs.suites == 'golden' || inputs.suites == 'instant' }}
+  group: ${{ (inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf') && format('cmux-next-frame-pacing-{0}-{1}', inputs.suites, inputs.ref) || 'cmux-next-frame-pacing' }}
+  cancel-in-progress: ${{ inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf' }}
 
 env:
   SUITES: ${{ inputs.suites || 'fling,golden' }}
@@ -84,7 +84,7 @@ jobs:
           REF_INPUT: ${{ inputs.ref }}
         run: |
           tag=frame-pacing
-          if [ "$SUITES_INPUT" = golden ] || [ "$SUITES_INPUT" = instant ]; then
+          if [ "$SUITES_INPUT" = golden ] || [ "$SUITES_INPUT" = instant ] || [ "$SUITES_INPUT" = perf ]; then
             slug="$(printf '%s' "$REF_INPUT" | tr '[:upper:]' '[:lower:]' | sed -E -e 's/[^a-z0-9]+/-/g' | cut -c1-32 | sed -E -e 's/^-+//' -e 's/-+$//')"
             # The checksum keeps two refs that share a 32-character prefix on their own tags.
             sum="$(printf '%s' "$REF_INPUT" | cksum | cut -d' ' -f1)"
@@ -231,6 +231,8 @@ jobs:
             scripts/ci/xcode-pins.txt
             scripts/ci/frame-pacing
             scripts/cmux-next/instant-new-surfaces-bench.py
+            scripts/cmux-next/bench-startup.py
+            scripts/cmux-next/bench_memory.py
             scripts/lib/stop-cmux-tui-owners.sh
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -302,6 +304,25 @@ jobs:
             --budget-frames 1 --budget-key-ms 20 --out "$RUNNER_TEMP/frame-pacing/out" \
             --json "$RUNNER_TEMP/frame-pacing/out/ctrl-backtick.json"
 
+      # Launch, new tab and memory against Ardia/Helium/Dia (perf-launch-memory): cold and warm
+      # launches to the first window frame (empty and realistic profiles), Cmd-T to the New Tab
+      # page's frame, and the footprint of the app and every process it owns (Chromium helpers,
+      # WebKit, cmux-tui) at 1, 10 and 20 Chromium tabs on distinct local sites. Report only.
+      - name: Launch, new tab and memory bench
+        if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'perf')
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          app="$(ls -d "$RUNNER_TEMP"/frame-pacing/app/*.app | head -1)"
+          out="$RUNNER_TEMP/frame-pacing/out"
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/bench-startup.py --app "$app" \
+            --profile empty --mode cold --mode warm --runs 5 --timeout 20 --json "$out/launch-empty.json" || true
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/bench-startup.py --app "$app" \
+            --profile realistic --mode warm --runs 5 --timeout 20 --json "$out/launch-realistic.json" || true
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/instant-new-surfaces-bench.py \
+            --tag "$CMUX_TAG" --app "$app" --runs 10 --phases idle --out "$out" --json "$out/new-tab.json" || true
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/bench_memory.py --app "$app" \
+            --tabs 1,10,20 --urls local --settle 30 --measure 10 --out "$out/memory-tabs-local.json" || true
       # Warning only: exits 1 (an annotation and a red step) when an animation did not run.
       - name: Judge the golden interactions
         if: always() && steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'golden')
