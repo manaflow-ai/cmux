@@ -219,10 +219,12 @@ pub fn run(
         progress,
         trace,
         &|_| {},
+        &|_| {},
     )
 }
 
-/// `run`, publishing drafts of the reply as it streams (`draft.rs`).
+/// `run`, publishing drafts of the reply as it streams (`draft.rs`) and the
+/// turn's run record as it changes (`run.rs`).
 #[allow(clippy::too_many_arguments)]
 pub fn run_with_drafts(
     agents: &dyn AgentPort,
@@ -233,6 +235,7 @@ pub fn run_with_drafts(
     progress: &dyn Fn(&str, u64),
     trace: &Trace,
     draft: &dyn Fn(crate::draft::Draft),
+    run: &dyn Fn(crate::run::RunUpdate),
 ) -> TurnOutcome {
     let scope = serde_json::json!({"turn": start.key});
     let began = Instant::now();
@@ -314,12 +317,64 @@ pub fn run_with_drafts(
         &start.key,
         Some(admitted.profile.clone()),
     ));
+    // Steps in appends the owner takes, then the summary on its own: a refused step append
+    // never loses the run's start or end.
+    let send_run = |summary: serde_json::Map<String, Value>,
+                    steps: Vec<Value>,
+                    images: Vec<crate::run::RunImage>| {
+        let mut images = Some(images);
+        for chunk in crate::run::chunks(steps) {
+            run(crate::run::RunUpdate {
+                turn: start.key.clone(),
+                run: serde_json::Map::new(),
+                steps: chunk,
+                images: images.take().unwrap_or_default(),
+                live: Vec::new(),
+            });
+        }
+        if !summary.is_empty() {
+            run(crate::run::RunUpdate {
+                turn: start.key.clone(),
+                run: summary,
+                steps: Vec::new(),
+                images: Vec::new(),
+                live: Vec::new(),
+            });
+        }
+    };
     let publish = |fold: &mut TurnFold| {
         let (closed, open) = fold.take_segments();
         for d in drafter.borrow_mut().update(closed, open, Instant::now()) {
             draft(d);
         }
+        // The live frames first: a step's last delta before its row.
+        let live = fold.take_run_live();
+        if !live.is_empty() {
+            run(crate::run::RunUpdate {
+                turn: start.key.clone(),
+                run: serde_json::Map::new(),
+                steps: Vec::new(),
+                images: Vec::new(),
+                live,
+            });
+        }
+        let steps = fold.take_run_steps(Instant::now(), false);
+        if !steps.is_empty() {
+            let images = fold.take_run_images();
+            send_run(serde_json::Map::new(), steps, images);
+        }
     };
+    // The run is on the conversation before the harness acts.
+    send_run(
+        crate::run::started(
+            &session,
+            &admitted.profile,
+            spec.model.as_deref(),
+            crate::run::epoch_ms(),
+        ),
+        Vec::new(),
+        Vec::new(),
+    );
     // The session is on record before it can act: a host that stops from
     // here on folds what it did at the next start, even if the brain never
     // saved the id (it hears of it through `progress`, later).
@@ -523,8 +578,11 @@ pub fn run_with_drafts(
             }
         }
     }
-    // What the turn's end closed, then the last draft (the brain publishes
-    // it once the reply is posted).
+    // What the turn's end closed (every streaming step's last live frame,
+    // before the run's end and the reply: the reply replaces the streaming
+    // text with no jump), then the last draft (the brain publishes it once
+    // the reply is posted).
+    fold.close_run_steps();
     publish(&mut fold);
     let done_draft = Some(drafter.borrow_mut().done());
     // The fold ended on `turn_end`: the answer with the token use follows.
@@ -577,6 +635,18 @@ pub fn run_with_drafts(
     }
     let error = fold.ended().and_then(|e| e.error.clone());
     let cancelled = is_cancelled(error.as_deref());
+    // The run's end: what is left of its steps, its use and cost.
+    send_run(
+        crate::run::ended(
+            error.as_deref().or(moved.as_deref()),
+            cancelled,
+            totals.map(|(u, _)| u),
+            cost,
+            requests.last().and_then(|r| r.model.as_deref()),
+        ),
+        fold.take_run_steps(Instant::now(), true),
+        fold.take_run_images(),
+    );
     let refused = moved.is_some();
     let error = match (error, moved) {
         (Some(e), Some(m)) => Some(format!("{e}; {m}")),

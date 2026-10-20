@@ -4,7 +4,7 @@ import QuartzCore
 
 /// The workspace group editor (cx-rcby, Lawrence 2026-10-08: the Chrome tab
 /// group bubble): a name field that opens focused with the name selected,
-/// a row of color dots (none, then the theme's palette) and the group's
+/// a row of color dots (none, then the group palette) and the group's
 /// actions in sections. Opened from the group chip, its more button or a
 /// right-click. Every edit goes out through the callbacks; the editor
 /// never edits sidebar state.

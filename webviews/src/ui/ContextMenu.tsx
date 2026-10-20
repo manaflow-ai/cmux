@@ -21,6 +21,7 @@ export interface ContextMenuProps {
   items: readonly ContextMenuItem[];
   children: ReactNode;
   className?: string;
+  popupClassName?: string;
   /**
    * "menu": a right-click over selected text opens this menu too (the surface offers its own
    * selected-text items, such as Cut and Copy). By default a selection keeps the host's menu.
@@ -36,6 +37,10 @@ export interface ContextMenuProps {
    */
   targets?: "own";
 }
+
+/** The control a closed menu gives focus back to. */
+const RETURN_FOCUS =
+  "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])";
 
 /** Inline, as the placement is: the agent pane does not load ui.css. */
 const MENU_ICON = {
@@ -56,9 +61,20 @@ const MENU_ICON = {
  * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Closing attempts to
  * restore the invoking control when it remains connected at the close turn; navigation actions
  * own any later focus changes. Like a native menu, it opens down and right of the pointer and
- * flips up or left where that would leave the window.
+ * flips up or left where that would leave the window. The keyboard opens it too: Shift-F10 or the
+ * context-menu key on a focused control inside the host opens it at that control's bottom start
+ * corner, so every surface with a right-click menu has a keyboard path.
  */
-export function ContextMenu({ items, children, className, selection, onOpen, ignore, targets }: ContextMenuProps) {
+export function ContextMenu({
+  items,
+  children,
+  className,
+  popupClassName,
+  selection,
+  onOpen,
+  ignore,
+  targets,
+}: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -140,8 +156,31 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
     }
   };
   return (
+    // The host has no role of its own: it relays Shift-F10 from the focusable control inside it.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       className={cx("ui-context-menu-host", className)}
+      onKeyDown={(event) => {
+        if (event.defaultPrevented || items.length === 0) return;
+        if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return;
+        const target = event.target instanceof Element ? event.target : null;
+        // A key in the open menu (a portal, so React passes it up here) is the menu's own.
+        if (!target || menu.current?.contains(target)) return;
+        event.preventDefault();
+        // The same path as a right-click at the control's bottom start corner: a host that learns
+        // the menu's subject from its own contextmenu capture handler sees this open too, and the
+        // selection, `ignore` and `targets` rules apply alike.
+        const rect = target.getBoundingClientRect();
+        const rtl = getComputedStyle(target).direction === "rtl";
+        target.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: rtl ? rect.right : rect.left,
+            clientY: rect.bottom,
+          }),
+        );
+      }}
       onContextMenu={(event) => {
         // A menu inside this host already took the right-click (its own item's Hide, inside a
         // row's Show); a host with no items keeps the default.
@@ -153,10 +192,7 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
         onOpen?.();
         setActive(0);
         const target = event.target instanceof Element ? event.target : null;
-        returnFocus.current =
-          target?.closest<HTMLElement>(
-            "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])",
-          ) ?? null;
+        returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
         setPoint({ x: event.clientX, y: event.clientY });
       }}
     >
@@ -172,7 +208,7 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
             >
               <div
                 ref={attach}
-                className="ui-popup ui-context-menu"
+                className={cx("ui-popup ui-context-menu", popupClassName)}
                 role="menu"
                 data-focus-ring="rows"
                 tabIndex={-1}
@@ -213,9 +249,7 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                         </span>
                       ) : null}
                       {typeof item.label === "string" ? (
-                        <span className="ui-menu-label" title={item.label}>
-                          {item.label}
-                        </span>
+                        <span className="ui-menu-label">{item.label}</span>
                       ) : (
                         item.label
                       )}

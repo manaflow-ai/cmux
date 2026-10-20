@@ -7,6 +7,8 @@ const NATIVE_SCHEMES = new Set([
   DEFAULT_NATIVE_CALLBACK_SCHEME,
   "cmux-nightly",
   "cmux-rc",
+  // nightly-next's cmux NEXT, installed beside cmux NIGHTLY.
+  "cmux-next",
 ]);
 
 export function nativeCallbackHrefForScheme(scheme: string): string {

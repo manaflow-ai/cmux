@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextPages
 import CmuxNextTerminal
+import CmuxNextFocus
 
 // Typing into a screen before it can take keys (spec app-screens.md section
 // 3, R59): the primary input of a screen that has one (R65), and the

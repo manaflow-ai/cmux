@@ -30,10 +30,12 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
     }
 
     /// The raw sidebar hit (opens a gap, lights a row or group). A tab drag
-    /// `reordersTabRows`: a tab row's edge is that tab's slot.
+    /// `reordersTabRows`: a tab row's edge is that tab's slot, and the slot
+    /// between two rows opens only after `DragTunables.sidebarSlotDwell`.
     func hit(screenPoint: CGPoint, reordersTabRows: Bool = false) -> SidebarTabDropHit? {
         guard let bridge, let hit = bridge.container.sidebarView.tabDragUpdate(screenPoint: screenPoint, sourceMachine: sourceMachine,
-                                                                                reordersTabRows: reordersTabRows) else {
+                                                                                reordersTabRows: reordersTabRows,
+                                                                                slotDwell: reordersTabRows ? DragTunables.sidebarSlotDwell.value : 0) else {
             return nil
         }
         active = true
@@ -86,6 +88,9 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
         let group = pane.stripModel.orderedTabs[index].groupID?.rawValue
         return .strip(stripID: pane.stripModel.stripID, index: from.map { $0 < index ? index - 1 : index } ?? index, groupID: group)
     }
+
+    /// When the slot between two rows under a resting pointer opens its gap; nil when none is pending.
+    var dwellDeadline: CFTimeInterval? { active ? bridge?.container.sidebarView.tabDragSlotDeadline : nil }
 
     func dropExited() {
         guard active else { return }

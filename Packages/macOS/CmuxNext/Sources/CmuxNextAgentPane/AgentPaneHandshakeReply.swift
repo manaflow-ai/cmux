@@ -6,6 +6,8 @@ import Foundation
 @MainActor
 enum AgentPaneHandshakeReply {
     static func reply(to request: AgentPaneRequest, in model: AgentPaneModel) async -> [String: Any] {
+        // A page that loaded again starts without the tab row: it is offered again.
+        if request == .ready { model.tabRow.pageLoaded() }
         model.setCheckpointAvailable(false)
         do {
             var handshake = request == .ready
@@ -54,6 +56,7 @@ enum AgentPaneHandshakeReply {
             // A chat its host already started (on another machine) gets no new-chat folder steps:
             // they read this Mac's folders and disk (cx-k21v).
             let started = handshake.connection?.remote != nil
+            if started { await model.startFolders.applyRemote(to: &handshake, model: model) }
             let filled = started ? false : await model.startFolders.apply(to: &handshake, ready: request == .ready, model: model)
             if !started { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
             handshake.revealTurn = model.pendingRevealTurn
@@ -70,6 +73,7 @@ enum AgentPaneHandshakeReply {
             if handshake.connection?.remote != nil { model.remoteChat = true }
             // The connection stays here; the reply never encodes it.
             model.pendingConnection = handshake.connection
+            model.transport.acpmuxSocket = handshake.connection?.remote == nil ? handshake.connection?.socketPath : nil
             handshake.connection = nil
             return AgentPaneReply.handshake(handshake)
         } catch {

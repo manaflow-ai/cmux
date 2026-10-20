@@ -120,8 +120,9 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
-            for await (all, archived, _, _, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar)
+            for await (all, archived, _, _, _, _, _) in ObservationStream({
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar,
+                 sidebar.ownerRows)
             }) {
                 guard let self else { return }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
@@ -215,9 +216,12 @@ final class TopHomePageView: NSView {
         view.autoresizingMask = [.width, .height]
         transcriptColumn.addSubview(view)
         host = view
-        services.home.homeDidOpen()
+        services.home.homeDidOpen(asked: true)
         if window?.firstResponder === window || window?.firstResponder == nil { focusPrimaryInput() }
     }
+
+    /// A permalink: its conversation, and its message's thread at its branch (any depth).
+    func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomePageTab.transcript(in: host)?.reveal(message: m) } }
 
     /// Home's primary input (the message box) takes the keyboard.
     func focusPrimaryInput() {

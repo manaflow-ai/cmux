@@ -128,6 +128,8 @@ fn run_reading(
         }
     };
     let native = payload()?;
+    // Read before the journal event redacts it; it travels beside the event, never inside it.
+    let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
     let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
         &args.source,
         &args.native_event,
@@ -136,7 +138,7 @@ fn run_reading(
     )?;
     cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
     let event = serde_json::to_value(ingress)?;
-    let (request_id, encoded) = encode_request(event)?;
+    let (request_id, encoded) = encode_request(event, live)?;
     let handoff = handoff_wait(&args.source, &args.native_event);
     match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
         Handoff::Sent => {}
@@ -163,7 +165,7 @@ mod inbox;
 /// (Muse Code), the values of the agent process the hook runs under; or, for
 /// an agent in a tmux session started outside cmux-tui (which has none), the
 /// cmux-tui terminal attached to the pane's tmux session.
-fn session_route(source: &str) -> Option<(PathBuf, Option<String>)> {
+pub(crate) fn session_route(source: &str) -> Option<(PathBuf, Option<String>)> {
     if let Some(socket) = env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
         let terminal = env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|value| !value.is_empty());
         return Some((PathBuf::from(socket), terminal));
@@ -379,14 +381,24 @@ fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
     Ok(json!({"encoding":"base64","data":BASE64.encode(bytes)}))
 }
 
-fn encode_request(event: Value) -> anyhow::Result<(String, Vec<u8>)> {
+/// `live` holds a turn-start hook's prompt for the hover card and a finished turn's last
+/// message for its banner (`agent_hook_live_fields`): the daemon keeps them in memory only
+/// (`session.journal.append` `live_prompt`, `live_reply`), never in the journal.
+fn encode_request(
+    event: Value,
+    live: serde_json::Map<String, Value>,
+) -> anyhow::Result<(String, Vec<u8>)> {
     let (request_id, idempotency_key) = random_identifiers()?;
+    let mut params = json!({"machine":"current","session":"current","event":event});
+    if let Some(object) = params.as_object_mut() {
+        object.extend(live);
+    }
     let request = json!({
         "protocol":"cmux.protocol/2",
         "type":"request",
         "id":request_id,
         "operation":"session.journal.append",
-        "params":{"machine":"current","session":"current","event":event},
+        "params":params,
         "idempotency_key":idempotency_key,
     });
     let mut encoded = serde_json::to_vec(&request)?;
@@ -406,9 +418,34 @@ fn append_with_receipt(
     encoded: &[u8],
     on_sent: &dyn Fn(),
 ) -> anyhow::Result<()> {
+    // A daemon from before `live_prompt` refuses unknown parameters: the event goes once more
+    // without the prompt, so a version skew never loses a turn start (the prompt is optional).
+    let mut current = std::borrow::Cow::Borrowed(encoded);
     retry_until(SOCKET_TIMEOUT, |deadline| {
-        append_once(socket, encoded, request_id, deadline, on_sent)
+        match append_once(socket, &current, request_id, deadline, on_sent) {
+            Err(AppendAttemptError::Fatal(error))
+                if error.to_string().contains("unknown parameters") =>
+            {
+                match without_live_prompt(&current) {
+                    Some(stripped) => {
+                        current = std::borrow::Cow::Owned(stripped);
+                        Err(AppendAttemptError::Retryable(error))
+                    }
+                    None => Err(AppendAttemptError::Fatal(error)),
+                }
+            }
+            other => other,
+        }
     })
+}
+
+/// `encoded` (one request line) without `params.live_prompt`; nil when it has none.
+fn without_live_prompt(encoded: &[u8]) -> Option<Vec<u8>> {
+    let mut request: Value = serde_json::from_slice(encoded).ok()?;
+    request.get_mut("params")?.as_object_mut()?.remove("live_prompt")?;
+    let mut line = serde_json::to_vec(&request).ok()?;
+    line.push(b'\n');
+    Some(line)
 }
 
 #[derive(Debug)]

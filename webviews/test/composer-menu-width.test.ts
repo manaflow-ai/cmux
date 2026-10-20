@@ -50,11 +50,11 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
 ${css}
 .flex{display:flex}
 </style></head><body>
-<div class="acpmux-shell"><div class="acpmux-composer acpmux-composer-bar" style="margin-top:320px;padding:0">
+<div class="acpmux-shell"><div class="acpmux-composer" style="flex:1;margin-top:320px;padding:0"><div class="acpmux-composer-bar">
   <span class="acpmux-picker acpmux-composer-plus"><button class="acpmux-picker-button" style="width:28px">+</button></span>
   <div class="acpmux-chips">
   <span class="acpmux-picker acpmux-model" style="position:relative">
-    <button class="acpmux-picker-button" style="width:120px">GPT-6-Astra</button>
+    <button class="acpmux-picker-button"><span class="acpmux-model-name" data-fit-part="model" data-fit-forms="full">GPT-6-Astra</span></button>
     <div class="ui-popup ui-picker-popup acpmux-mp flex" style="${ANCHORED}">
       <div class="acpmux-mp-rail-scroll w-11 flex-none">
         <div class="acpmux-mp-rail-viewport" style="overflow:scroll">
@@ -77,17 +77,16 @@ ${css}
       </div>
     </div>
   </span>
-  <span class="acpmux-chips-spacer"></span>
   <span class="acpmux-mode acpmux-access">
     <button class="acpmux-picker-button acpmux-access-trigger">
       <span class="acpmux-icon" style="width:16px;height:16px"></span>
-      <span class="acpmux-mode-text">Ask before edits</span>
+      <span class="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">Ask before edits</span>
       <span class="acpmux-icon" style="width:12px;height:12px"></span>
     </button>
   </span>
   </div>
   <span class="acpmux-composer-actions"><button class="acpmux-send" style="width:28px;height:28px">↑</button></span>
-</div></div>
+</div></div></div>
 <div class="ui-positioner" style="position:absolute;left:8px;top:8px">
   <div class="acpmux-menu acpmux-location-menu">${row("~/fun/cmuxterm-hq")}</div>
 </div>
@@ -189,19 +188,24 @@ ${css}
         await page.close();
       });
 
-      test("permission mode changes keep the trigger width stable", async () => {
+      // The permission chip hugs its mode's name (hq#1957 item 15: a fixed 180 px chip left a gap
+      // inside it). It is the left cluster's last chip and the row's free space follows it, so a
+      // mode change moves no other control: not the model before it, not Send at the row's end.
+      test("permission mode changes move no other control", async () => {
         const page = await open(1000);
-        const widths = await page.$eval(".acpmux-access-trigger", (node) => {
-          const trigger = node as HTMLElement;
-          const mode = trigger.querySelector<HTMLElement>(".acpmux-mode-text")!;
-          const values = ["Ask before edits", "Full access"].map((label) => {
+        const edges = await page.$eval(".acpmux-composer-bar", (node) => {
+          const bar = node as HTMLElement;
+          const mode = bar.querySelector<HTMLElement>(".acpmux-mode-text")!;
+          return ["Ask before edits", "Full access", "Auto"].map((label) => {
             mode.textContent = label;
-            return trigger.getBoundingClientRect().width;
+            return [".acpmux-model .acpmux-picker-button", ".acpmux-access-trigger", ".acpmux-send"].map(
+              (selector) => bar.querySelector(selector)!.getBoundingClientRect().left,
+            );
           });
-          return values;
         });
-        expect(widths[0]).toBeGreaterThan(0);
-        expect(widths[1]).toBe(widths[0]);
+        expect(edges[0]![0]).toBeGreaterThan(0);
+        expect(edges[1]).toEqual(edges[0]!);
+        expect(edges[2]).toEqual(edges[0]!);
         await page.close();
       });
 
@@ -228,6 +232,27 @@ ${css}
             expect(geometry.accessRight).toBeLessThanOrEqual(geometry.barRight + 1);
             await page.close();
           }
+        }
+      });
+
+      test("Interrupt shows whole while a turn runs; the chips give way, not the action", async () => {
+        for (const width of [600, 420, 360]) {
+          const page = await open(width);
+          await page.$eval(".acpmux-composer-actions", (node) => {
+            node.innerHTML =
+              '<button class="acpmux-steer">Interrupt</button>' +
+              '<button class="acpmux-send" style="width:28px;height:28px">mic</button>' +
+              '<button class="acpmux-send acpmux-send-ready">↑</button>';
+          });
+          const geometry = await page.$eval(".acpmux-composer-bar", (node) => {
+            const bar = node.getBoundingClientRect();
+            const steer = node.querySelector<HTMLElement>(".acpmux-steer")!;
+            const rect = steer.getBoundingClientRect();
+            return { barRight: bar.right, right: rect.right, client: steer.clientWidth, scroll: steer.scrollWidth };
+          });
+          expect(geometry.scroll).toBeLessThanOrEqual(geometry.client);
+          expect(geometry.right).toBeLessThanOrEqual(geometry.barRight + 1);
+          await page.close();
         }
       });
     });

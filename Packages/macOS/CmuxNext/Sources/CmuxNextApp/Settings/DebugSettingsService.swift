@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextHome
@@ -17,6 +18,7 @@ import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextTabs
 import CmuxNextTasks
+import CmuxNextWorkspaceNaming
 import Foundation
 
 /// Every tunable the app declares, by module. One list, so the window, the
@@ -24,8 +26,9 @@ import Foundation
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
+            + [AgentPaneTunables.sessionRail.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor]
+            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor]
     }
 }
 
@@ -62,21 +65,30 @@ final class DebugSettingsService: InternalPageProvider {
         guard isAvailable else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
-        let url = Self.fileURL(environment: ProcessInfo.processInfo.environment, tag: services.environment.launch.tag,
-                               bundleID: services.environment.launch.bundleID)
+        let launch = services.environment.launch
+        let url = Self.fileURL(environment: ProcessInfo.processInfo.environment, tag: launch.tag,
+                               bundleID: launch.bundleID, build: launch.build)
         fileURL = url
         store.activate(file: url)
     }
 
-    /// `~/Library/Application Support/cmux/<tag or channel>/debug-tunables.json`,
+    /// `~/Library/Application Support/cmux/<tag or channel>/debug-tunables.json`
+    /// for a build that keeps its app names (``BuildIdentity/keepsAppNames``),
+    /// `cmux/builds/<key>/debug-tunables.json` for every other build, so no
+    /// build reads another's tunables (per-build isolation S5, cx-is1kf.6);
     /// or the `CMUX_NEXT_DEBUG_TUNABLES_FILE` override.
     nonisolated static func fileURL(environment: [String: String], tag: String?, bundleID: String?,
+                                    build: BuildIdentity? = nil,
                                     home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         if let path = environment[fileOverrideKey]?.trimmingCharacters(in: .whitespaces), !path.isEmpty {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
+        let cmux = home.appending(path: "Library/Application Support/cmux")
+        if let build, !build.keepsAppNames, let state = build.daemonStateDirectory(appSupport: cmux) {
+            return state.deletingLastPathComponent().appending(path: "debug-tunables.json")
+        }
         let folder = tag ?? (bundleID.map { $0.hasPrefix(DevTools.nightlyBundleID) ? "nightly" : "dev" } ?? "dev")
-        return home.appending(path: "Library/Application Support/cmux").appending(path: folder)
+        return cmux.appending(path: folder)
             .appending(path: "debug-tunables.json")
     }
 

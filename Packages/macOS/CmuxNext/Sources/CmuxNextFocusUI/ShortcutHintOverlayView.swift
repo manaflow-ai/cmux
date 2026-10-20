@@ -1,11 +1,12 @@
 public import AppKit
 import CmuxNextDesign
 
-/// Click-through shortcut badges shown while a modifier is held: one
-/// cmux-classic hint pill per hint (`ShortcutHintChipView`: a Liquid Glass rim
-/// around an opaque center, the bordered opaque capsule under Reduce
-/// Transparency), right-aligned in its target rect, or in the titlebar row
-/// clear of the traffic lights. Text contains only shortcut symbols.
+/// Click-through shortcut badges shown while Cmd, Ctrl or Option is held:
+/// one Liquid Glass chip per hint (`ShortcutHintChipView`; the theme's opaque
+/// capsule under Reduce Transparency), right-aligned in its target rect, or
+/// in the titlebar row clear of the traffic lights. Text contains only
+/// shortcut symbols. No hints, no chips: a hold with no matching binding
+/// shows nothing.
 public final class ShortcutHintOverlayView: NSView {
     public struct Hint: Equatable {
         /// Where a chip goes: right-aligned in its target, or in the
@@ -20,11 +21,14 @@ public final class ShortcutHintOverlayView: NSView {
         public var text: String
         public var rect: CGRect
         public var row: Row
+        /// What the chip's shortcut selects (`workspace:<id>`), for debug readback; nil when unnamed.
+        public var target: String?
 
-        public init(text: String, rect: CGRect, row: Row = .target) {
+        public init(text: String, rect: CGRect, row: Row = .target, target: String? = nil) {
             self.text = text
             self.rect = rect
             self.row = row
+            self.target = target
         }
     }
 

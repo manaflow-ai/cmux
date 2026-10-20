@@ -6,7 +6,9 @@
     "agent.list",
     "agent.message.list",
     "agent.message.mark",
+    "agent.message.release",
     "agent.message.send",
+    "agent.message.unsend",
     "agent.report",
     "browser.activate",
     "browser.attach",
@@ -23,6 +25,9 @@
     "browser.input.wheel",
     "browser.list",
     "browser.navigate",
+    "browser.profile.create",
+    "browser.profile.list",
+    "browser.profile.open",
     "browser.reload",
     "browser.tab.emulate",
     "browser.tab.emulate.clear",
@@ -31,6 +36,14 @@
     "browser.viewer.resize",
     "chief.engine.get",
     "chief.engine.set",
+    "chief.profile.adopt",
+    "chief.profile.avatar.get",
+    "chief.profile.avatar.set",
+    "chief.profile.create",
+    "chief.profile.delete",
+    "chief.profile.get",
+    "chief.profile.list",
+    "chief.profile.update",
     "chief.stop",
     "client.cell_pixels.set",
     "client.detach",
@@ -117,10 +130,13 @@
     "pane.swap",
     "pane.viewport_width.set",
     "pane.zoom",
+    "participant.avatar.get",
+    "participant.avatar.set",
     "project.add",
     "project.list",
     "project.observe",
     "project.remove",
+    "project.source.update",
     "project.sync",
     "project.update",
     "request.cancel",
@@ -183,6 +199,24 @@
     "settings.schema",
     "settings.set",
     "settings.snapshot",
+    "sidebar.adopt",
+    "sidebar.apply",
+    "sidebar.get",
+    "sidebar.group.create",
+    "sidebar.group.ungroup",
+    "sidebar.group.update",
+    "sidebar.item.add",
+    "sidebar.item.remove",
+    "sidebar.item.remove_ref",
+    "sidebar.item.update",
+    "sidebar.move",
+    "sidebar.pin",
+    "sidebar.reset",
+    "sidebar.section.add",
+    "sidebar.section.move",
+    "sidebar.section.remove",
+    "sidebar.section.update",
+    "sidebar.unpin",
     "sidebar_layout.get",
     "sidebar_layout.update",
     "sidebar_view.attach",
@@ -191,6 +225,11 @@
     "sidebar_view.input",
     "sidebar_view.reload",
     "sidebar_view.resize",
+    "stash.create",
+    "stash.delete",
+    "stash.import",
+    "stash.list",
+    "stash.restore",
     "stream.cancel",
     "tab.close",
     "tab.create_browser",
@@ -249,6 +288,7 @@
     "workspace.layout.apply",
     "workspace.list",
     "workspace.move",
+    "workspace.open_url",
     "workspace.place",
     "workspace.placement.list",
     "workspace.rename",
@@ -501,6 +541,9 @@
       "conversation-snapshot",
       "conversation-history",
       "conversation-thread",
+      "conversation-link-resolve",
+      "conversation-inbox-op",
+      "home-inbox",
       "conversation-search",
       "history-search",
       "conversation-op",
@@ -514,22 +557,40 @@
       "cloud-session-set",
       "cloud-session-clear",
       "cloud-session-status",
+      "cloud-host-replica-set",
+      "cloud-host-replica-clear",
+      "cloud-host-replica-status",
       "page-credential",
       "ws-listen",
       "cloud-inbox-list",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",
+      "cloud-conversation-runs",
+      "cloud-conversation-run",
+      "cloud-participant-avatar-get",
       "cloud-conversation-op",
+      "cloud-inbox-op",
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
       "cloud-conversation-unsubscribe",
+      "cloud-conversation-live",
+      "cloud-conversation-typing",
       "cloud-mux-subscribe",
       "cloud-mux-unsubscribe",
       "cloud-mux-ack",
       "conversation-attachment-upload",
       "conversation-attachment-read",
+      "conversation-attachment-link",
+      "cloud-attachment-upload",
+      "cloud-attachment-read",
+      "cloud-attachment-link",
+      "conversation-run-append",
+      "conversation-runs",
+      "conversation-run",
+      "conversation-live-publish",
+      "conversation-live",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
       "feed-local-handoff-done"
@@ -633,7 +694,43 @@
       ]
     },
     {
+      "name": "conversation-run-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-live",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-run-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-live",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-typing",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "conversation-draft",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-inbox-changed",
       "streams": [
         "subscribe"
       ]
@@ -739,6 +836,18 @@
       "name": "pane-closed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "participant-avatar-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "chief-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {
@@ -1008,6 +1117,24 @@
       "name": "cloud-session-needed",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-host-replica-needed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "agent-inventory-changed",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
       ]
     }
   ],
@@ -1375,6 +1502,11 @@
       "variant": "CopyWorkspaceId",
       "classification": "presentation-only",
       "route": "tree snapshot + frontend clipboard"
+    },
+    {
+      "variant": "PinWorkspace",
+      "classification": "direct",
+      "route": "sidebar.pin or sidebar.unpin (sidebar-doc-v1)"
     },
     {
       "variant": "CloseWorkspace",

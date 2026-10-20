@@ -2,9 +2,28 @@ use serde_json::Value;
 
 const TITLE_MAX: usize = 120;
 
-/// The first non-empty line of `text`, trimmed, at most 120 characters.
+/// `text` up to the first client context element (`<cmux-…-context>`, such as the hidden
+/// workspace context of a Cmd-I chat, cx-ihyx2): a harness may store it right after the
+/// person's text with no break (Codex), and it is never the person's words.
+pub fn without_client_context(text: &str) -> &str {
+    let mut from = 0;
+    while let Some(at) = text[from..].find("<cmux-").map(|i| i + from) {
+        let name = &text[at + 1..];
+        if let Some(end) = name.find('>')
+            && name[..end].ends_with("-context")
+            && !name[..end].contains(char::is_whitespace)
+        {
+            return &text[..at];
+        }
+        from = at + 1;
+    }
+    text
+}
+
+/// The first non-empty line of `text` without its client context, trimmed, at most 120
+/// characters.
 pub fn title_line(text: &str) -> Option<String> {
-    let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
+    let line = without_client_context(text).lines().map(str::trim).find(|line| !line.is_empty())?;
     if line.chars().count() <= TITLE_MAX {
         return Some(line.to_owned());
     }

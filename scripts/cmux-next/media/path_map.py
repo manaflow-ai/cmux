@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Map changed paths to the smallest cmux-next UI tours.
+
+The mapper deliberately uses paths rather than labels, titles, or PR metadata.
+It is a small CLI so the same decision is used by pull-request media jobs and
+incremental DEV builds.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import re
+import sys
+
+
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "hover-card", "glass", "core")
+UI_ROOTS = (
+    re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
+    re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
+    # cmux's own themes, which the app bundles next to Ghostty's.
+    re.compile(r"^Resources/cmux-themes/"),
+)
+NEW_TAB = re.compile(r"(?:new.?tab|NewTab)", re.IGNORECASE)
+AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IGNORECASE)
+NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
+# The sidebar's workspace hover card (its surface and content), in dark, light and over art.
+HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|HoverCards/HoverCardPanel)")
+# Themes, glass and background art: the glass tour shows them over art and opaque.
+GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
+# A tour's own file: a pull request that edits a tour gets that tour's shots.
+TOUR_FILE = re.compile(r"^scripts/cmux-next/media/tours/([a-z0-9-]+)\.json$")
+
+
+def is_ui_path(path: str) -> bool:
+    normalized = path.strip().lstrip("./")
+    return bool(normalized and any(pattern.search(normalized) for pattern in UI_ROOTS))
+
+
+def tours_for_path(path: str) -> list[str]:
+    normalized = path.strip().lstrip("./")
+    tour_file = TOUR_FILE.match(normalized)
+    if tour_file:
+        return [tour_file[1]] if tour_file[1] in TOUR_ORDER else []
+    if not is_ui_path(normalized):
+        return []
+    selected: list[str] = []
+    if NEW_TAB.search(normalized):
+        selected.append("new-tab")
+    if AGENT_PANE.search(normalized):
+        selected.append("agent-pane")
+    if NOW_PLAYING.search(normalized):
+        selected.append("now-playing")
+    if HOVER_CARD.search(normalized):
+        selected.append("hover-card")
+    if GLASS.search(normalized):
+        selected.append("glass")
+    if not selected:
+        selected.append("core")
+    return selected
+
+
+def map_paths(paths: list[str]) -> dict[str, object]:
+    clean = sorted({path.strip() for path in paths if path.strip()})
+    matches: dict[str, list[str]] = {tour: [] for tour in TOUR_ORDER}
+    for path in clean:
+        for tour in tours_for_path(path):
+            matches[tour].append(path)
+    tours = [tour for tour in TOUR_ORDER if matches[tour]]
+    return {
+        "is_ui": bool(tours),
+        "tours": tours,
+        "matches": matches,
+        "paths": clean,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("paths", nargs="*", help="changed repository paths")
+    parser.add_argument("--paths-file", type=Path, help="newline-delimited changed paths")
+    parser.add_argument("--json", action="store_true", help="write the mapping as JSON")
+    args = parser.parse_args(argv)
+    paths = list(args.paths)
+    if args.paths_file:
+        paths.extend(args.paths_file.read_text(encoding="utf-8").splitlines())
+    result = map_paths(paths)
+    if args.json:
+        print(json.dumps(result, sort_keys=True))
+    else:
+        print("ui=" + ("true" if result["is_ui"] else "false"))
+        print("tours=" + ",".join(result["tours"]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -240,6 +240,8 @@ fn empty_workspace_registry_enforces_count_and_string_limits() {
                 public_id: WorkspacePublicId::random().unwrap(),
                 key: format!("key-{index}"),
                 name: format!("workspace-{index}"),
+                name_source: Default::default(),
+                name_revision: 0,
                 screens: Vec::new(),
                 active_screen: 0,
             });

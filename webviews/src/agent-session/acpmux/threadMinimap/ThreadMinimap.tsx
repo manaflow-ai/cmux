@@ -7,13 +7,13 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
-import { useBookmarks } from "./bookmarks";
+import { promptSeq, useBookmarks } from "./bookmarks";
 import { MinimapTick } from "../../../ui/MinimapTick";
+import { useHoverIntent } from "../../../ui/hoverIntent";
 import {
   currentTurn,
   minimapTurns,
   popoverOffset,
-  POPOVER_DELAY_MS,
   tickLayout,
   tickWidth,
   TICK_CURRENT_WIDTH,
@@ -51,7 +51,7 @@ export function ThreadMinimap({
   width: number;
 }) {
   const t = useT();
-  const bookmarks = useBookmarks();
+  const bookmarks = useBookmarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   const turns = useMemo(() => {
     const next = minimapTurns(rows, sessionId, lastTurns.current);
@@ -60,8 +60,10 @@ export function ThreadMinimap({
   }, [rows, sessionId]);
   /// The tick under the pointer or keyboard focus.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
-  const [shown, setShown] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // The turn preview's hover intent (ui/hoverIntent.ts): the first waits the hover delay, then it
+  // follows the pointer from tick to tick at once, and cools a moment after the pointer leaves.
+  const preview = useHoverIntent<"rail">();
+  const shown = preview.shown !== null;
   const root = useRef<HTMLElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   const [popoverHeight, setPopoverHeight] = useState(0);
@@ -71,35 +73,25 @@ export function ThreadMinimap({
   const active = hovered ?? current;
   const turn: MinimapTurn | undefined = hovered === undefined ? undefined : turns[hovered];
 
-  const shownRef = useRef(false);
+  const intend = preview.hover;
   const close = useCallback(() => {
-    clearTimeout(timer.current);
-    timer.current = undefined;
-    shownRef.current = false;
     setHovered(undefined);
-    setShown(false);
-  }, []);
-  /// Hovers tick `index`. The first popover waits POPOVER_DELAY_MS (keyboard focus shows it at once);
+    intend(null);
+  }, [intend]);
+  /// Hovers tick `index`. The first popover waits the hover delay (keyboard focus shows it at once);
   /// once one shows, the next tick's replaces it on the same frame.
-  const hover = useCallback((index: number, immediately: boolean) => {
-    setHovered(index);
-    if (shownRef.current) return;
-    const show = () => {
-      timer.current = undefined;
-      shownRef.current = true;
-      setShown(true);
-    };
-    if (immediately) {
-      clearTimeout(timer.current);
-      show();
-    } else if (timer.current === undefined) timer.current = setTimeout(show, POPOVER_DELAY_MS);
-  }, []);
+  const hover = useCallback(
+    (index: number, immediately: boolean) => {
+      setHovered(index);
+      intend("rail", immediately ? 0 : undefined);
+    },
+    [intend],
+  );
   // The popover's own height, for centering it on the tick and keeping it inside the viewport.
   useLayoutEffect(() => {
     const node = popover.current;
     if (shown && node) setPopoverHeight(node.offsetHeight);
   }, [shown, turn?.key, turn?.reply]);
-  useLayoutEffect(() => () => clearTimeout(timer.current), []);
   // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down, bridge commands that raise
   // these events) step the transcript from prompt to prompt, as a tick's click does. They work while the column is hidden too (a narrow pane, one turn).
   const stepping = useRef({
@@ -154,29 +146,42 @@ export function ThreadMinimap({
     };
   }, [scroller]);
 
-  const indexAt = (clientY: number) => {
-    const box = root.current?.getBoundingClientRect();
-    if (!box || !turns.length) return undefined;
-    const index = Math.floor((clientY - box.top) / pitch);
-    return Math.max(0, Math.min(turns.length - 1, index));
-  };
-  const jump = (index: number) => {
-    const node = scroller.current;
-    const target = turns[index];
-    if (!node || !target) return;
-    const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    node.scrollTo({ top: turnScrollTop(target, layout.tops), behavior: reduce ? "auto" : "smooth" });
-  };
-  const focusTick = (index: number) => {
-    const next = Math.max(0, Math.min(turns.length - 1, index));
-    root.current?.querySelector<HTMLButtonElement>(`[data-tick="${next}"]`)?.focus();
-  };
+  const indexAt = useCallback(
+    (clientY: number) => {
+      const box = root.current?.getBoundingClientRect();
+      if (!box || !turns.length) return undefined;
+      const index = Math.floor((clientY - box.top) / pitch);
+      return Math.max(0, Math.min(turns.length - 1, index));
+    },
+    [pitch, turns.length],
+  );
+  // Keep the tick callbacks stable while scrolling. The rail itself needs to rerender so the
+  // current marker follows the reader, but stable handlers let memoized Tick rows skip that work.
+  const jump = useCallback(
+    (index: number) => {
+      const node = scroller.current;
+      const target = turns[index];
+      if (!node || !target) return;
+      const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      node.scrollTo({ top: turnScrollTop(target, layout.tops), behavior: reduce ? "auto" : "smooth" });
+    },
+    [layout.tops, scroller, turns],
+  );
+  const focusTick = useCallback(
+    (index: number) => {
+      const next = Math.max(0, Math.min(turns.length - 1, index));
+      root.current?.querySelector<HTMLButtonElement>(`[data-tick="${next}"]`)?.focus();
+    },
+    [turns.length],
+  );
 
   if (turns.length < 2 || gutter(width) < MIN_GUTTER) return null;
   const center = first + active * pitch;
   /// The column's top edge: the first tick's band starts half a pitch above its center.
   const railTop = first - pitch / 2;
-  const marked = turn ? bookmarks.marks.has(turn.key) : false;
+  /// The hovered prompt's seq in acpmux's log; a prompt not logged yet has no bookmark.
+  const seq = turn ? promptSeq(turn.id) : undefined;
+  const marked = seq !== undefined && bookmarks.marks.has(seq);
   return (
     <div className="acpmux-minimap">
       <nav
@@ -215,7 +220,7 @@ export function ThreadMinimap({
             }
             tabbable={index === active}
             current={index === current}
-            label={t(bookmarks.marks.has(entry.key) ? "minimap.tickBookmarked" : "minimap.tick", {
+            label={t(isMarked(bookmarks.marks, entry.id) ? "minimap.tickBookmarked" : "minimap.tick", {
               index: index + 1,
               count: turns.length,
               prompt: entry.prompt,
@@ -237,16 +242,18 @@ export function ThreadMinimap({
           >
             <div className="acpmux-minimap__title">
               <span className="acpmux-minimap__prompt">{turn.prompt}</span>
-              <button
-                type="button"
-                className="acpmux-minimap__bookmark"
-                aria-pressed={marked}
-                aria-label={t(marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-                title={t(marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-                onClick={() => bookmarks.toggle(turn.key)}
-              >
-                <BookmarkIcon filled={marked} />
-              </button>
+              {seq !== undefined && (
+                <button
+                  type="button"
+                  className="acpmux-minimap__bookmark"
+                  aria-pressed={marked}
+                  aria-label={t(marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+                  title={t(marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+                  onClick={() => bookmarks.toggle(seq)}
+                >
+                  <BookmarkIcon filled={marked} />
+                </button>
+              )}
             </div>
             {turn.reply.length > 0 && (
               <div className="acpmux-minimap__reply">
@@ -264,6 +271,11 @@ export function ThreadMinimap({
       </nav>
     </div>
   );
+}
+
+function isMarked(marks: ReadonlySet<number>, rowId: string): boolean {
+  const seq = promptSeq(rowId);
+  return seq !== undefined && marks.has(seq);
 }
 
 const Tick = memo(function Tick({

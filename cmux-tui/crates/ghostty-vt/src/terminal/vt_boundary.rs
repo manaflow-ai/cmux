@@ -51,8 +51,16 @@ pub(super) enum VtBoundaryState {
 }
 
 impl VtBoundaryTracker {
-    pub(super) fn feed(&mut self, data: &[u8]) {
+    /// Original byte-at-a-time feed, kept as the exactness reference.
+    pub(super) fn feed_reference(&mut self, data: &[u8]) {
         for &byte in data {
+            self.step(byte);
+        }
+    }
+
+    #[inline(always)]
+    pub(super) fn step(&mut self, byte: u8) {
+        {
             let was_safe = self.is_safe();
             // Ghostty prints U+FFFD for a ground-state code point that an
             // invalid continuation abandons. Those bytes are now part of the
@@ -71,7 +79,7 @@ impl VtBoundaryTracker {
             self.feed_byte(byte);
             if self.is_safe() {
                 self.clear_pending();
-                continue;
+                return;
             }
             if was_safe || abandons_text || restarts {
                 self.clear_pending();
@@ -81,7 +89,7 @@ impl VtBoundaryTracker {
             if matches!(byte, 0x00..=0x17 | 0x19 | 0x1c..=0x1f)
                 && self.state != VtBoundaryState::DcsPassthrough
             {
-                continue;
+                return;
             }
             self.record_pending(byte);
         }
@@ -253,9 +261,42 @@ pub(super) struct C1Normalizer {
 }
 
 impl C1Normalizer {
+    /// Same result as [`Self::normalize_reference`]. With no code point in
+    /// progress, an ASCII byte is copied unchanged and leaves no code point in
+    /// progress, so ASCII runs are copied in bulk.
     pub(super) fn normalize<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         let mut output: Option<Vec<u8>> = None;
-        for (index, &byte) in data.iter().enumerate() {
+        let mut index = 0;
+        while index < data.len() {
+            if self.utf8_remaining == 0 {
+                let next = byte_scan::find_high(data, index);
+                if next != index {
+                    if let Some(output) = output.as_mut() {
+                        output.extend_from_slice(&data[index..next]);
+                    }
+                    index = next;
+                    continue;
+                }
+            }
+            self.normalize_byte(data, index, &mut output);
+            index += 1;
+        }
+        output.map(Cow::Owned).unwrap_or(Cow::Borrowed(data))
+    }
+
+    /// Original byte-at-a-time normalizer, kept as the exactness reference.
+    pub(super) fn normalize_reference<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+        let mut output: Option<Vec<u8>> = None;
+        for index in 0..data.len() {
+            self.normalize_byte(data, index, &mut output);
+        }
+        output.map(Cow::Owned).unwrap_or(Cow::Borrowed(data))
+    }
+
+    #[inline(always)]
+    fn normalize_byte(&mut self, data: &[u8], index: usize, output: &mut Option<Vec<u8>>) {
+        {
+            let byte = data[index];
             let continuation = if self.utf8_remaining != 0 && matches!(byte, 0x80..=0xbf) {
                 self.utf8_remaining -= 1;
                 true
@@ -291,6 +332,59 @@ impl C1Normalizer {
                 };
             }
         }
-        output.map(Cow::Owned).unwrap_or(Cow::Borrowed(data))
+    }
+}
+
+/// Claude and a few other clients use an empty Kitty graphics APC as a
+/// capability probe. libghostty-vt does not give that malformed no-op a
+/// stable replay representation on every build; retaining it can make a
+/// later formatter report `OutOfSpace` even though the terminal has no image
+/// state. It has no display semantics, so discard the complete probe before
+/// feeding the parser and all replay trackers. `C1Normalizer` converts 8-bit
+/// C1 forms to this same 7-bit spelling first.
+#[derive(Default)]
+pub(super) struct EmptyKittyProbeFilter;
+
+impl EmptyKittyProbeFilter {
+    pub(super) fn write<'a>(&mut self, data: Cow<'a, [u8]>) -> Cow<'a, [u8]> {
+        // Every match starts with ESC, so testing only at ESC positions finds
+        // a match exactly when `windows(..).any(..)` does.
+        let bytes = data.as_ref();
+        let mut at = byte_scan::find_esc(bytes, 0);
+        while at < bytes.len() && !bytes[at..].starts_with(Self::EMPTY_PROBE) {
+            at = byte_scan::find_esc(bytes, at + 1);
+        }
+        if at == bytes.len() {
+            return data;
+        }
+        self.write_matched(data)
+    }
+
+    /// Original filter, kept as the exactness reference.
+    pub(super) fn write_reference<'a>(&mut self, data: Cow<'a, [u8]>) -> Cow<'a, [u8]> {
+        const EMPTY_PROBE: &[u8] = EmptyKittyProbeFilter::EMPTY_PROBE;
+        if !data.as_ref().windows(EMPTY_PROBE.len()).any(|window| window == EMPTY_PROBE) {
+            return data;
+        }
+        self.write_matched(data)
+    }
+
+    const EMPTY_PROBE: &[u8] = b"\x1b_G\x1b\\";
+
+    fn write_matched<'a>(&mut self, data: Cow<'a, [u8]>) -> Cow<'a, [u8]> {
+        const EMPTY_PROBE: &[u8] = EmptyKittyProbeFilter::EMPTY_PROBE;
+
+        let data = data.as_ref();
+        let mut output = Vec::with_capacity(data.len());
+        let mut cursor = 0;
+        while cursor < data.len() {
+            if data[cursor..].starts_with(EMPTY_PROBE) {
+                cursor += EMPTY_PROBE.len();
+                continue;
+            }
+            output.push(data[cursor]);
+            cursor += 1;
+        }
+        Cow::Owned(output)
     }
 }

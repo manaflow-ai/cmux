@@ -23,6 +23,9 @@ where
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
+    // The brains of the Chiefs that are not the default, when the app asked
+    // for them (CMUX_TUI_CHIEF_BRAINS); they end with this owner.
+    let chief_brains = cmux_tui_core::chief_brains::start(mux, socket_path);
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself. The loop blocks until a signal,
     // a daemon shutdown request or the end of the remote runtime wakes it;
@@ -61,6 +64,9 @@ where
         generation = wake.wait(generation).unwrap();
     }
     drop(generation);
+    if let Some(chief_brains) = chief_brains {
+        chief_brains.stop();
+    }
     #[cfg(unix)]
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();

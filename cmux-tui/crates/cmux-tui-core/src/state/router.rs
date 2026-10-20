@@ -13,7 +13,6 @@ use crate::resource_router::{
     ParsedResourceRequest, expected_revision, mutation_result, operation_name,
     resource_operation_error, validation_error,
 };
-use crate::state::agent_message_store::{self, AgentMessageFilter, NewAgentMessage};
 use crate::state::closed_history::ReopenRequest;
 use crate::state::closed_history_delete::DeleteRequest;
 use crate::state::store::StateCommit;
@@ -21,10 +20,13 @@ use crate::state::tab_state_store::TabStateUpdate;
 use crate::state::window_records::WindowRecordChange;
 use crate::state::{
     closed_history_query, palette_usage_store, personal_state_store, projects_store,
-    screen_state_store, sidebar_layout_store, tab_state_store, window_record_store,
+    screen_state_store, sidebar_doc_store, sidebar_layout_store, tab_state_store,
+    window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
+
+mod agent_message_router;
 
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     use ResourceOperation as Op;
@@ -87,12 +89,31 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WindowRecordDelete
             | Op::SidebarLayoutGet
             | Op::SidebarLayoutUpdate
+            | Op::SidebarGet
+            | Op::SidebarMove
+            | Op::SidebarPin
+            | Op::SidebarUnpin
+            | Op::SidebarItemAdd
+            | Op::SidebarItemRemove
+            | Op::SidebarItemUpdate
+            | Op::SidebarItemRemoveRef
+            | Op::SidebarSectionAdd
+            | Op::SidebarSectionUpdate
+            | Op::SidebarSectionMove
+            | Op::SidebarSectionRemove
+            | Op::SidebarGroupCreate
+            | Op::SidebarGroupUpdate
+            | Op::SidebarGroupUngroup
+            | Op::SidebarAdopt
+            | Op::SidebarApply
+            | Op::SidebarReset
             | Op::ProjectList
             | Op::ProjectObserve
             | Op::ProjectAdd
             | Op::ProjectUpdate
             | Op::ProjectRemove
             | Op::ProjectSync
+            | Op::ProjectSourceUpdate
             | Op::PaletteUsageGet
             | Op::PaletteUsageRecord
             | Op::PaletteUsageImport
@@ -108,10 +129,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WorkspaceLogAppend
             | Op::WorkspaceLogList
             | Op::WorkspaceLogClear
-            | Op::AgentMessageSend
-            | Op::AgentMessageList
-            | Op::AgentMessageMark
-    )
+    ) || agent_message_router::handles(operation)
 }
 
 /// Map a state failure to its typed protocol error. Registry validation
@@ -171,6 +189,17 @@ fn string(fields: &Map<String, Value>, name: &str) -> Option<String> {
 /// `None` when absent, `Some(None)` for JSON null, `Some(Some(value))`.
 fn nullable_string(fields: &Map<String, Value>, name: &str) -> Option<Option<String>> {
     fields.get(name).map(|value| value.as_str().map(str::to_string))
+}
+
+/// `None` when absent; a present field must be a boolean.
+fn optional_bool(fields: &Map<String, Value>, name: &str) -> Result<Option<bool>, ResourceError> {
+    match fields.get(name) {
+        None => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(_) => {
+            Err(validation_error(&format!("{name} must be a boolean"), json!({"field": name})))
+        }
+    }
 }
 
 fn index(fields: &Map<String, Value>, name: &str) -> Option<usize> {
@@ -283,7 +312,7 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabUpdate => {
-            require_any(fields, &["zoom", "back", "forward", "owner", "icon"])?;
+            require_any(fields, &["zoom", "back", "forward", "owner", "icon", "marked_unread"])?;
             let update = TabStateUpdate {
                 zoom: fields.get("zoom").map(Value::as_f64),
                 back: fields.contains_key("back").then(|| strings(fields, "back")),
@@ -291,6 +320,7 @@ pub(crate) fn dispatch(
                 owner: string(fields, "owner"),
                 icon: nullable_string(fields, "icon"),
                 emulation: None,
+                marked_unread: optional_bool(fields, "marked_unread")?,
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)
@@ -319,8 +349,24 @@ pub(crate) fn dispatch(
         }
         Op::BrowserTabEmulate | Op::BrowserTabEmulateClear => {
             use crate::state::browser_devices::EmulationChange;
+            let fit = string(fields, "fit");
             let change = if operation == Op::BrowserTabEmulateClear {
                 EmulationChange::Clear
+            } else if let Some(fit) = fit {
+                let other = ["device", "custom", "orientation"]
+                    .iter()
+                    .any(|key| fields.get(*key).is_some_and(|value| !value.is_null()));
+                if other {
+                    return Err(state_error(anyhow::anyhow!(
+                        "bad request: give fit alone, without device, custom or orientation"
+                    )));
+                }
+                // `fit: "off"` ends the fit (as browser.tab.emulate.clear).
+                if fit.trim().eq_ignore_ascii_case("off") {
+                    EmulationChange::Clear
+                } else {
+                    EmulationChange::Fit(fit)
+                }
             } else {
                 EmulationChange::Set {
                     device: string(fields, "device"),
@@ -642,6 +688,34 @@ pub(crate) fn dispatch(
                 mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
             state_result(mux, commit)
         }
+        // The sidebar document (sidebar-doc-v1)
+        Op::SidebarGet => {
+            ensure_session(mux, selectors)?;
+            read(mux, sidebar_doc_store::snapshot)
+        }
+        Op::SidebarMove
+        | Op::SidebarPin
+        | Op::SidebarUnpin
+        | Op::SidebarItemAdd
+        | Op::SidebarItemRemove
+        | Op::SidebarItemUpdate
+        | Op::SidebarItemRemoveRef
+        | Op::SidebarSectionAdd
+        | Op::SidebarSectionUpdate
+        | Op::SidebarSectionMove
+        | Op::SidebarSectionRemove
+        | Op::SidebarGroupCreate
+        | Op::SidebarGroupUpdate
+        | Op::SidebarGroupUngroup
+        | Op::SidebarAdopt
+        | Op::SidebarApply
+        | Op::SidebarReset => {
+            ensure_session(mux, selectors)?;
+            let commit = mux
+                .state_sidebar_apply(&mutation(&request)?, operation.wire_name(), fields)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
         // The project list (project-list-v1, plans/cmux-next/projects.md)
         Op::ProjectList => {
             ensure_session(mux, selectors)?;
@@ -694,6 +768,16 @@ pub(crate) fn dispatch(
                     &strings(fields, "existing"),
                     &strings(fields, "gone"),
                 )
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::ProjectSourceUpdate => {
+            ensure_session(mux, selectors)?;
+            let source = string(fields, "source").unwrap_or_default();
+            // The spec requires a boolean `enabled`; validation rejects anything else first.
+            let enabled = fields.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+            let commit = mux
+                .state_project_source_update(&mutation(&request)?, &source, enabled)
                 .map_err(state_error)?;
             state_result(mux, commit)
         }
@@ -837,51 +921,8 @@ pub(crate) fn dispatch(
             state_result(mux, commit)
         }
         // Agent messages (plans/feat-agent-rooms/DESIGN.md)
-        Op::AgentMessageList => {
-            let filter = AgentMessageFilter {
-                recipient: string(fields, "recipient"),
-                sender: string(fields, "sender"),
-                thread_id: string(fields, "thread_id"),
-                state: string(fields, "state"),
-                oldest_first: fields.get("oldest_first").and_then(Value::as_bool).unwrap_or(false),
-            };
-            let limit = index(fields, "limit").unwrap_or(50);
-            mux.agent_message_list(selectors, &filter, limit).map(Value::Array)
-        }
-        Op::AgentMessageSend => {
-            let message = NewAgentMessage {
-                sender: string(fields, "sender")
-                    .unwrap_or_else(|| agent_message_store::CLI_SENDER.to_owned()),
-                sender_name: string(fields, "sender_name"),
-                recipients: strings(fields, "recipients"),
-                body: string(fields, "body").unwrap_or_default(),
-                thread_id: string(fields, "thread_id"),
-                in_reply_to: string(fields, "in_reply_to"),
-            };
-            let commit = mux
-                .agent_message_send(
-                    &mutation(&request)?,
-                    expected_revision(fields)?,
-                    selectors,
-                    message,
-                )
-                .map_err(state_error)?;
-            state_result(mux, commit)
-        }
-        Op::AgentMessageMark => {
-            let commit = mux
-                .agent_message_mark(
-                    &mutation(&request)?,
-                    expected_revision(fields)?,
-                    selectors,
-                    &strings(fields, "ids"),
-                    &string(fields, "recipient").unwrap_or_default(),
-                    &string(fields, "state").unwrap_or_default(),
-                    string(fields, "via").as_deref(),
-                    string(fields, "error").as_deref(),
-                )
-                .map_err(state_error)?;
-            state_result(mux, commit)
+        operation if agent_message_router::handles(operation) => {
+            agent_message_router::dispatch(mux, &request)
         }
         operation => Err(ResourceError::operation_failed(
             operation_name(operation),

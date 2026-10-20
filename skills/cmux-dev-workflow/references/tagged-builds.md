@@ -62,7 +62,7 @@ CMUX_TAG=<tag> scripts/cmux-debug-cli.sh terminal current screen read
 
 `current` is the tagged app's focused terminal; pass a `term_…` id from `terminal list` when more than one is open.
 
-The helper refuses to run without `CMUX_TAG`, targets `/tmp/cmux-debug-<tag>.sock`, uses the matching tagged CLI from DerivedData (or, for a fleet build restored with `publish-hq`, from `~/Library/Application Support/cmux/tag-app-cache`), scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, legacy workspace/surface/tab/panel IDs, cmuxd and mux sockets, every `CMUX_TUI_*` variable, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for that tag.
+The helper refuses to run without `CMUX_TAG`, targets the tag's socket (cmux NEXT: `~/.local/state/cmux/cmux-debug-<tag>.sock`, else `/tmp/cmux-debug-<tag>.sock`), uses the matching tagged CLI from DerivedData (or, for a fleet build restored with `publish-hq`, from `~/Library/Application Support/cmux/tag-app-cache`), scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, legacy workspace/surface/tab/panel IDs, cmuxd and mux sockets, every `CMUX_TUI_*` variable, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for that tag.
 
 `/tmp/cmux-cli` points at the most recently reloaded build and can target the user's main app socket, so it is never safe for tagged dogfood.
 

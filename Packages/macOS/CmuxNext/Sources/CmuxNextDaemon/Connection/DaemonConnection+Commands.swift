@@ -26,8 +26,22 @@ extension DaemonConnection {
     }
 
     @discardableResult
-    public func renameWorkspace(_ key: WorkspaceKey, to name: String) async throws -> WorkspaceMutationResult {
-        try await request(RenameWorkspaceRequest(workspace: .key(key), name: name, mutation: mutation()))
+    public func renameWorkspace(_ key: WorkspaceKey, to name: String, source: WorkspaceNameSource? = nil,
+                                expectedNameRevision: UInt64? = nil, release: Bool = false) async throws -> WorkspaceMutationResult {
+        if source == .auto {
+            guard identity?.supports(DaemonCapabilities.shared.workspaceNameSource) == true else {
+                throw DaemonError.missingCapabilities([DaemonCapabilities.shared.workspaceNameSource])
+            }
+        }
+        let nameMutation: MutationIdentity = {
+            guard source == .auto else { return mutation() }
+            var identity = mutation()
+            identity.expectedGeneration = self.identity?.generation
+            return identity
+        }()
+        return try await request(RenameWorkspaceRequest(workspace: .key(key), name: name, source: source,
+                                                        expectedNameRevision: expectedNameRevision, release: release,
+                                                        mutation: nameMutation))
     }
 
     @discardableResult
@@ -186,7 +200,7 @@ extension DaemonConnection {
     @discardableResult
     public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil, profileID: String? = nil,
                                       activate: Bool? = nil, after: SurfaceID? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
-        try await request(NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after))
+        try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after).send(on: self)
     }
 
     @discardableResult
@@ -238,6 +252,13 @@ extension DaemonConnection {
 
     public func send(_ surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool = false) async throws {
         _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil))
+    }
+
+    /// Input by host terminal id, also for a terminal still being created
+    /// (`terminal-input-while-creating-v1`). True when the daemon queued it.
+    @discardableResult
+    public func sendTerminalInput(_ terminalID: String, bytes: Data) async throws -> Bool {
+        try await request(SendTerminalInputRequest(terminalID: terminalID, bytes: bytes)).queued == true
     }
 
     public func sendKeys(_ surface: SurfaceID, _ keys: [String]) async throws {

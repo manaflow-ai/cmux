@@ -21,9 +21,17 @@ public struct SidebarDebugStatusGlyph: Sendable {
     public var title: String? = nil
     public var titleCapCenterY: CGFloat? = nil
     public var badge: CGRect? = nil
+    /// What the indicator draws (`StatusIndicatorPlan.Glyph`): `arc` for the spinner, `mark` for a
+    /// status icon set's mark, `dot`, `dots`, ... (cx-qtgj2: working is a spinner, not a pulse).
+    public var glyph: String = ""
+    /// The animation the layer runs now (`spin`, `pulse`, ...), nil when it is still (occluded,
+    /// minimized, Reduce Motion or a still state).
+    public var animation: String? = nil
+    /// How far a spinning glyph is through its turn now (0..<1); synced spinners read the same.
+    public var phase: Double? = nil
 }
 
-extension SidebarView {
+extension SidebarViewComponents {
     public func debugStatusGlyphs() -> [SidebarDebugStatusGlyph] {
         guard let window else { return [] }
         let height = window.contentView?.bounds.height ?? window.frame.height
@@ -32,11 +40,18 @@ extension SidebarView {
             return CGRect(x: rect.minX, y: height - rect.maxY, width: rect.width, height: rect.height)
         }
         var glyphs: [SidebarDebugStatusGlyph] = []
-        func walk(_ view: NSView) {
-            guard !view.isHidden else { return }
+        // Depth first, a view before its subviews, subviews in order. An explicit stack, not a
+        // recursive local function that captures `glyphs` (Swift 6.3.3's SendNonSendable pass
+        // crashed now and then on such captures in Release).
+        var pending: [NSView] = [self]
+        while let view = pending.popLast() {
+            guard !view.isHidden else { continue }
             // A pooled row's indicator is laid out at zero size until the row shows.
-            guard let indicator = view as? StatusIndicatorView else { return view.subviews.forEach(walk) }
-            guard indicator.showsGlyph, indicator.bounds.width > 0 else { return }
+            guard let indicator = view as? StatusIndicatorView else {
+                pending.append(contentsOf: view.subviews.reversed())
+                continue
+            }
+            guard indicator.showsGlyph, indicator.bounds.width > 0 else { continue }
             let frame = topLeft(indicator), layer = indicator.indicator
             let scale = window.backingScaleFactor
             var glyph = SidebarDebugStatusGlyph(
@@ -44,6 +59,9 @@ extension SidebarView {
                 badgeHeight: SidebarStyle.badgeHeight,
                 soft1x: layer.debugMarkMask(scale: 1).flatMap(MaskMeasure.softness),
                 soft2x: layer.debugMarkMask(scale: 2).flatMap(MaskMeasure.softness))
+            if case .mark = layer.plan.glyph { glyph.glyph = "mark" } else { glyph.glyph = String(describing: layer.plan.glyph) }
+            glyph.animation = layer.runningAnimation.map { String(describing: $0) }
+            glyph.phase = layer.debugRotationPhase
             if let mask = layer.debugMarkMask(scale: scale), let box = MaskMeasure.alphaBox(mask) {
                 // Mask rows run top to bottom; the glyph square is centered in the indicator.
                 let side = CGFloat(mask.width) / scale
@@ -61,7 +79,6 @@ extension SidebarView {
             }
             glyphs.append(glyph)
         }
-        walk(self)
         return glyphs
     }
 }

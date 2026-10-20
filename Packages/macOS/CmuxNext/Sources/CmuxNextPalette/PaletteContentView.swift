@@ -277,7 +277,7 @@ final class PaletteContentView: NSView {
             bottomRule.layer?.backgroundColor = Palette.separator.cgColor
             // The one popup elevation (POLISH: subtle shadows): its own, darker and wider, made the
             // palette heavier than every other popup.
-            stage.shadow = PopupStyle.standard.shadow()
+            stage.shadow = PopupStyle.elevation2.shadow()
         }
         if let editor = searchBar.field.currentEditor() as? NSTextView { applyEditorColors(editor) }
     }

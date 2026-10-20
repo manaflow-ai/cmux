@@ -307,6 +307,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);
             }
+            if let Some(m) = &args.mode {
+                meta["mode"] = json!(m);
+            }
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }
@@ -353,7 +356,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     return Ok(());
                 }
                 if args.detach {
-                    queue_prompt(client, &id, &text, false, &prompt).await?;
+                    queue_prompt(client, &id, &text, false, None, &prompt).await?;
                     return Ok(());
                 }
                 let opts = CollectOpts {
@@ -423,7 +426,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if no_wait {
                 // Return once the daemon recorded the prompt, not after a guess.
-                let accepted = queue_prompt(client, &id, &text, steer, &prompt_id).await?;
+                let accepted = queue_prompt(client, &id, &text, steer, None, &prompt_id).await?;
                 if json_out {
                     print_json(
                         &json!({"sessionId": id, "queued": true, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted}),

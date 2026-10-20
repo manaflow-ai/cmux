@@ -119,11 +119,12 @@ extension TabStripView {
         let resolved = resolvePhantom(at: point, groupWidth: groupWidth)
         var items = baseLayoutItems()
         let placeholder = TabLayoutItem(id: Self.placeholderID, groupID: resolved.groupID, fixedWidth: groupWidth)
-        Self.insertPlaceholder(placeholder, atTabIndex: resolved.index, into: &items)
+        items.insertPlaceholder(placeholder, atTabIndex: resolved.index)
         let layout = TabLayoutEngine.layout(items: items, availableWidth: viewportWidth, style: model.style, metrics: metrics)
         guard let slot = layout.slot(Self.placeholderID) else { return nil }
-        let offset = TabScrollMath.clamp(scroll.target, contentWidth: layout.contentWidth, viewportWidth: viewportWidth)
-        let local = CGRect(x: slot.x - offset, y: tabTop, width: slot.width, height: min(metrics.tabHeight, bounds.height))
+        let offset = TabScrollMath.clamp(scrollOffset, contentWidth: layout.contentWidth, viewportWidth: viewportWidth)
+        let mapping = TabScrollMapping(result: layout, viewportWidth: viewportWidth, minimumScrollable: metrics.minActiveTabWidth, offset: offset)
+        let local = CGRect(x: mapping.viewX(slot.x, isPinned: false), y: tabTop, width: slot.width, height: min(metrics.tabHeight, bounds.height))
         let frameInWindow = tabsClip.convert(local, to: nil)
         return TabStripDropTarget(
             stripID: model.stripID,
@@ -146,16 +147,16 @@ extension TabStripView {
         let entries = base.slots.filter { !$0.isPinned }
         let start = entries.first?.x ?? (base.contentWidth + (pinnedCount > 0 ? metrics.pinnedGroupGap : 0))
         let width = groupWidth ?? (base.standardWidth > 0 ? base.standardWidth : metrics.maxTabWidth)
-        let contentX = convert(point, to: tabsClip).x + scroll.value
-        let minX = contentX - width / 2
+        let contentX = scrollMapping.contentX(convert(point, to: tabsClip).x, isPinned: false)
         if groupWidth != nil {
-            let resolved = TabGroupDropMath.resolveGroup(entries: entries, start: start, draggedMinX: minX)
+            let resolved = TabGroupDropMath.resolveGroup(entries: entries, start: start, draggedMinX: contentX - width / 2)
             return TabGroupDropResolution(index: pinnedCount + resolved.tabIndex, groupID: nil)
         }
+        // A tab goes to the slot edge nearest the pointer, as its ghost card follows it (cx-6ggef).
         let resolved = TabGroupDropMath.resolveTab(
             entries: entries,
             start: start,
-            draggedMinX: minX,
+            draggedMinX: contentX,
             currentGroup: dropPlaceholderGroup,
             hysteresis: width * Self.groupJoinHysteresis
         )

@@ -63,9 +63,10 @@ enum WindowHintTargets {
             // Only controls report enabled; custom rows and tabs leave it unset.
             if element.isAccessibilityElement(), let role = element.accessibilityRole(), clickable.contains(role),
                (element as? NSControl)?.isEnabled ?? true {
+                // Outside the content the clip is a null rect (infinite origin): left out before the Int key.
                 let rect = window.convertFromScreen(element.accessibilityFrame()).intersection(bounds)
-                let key = [rect.minX, rect.minY, rect.width, rect.height].map { Int($0.rounded()) }
-                if rect.width >= 4, rect.height >= 4, seen.insert(key).inserted {
+                if !rect.isNull, rect.width >= 4, rect.height >= 4,
+                   seen.insert([rect.minX, rect.minY, rect.width, rect.height].map { Int($0.rounded()) }).inserted {
                     found.append(Target(rect: rect, role: role.rawValue, title: describe(element)))
                 }
             }

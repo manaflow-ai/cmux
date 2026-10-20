@@ -5,11 +5,11 @@
 /// path cannot be resolved reports its build id only.
 #[cfg(unix)]
 pub(crate) fn install() {
-    // cmux-remote (which stamps the source revision) is a Unix-only
+    // cmux-build-identity (which stamps the source revision) is a Unix-only
     // dependency; a Windows daemon reports its package version until the
-    // stamp moves to a cross-platform crate.
+    // stamp is a cross-platform dependency.
     #[cfg(unix)]
-    let build_id = cmux_remote::ssh_bootstrap::BUILD_IDENTITY.to_owned();
+    let build_id = cmux_build_identity::BUILD_IDENTITY.to_owned();
     #[cfg(not(unix))]
     let build_id = env!("CARGO_PKG_VERSION").to_owned();
     // Test seam, debug builds only: a daemon that reports another build, so
@@ -26,7 +26,7 @@ pub(crate) fn install() {
     ));
 }
 
-/// The build id comes from cmux-remote's build script, and cmux-remote is a
+/// The build id comes from cmux-build-identity's build script, a
 /// unix-only dependency. A Windows daemon installs no build, so `identify`
 /// reports `null` for both fields and leaves out `daemon-build-v1`, as an
 /// embedder does.

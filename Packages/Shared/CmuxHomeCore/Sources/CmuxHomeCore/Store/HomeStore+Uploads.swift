@@ -195,7 +195,7 @@ extension HomeStore {
     /// (and each link preview picture's mime type and byte count) taken from
     /// the owner's stored ref for its hash.
     static func adopting(_ stored: [String: AttachmentRef], in op: HomeOp) -> HomeOp {
-        guard case .sendMessage(let conversation, let parts, let threadRoot) = op else { return op }
+        guard case .sendMessage(let conversation, let parts, let threadRoot, let parent) = op else { return op }
         let adopted = parts.map { part -> MessagePart in
             switch part {
             case .attachment(var ref):
@@ -214,7 +214,7 @@ extension HomeStore {
                 return part
             }
         }
-        return .sendMessage(conversation: conversation, parts: adopted, threadRoot: threadRoot)
+        return .sendMessage(conversation: conversation, parts: adopted, threadRoot: threadRoot, parent: parent)
     }
 
     /// Uploads, at most `uploadConcurrency` at once, every attachment of the

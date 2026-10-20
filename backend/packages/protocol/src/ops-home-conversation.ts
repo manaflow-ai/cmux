@@ -17,6 +17,7 @@ import {
   Parts,
   ReactionKind,
   Seq,
+  ThreadStatus,
   ThreadSummary
 } from "./ops-home-schemas.ts"
 
@@ -181,6 +182,28 @@ export const TitleSet = def({
   mcp: { expose: "opt_in", group: "home" }
 })
 
+export const ThreadUpdate = def({
+  name: "thread.update",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "message",
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    ...conv,
+    root: MessageId,
+    title: Schema.optionalKey(Title),
+    status: Schema.optionalKey(ThreadStatus),
+    // A participant id, or "" to clear the owner (the owner checks it is a current participant).
+    owner: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(128)))
+  }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_message", "invalid_thread_root", "invalid_thread_update", "invalid_thread_owner", "invalid_title"],
+  docs: "Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread.",
+  cli: cli("thread update"),
+  mcp: { expose: "opt_in", group: "home" }
+})
+
 export const ParticipantsAdd = def({
   name: "participants.add",
   owner: "cloud:ConversationDO",
@@ -265,6 +288,62 @@ export const InviteAccept = def({
   errors: [...conversationErrors, "unknown_invite", "invite_not_pending", "invite_expired"],
   docs: "Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval.",
   cli: { path: "chat accept", visible: false },
+  mcp: { expose: "never", group: "home" }
+})
+
+export const InviteAcceptVerified = def({
+  name: "invite.accept_verified",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "invite",
+  principals: ["session"],
+  params: Schema.Struct({ ...conv }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_invite", "invite_expired", "accept_locked"],
+  docs: "Accept a message request in Home: the open email invite to your verified email joins you, with no link. Anyone else gets unknown_invite.",
+  cli: { path: "chat requests accept", visible: true },
+  mcp: { expose: "never", group: "home" }
+})
+
+export const RequestDismiss = def({
+  name: "request.dismiss",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "invite",
+  principals: ["session"],
+  params: Schema.Struct({ ...conv, block: Schema.optionalKey(Schema.Boolean) }),
+  result: Schema.Struct({ dismissed: Schema.Boolean, blocked: Schema.Boolean }),
+  errors: [...conversationErrors, "unknown_invite"],
+  docs: "Hide a message request; with block, also hide and never email later invites from its sender. The sender is not told.",
+  cli: { path: "chat requests dismiss", visible: true },
+  mcp: { expose: "never", group: "home" }
+})
+
+const HomeRequest = Schema.Struct({
+  conversation: ConversationId,
+  inviter: Schema.String,
+  kind: Schema.Literals(["dm", "group"]),
+  title: Schema.optionalKey(Schema.String),
+  preview: Schema.String,
+  created_at: Schema.String,
+  expires_at: Schema.String,
+  trusted: Schema.Boolean
+})
+
+export const HomeRequestsList = def({
+  name: "home.requests.list",
+  owner: "cloud:ConversationDO",
+  class: "read",
+  risk: "read",
+  target: "invite",
+  principals: ["session"],
+  params: Schema.Struct({}),
+  result: Schema.Struct({ requests: Schema.Array(HomeRequest) }),
+  errors: [...conversationErrors],
+  docs: "Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain.",
+  cli: { path: "chat requests list", visible: true },
   mcp: { expose: "never", group: "home" }
 })
 
@@ -371,12 +450,13 @@ export const ConversationImport = def({
     title: Schema.optionalKey(Title),
     participants: Schema.optionalKey(Schema.Array(ParticipantInput).check(Schema.isMaxLength(64))),
     after_seq: Schema.optionalKey(Seq),
+    fill: Schema.optionalKey(Schema.Boolean),
     messages: Schema.Array(Schema.Unknown).check(Schema.isMaxLength(500)),
     read_cursors: Schema.optionalKey(Schema.Unknown)
   }),
   result: commit,
   errors: [...conversationErrors, "conversation_exists", "import_out_of_order", "importing", "invalid_conversation_id"],
-  docs: "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch.",
+  docs: "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same.",
   cli: { path: "chat import", visible: false },
   mcp: { expose: "never", group: "home" }
 })
@@ -408,11 +488,15 @@ export const homeConversationOps = [
   ReactionRemove,
   ReadCursorSet,
   TitleSet,
+  ThreadUpdate,
   ParticipantsAdd,
   ParticipantsRemove,
   InviteCreate,
   InviteRevoke,
   InviteAccept,
+  InviteAcceptVerified,
+  RequestDismiss,
+  HomeRequestsList,
   InviteApproveJoin,
   ConversationSettingsSet,
   ConversationSnapshot,

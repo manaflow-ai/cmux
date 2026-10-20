@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// Pointer rules of the browser toolbar and its omnibar (cx-d0d.80). Every
@@ -21,7 +21,7 @@ import CmuxNextDesign
 ///
 /// Hover:
 /// - One treatment: a theme-token fill (`Palette.hoverFill`, the pill's
-///   lift `OmnibarStyle.barHoverFill`) that eases in and clears at once
+///   lift `OmnibarStyle.barFill(.hover, ...)`) that eases in and clears at once
 ///   (`ChromeHover.fade`), so a sweep across the buttons leaves no trail.
 /// - Hover is where the pointer is now (`PointerHover`), recomputed when the
 ///   view hides, shows or changes window: a tab switch, a parked pane or a
@@ -63,11 +63,15 @@ enum OmnibarPointer {
     }
 }
 
-/// A toolbar row that shows the arrow over its whole frame
-/// (`OmnibarPointer`): subviews with their own cursor rects (the editing
-/// omnibar text) take precedence inside it.
-final class ArrowCursorView: NSView {
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
+extension OmnibarPointer {
+    /// The cursor at a window point over `row`: the I-beam inside an
+    /// omnibar's text area (the rectangle of its cursor rects), the arrow
+    /// everywhere else in the row.
+    @MainActor
+    static func cursor(atWindowPoint point: NSPoint, in row: NSView) -> Cursor {
+        guard let parent = row.superview, let hit = row.hitTest(parent.convert(point, from: nil)) else { return cursor(.toolbar) }
+        let bar = sequence(first: hit, next: \.superview).prefix(while: { $0 !== row }).lazy.compactMap { $0 as? AddressBarView }.first
+        guard let bar else { return cursor(.toolbar) }
+        return bar.textArea.contains(bar.convert(point, from: nil)) ? cursor(.bar) : cursor(.barEdge)
     }
 }

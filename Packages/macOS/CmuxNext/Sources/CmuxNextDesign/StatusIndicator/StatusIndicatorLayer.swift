@@ -41,6 +41,9 @@ public final class StatusIndicatorLayer {
                    accent: Palette.textPrimary.cgColor)
         }
 
+        /// Codex's unread dot, sampled from the Codex app (rgb 57 130 245).
+        static let unread = CGColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1)
+
         /// The color a plan's tint draws in.
         public func color(for tint: StatusIndicatorPlan.Tint) -> CGColor {
             switch tint {
@@ -49,6 +52,8 @@ public final class StatusIndicatorLayer {
             case .danger: danger
             case .success: success
             case .accent: accent ?? loading
+            case .spinner: (accent ?? loading).copy(alpha: (accent ?? loading).alpha * 0.66) ?? loading
+            case .unread: Self.unread
             }
         }
     }
@@ -59,9 +64,9 @@ public final class StatusIndicatorLayer {
         didSet { if colors != oldValue { applyColors() } }
     }
 
-    private var glyphLayer: CAShapeLayer?
+    private(set) var glyphLayer: CAShapeLayer?
     private var trackLayer: CAShapeLayer?
-    private var nativeLayer: CALayer?
+    private(set) var nativeLayer: CALayer?
     /// The pixel side the native mask was rendered for.
     private var nativeSide: CGFloat = 0
     /// Braille spinner frames (masks) for the current size and font.
@@ -110,6 +115,10 @@ public final class StatusIndicatorLayer {
         "path": NSNull(), "strokeColor": NSNull(), "fillColor": NSNull(), "backgroundColor": NSNull(),
         "strokeEnd": NSNull(), "lineWidth": NSNull(), "sublayers": NSNull(), "transform": NSNull(), "mask": NSNull(),
     ]
+
+    /// The media time (`CACurrentMediaTime`) every indicator loop counts its phase from. Not 0:
+    /// Core Animation reads a zero `beginTime` as "now".
+    static let phaseEpoch: CFTimeInterval = 1
 
     /// The animation running now (tests, diagnostics).
     public var runningAnimation: StatusIndicatorPlan.Animation? {
@@ -361,7 +370,13 @@ public final class StatusIndicatorLayer {
         case .frames: Motion.framesAnimation(brailleFrames)
         case .wave: waveAnimation()
         }
-        if let animation { target.add(animation, forKey: wanted.key) }
+        guard let animation else { return }
+        // Every indicator loop runs on one clock (Lawrence 2026-10-14: "all spinners need to be
+        // synced", cx-qtgj2): each starts at the shared epoch, in the past, so a spinner that
+        // shows later, or resumes after its window was hidden, joins in the same phase as the
+        // rest (sidebar rows, tabs, hover cards, chrome spinners).
+        animation.beginTime = target.convertTime(Self.phaseEpoch, from: nil)
+        target.add(animation, forKey: wanted.key)
     }
 
     private func animationTarget(for animation: StatusIndicatorPlan.Animation?) -> CALayer? {

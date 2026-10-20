@@ -7,7 +7,7 @@ deleted it, and bench.sh sources scripts/lib/stop-cmux-tui-owners.sh, which the
 sparse list never named. The bench step is continue-on-error, so a run on an
 owned Mac came back green with nothing measured (cx-v9hdp).
 
-So: every repository script a bench step runs, and every file bench.sh sources,
+So: every repository script a bench step runs, and every file bench.sh or golden.sh sources,
 must exist in this tree and be inside the sparse checkout.
 """
 
@@ -22,6 +22,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-frame-pacing.yml"
 BENCH = ROOT / "scripts" / "ci" / "frame-pacing" / "bench.sh"
+GOLDEN = ROOT / "scripts" / "ci" / "frame-pacing" / "golden.sh"
 SCRIPT = re.compile(r"(?<![\w/$.-])((?:\./)?scripts/[\w./-]+\.(?:sh|py))")
 SOURCED = re.compile(r'^\s*(?:source|\.)\s+"\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/([^"]+)"', re.M)
 
@@ -43,8 +44,9 @@ def needed_files(job: dict) -> set[str]:
     for step in job["steps"]:
         for match in SCRIPT.findall(step.get("run", "")):
             needed.add(match.removeprefix("./"))
-    for relative in SOURCED.findall(BENCH.read_text(encoding="utf-8")):
-        needed.add((BENCH.parent / relative).resolve().relative_to(ROOT).as_posix())
+    for script in (BENCH, GOLDEN):
+        for relative in SOURCED.findall(script.read_text(encoding="utf-8")):
+            needed.add((script.parent / relative).resolve().relative_to(ROOT).as_posix())
     return needed
 
 

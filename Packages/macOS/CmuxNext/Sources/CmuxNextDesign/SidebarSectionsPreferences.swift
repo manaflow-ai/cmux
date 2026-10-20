@@ -42,6 +42,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// no computer headers; a workspace of another computer names it on its
     /// second line.
     public var groupsByComputer = false
+    /// `workspaces.autoName` (hq#1957): a workspace the user never named
+    /// takes its front tab's name (a page's, a chat's, a terminal's). On by default.
+    public var autoNamesWorkspaces = true
     /// What each workspace row shows (`sidebar.workspaceRow.*`): by default
     /// the name, the user's icon and the unread/attention mark only
     /// (SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
@@ -63,7 +66,12 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// unread mark and attention state (no second line, no counts or badges,
     /// no tab rows), and section headers become thin lines (the `lines` look).
     public var minimal = false
-    /// Compact or expanded workspace rows (`sidebar.density`); minimal mode wins.
+    /// `sidebar.detailedStatusIcons`: a workspace row's badge draws each state apart (working,
+    /// waiting for input, error, done, as agents and OSC 7501 programs report them). Off by default:
+    /// the row says Working (one spinner) or Ready (the blue dot) only (Lawrence 2026-10-18).
+    public var detailedStatusIcons = false
+    /// Compact (the default), comfortable or expanded workspace rows
+    /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .compact
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// Off by default: a fresh profile's sidebar is pinned, its Settings and

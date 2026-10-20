@@ -111,6 +111,36 @@ impl Mux {
         }
     }
 
+    /// A bell (BEL) in `surface`'s terminal marks its tab for attention like a
+    /// notification (cx-on7iu, Lawrence 2026-10-14: a terminal bell must mark the
+    /// sidebar row like a notification). It is a mark, not an alert: no desktop
+    /// banner or sound (`desktop: false`), and none while the terminal still has
+    /// an unread notification, so a program that rings in a loop marks its tab
+    /// once and never pushes real notifications out of the ledger. The terminal's
+    /// reader also posts at most one per cooldown (`PendingBells`).
+    pub(crate) fn post_bell_notification(&self, surface: SurfaceId) {
+        if self.surface_notification(surface).is_some_and(|marker| marker.unread) {
+            return;
+        }
+        let key = format!("bell-{}", crate::workspace_registry::new_uuid_v4());
+        if self
+            .create_durable_notification_with(
+                &Actor::Daemon,
+                &key,
+                "Bell".to_string(),
+                None,
+                String::new(),
+                NotificationLevel::Info,
+                Some(surface),
+                NotificationSource::Terminal,
+                false,
+            )
+            .is_err()
+        {
+            self.report_internal_diagnostic("bell notification not posted");
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn post_resource_notification(
         &self,
@@ -277,6 +307,34 @@ impl Mux {
         surface: Option<SurfaceId>,
         source: NotificationSource,
     ) -> anyhow::Result<Option<u64>> {
+        self.create_durable_notification_with(
+            actor,
+            idempotency_key,
+            title,
+            subtitle,
+            body,
+            level,
+            surface,
+            source,
+            true,
+        )
+    }
+
+    /// `create_durable_notification` with `desktop`: false records the
+    /// notification and its unread mark with no desktop banner (a bell).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn create_durable_notification_with(
+        &self,
+        actor: &Actor,
+        idempotency_key: &str,
+        title: String,
+        subtitle: Option<String>,
+        body: String,
+        level: NotificationLevel,
+        surface: Option<SurfaceId>,
+        source: NotificationSource,
+        desktop: bool,
+    ) -> anyhow::Result<Option<u64>> {
         const OPERATION: &str = "notification.create";
         let terminal_id = surface.and_then(|surface| {
             let state = self.state.lock().unwrap();
@@ -320,6 +378,7 @@ impl Mux {
                     "terminal_id": terminal_id,
                     "created_at_ms": now_ms(),
                     "source": source.as_str(),
+                    "desktop": desktop,
                 });
                 self.prepare_resource_effect(
                     &WorkspaceMutation::new(idempotency_key, "resource-api", actor.clone())?,
@@ -361,6 +420,8 @@ impl Mux {
             .and_then(Value::as_str)
             .and_then(NotificationSource::parse)
             .unwrap_or(source);
+        // An intent from before `desktop` existed was a desktop notification.
+        let desktop = intent.get("desktop").and_then(Value::as_bool).unwrap_or(true);
         let numeric_id = self.post_resource_notification(
             notification_id.clone(),
             title.clone(),
@@ -371,7 +432,7 @@ impl Mux {
             terminal_id.clone(),
             created_at_ms,
             source,
-            true,
+            desktop,
             false,
         );
         let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
@@ -385,7 +446,7 @@ impl Mux {
             created_at_ms,
             source,
             surface,
-            desktop: true,
+            desktop,
             reply: false,
         };
         let value = self.created_notification_value(&notification, &session_id);

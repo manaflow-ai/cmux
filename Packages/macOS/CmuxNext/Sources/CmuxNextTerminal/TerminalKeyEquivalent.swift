@@ -16,6 +16,14 @@ public struct TerminalKeyEquivalent {
     /// asking the menu would swallow the user's Ghostty keybind (nxdog50).
     public static var menuMayClaim: ((NSEvent) -> Bool)?
 
+    /// Whether the dispatcher gave `event` to this terminal for the user's
+    /// own Ghostty keybind (their config binds a chord cmux has a default on,
+    /// or binds a routed action). Then no main-menu item takes a Command
+    /// chord before Ghostty. Ghostty's and cmux's default keybinds never
+    /// count, so Edit > Undo keeps Cmd-Z. An unbind still lets AppKit offer
+    /// the menu after Ghostty declines the key.
+    public static var userKeybindOwns: ((NSEvent) -> Bool)?
+
     /// Notes the path of a traced key (`debug.key`); nil otherwise.
     public static var trace: ((String) -> Void)?
 
@@ -27,8 +35,11 @@ public struct TerminalKeyEquivalent {
         guard event.type == .keyDown, view.isFirstResponder, let surface = view.surface else { return false }
 
         // App-level Command actions, especially Quit, must win before a
-        // Ghostty binding or an unbound chord can forward text to the PTY.
-        if event.modifierFlags.contains(.command), NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+        // Ghostty binding or an unbound chord can forward text to the PTY,
+        // unless the dispatcher gave this key to the terminal for the user's
+        // own Ghostty keybind: then the menu never takes it first.
+        if event.modifierFlags.contains(.command), !(Self.userKeybindOwns?(event) ?? false),
+           NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
             return true
         }
 

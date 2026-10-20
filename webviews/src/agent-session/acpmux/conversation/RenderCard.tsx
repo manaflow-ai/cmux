@@ -4,9 +4,13 @@
 // policy allows no connection. The frame asks for the HTML once it loads and reports its height;
 // the card grows to it, up to a cap a reader can lift. Nothing runs until the reader presses Run:
 // the frame shares the pane's web process, so a busy loop in agent HTML would freeze the pane. The
-// pane on a dev server has no render frame, so there the call stays a plain tool row.
-import { useEffect, useRef, useState } from "react";
+// pane on a dev server has no render frame, so there the call stays a plain tool row. Open hands the
+// page to the side panel beside the chat (ArtifactPanel.tsx), with its source a tab away.
+import { useContext, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
+import { ArtifactContext } from "./artifactPreview";
+import { Expand } from "./icons";
+import { renderFrameCSS } from "./renderBase";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
 
 export const RENDER_FRAME_URL = "cmux-agent://render/frame";
@@ -22,24 +26,6 @@ export const ranRenders = new Set<string>();
 /// Whether this page can frame renders: only the bundled pane has the render origin.
 export const canRender = () => typeof location !== "undefined" && location.protocol === "cmux-agent:";
 
-/// The pane's theme as variables the HTML can use (`var(--cmux-text)`), under its own styles.
-function themeCSS(): string {
-  const style = getComputedStyle(document.body);
-  const read = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-  const scheme = style.colorScheme.includes("dark") ? "dark" : "light";
-  return [
-    `:root{color-scheme:${scheme};`,
-    `--cmux-text:${read("--agent-text", "CanvasText")};`,
-    `--cmux-muted:${read("--agent-muted", "GrayText")};`,
-    `--cmux-bg:${read("--agent-page-bg", "Canvas")};`,
-    `--cmux-border:${read("--agent-border", "GrayText")};`,
-    `--cmux-font:${read("--cv-font", "-apple-system, system-ui, sans-serif")};`,
-    `--cmux-mono:${read("--font-mono", "ui-monospace, monospace")}}`,
-    "html{background:transparent}",
-    "body{margin:0;color:var(--cmux-text);font:13px/1.45 var(--cmux-font)}",
-  ].join("");
-}
-
 /// Feeds `html` to a render frame once it asks for it, and follows the height the frame reports.
 export function useRenderFrame(html: string) {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -51,7 +37,8 @@ export function useRenderFrame(html: string) {
       const data: unknown = event.data;
       if (!data || typeof data !== "object") return;
       const message = data as { type?: unknown; height?: unknown };
-      if (message.type === "cmux-render-ready") target.postMessage({ type: "cmux-render", html, css: themeCSS() }, "*");
+      if (message.type === "cmux-render-ready")
+        target.postMessage({ type: "cmux-render", html, css: renderFrameCSS() }, "*");
       else if (
         message.type === "cmux-render-size" &&
         typeof message.height === "number" &&
@@ -67,6 +54,7 @@ export function useRenderFrame(html: string) {
 
 export function RenderCard({ call }: { call: RenderCall }) {
   const t = useT();
+  const open = useContext(ArtifactContext);
   const { frame, height } = useRenderFrame(call.html);
   const [expanded, setExpanded] = useState(false);
   const [running, setRunning] = useState(() => ranRenders.has(call.html));
@@ -79,9 +67,7 @@ export function RenderCard({ call }: { call: RenderCall }) {
   return (
     <div className="acpmux-render-card">
       <div className="acpmux-render-card-head">
-        <span className="acpmux-render-card-title" title={title}>
-          {title}
-        </span>
+        <span className="acpmux-render-card-title">{title}</span>
         {!running && (
           <button type="button" className="acpmux-review-changes" onClick={run}>
             {t("render.run")}
@@ -95,6 +81,17 @@ export function RenderCard({ call }: { call: RenderCall }) {
             onClick={() => setExpanded((value) => !value)}
           >
             {expanded ? t("render.collapse") : t("render.expand")}
+          </button>
+        )}
+        {open && (
+          <button
+            type="button"
+            className="cv-iconbtn cv-iconbtn--compact"
+            aria-label={t("artifact.open")}
+            title={t("artifact.open")}
+            onClick={() => open({ kind: "html", lang: "html", code: call.html })}
+          >
+            <Expand />
           </button>
         )}
       </div>

@@ -32,7 +32,7 @@ pub use activity::{ChatActivity, activity_change, changes_activity};
 pub use brand::brand_for;
 pub(crate) use open::store_dirs;
 pub use open::{StoreProfile, plan_open, store_profiles};
-pub use query::ChatQuery;
+pub use query::{ChatCursor, ChatQuery};
 pub use settings::{ChatSettings, SettingsRefusal, probe};
 pub use sources::{ChatSources, EnvLookup, launch_roots, login_var, lookup, refusal};
 
@@ -128,10 +128,13 @@ impl ChatService {
         }
         let matching: Vec<&IndexedChat> =
             state.index.chats().into_iter().filter(|chat| query.matches(chat)).collect();
-        let page: Vec<Value> =
-            matching.iter().skip(query.cursor).take(query.limit).map(|c| chat_value(c)).collect();
-        let next = query.cursor + page.len();
-        (page, (next < matching.len()).then(|| next.to_string()), seq)
+        let start = query.cursor.start(&matching);
+        let held = matching.get(start..).unwrap_or_default();
+        let held = &held[..held.len().min(query.limit)];
+        let page: Vec<Value> = held.iter().map(|c| chat_value(c)).collect();
+        let more = start + held.len() < matching.len();
+        let next = held.last().filter(|_| more).map(|last| ChatCursor::after(last).to_text());
+        (page, next, seq)
     }
 
     pub fn get(&self, key: &ChatKey) -> Option<IndexedChat> {

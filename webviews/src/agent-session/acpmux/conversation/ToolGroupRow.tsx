@@ -2,7 +2,7 @@
 // App.tsx +12 -3") that opens to the calls on a tree guide: commands as command rows, edits
 // as their diffs, reads and searches as their own rows.
 import { useFindReveal } from "./chatFind";
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
@@ -11,6 +11,7 @@ import { ToolRow } from "./ToolRow";
 import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
+import { useTranscriptDisclosure } from "./transcriptDisclosure";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -27,9 +28,17 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
 
 /// A live group stays closed as calls join it, so the transcript's height holds still; its
 /// glyph turns while any call runs.
-export function ToolGroupRow({ kind, items }: { kind: ToolGroupKind; items: readonly AcpmuxActivity[] }) {
+export function ToolGroupRow({
+  kind,
+  items,
+  disclosureKey,
+}: {
+  kind: ToolGroupKind;
+  items: readonly AcpmuxActivity[];
+  disclosureKey: string;
+}) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   useFindReveal(items, () => setOpen(true));
   const detailsId = useId();
   const tools = useMemo(() => items.map((item) => item.tool!), [items]);

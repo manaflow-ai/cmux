@@ -599,6 +599,10 @@ pub struct Workspace {
     /// a frontend's richer layout state.
     pub key: String,
     pub name: String,
+    /// Who chose `name` (the registry's `name_source`).
+    pub name_source: crate::resource_name::NameSource,
+    /// The registry's `name_revision` for `name`.
+    pub name_revision: u64,
     pub screens: Vec<Screen>,
     pub active_screen: usize,
 }
@@ -727,6 +731,31 @@ impl State {
         self.resource_indexes.content_ids.insert(slot, identity.content_id.clone());
     }
 
+    /// Placing a live surface's slot in a pane records the identity the
+    /// surface was created with when the topology has none, so a placement
+    /// can never leave a tab without durable identity (cx-95uaf).
+    pub(crate) fn register_placed_tab_identity(&mut self, slot: SurfaceId) {
+        if self.resource_indexes.tab_ids.contains_key(&slot)
+            && self.resource_indexes.content_ids.contains_key(&slot)
+        {
+            return;
+        }
+        let Some(identity) =
+            self.surfaces.get(&slot).and_then(|surface| surface.resource_identity().cloned())
+        else {
+            return;
+        };
+        // A half record (tab id without content id) must not leave its old
+        // tab id pointing at this slot.
+        if let Some(old) = self.resource_indexes.tab_ids.get(&slot)
+            && old != &identity.tab_id
+        {
+            let old = old.clone();
+            self.resource_indexes.tabs.remove(&old);
+        }
+        self.register_tab_identity(slot, &identity);
+    }
+
     /// Every placed tab must carry a durable identity. Losing one would make
     /// the next projection tombstone live durable rows, so this fails the
     /// mutation instead of silently dropping the tab.
@@ -765,13 +794,11 @@ impl State {
                         indexes.pane_ids.insert(pane.id, pane.public_id.clone());
                         indexes.pane_screen.insert(pane.id, screen.id);
                         for surface_id in &pane.tabs {
-                            // Tab identity is owned by the topology, never by
-                            // the live surface. A restored or detached tab has
-                            // no surface, and rebuilding must not lose it.
-                            let (Some(tab_id), Some(content_id)) = (
-                                self.resource_indexes.tab_ids.get(surface_id).cloned(),
-                                self.resource_indexes.content_ids.get(surface_id).cloned(),
-                            ) else {
+                            // Tab identity is owned by the topology. A
+                            // restored or detached tab has no surface, and
+                            // rebuilding must not lose it.
+                            let Some((tab_id, content_id)) = self.tab_identity_of(*surface_id)
+                            else {
                                 continue;
                             };
                             let old = indexes.tabs.insert(tab_id.clone(), *surface_id);
@@ -795,7 +822,48 @@ impl State {
                 indexes.split_ids.insert(split, public_id);
             }
         }
+        // A live surface in no pane keeps its identity: a create between its
+        // insert and its pane binding. Dropping it here let the binding add
+        // a tab with no durable identity, and every later projection failed
+        // (cx-95uaf). A tab of a pane outside every screen is not carried:
+        // the projection would tombstone it, so coverage must fail instead.
+        let placed =
+            self.panes.values().flat_map(|pane| pane.tabs.iter().copied()).collect::<HashSet<_>>();
+        for (slot, tab_id) in &self.resource_indexes.tab_ids {
+            if indexes.tab_ids.contains_key(slot)
+                || indexes.tabs.contains_key(tab_id)
+                || !self.surfaces.contains_key(slot)
+                || placed.contains(slot)
+            {
+                continue;
+            }
+            let Some(content_id) = self.resource_indexes.content_ids.get(slot) else { continue };
+            indexes.tabs.insert(tab_id.clone(), *slot);
+            indexes.tab_ids.insert(*slot, tab_id.clone());
+            let placements = indexes.content_placements.entry(content_id.clone()).or_default();
+            if !placements.contains(slot) {
+                placements.push(*slot);
+            }
+            indexes.content_ids.insert(*slot, content_id.clone());
+        }
         self.resource_indexes = indexes;
+    }
+
+    /// The durable identity of tab `slot`: the topology's record, else the
+    /// identity its live surface was created with. The fallback repairs a
+    /// slot whose record was lost, so one bad slot cannot fail every later
+    /// projection; a slot with neither still fails loudly.
+    pub(crate) fn tab_identity_of(
+        &self,
+        slot: SurfaceId,
+    ) -> Option<(TabPublicId, ContentPublicId)> {
+        if let (Some(tab_id), Some(content_id)) =
+            (self.resource_indexes.tab_ids.get(&slot), self.resource_indexes.content_ids.get(&slot))
+        {
+            return Some((tab_id.clone(), content_id.clone()));
+        }
+        let identity = self.surfaces.get(&slot)?.resource_identity()?;
+        Some((identity.tab_id.clone(), identity.content_id.clone()))
     }
 
     pub fn workspace_by_public_id(&self, id: &WorkspacePublicId) -> Option<&Workspace> {

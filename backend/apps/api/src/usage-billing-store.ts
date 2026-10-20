@@ -13,6 +13,8 @@ export interface PushInfo {
   readonly included_usd: number
   /** The value sent to the meter (micro-dollars): the whole level per team, the level above included x seats per seat. */
   readonly sent_micros: number
+  /** The event's timestamp (s): the next push of the period is dated after it. */
+  readonly event_ts?: number
 }
 
 /** What the sync saw on its last run for a billable subscription, for the console (team.ai_limit.get). */
@@ -34,9 +36,50 @@ export const ensureBillingTables = (sql: SqlStorage) => {
   // Billable subscriptions the usage sync saw for this team (the included-amount stop, cx-y79zh S5).
   sql.exec(`CREATE TABLE IF NOT EXISTS usage_billable (subscription TEXT PRIMARY KEY, period_end INTEGER NOT NULL, seen_at INTEGER NOT NULL)`)
   // An object made with the first usage_push shape (no period_end) gets the column; 0 = unknown, never a final push (review P2).
-  addColumns(sql, "usage_push", [["period_end", "INTEGER NOT NULL DEFAULT 0"], ["mode", "TEXT"], ["seats", "INTEGER NOT NULL DEFAULT 1"], ["included_usd", "REAL"], ["sent_micros", "INTEGER"]])
+  addColumns(sql, "usage_push", [["period_end", "INTEGER NOT NULL DEFAULT 0"], ["mode", "TEXT"], ["seats", "INTEGER NOT NULL DEFAULT 1"], ["included_usd", "REAL"], ["sent_micros", "INTEGER"], ["event_ts", "INTEGER"]])
   addColumns(sql, "usage_billable", [["period_start", "INTEGER"], ["mode", "TEXT"], ["seats", "INTEGER"], ["included_usd", "REAL"]])
+  // The operator's included-mode setting for a Team customer (cx-y79zh.1, Lawrence 2026-10-14), every change kept.
+  sql.exec(`CREATE TABLE IF NOT EXISTS usage_mode_setting (seq INTEGER PRIMARY KEY AUTOINCREMENT, mode TEXT NOT NULL, set_at INTEGER NOT NULL, actor TEXT NOT NULL, reason TEXT)`)
 }
+
+/**
+ * The team's included mode for a period that starts at `periodStartMs`: the last setting made at or
+ * before that start, so a change applies from the next period start, never inside a running period.
+ * New teams (no setting) are per team.
+ */
+export const teamModeAt = (sql: SqlStorage, periodStartMs: number): IncludedMode =>
+  modeOf(sql.exec<{ mode: string }>(`SELECT mode FROM usage_mode_setting WHERE set_at <= ? ORDER BY set_at DESC, seq DESC LIMIT 1`, periodStartMs).toArray()[0]?.mode)
+
+export interface ModeChange {
+  readonly mode: IncludedMode
+  readonly set_at: number
+  readonly actor: string
+  readonly reason: string | null
+}
+
+/** The setting history, newest first, and the mode the latest setting asks for. */
+export const teamModeHistory = (sql: SqlStorage, limit = 20): { readonly requested: IncludedMode; readonly changes: ReadonlyArray<ModeChange> } => {
+  const changes = sql.exec<{ mode: string; set_at: number; actor: string; reason: string | null }>(`SELECT mode, set_at, actor, reason FROM usage_mode_setting ORDER BY set_at DESC, seq DESC LIMIT ?`, limit).toArray().map((r) => ({ mode: modeOf(r.mode), set_at: Number(r.set_at), actor: r.actor, reason: r.reason }))
+  return { requested: changes[0]?.mode ?? "per_team", changes }
+}
+
+/** Records an operator's setting (a no-op when the latest setting already asks for `mode`). */
+export const setTeamMode = (sql: SqlStorage, mode: IncludedMode, actor: string, reason: string | null, now: number): { readonly before: IncludedMode; readonly changed: boolean } => {
+  const before = teamModeHistory(sql, 1).requested
+  const hasAny = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM usage_mode_setting`).one().n > 0
+  if (before === mode && hasAny) return { before, changed: false }
+  sql.exec(`INSERT INTO usage_mode_setting (mode, set_at, actor, reason) VALUES (?, ?, ?, ?)`, mode, now, actor, reason)
+  return { before, changed: true }
+}
+
+/** How far back a billable subscription's seats count for the stop of a per-seat team (its current or previous period). */
+export const SEATS_MEMORY_MS = 35 * 24 * 3600_000
+/**
+ * The seats of the team's latest billable subscription whose period ended at most SEATS_MEMORY_MS ago, for the
+ * stop of a per-seat team; 1 when none (review P3: a lapsed subscription's peak seats do not count for ever).
+ */
+export const lastSeenSeats = (sql: SqlStorage, now: number): number =>
+  Math.max(1, Number(sql.exec<{ seats: number | null }>(`SELECT seats FROM usage_billable WHERE period_end * 1000 > ? ORDER BY seen_at DESC LIMIT 1`, now - SEATS_MEMORY_MS).toArray()[0]?.seats ?? 1))
 
 const modeOf = (v: unknown): IncludedMode => (v === "per_seat" ? "per_seat" : "per_team")
 
@@ -63,15 +106,15 @@ export const currentBillable = (sql: SqlStorage, now: number, graceMs: number): 
   }
 }
 
-export const pushState = (sql: SqlStorage, subscription: string, periodStart: number): { identifier: string; mode: IncludedMode; seats: number } | null => {
-  const row = sql.exec<{ identifier: string; mode: string | null; seats: number }>(`SELECT identifier, mode, seats FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
-  return row ? { identifier: row.identifier, mode: modeOf(row.mode), seats: Math.max(1, Number(row.seats ?? 1)) } : null
+export const pushState = (sql: SqlStorage, subscription: string, periodStart: number): { identifier: string; mode: IncludedMode; seats: number; event_ts: number | null } | null => {
+  const row = sql.exec<{ identifier: string; mode: string | null; seats: number; event_ts: number | null }>(`SELECT identifier, mode, seats, event_ts FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
+  return row ? { identifier: row.identifier, mode: modeOf(row.mode), seats: Math.max(1, Number(row.seats ?? 1)), event_ts: row.event_ts === null ? null : Number(row.event_ts) } : null
 }
 
 export const recordPush = (sql: SqlStorage, subscription: string, periodStart: number, periodEnd: number, identifier: string, micros: number, now: number, info?: PushInfo) =>
   sql.exec(
-    `INSERT INTO usage_push (subscription, period_start, period_end, identifier, micros, pushed_at, mode, seats, included_usd, sent_micros) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (subscription, period_start) DO UPDATE SET period_end = excluded.period_end, identifier = excluded.identifier, micros = excluded.micros, pushed_at = excluded.pushed_at, mode = excluded.mode, seats = excluded.seats, included_usd = excluded.included_usd, sent_micros = excluded.sent_micros`,
-    subscription, periodStart, periodEnd, identifier, micros, now, info?.mode ?? "per_team", info?.seats ?? 1, info?.included_usd ?? null, info?.sent_micros ?? micros
+    `INSERT INTO usage_push (subscription, period_start, period_end, identifier, micros, pushed_at, mode, seats, included_usd, sent_micros, event_ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (subscription, period_start) DO UPDATE SET period_end = excluded.period_end, identifier = excluded.identifier, micros = excluded.micros, pushed_at = excluded.pushed_at, mode = excluded.mode, seats = excluded.seats, included_usd = excluded.included_usd, sent_micros = excluded.sent_micros, event_ts = excluded.event_ts`,
+    subscription, periodStart, periodEnd, identifier, micros, now, info?.mode ?? "per_team", info?.seats ?? 1, info?.included_usd ?? null, info?.sent_micros ?? micros, info?.event_ts ?? null
   )
 
 /** The latest period before `beforeStart` that the sync sent for this subscription, with its mode and seats (its final push after renewal). */

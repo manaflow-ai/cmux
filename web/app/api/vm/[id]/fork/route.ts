@@ -70,7 +70,9 @@ export async function POST(
       const account = await resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
       if (!account.ok) return account.response;
       const entitlements = account.entitlements;
-      const idempotencyKey = idempotencyKeyFromRequest(request);
+      const idempotency = idempotencyKeyFromRequest(request);
+      if (!idempotency.ok) return idempotency.response;
+      const idempotencyKey = idempotency.key;
       const name = stringField(body, "name");
       setSpanAttributes(span, {
         "cmux.vm.id": id,
@@ -96,6 +98,7 @@ export async function POST(
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
+        deadline: { operation: "fork" },
         onError: vmCreateLikeErrorResponders({
           operation: "fork",
           planId: entitlements.planId,

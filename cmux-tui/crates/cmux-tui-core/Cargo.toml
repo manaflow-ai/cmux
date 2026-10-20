@@ -11,6 +11,7 @@ description = "Terminal multiplexer core: workspaces, tabs, panes, PTY runtime, 
 workspace = true
 
 [dependencies]
+cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
@@ -47,6 +48,7 @@ parking_lot = { workspace = true, features = ["arc_lock"] }
 fs4.workspace = true
 sha2.workspace = true
 quick-xml.workspace = true
+notify.workspace = true
 zeroize.workspace = true
 url.workspace = true
 cmux-app-manifest.workspace = true

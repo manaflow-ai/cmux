@@ -165,6 +165,39 @@
         }
       }
     },
+    "AvatarRef": {
+      "kind": "object",
+      "fields": {
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "media_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/png",
+              "image/jpeg",
+              "image/gif",
+              "image/webp"
+            ]
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      },
+      "description": "A stored avatar: its SHA-256, its media type (from the bytes) and its size."
+    },
     "Body": {
       "kind": "union",
       "variants": [
@@ -3102,6 +3135,13 @@
             "name": "MessageId"
           }
         },
+        "thread": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "HomeThreadState"
+          }
+        },
         "created_at": {
           "required": true,
           "type": {
@@ -3618,6 +3658,62 @@
       },
       "description": "A styled range of a text part, in UTF-16 code units."
     },
+    "HomeThreadState": {
+      "kind": "object",
+      "fields": {
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "owner": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ParticipantId"
+          }
+        },
+        "resolved": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "by": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ParticipantId"
+                }
+              },
+              "at": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "Timestamp"
+                }
+              },
+              "seq": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": "title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it."
+    },
+    "HomeThreadStatus": {
+      "kind": "enum",
+      "values": [
+        "open",
+        "resolved"
+      ]
+    },
     "HomeThreadSummary": {
       "kind": "object",
       "fields": {
@@ -3664,8 +3760,44 @@
               "name": "ParticipantId"
             }
           }
+        },
+        "status": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "HomeThreadStatus"
+          }
+        },
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "owner": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ParticipantId"
+          }
+        },
+        "resolved_by": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ParticipantId"
+          }
+        },
+        "resolved_at": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "Timestamp"
+          }
         }
-      }
+      },
+      "description": "status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved."
     },
     "Host": {
       "kind": "object",
@@ -22268,6 +22400,40 @@
             ],
             "additionalProperties": true
           },
+          "HomeThreadState": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "owner": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "resolved": {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "$ref": "#/$defs/ParticipantId"
+                  },
+                  "at": {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  "seq": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "by",
+                  "at",
+                  "seq"
+                ],
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true,
+            "description": "title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it."
+          },
           "HomeReactionKind": {
             "anyOf": [
               {
@@ -22362,6 +22528,9 @@
               },
               "thread_root": {
                 "$ref": "#/$defs/MessageId"
+              },
+              "thread": {
+                "$ref": "#/$defs/HomeThreadState"
               },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
@@ -23153,6 +23322,40 @@
             "type": "string",
             "description": "RFC 3339 UTC with milliseconds."
           },
+          "HomeThreadState": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "owner": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "resolved": {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "$ref": "#/$defs/ParticipantId"
+                  },
+                  "at": {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  "seq": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "by",
+                  "at",
+                  "seq"
+                ],
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true,
+            "description": "title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it."
+          },
           "HomeReactionKind": {
             "anyOf": [
               {
@@ -23248,6 +23451,9 @@
               "thread_root": {
                 "$ref": "#/$defs/MessageId"
               },
+              "thread": {
+                "$ref": "#/$defs/HomeThreadState"
+              },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
               },
@@ -23275,6 +23481,13 @@
               "reactions"
             ],
             "additionalProperties": true
+          },
+          "HomeThreadStatus": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved"
+            ]
           },
           "HomeThreadSummary": {
             "type": "object",
@@ -23313,6 +23526,21 @@
                   "$ref": "#/$defs/ParticipantId"
                 },
                 "maxItems": 3
+              },
+              "status": {
+                "$ref": "#/$defs/HomeThreadStatus"
+              },
+              "title": {
+                "type": "string"
+              },
+              "owner": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "resolved_by": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "resolved_at": {
+                "$ref": "#/$defs/Timestamp"
               }
             },
             "required": [
@@ -23322,7 +23550,8 @@
               "last_reply_at",
               "authors"
             ],
-            "additionalProperties": true
+            "additionalProperties": true,
+            "description": "status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved."
           }
         }
       }
@@ -23412,6 +23641,13 @@
               "name": "int64"
             }
           },
+          "fill": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
           "messages": {
             "required": true,
             "type": {
@@ -23489,7 +23725,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch.",
+      "docs": "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -23543,6 +23779,9 @@
           "after_seq": {
             "type": "integer",
             "minimum": 0
+          },
+          "fill": {
+            "type": "boolean"
           },
           "messages": {
             "type": "array",
@@ -24519,6 +24758,40 @@
             ],
             "additionalProperties": true
           },
+          "HomeThreadState": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "owner": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "resolved": {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "$ref": "#/$defs/ParticipantId"
+                  },
+                  "at": {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  "seq": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "by",
+                  "at",
+                  "seq"
+                ],
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true,
+            "description": "title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it."
+          },
           "HomeReactionKind": {
             "anyOf": [
               {
@@ -24613,6 +24886,9 @@
               },
               "thread_root": {
                 "$ref": "#/$defs/MessageId"
+              },
+              "thread": {
+                "$ref": "#/$defs/HomeThreadState"
               },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
@@ -24897,6 +25173,13 @@
             ],
             "additionalProperties": true
           },
+          "HomeThreadStatus": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved"
+            ]
+          },
           "HomeThreadSummary": {
             "type": "object",
             "properties": {
@@ -24934,6 +25217,21 @@
                   "$ref": "#/$defs/ParticipantId"
                 },
                 "maxItems": 3
+              },
+              "status": {
+                "$ref": "#/$defs/HomeThreadStatus"
+              },
+              "title": {
+                "type": "string"
+              },
+              "owner": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "resolved_by": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "resolved_at": {
+                "$ref": "#/$defs/Timestamp"
               }
             },
             "required": [
@@ -24943,7 +25241,8 @@
               "last_reply_at",
               "authors"
             ],
-            "additionalProperties": true
+            "additionalProperties": true,
+            "description": "status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved."
           }
         }
       }
@@ -25452,6 +25751,40 @@
             "type": "string",
             "description": "RFC 3339 UTC with milliseconds."
           },
+          "HomeThreadState": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "owner": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "resolved": {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "$ref": "#/$defs/ParticipantId"
+                  },
+                  "at": {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  "seq": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "by",
+                  "at",
+                  "seq"
+                ],
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true,
+            "description": "title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it."
+          },
           "HomeReactionKind": {
             "anyOf": [
               {
@@ -25547,6 +25880,9 @@
               "thread_root": {
                 "$ref": "#/$defs/MessageId"
               },
+              "thread": {
+                "$ref": "#/$defs/HomeThreadState"
+              },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
               },
@@ -25574,6 +25910,13 @@
               "reactions"
             ],
             "additionalProperties": true
+          },
+          "HomeThreadStatus": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved"
+            ]
           },
           "HomeThreadSummary": {
             "type": "object",
@@ -25612,6 +25955,21 @@
                   "$ref": "#/$defs/ParticipantId"
                 },
                 "maxItems": 3
+              },
+              "status": {
+                "$ref": "#/$defs/HomeThreadStatus"
+              },
+              "title": {
+                "type": "string"
+              },
+              "owner": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "resolved_by": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "resolved_at": {
+                "$ref": "#/$defs/Timestamp"
               }
             },
             "required": [
@@ -25621,7 +25979,8 @@
               "last_reply_at",
               "authors"
             ],
-            "additionalProperties": true
+            "additionalProperties": true,
+            "description": "status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved."
           }
         }
       }
@@ -26192,6 +26551,40 @@
             ],
             "additionalProperties": true
           },
+          "HomeThreadState": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "owner": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "resolved": {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "$ref": "#/$defs/ParticipantId"
+                  },
+                  "at": {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  "seq": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "by",
+                  "at",
+                  "seq"
+                ],
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true,
+            "description": "title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it."
+          },
           "HomeReactionKind": {
             "anyOf": [
               {
@@ -26286,6 +26679,9 @@
               },
               "thread_root": {
                 "$ref": "#/$defs/MessageId"
+              },
+              "thread": {
+                "$ref": "#/$defs/HomeThreadState"
               },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
@@ -35746,6 +36142,198 @@
         "$defs": {}
       }
     },
+    "home.requests.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "invite",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "requests": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "conversation": {
+                    "required": true,
+                    "type": {
+                      "kind": "ref",
+                      "name": "ConversationId"
+                    }
+                  },
+                  "inviter": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "kind": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "dm",
+                        "group"
+                      ]
+                    }
+                  },
+                  "title": {
+                    "required": false,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "preview": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "created_at": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "expires_at": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "trusted": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "chat requests list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "conversation": {
+                  "$ref": "#/$defs/ConversationId"
+                },
+                "inviter": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "dm",
+                    "group"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "preview": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "expires_at": {
+                  "type": "string"
+                },
+                "trusted": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "conversation",
+                "inviter",
+                "kind",
+                "preview",
+                "created_at",
+                "expires_at",
+                "trusted"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          }
+        }
+      }
+    },
     "home.search": {
       "class": "read",
       "idempotency": "forbidden",
@@ -36571,6 +37159,124 @@
         "group": "team"
       },
       "docs": "Remove a host from the team directory (its owner or a team admin).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          }
+        }
+      }
+    },
+    "host.replica.purge": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "host",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HostId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "host": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "HostId"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "host replica purge",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Delete the cloud copy of a host's read replica (its owner only), also while the host is off. The host stays enrolled; it publishes again only while its own app keeps the replica on.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -41636,6 +42342,135 @@
         }
       }
     },
+    "invite.accept_verified": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "invite",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "accept_locked",
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "invite_expired",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "unknown_invite",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat requests accept",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Accept a message request in Home: the open email invite to your verified email joins you, with no link. Anyone else gets unknown_invite.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          }
+        },
+        "required": [
+          "conversation"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
     "invite.approve_join": {
       "class": "mutation",
       "idempotency": "required",
@@ -44799,6 +45634,406 @@
         "$defs": {}
       }
     },
+    "participant.avatar.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "participant",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ParticipantId"
+            }
+          },
+          "conversation": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ParticipantId"
+            }
+          },
+          "avatar": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "object",
+                "fields": {
+                  "sha256": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  },
+                  "media_type": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "image/png",
+                        "image/jpeg",
+                        "image/gif",
+                        "image/webp"
+                      ]
+                    }
+                  },
+                  "bytes": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "data": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    },
+                    "description": "The image, base64."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "avatar get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "participant_id": {
+            "$ref": "#/$defs/ParticipantId"
+          },
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          }
+        },
+        "required": [
+          "participant_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ParticipantId": {
+            "type": "string",
+            "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
+            "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "A conversation the caller and the participant are both in; needed unless the caller is the participant or the Chief's owner."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "participant_id": {
+            "$ref": "#/$defs/ParticipantId"
+          },
+          "avatar": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "media_type": {
+                    "type": "string",
+                    "enum": [
+                      "image/png",
+                      "image/jpeg",
+                      "image/gif",
+                      "image/webp"
+                    ]
+                  },
+                  "bytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1048576
+                  },
+                  "data": {
+                    "type": "string",
+                    "description": "The image, base64."
+                  }
+                },
+                "required": [
+                  "sha256",
+                  "media_type",
+                  "bytes",
+                  "data"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "participant_id",
+          "avatar"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ParticipantId": {
+            "type": "string",
+            "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
+            "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          }
+        }
+      }
+    },
+    "participant.avatar.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "participant",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ParticipantId"
+            }
+          },
+          "bytes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The image, base64; at most 1048576 decoded bytes; PNG, JPEG, GIF or WebP by its signature."
+          },
+          "clear": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true removes the picture (no bytes)."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "participant_id": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ParticipantId"
+                }
+              },
+              "avatar": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "ref",
+                    "name": "AvatarRef"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "avatar_invalid",
+        "avatar_too_large",
+        "forbidden",
+        "idempotency.conflict",
+        "revision.conflict",
+        "unknown_participant",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "avatar set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Set or clear a participant's avatar. A person sets only their own; the owner sets any of their Chiefs'; a Chief token never sets one; nobody sets another person's.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "participant_id": {
+            "$ref": "#/$defs/ParticipantId"
+          },
+          "bytes": {
+            "type": "string",
+            "description": "The image, base64; at most 1048576 decoded bytes; PNG, JPEG, GIF or WebP by its signature."
+          },
+          "clear": {
+            "type": "boolean",
+            "description": "true removes the picture (no bytes)."
+          }
+        },
+        "required": [
+          "participant_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ParticipantId": {
+            "type": "string",
+            "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
+            "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "participant_id": {
+            "$ref": "#/$defs/ParticipantId"
+          },
+          "avatar": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AvatarRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "participant_id",
+          "avatar"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ParticipantId": {
+            "type": "string",
+            "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
+            "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          },
+          "AvatarRef": {
+            "type": "object",
+            "properties": {
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "media_type": {
+                "type": "string",
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/gif",
+                  "image/webp"
+                ]
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1048576
+              }
+            },
+            "required": [
+              "sha256",
+              "media_type",
+              "bytes"
+            ],
+            "additionalProperties": true,
+            "description": "A stored avatar: its SHA-256, its media type (from the bytes) and its size."
+          }
+        }
+      }
+    },
     "participants.add": {
       "class": "mutation",
       "idempotency": "required",
@@ -45989,6 +47224,143 @@
             "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
           }
         }
+      }
+    },
+    "request.dismiss": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "invite",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "block": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "dismissed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "blocked": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "unknown_invite",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat requests dismiss",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Hide a message request; with block, also hide and never email later invites from its sender. The sender is not told.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "block": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "conversation"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "dismissed": {
+            "type": "boolean"
+          },
+          "blocked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dismissed",
+          "blocked"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
       }
     },
     "run.get": {
@@ -58453,6 +59825,194 @@
               "updated_by"
             ],
             "additionalProperties": true
+          }
+        }
+      }
+    },
+    "thread.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "message",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MessageId"
+            }
+          },
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "status": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "HomeThreadStatus"
+            }
+          },
+          "owner": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "invalid_thread_owner",
+        "invalid_thread_root",
+        "invalid_thread_update",
+        "invalid_title",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "unknown_message",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat thread update",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "home"
+      },
+      "docs": "Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "root": {
+            "$ref": "#/$defs/MessageId"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "status": {
+            "$ref": "#/$defs/HomeThreadStatus"
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "conversation",
+          "root"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeThreadStatus": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
           }
         }
       }

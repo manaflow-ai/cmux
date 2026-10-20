@@ -32,6 +32,15 @@ pub struct Session {
     /// permissions are cancelled; a request that started before the bump
     /// is answered `cancelled` instead of being registered.
     pub(super) permission_epoch: AtomicU64,
+    /// When the session last began waiting on the person (`Waiting`), in ms;
+    /// 0 while it is not. The lane's `input` since (cx-v9k2f): later records,
+    /// a draft save or a second ask do not move it.
+    pub(super) input_since: AtomicU64,
+    /// Agent permission requests read but not yet past their group
+    /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
+    /// last one lands. A group is not shown while one is on its way.
+    pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
+    pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
@@ -76,9 +85,17 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// The commands its harness runs in the background (`processes.rs`).
+    pub(super) processes: StdMutex<processes::ProcessTable>,
 }
 
 impl Session {
+    /// Notes whether the session now waits on the person: `input_since` is when it began
+    /// (the lane's `input` since, cx-v9k2f), 0 while it does not.
+    pub(super) fn mark_waiting(&self, waiting: bool) {
+        self.input_since.store(if waiting { now_ms() } else { 0 }, Ordering::SeqCst);
+    }
+
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
@@ -150,4 +167,9 @@ pub(crate) fn prompt_text(blocks: &[Value]) -> String {
 pub(super) struct Applied {
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// The approval digest of the preset contents `session/new` resolved
+    /// with, and the one its harness last spawned with
+    /// (`start_gate/preset_bind.rs`).
+    pub preset_resolved: Option<String>,
+    pub preset_spawned: Option<String>,
 }

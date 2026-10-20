@@ -167,7 +167,7 @@ export function AddProjectPanel({
               >
                 ↑
               </button>
-              <span title={path}>
+              <span>
                 {directory && path.startsWith(`${directory.home}/`)
                   ? `~/${path.slice(directory.home.length + 1)}`
                   : directory && path === directory.home

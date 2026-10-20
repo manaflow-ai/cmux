@@ -41,8 +41,10 @@ pub enum MuxEvent {
     },
     /// A surface's child exited. Hosted terminal views have been atomically
     /// detached while their durable exit receipt remains queryable; local
-    /// terminals have already been reaped when this arrives.
-    SurfaceExited(SurfaceId),
+    /// terminals have already been reaped when this arrives. The second
+    /// field is the tab's typed `end` (R41), when known: the views are gone
+    /// by the time a client reads this, so the event carries it (cx-6so.19).
+    SurfaceExited(SurfaceId, Option<Arc<Value>>),
     /// The OSC 7501 status a surface's tab shows changed (state or
     /// progress); `None` when it shows none. Raw clients get
     /// `program-status-changed` with the tab's new `program_status`.
@@ -64,6 +66,8 @@ pub enum MuxEvent {
         updated_at_ms: u64,
         /// When the agent entered `state` (Unix ms).
         since_ms: u64,
+        /// The agent's last prompt (at most 200 characters), memory only.
+        last_prompt: Option<Arc<str>>,
     },
     /// What the agent in one surface's terminal is touching now; `None`
     /// clears it (`agent-presence-v1`).
@@ -138,8 +142,11 @@ pub enum MuxEvent {
         terminal: Option<String>,
         grace_ms: u64,
     },
-    /// A screen's pane geometry changed. Clients should re-fetch layout.
-    LayoutChanged(ScreenId),
+    /// A screen's pane geometry changed. With `layout-delta-v1` it carries
+    /// the screen's new layout (`LayoutDelta`), so a client patches that one
+    /// screen; without one (a remote session's parsed event) clients
+    /// re-fetch the layout.
+    LayoutChanged(ScreenId, Option<Arc<LayoutDelta>>),
     /// A control connection attached its first surface.
     ClientAttached {
         client: u64,
@@ -234,6 +241,19 @@ impl TreeDeltaKind {
             Self::TabChanged => "tab-changed",
         }
     }
+}
+
+/// The payload of `layout-changed` (`layout-delta-v1`): the screen's layout
+/// fields at the commit that changed them, captured under the state lock.
+#[derive(Debug, Clone)]
+pub struct LayoutDelta {
+    pub workspace: WorkspaceId,
+    /// `screen_layout_json`: active and zoomed pane, split tree, viewport
+    /// splits, base width and columns. No panes or tabs.
+    pub layout: Value,
+    /// The decimal transaction of the request that caused it (a divider or
+    /// column drag), so the frontend that sent it can recognize its echo.
+    pub transaction: Option<Arc<str>>,
 }
 
 #[derive(Debug, Clone)]

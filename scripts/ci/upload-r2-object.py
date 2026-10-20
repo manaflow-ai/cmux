@@ -121,6 +121,33 @@ class ImmutableConflict(RuntimeError):
     """An immutable object exists with other bytes. Never retry: report it."""
 
 
+class ReplaceConflict(RuntimeError):
+    """--replace-sha256: the object no longer has the bytes the caller planned from."""
+
+
+def _etag_of_planned_object(
+    args: argparse.Namespace,
+    *,
+    amz_date: str,
+) -> str:
+    """The ETag of the current object when its bytes are the ones the caller
+    planned from (--replace-sha256), for an If-Match write."""
+
+    get = _build_signed_request(args, b"", amz_date, method="GET")
+    with _open_signed_request(get, timeout=120) as response:
+        existing = response.read()
+        etag = response.headers.get("ETag")
+    actual_digest = hashlib.sha256(existing).hexdigest()
+    if actual_digest != args.replace_sha256.lower():
+        raise ReplaceConflict(
+            f"{args.key} changed since it was read: expected SHA-256 {args.replace_sha256.lower()}, "
+            f"found {actual_digest}"
+        )
+    if not etag:
+        raise RuntimeError(f"R2 returned no ETag for {args.key}")
+    return etag
+
+
 def _report_immutable_conflict(error: ImmutableConflict) -> None:
     # The GitHub annotation title is the contract with the cmux-tui artifacts
     # retry workflow (scripts/ci/cmux_tui_artifacts_retry.py): it never reruns
@@ -174,8 +201,24 @@ def main() -> int:
         action="store_true",
         help="Refuse to overwrite an immutable object; accept an identical existing object",
     )
+    parser.add_argument(
+        "--conflict-exit-code",
+        type=int,
+        help="With --write-once: exit with this code, with no immutable-r2-conflict annotation, when the "
+             "object exists with other bytes. For a caller that then waits for the other publisher's "
+             "upload and keeps it (two runs of one commit or tree key at once).",
+    )
+    parser.add_argument(
+        "--replace-sha256",
+        metavar="HEX",
+        help="Overwrite the object only while its bytes have this SHA-256 (the copy the caller planned "
+             "from), with If-Match on its ETag. A changed object is not written: exit "
+             "--conflict-exit-code (default 1).",
+    )
     parser.add_argument("--dry-run-json", action="store_true", help="Print the signed request instead of uploading")
     args = parser.parse_args()
+    if args.replace_sha256 and args.write_once:
+        parser.error("--replace-sha256 and --write-once are exclusive")
     if not args.content_type:
         content_type, encoding = mimetypes.guess_type(args.file)
         # A compressed file is not the unencoded type returned by guess_type.
@@ -211,6 +254,28 @@ def main() -> int:
         )
         return 0
 
+    if args.replace_sha256:
+        conflict_code = args.conflict_exit_code if args.conflict_exit_code is not None else 1
+        try:
+            etag = _etag_of_planned_object(args, amz_date=amz_date)
+            request = _build_signed_request(args, body, amz_date, extra_headers={"if-match": etag})
+            with _open_signed_request(request, timeout=30) as response:
+                response.read()
+                print(f"Replaced s3://{args.bucket}/{args.key} (ETag {etag}, {response.status})")
+                return 0
+        except ReplaceConflict as error:
+            sys.stderr.write(f"not written: {error}\n")
+            return conflict_code
+        except urllib.error.HTTPError as error:
+            if error.code == 412:
+                sys.stderr.write(f"not written: s3://{args.bucket}/{args.key} changed before the write (HTTP 412)\n")
+                return conflict_code
+            sys.stderr.write(f"R2 upload failed: HTTP {error.code} {error.reason}\n")
+            return 1
+        except (OSError, RuntimeError) as error:
+            sys.stderr.write(f"R2 upload failed: {error}\n")
+            return 1
+
     try:
         if args.write_once and _read_existing_object(
             args,
@@ -242,6 +307,9 @@ def main() -> int:
                     return 0
             except (urllib.error.HTTPError, RuntimeError) as retry_error:
                 if isinstance(retry_error, ImmutableConflict):
+                    if args.conflict_exit_code is not None:
+                        sys.stderr.write(f"another publisher wrote it first: {retry_error}\n")
+                        return args.conflict_exit_code
                     _report_immutable_conflict(retry_error)
                 sys.stderr.write(f"R2 immutable-object check failed: {retry_error}\n")
                 return 1
@@ -250,6 +318,9 @@ def main() -> int:
         return 1
     except (OSError, RuntimeError) as error:
         if isinstance(error, ImmutableConflict):
+            if args.conflict_exit_code is not None:
+                sys.stderr.write(f"another publisher wrote it first: {error}\n")
+                return args.conflict_exit_code
             _report_immutable_conflict(error)
         sys.stderr.write(f"R2 upload failed: {error}\n")
         return 1

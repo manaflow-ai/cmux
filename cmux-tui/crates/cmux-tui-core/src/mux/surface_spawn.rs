@@ -58,7 +58,9 @@ impl Mux {
         let tab_id = reservation.as_ref().and_then(|reservation| reservation.tab_id.clone());
         let reservation_env =
             reservation.as_ref().map(|reservation| reservation.env.as_slice()).unwrap_or_default();
+        crate::debug_spans::mark("spawn.start");
         let (opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, reservation_env);
+        crate::debug_spans::mark("spawn.options");
         #[cfg(test)]
         if let Some(hook) = self.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap().clone() {
             let unlocked = match self.cell_pixel_lifecycle.try_lock() {
@@ -133,6 +135,7 @@ impl Mux {
                 }
                 replayed
             };
+            crate::debug_spans::mark("spawn.reserved");
             if reserve_replayed {
                 anyhow::bail!("terminal_create_replayed");
             }
@@ -169,6 +172,7 @@ impl Mux {
                     return Err(error);
                 }
             };
+            crate::debug_spans::mark("spawn.host_spawned");
             let _pending_host_release = PendingTerminalHostRelease(surface.clone());
             // A Windows terminal whose host did not start runs in the daemon
             // (`TerminalHostFallback::HostStartFailed`): it gets an
@@ -214,6 +218,7 @@ impl Mux {
                 };
                 self.emit_terminal_registry_changed(&registry, ready_revision);
             }
+            crate::debug_spans::mark("spawn.ready_committed");
             let cell_pixel_lifecycle =
                 match self.reconcile_surface_cell_pixels_for_publish(&surface) {
                     Ok(lifecycle) => lifecycle,
@@ -228,8 +233,10 @@ impl Mux {
                         return Err(error);
                     }
                 };
+            crate::debug_spans::mark("spawn.cell_pixels_reconciled");
             let insert_result = self.insert_created_terminal(surface.clone(), workspace_key);
             drop(cell_pixel_lifecycle);
+            crate::debug_spans::mark("spawn.inserted");
             if let Err(error) = insert_result {
                 let _ = self.persist_terminal_exit(
                     &terminal_hex,
@@ -241,6 +248,7 @@ impl Mux {
             }
             // Deprecated recovery mirror only; SQLite is placement authority.
             let _ = surface.persist_host_workspace(workspace_key);
+            crate::debug_spans::mark("spawn.host_workspace_persisted");
             return Ok(surface);
         }
         if let (Some(workspace_key), Some(reservation)) = (workspace_key, reservation.as_ref()) {

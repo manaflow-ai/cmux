@@ -81,6 +81,15 @@ public struct ExtensionsMenu {
             item.view = row
             menu.addItem(item)
         }
+        // Only when this Chromium loaded the built-in copy: a uBlock Origin the
+        // person installed has the same id.
+        if CEFRuntime.shared.builtInAdBlockerLoaded, list.contains(where: { $0.id == CEFBuiltInExtensions.adBlockerID }) {
+            // The Web Store lists only uBlock Origin Lite; the full one ships inside cmux.
+            let note = NSMenuItem(title: Strings.builtInAdBlocker, action: nil, keyEquivalent: "")
+            note.isEnabled = false
+            note.identifier = NSUserInterfaceItemIdentifier("\(ExtensionsMenu.menuIdentifier).builtInAdBlocker")
+            menu.addItem(note)
+        }
         menu.addItem(.separator())
         var footer: [ExtensionMenuOperation] = [.manage, .webStore]
         if store.supportsManagement { footer.append(.loadUnpacked) }

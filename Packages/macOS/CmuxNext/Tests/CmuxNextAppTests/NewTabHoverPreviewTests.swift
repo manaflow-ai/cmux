@@ -54,6 +54,35 @@ import Testing
         #expect(await previews.previewImage(for: TabID("terminal"), maxPixelSize: size) != nil, "a terminal's dark preview was dropped")
     }
 
+    /// macOS 27 CI (#20342): a New Tab load that replaces a page still loading showed the page
+    /// before. WebKit reports the New Tab address (the URL KVO) while the old load is provisional,
+    /// then the old load's cancellation, which put the committed address back until the New Tab
+    /// load started. These are WebKit's callbacks in its order, so it fails every time.
+    @Test func aNewTabLoadThatCancelsAnUnfinishedPageShowsNoPreviewOfIt() async throws {
+        _ = NSApplication.shared
+        let shown = try #require(URL(string: "https://example.com/"))
+        let old = try #require(URL(string: "data:text/html,<h1>cmux</h1>"))
+        let blank = try #require(URL(string: BrowserNewTabPage.blankURL))
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let page = WebKitEngine().makeWebKitTab()
+        defer { page.close() }
+        let key = "page"
+        services.cache.install(page, for: key)
+        defer { services.cache.browsers[key] = nil }
+        services.cache.pageThumbnails.insert(try Self.striped(), for: key)
+        let committed = page.allocateNavigationID()
+        page.apply(.started(committed, url: shown))
+        page.apply(.committed(committed, url: shown))
+        page.apply(.finished(committed))
+        let loading = page.allocateNavigationID()
+        page.apply(.started(loading, url: old))
+        page.apply(.urlChanged(blank))
+        page.apply(.failed(loading, BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCancelled, message: "cancelled", failingURL: old)))
+        #expect(page.state.url == blank, "the cancelled load put the page before back")
+        #expect(await TabPreviewSource(cache: services.cache).previewImage(for: TabID(key), maxPixelSize: CGSize(width: 320, height: 200)) == nil,
+                "the page before was the New Tab page's preview")
+    }
+
     private static func until(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }

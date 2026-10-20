@@ -1,8 +1,8 @@
 import Foundation
 
-/// The text of a tab's unread notification, which its workspace's sidebar
-/// row shows (`sidebar.workspaceRow.notification`, classic's
-/// `sidebar.showNotificationMessage`): the body, else the title, trimmed.
+/// The text of a tab's unread notification, which its workspace's hover card
+/// shows (and its sidebar row, with `sidebar.workspaceRow.notification` on,
+/// classic's `sidebar.showNotificationMessage`): the body, else the title, trimmed.
 extension DaemonStore {
     /// How many live notifications keep their text; the oldest go first.
     static let notificationTextLimit = 512

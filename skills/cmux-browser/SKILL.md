@@ -40,6 +40,15 @@ below do not:
   `{ restoreIds }`; `page.context().restoreCookies(result)` puts them back.
   The cleared cookies stay in an encrypted backup. You may restore from a
   backup; you never delete one (only the person can, from the app).
+- Sign-ins from the person's own browser: `cmux browser import-cookies --from
+  chrome:Work --domain github.com --reason "Open the PR review page signed in"`
+  copies that browser profile's cookies into a cmux browser profile. You must
+  pass `--reason` with what you will do with them; the person sees your chat
+  (by name), your reason and your latest message in a consent panel and must
+  click Allow before anything is read. Ask only for the sites you need. A Deny
+  or no answer within 3 minutes fails the command; do not ask again unless the
+  person tells you to. Never print cookie values. See
+  [references/authentication.md](references/authentication.md).
 - Remote tabs (a page that runs on another machine) use the same tab ids and
   the same REPL calls once that machine's browser host serves them
   (`plans/cmux-next/remote-tab.md`); never assume a remote tab shares this
@@ -159,15 +168,20 @@ shows); the CLI never writes the browser tab record.
 
 A browser profile has its own cookies, local storage, IndexedDB, cache and
 permissions. Make a new, empty one for an agent's sign-ins, open tabs in it,
-or move a tab into it (the move is also the MCP tool `browser_tab_set_profile`):
+or move a tab into it. Each command is also an MCP tool: `browser_profile_list`,
+`browser_profile_create`, `browser_profile_open` and `browser_tab_set_profile`.
 
 ```bash
-cmux --json browser profile list                         # browser_profiles: id, name, ...
-cmux --json browser profile create --name "Research"     # browser_profile.id
-cmux --json browser profile open https://example.com --engine webkit --profile Research
+cmux --json browser profile list                         # browser_profiles[]: id, name, color, icon, index
+cmux --json browser profile create --name "Research"     # value.browser_profile.id
+cmux --json browser profile open https://example.com --profile Research   # value.tab_id
 cmux --json browser tab "$TAB" set-profile --profile Research
 cmux --json tab "$TAB" show                              # extra.browser_profile_id
 ```
+
+`open` takes an http or https URL. Without `--engine webkit|cef` the tab opens
+in the person's default engine setting; `--pane <pane_…>` picks the pane (else
+the focused one) and `--background true` keeps the pane's selected tab.
 
 A profile is named by its id or its exact name. `set-profile` keeps the tab (same id and
 position): the daemon moves the tab record and the app reloads the page at the

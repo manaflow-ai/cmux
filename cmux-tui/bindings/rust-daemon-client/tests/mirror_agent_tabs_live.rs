@@ -139,11 +139,15 @@ fn mirror_reads_agent_session_tabs_canonically_live_daemon() {
         surface: created.surface,
         session: "ses-agent-live".into(),
         expected_session: cmux::raw::Nullable::null(),
+        harness: cmux::raw::Optional::Value("claude".into()),
     })
     .unwrap();
     let (_, mirror) = wait_for(&rx, "the bind", |_, m| {
         agent_session(m).is_some_and(|(_, r)| r["session"] == "ses-agent-live")
     });
-    assert_eq!(agent_session(&mirror).unwrap().0, cmux::TabContentKind::Conversation);
+    let (kind, record) = agent_session(&mirror).unwrap();
+    assert_eq!(kind, cmux::TabContentKind::Conversation);
+    // The bind writes the harness the session runs (cx-w4bbw).
+    assert_eq!(record["harness"], "claude");
     client.stop();
 }

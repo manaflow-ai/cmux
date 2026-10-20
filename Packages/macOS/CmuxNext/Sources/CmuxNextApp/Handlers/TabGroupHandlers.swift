@@ -18,6 +18,7 @@ enum TabGroupHandlers {
             registry.bind(id, unavailable: gate, invoke: invoke)
         }
         bindMembership(bind, ctx)
+        ActionTargetVisibility.hide("tabGroup.removeTab", in: registry) { $0.target.flatMap { $0.kind == .tab ? ctx.services.locateTab($0.id) : nil }.map { $0.0.tabGroup == nil } ?? false }
         bindAppearance(bind, ctx)
         bindLifecycle(bind, ctx)
         TabGroupHandlers.bindMoves(bind, ctx)
@@ -177,6 +178,22 @@ enum TabGroupHandlers {
         }
         bind("tabGroup.close") { invocation in
             guard let (group, pane) = group(invocation, ctx), connection(for: pane, ctx) != nil else { return }
+            // The daemon's group-close event arrives after the request. Move
+            // focus out of the group at the press, like a browser closes the
+            // selected tab immediately; otherwise the pane keeps presenting a
+            // tab that is already on its way out until the tree delta lands.
+            if let controller = ctx.services.paneController(for: pane),
+               let selected = controller.stripModel.selectedID,
+               controller.stripModel.tab(selected)?.groupID == CmuxNextTabs.TabGroupID(group.rawValue) {
+                let ordered = controller.stripModel.orderedTabs
+                let surviving = ordered.filter { $0.groupID != CmuxNextTabs.TabGroupID(group.rawValue) }
+                let collapsed = Set(controller.stripModel.groups.filter(\.isCollapsed).map(\.id))
+                let hidden = Set(surviving.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id))
+                let opener = ctx.services.cache.pageRequests.openers.relations(among: pane.tabs).reduce(into: [CmuxNextTabs.TabID: CmuxNextTabs.TabID]()) { $0[CmuxNextTabs.TabID($1.key)] = CmuxNextTabs.TabID($1.value) }
+                if let next = FocusAfterClose.tab(selected: selected, old: ordered.map(\.id), surviving: surviving.map(\.id), shown: Set(surviving.map(\.id)).subtracting(hidden), opener: opener) {
+                    controller.select(next)
+                }
+            }
             let close = { run("close-tab-group", pane: pane, ctx) { c, t in _ = try await c.closeTabGroup(group, transaction: t) } }
             guard CloseUndoToasts.isUserClose, let undo = ctx.services.closedTabs?.undoToasts else { return close() }
             // One undo toast for the group (REOPEN-CLOSED), decided before the close ends its terminals (cx-lb4al).

@@ -18,6 +18,8 @@ mod app;
 #[cfg(unix)]
 mod app_identity;
 mod browser_input;
+#[cfg(unix)]
+mod build_adopt;
 mod classic_hooks;
 #[cfg(unix)]
 mod claude_wrapper;
@@ -27,9 +29,13 @@ mod client_log;
 mod cloud_conversations_backend;
 #[cfg(unix)]
 mod coderouter_usage;
+#[cfg(unix)]
+mod codex_wrapper;
 mod config;
 mod daemon_build;
 mod headless;
+#[cfg(unix)]
+mod host_orphan_policy;
 mod local_actor;
 mod page_listener;
 mod private_mode;
@@ -83,6 +89,7 @@ mod remote_cli {
     }
 }
 mod owner_start;
+mod remote_host;
 #[cfg(unix)]
 mod remote_runtime;
 mod session;
@@ -1683,6 +1690,9 @@ fn run_main() {
         if let Some(wrapper_args) = claude_wrapper::invocation(&args) {
             client_log::exit(claude_wrapper::run(wrapper_args));
         }
+        if let Some(wrapper_args) = codex_wrapper::invocation(&args) {
+            client_log::exit(codex_wrapper::run(wrapper_args));
+        }
     }
     // Pin the launch directory before any subsystem can move the process:
     // new terminals default to it (not $HOME) for the daemon's lifetime.
@@ -1703,6 +1713,10 @@ fn run_main() {
         }
         return;
     }
+    // Terminal hosts this process starts run from the slim cmux-tui-host
+    // beside it when that is this build (macOS; host_exe.rs).
+    #[cfg(unix)]
+    cmux_tui_core::host_exe::use_sibling_host(cmux_build_identity::BUILD_IDENTITY);
     // `cmux acp …` (and `cmux harness|chats|route …` = `cmux acp harness|chats|route …`) runs acpmux
     // in this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
@@ -1712,6 +1726,13 @@ fn run_main() {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
         client_log::exit(acp::run_scope(head, args));
+    }
+    // `cmux host enable|serve|dial|…`: remote hosting, on every platform
+    // (plans/cmux-next/remote-hosts.md). The other `host` verbs are the
+    // machine supervisor's (`early_unix_scope`).
+    if cli::remote_host_requested(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(remote_host::run(&raw_args[1..]));
     }
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {
@@ -2125,6 +2146,9 @@ fn run_server(
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     daemon_build::install();
+    // Windows hosts get no orphan grace (no app bundles there to classify).
+    #[cfg(unix)]
+    host_orphan_policy::install();
     owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
@@ -2223,6 +2247,14 @@ fn run_server(
     // under launchers with their own settings and config directory.
     #[cfg(unix)]
     claude_wrapper::configure_pane_path(&mut surface_options);
+    // The Codex shim lives in the same shim directory, so its PATH entry is
+    // usually the one the Claude shim already added.
+    #[cfg(unix)]
+    if let Some(path) = codex_wrapper::pane_path()
+        && !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path)
+    {
+        surface_options.extra_env.push(("PATH".into(), path));
+    }
     // The app's bundled `cmux` (the app starts the daemon with it) stays
     // first after the shim on a caller PATH (`terminal_spawn_options`).
     surface_options.bundled_cli = cmux_tui_core::daemon_env::bundled_cli_from_process_env();
@@ -2458,7 +2490,7 @@ fn run_server(
     #[cfg(unix)]
     mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]
-    mux.set_acpmux_starter(acp::daemon_acpmux_starter());
+    acp::install_daemon_acpmux(&mux, &socket_path);
     #[cfg(unix)]
     mux.set_agent_start_host(agent_start_host::source());
     let served_socket = pending_server.into_bound_path();
@@ -2811,6 +2843,7 @@ fn start_detached_owner_session(
         terminal_reap_grace: args.terminal_reap_grace,
         install_key: None,
         chief_tools_socket: None,
+        chief_brains: None,
         websocket: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;

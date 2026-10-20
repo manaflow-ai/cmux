@@ -41,12 +41,20 @@ impl PromptId {
         }
     }
 
-    pub(crate) fn params(&self, session: &str, text: &str, steer: bool) -> Value {
-        json!({
-            "sessionId": session,
-            "prompt": [{"type": "text", "text": text}],
-            "_meta": {"acpmux": {"steer": steer, "promptId": self.id, "resend": self.resend}},
-        })
+    /// `session/prompt` params; `provenance` names the agent that sent it
+    /// (`prompt_provenance.rs`), when not the person.
+    pub(crate) fn params(
+        &self,
+        session: &str,
+        text: &str,
+        steer: bool,
+        provenance: Option<&Value>,
+    ) -> Value {
+        let mut mux = json!({"steer": steer, "promptId": self.id, "resend": self.resend});
+        if let Some(p) = provenance {
+            mux["provenance"] = p.clone();
+        }
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
     }
 
     /// The error for a connection that closed while this prompt was in
@@ -76,12 +84,13 @@ pub(crate) async fn queue_prompt(
     id: &str,
     text: &str,
     steer: bool,
+    provenance: Option<&Value>,
     prompt: &PromptId,
 ) -> Result<Value> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     let c = client.clone();
-    let params = prompt.params(id, text, steer);
+    let params = prompt.params(id, text, steer, provenance);
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     loop {
         tokio::select! {
@@ -243,7 +252,7 @@ pub(crate) async fn stream_prompt(
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
     let c = client.clone();
-    let params = prompt.params(id, text, steer);
+    let params = prompt.params(id, text, steer, None);
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut t = Transcript::default();
     let mut printed_assistant = 0usize;
@@ -548,7 +557,7 @@ async fn collect_once(
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
     let c = client.clone();
-    let params = prompt.params(id, text, false);
+    let params = prompt.params(id, text, false, None);
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut t = Transcript::default();
     let started = tokio::time::Instant::now();
@@ -805,13 +814,14 @@ mod prompt_tests {
         let id = s["sessionId"].as_str().unwrap().to_owned();
         let prompt = PromptId::new(None);
         // "slow" streams for about a second; acceptance comes first.
-        let accepted = queue_prompt(client.clone(), &id, "slow", false, &prompt).await.unwrap();
+        let accepted =
+            queue_prompt(client.clone(), &id, "slow", false, None, &prompt).await.unwrap();
         assert_eq!(accepted["promptId"], prompt.id.as_str());
         let session = hub.resolve(&id).unwrap();
         assert!(session.turn().is_some(), "the turn should still be running");
         // The same id again is answered by the first run, not a second turn.
         let again = PromptId { id: prompt.id.clone(), resend: true };
-        let dup = queue_prompt(client.clone(), &id, "slow", false, &again).await.unwrap();
+        let dup = queue_prompt(client.clone(), &id, "slow", false, None, &again).await.unwrap();
         assert_eq!(dup["duplicate"], true);
         let user_messages =
             hub.events(&id, 0, 1000).unwrap().iter().filter(|e| e.kind == "user_message").count();
@@ -841,7 +851,7 @@ mod prompt_tests {
         let prompt = PromptId::new(None);
         let accepted = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            queue_prompt(client.clone(), &id, "hello", false, &prompt),
+            queue_prompt(client.clone(), &id, "hello", false, None, &prompt),
         )
         .await
         .expect("accepted while the agent is still starting")

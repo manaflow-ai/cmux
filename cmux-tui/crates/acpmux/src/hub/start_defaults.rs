@@ -6,11 +6,17 @@
 //!    person's pick in a chat writes (`note_pick`: the app pane's
 //!    `session/set_model` or effort `session/set_config_option`), so a pick
 //!    carries to the next new chat and across restarts;
-//! 2. the curated catalog's `defaultModel` for the harness and that model's
+//! 2. the harness CLI's own config (`harness_config`, cx-uq9xi; Leo
+//!    2026-10-14): Codex's config.toml `model` and `model_reasoning_effort`,
+//!    Claude Code's settings.json `model` (a `[1m]` variant suffix dropped),
+//!    when the catalog lists that model (an alias names its id); the effort
+//!    when it fits the running model and the config names no model or one the
+//!    catalog lists. The file is read only when the saved default leaves a
+//!    value open;
+//! 3. the curated catalog's `defaultModel` for the harness and that model's
 //!    `defaultEffort` (Claude Code: Opus 5.5, Codex: GPT-6.1 Sol, both
-//!    medium). acpmux sets it on every new chat, so the harness CLI's own
-//!    default (`~/.claude/settings.json`, `~/.codex/config.toml`) never
-//!    decides what a cmux chat runs.
+//!    medium). acpmux sets the start value on every new chat, so what a cmux
+//!    chat runs never depends on a harness default it cannot show.
 //!
 //! An explicit value in the request, a preset, a folder profile, a
 //! profile's own `model`/`effort` (or a model in its argv or env) and an
@@ -33,6 +39,16 @@ const EFFORT_IDS: [&str; 5] =
 /// Whether `id` (a harness's own option id) carries thinking effort.
 pub(super) fn is_effort_id(id: &str) -> bool {
     EFFORT_IDS.contains(&id)
+}
+
+/// The effort a `session/set_config_option` sets, if it sets one: an effort
+/// option's value, or Claude Code's Ultracode switch (on runs `ultracode`,
+/// off leaves xhigh).
+pub(super) fn effort_of<'a>(config_id: &str, value: &'a Value) -> Option<&'a str> {
+    if config_id == crate::claude_stdio::ULTRACODE_OPTION {
+        return Some(if value == "on" { "ultracode" } else { "xhigh" });
+    }
+    if is_effort_id(config_id) { value.as_str() } else { None }
 }
 
 /// Records that `session` runs `model` now. A model change can reset the
@@ -88,6 +104,8 @@ pub(super) enum StartSource {
     Saved,
     /// The profile's own `model`/`effort`.
     Profile,
+    /// The harness CLI's own config (`harness_config`).
+    Harness,
     /// The curated catalog's default.
     Catalog,
 }
@@ -97,6 +115,7 @@ impl StartSource {
         match self {
             StartSource::Saved => "saved",
             StartSource::Profile => "profile",
+            StartSource::Harness => "harness",
             StartSource::Catalog => "catalog",
         }
     }
@@ -121,7 +140,9 @@ fn effort_fits(curated: Option<&CatalogHarness>, model: Option<&str>, effort: &s
     else {
         return true;
     };
-    entry.efforts.as_ref().is_none_or(|list| list.iter().any(|e| e == effort))
+    // Claude Code's Ultracode runs at xhigh.
+    let level = if effort == "ultracode" { "xhigh" } else { effort };
+    entry.efforts.as_ref().is_none_or(|list| list.iter().any(|e| e == level))
 }
 
 impl Hub {
@@ -166,8 +187,16 @@ impl Hub {
             .clone();
         let r = self.set_config(session, config_id, value.clone()).await?;
         let resolved = super::model_options::resolve_config_id(&session.meta(), config_id);
-        if pick && is_effort_id(&resolved) && before.as_deref() != value.as_str() {
-            self.note_pick(session, None, value.as_str()).await;
+        let effort = effort_of(&resolved, &value);
+        if pick && effort.is_some() && before.as_deref() != effort {
+            self.note_pick(session, None, effort).await;
+        }
+        // The mode as a config option (Claude Code's `mode`): a mode pick.
+        if pick
+            && resolved == "mode"
+            && let Some(mode) = value.as_str()
+        {
+            self.note_mode_pick(session, mode).await;
         }
         Ok(r)
     }
@@ -210,6 +239,12 @@ impl Hub {
         if let Err(e) = cfg.save() {
             tracing::warn!(harness = %meta.harness, "pick not saved to config.json: {e}");
         }
+        // The pick is now the harness's `start` in `_acpmux/harnesses`: pages already open (a
+        // prewarmed New Tab) read it again instead of drawing the old start model and effort.
+        let names: Vec<&String> = cfg.harnesses.keys().collect();
+        self.send_harness_change(
+            json!({"harnesses": names, "diagnostics": cfg.profile_diagnostics}),
+        );
     }
 
     /// The model and effort a new chat on `agent` starts on when nothing
@@ -223,12 +258,38 @@ impl Hub {
         model: Option<&str>,
     ) -> (Option<StartValue>, Option<StartValue>) {
         let curated = super::models_view::curated_for(&self.catalog, agent, profile);
+        // The harness's own config, read (blocking file IO) only when the request and the saved
+        // pick leave a value open.
+        let read = std::cell::OnceCell::new();
+        let own = || {
+            read.get_or_init(|| {
+                crate::harness_config::read(
+                    &crate::config::derive_family(agent, profile),
+                    &[&profile.env, &saved.env],
+                )
+            })
+        };
+        // The config's model as the catalog names it; one the catalog does not list (a retired
+        // model, a typo) gives way to the catalog default.
+        let own_model = || {
+            own().model.as_deref().and_then(|m| {
+                curated
+                    .as_ref()?
+                    .models
+                    .iter()
+                    .find(|x| x.id == m || x.aliases.iter().flatten().any(|a| a == m))
+            })
+        };
         let start_model = match model {
             Some(_) => None,
             None => saved
                 .model
                 .clone()
                 .map(|value| StartValue { value, source: StartSource::Saved })
+                .or_else(|| {
+                    own_model()
+                        .map(|m| StartValue { value: m.id.clone(), source: StartSource::Harness })
+                })
                 .or_else(|| {
                     curated
                         .as_ref()
@@ -242,11 +303,24 @@ impl Hub {
         // does not describe (a router's own model) takes no saved effort.
         let described =
             |m: &str| curated.as_ref().is_none_or(|c| c.models.iter().any(|x| x.id == m));
+        let fits =
+            |e: &String| runs.is_none_or(described) && effort_fits(curated.as_ref(), runs, e);
         let start_effort = saved
             .effort
             .clone()
-            .filter(|e| runs.is_none_or(described) && effort_fits(curated.as_ref(), runs, e))
+            .filter(fits)
             .map(|value| StartValue { value, source: StartSource::Saved })
+            .or_else(|| {
+                // Codex applies its effort to whatever model runs, so an effort with no model
+                // in the config is taken; one paired with a model the catalog refused was
+                // chosen for that model, not the catalog default, and is not.
+                let paired = own().model.is_none() || own_model().is_some();
+                own()
+                    .effort
+                    .clone()
+                    .filter(|e| paired && fits(e))
+                    .map(|value| StartValue { value, source: StartSource::Harness })
+            })
             .or_else(|| {
                 curated
                     .as_ref()

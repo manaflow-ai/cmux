@@ -97,6 +97,7 @@ export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, 
 
 /** The stored plan copy, without a Stack read (team.ai_limit.get's team line); null when there is none yet. */
 export const storedPlan = (sql: SqlStorage): string | null => {
-  ensure(sql)
+  // A read: no table create (review P3); a team that never had a plan check has no copy.
+  if (sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'inference_plan'`).one().n === 0) return null
   return sql.exec<{ plan: string | null }>(`SELECT plan FROM inference_plan WHERE id = 1`).toArray()[0]?.plan ?? null
 }

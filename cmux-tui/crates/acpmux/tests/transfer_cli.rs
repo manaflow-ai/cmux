@@ -2,6 +2,11 @@
 //! with a stable `detail` and its data, not only acpmux's text.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -60,16 +65,13 @@ impl Daemon {
         let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
         std::fs::write(home.join("config.json"), config.to_string()).expect("config");
         let socket = home.join("s.sock");
-        let child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        let child = daemon_env::command(&home, daemon_env::Agents::StandIn, &[])
             .args(["daemon", "run", "--log", "warn"])
             .env("ACPMUX_HOME", &home)
             .env("ACPMUX_SOCKET", &socket)
             // No agent hosts: a host outlives its daemon, and this test kills only the daemon.
             .env("ACPMUX_AGENT_HOSTS", "0")
             .env("ACPMUX_LOGIN_ENV", "0")
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("ACPMUX_LOCAL_ROUTER")
-            .env_remove("ACPMUX_IDLE_CHILD_SECS")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -103,7 +105,7 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
     // The chat's folder is not on the target (here: gone from this machine).
     std::fs::remove_dir_all(&folder).expect("remove folder");
 
-    let out = tokio::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let out = daemon_env::tokio_command(&a.home, daemon_env::Agents::Deny)
         .args(["--json", "transfer", &id, "--to"])
         .arg(&b.socket)
         .env("ACPMUX_HOME", &a.home)

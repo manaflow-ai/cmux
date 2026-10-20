@@ -4,7 +4,8 @@
 A tab dragged onto a pane's edge splits that pane only once the pointer has rested on the edge
 for the split dwell (`tabDrag.splitDwell`); before that the drop joins the pane, so a quick
 drag that passes or touches an edge does not split. A pointer held still on the edge sees the
-split preview once the dwell passes, and its release splits.
+split preview once the dwell passes, and its release splits. The dwell is opt-in (default 0 since
+cx-imr7n: classic's bonsplit splits at once), so the script sets it to 0.25 s for the run.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket, opens a workspace with two terminal tabs (`action.run`),
@@ -22,7 +23,7 @@ parser.add_argument("--socket", required=True, help="the tagged app's debug sock
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
 ROWS = []
-DWELL = 0.25  # tabDrag.splitDwell's default
+DWELL = 0.25  # the split dwell this run sets (tabDrag.splitDwell is opt-in, default 0)
 
 
 def rpc(method, params=None, timeout=30):
@@ -124,6 +125,7 @@ def edge_point(strip):
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
+    print("splitDwell:", rpc("debug.tunables", {"action": "set", "key": "tabDrag.splitDwell", "value": DWELL}), flush=True)
 
     # A quick drag onto the pane's right edge, released at once, joins the pane: no split.
     strip = two_tab_strip()
@@ -153,6 +155,10 @@ def main():
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "split-dwell.png")})
 
 
-main()
+try:
+    main()
+finally:
+    # The tunable persists per tag (debug-tunables.json): put the default back for the next script.
+    rpc("debug.tunables", {"action": "set", "key": "tabDrag.splitDwell", "value": None})
 print("\nRESULT", "PASS" if ROWS and all(ROWS) else "FAIL", f"({sum(ROWS)}/{len(ROWS)})")
 sys.exit(0 if ROWS and all(ROWS) else 1)

@@ -82,7 +82,7 @@ extension HomeStore {
                 let next = self.pendingResends.removeFirst()
                 // Cancelled or dropped since it was queued.
                 guard self.log.entries.contains(where: { $0.intent.key == next.key }) else { continue }
-                if case .sendMessage(let conversation, _, _) = next.op {
+                if case .sendMessage(let conversation, _, _, _) = next.op {
                     await self.waitForTurn(next.key, in: conversation)
                     guard self.log.entries.contains(where: { $0.intent.key == next.key }), !self.stopped else { continue }
                 }
@@ -103,6 +103,10 @@ extension HomeStore {
             let wasOnline = connection == .online
             connection = state
             if state != .online {
+                // Typing is the owner's ephemeral state: a typing-off sent while this client is not
+                // connected never comes, so nothing kept from before stays on screen as dots under a
+                // finished reply. Dots come back with the owner's next typing frame or a live run.
+                typing.removeAll()
                 log.markDisconnected()
                 pendingResends.removeAll()
                 cancelBackoffs()
@@ -136,7 +140,22 @@ extension HomeStore {
             rebuildRows()
         case .draft(let update):
             if draftBook.apply(update) { drafts = draftBook.live }
+        case .live(let event):
+            applyLive(event)
         default:
+            // A new post ends its author's typing: the owner sends no typing-off after a post (home-inbox-v1).
+            // An update of a known message (edit, retraction, reaction, answer) keeps it.
+            if case .message(let message, _) = event, message.editedAt == nil, message.retractedAt == nil,
+               typing[message.conversation]?.contains(message.author) == true,
+               mirror.message(clientID: message.clientMessageID, in: message.conversation) == nil {
+                typing[message.conversation]?.remove(message.author)
+                if typing[message.conversation]?.isEmpty == true { typing[message.conversation] = nil }
+            }
+            // Only a new post can be a live run's reply (an edit, retraction or reaction of a known message is not).
+            let newPost: Bool = if case .message(let message, _) = event {
+                message.editedAt == nil && message.retractedAt == nil
+                    && mirror.message(clientID: message.clientMessageID, in: message.conversation) == nil
+            } else { false }
             let outcome = mirror.apply(event)
             switch event {
             case .inbox(let snapshot): confirm(snapshot.conversations.map(\.id))
@@ -157,9 +176,11 @@ extension HomeStore {
             case .message(let message, _):
                 // The posted reply ends its draft in the same change.
                 if draftBook.posted(message) { drafts = draftBook.live }
+                if newPost, liveBook.posted(message) { live = liveBook.shown }
                 bumpTranscript(message.conversation)
             case .conversationPage(let page):
                 bumpTranscript(page.conversation.id)
+                settleLive(page.conversation.id) // a reply a page brought ends its run
             default:
                 break
             }

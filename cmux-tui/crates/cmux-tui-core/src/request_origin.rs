@@ -138,6 +138,9 @@ pub(crate) struct ConnectionOrigin {
     /// page Origin (`cmux-page://cmux.<page>`). Its allow list decides its
     /// v2 operations (page_access.rs).
     pub(crate) page: Option<String>,
+    /// Admitted with a page-bound credential (`page-credential {page}`): its
+    /// `subscribe` hears only its page's conversation events.
+    pub(crate) scoped_page: bool,
     /// Tokens issued for this connection as a relay (page relays only).
     confirmations: Vec<Confirmation>,
 }

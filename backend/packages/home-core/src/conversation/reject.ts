@@ -31,8 +31,12 @@ export const LOCAL_REJECT_CODES = [
   "question_closed",
   /** The answer misses an item, names an unknown option, chooses too many, or types Other where the item does not allow it. */
   "invalid_answer",
-  /** `thread_root` names no message of this conversation, or a message that is itself in a thread (one level). */
-  "invalid_thread_root"
+  /** `thread_root` names no message of this conversation, or a message that is itself in a thread, or not the parent's own root (`thread_root` is always the top root). */
+  "invalid_thread_root",
+  /** A `thread.update` sets none of `title`, `status` and `owner`. */
+  "invalid_thread_update",
+  /** A `thread.update` `owner` is not a current participant, or is a pending invited address. */
+  "invalid_thread_owner"
 ] as const
 
 export const CLOUD_REJECT_CODES = [

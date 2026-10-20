@@ -49,46 +49,58 @@ impl Brain {
             effort,
             speed,
             compactor_speed,
+            compactor_harness,
+            compactor_model,
         } = request
         {
             // A speed the target harness has (the turns' after this set;
             // the compactor's when acpmux says its family).
             let s = &self.settings;
-            let turn_harness = harness
-                .as_deref()
-                .map(str::trim)
-                .filter(|h| !h.is_empty() && *h != "default")
-                .map(str::to_owned)
+            // A value this set names (`default` clears instead).
+            let set = |value: &Option<String>| {
+                value
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|h| !h.is_empty() && *h != "default")
+                    .map(str::to_owned)
+            };
+            let turn_harness = set(&harness)
                 .or_else(|| choice.harness.clone())
                 .unwrap_or_else(|| s.harness.clone());
-            let compactor_harness = choice
-                .compactor_harness
-                .clone()
-                .unwrap_or_else(|| turn_harness.clone());
-            for (value, target) in [
-                (&speed, &turn_harness),
-                (&compactor_speed, &compactor_harness),
+            // The compactor's family after this set: the set harness's, else
+            // the turns' when it is Claude, else Claude (a codex Chief
+            // compacts on a Claude route; host::compactor_harness_for).
+            let compactor_family = match &compactor_harness {
+                Some(_) => set(&compactor_harness),
+                None => choice.compactor_harness.clone(),
+            }
+            .map(|h| self.family_of(&h))
+            .unwrap_or(crate::acpmux::Family::Claude);
+            for (value, family) in [
+                (&speed, self.family_of(&turn_harness)),
+                (&compactor_speed, compactor_family),
             ] {
                 if let Some(v) = value.as_deref()
-                    && let Err(reason) = crate::engine::check_speed(v, self.family_of(target))
+                    && let Err(reason) = crate::engine::check_speed(v, family)
                 {
                     return error("invalid_speed", reason);
                 }
             }
-            if let Some(h) = harness.as_deref().map(str::trim)
-                && !h.is_empty()
-                && h != "default"
-                && !self.settings.families.is_empty()
-                && !self.settings.families.contains_key(h)
+            for h in [set(&harness), set(&compactor_harness)]
+                .into_iter()
+                .flatten()
             {
-                let known: Vec<&str> = self.settings.families.keys().map(String::as_str).collect();
-                return error(
-                    "unknown_harness",
-                    format!(
-                        "acpmux on this host has no harness {h} (it has {})",
-                        known.join(", ")
-                    ),
-                );
+                if !self.settings.families.is_empty() && !self.settings.families.contains_key(&h) {
+                    let known: Vec<&str> =
+                        self.settings.families.keys().map(String::as_str).collect();
+                    return error(
+                        "unknown_harness",
+                        format!(
+                            "acpmux on this host has no harness {h} (it has {})",
+                            known.join(", ")
+                        ),
+                    );
+                }
             }
             if let Some(e) = effort.as_deref().map(str::trim)
                 && !e.is_empty()
@@ -102,16 +114,14 @@ impl Brain {
             }
             // acpmux probed only the harnesses the Chief used at its start
             // (ACPMUX_PROBE_HARNESSES): a new turn harness is probed now.
-            let probe = harness
-                .as_deref()
-                .map(str::trim)
-                .filter(|h| !h.is_empty() && *h != "default")
-                .map(str::to_owned);
+            let probe = set(&harness);
             apply(&mut choice.harness, harness);
             apply(&mut choice.model, model);
             apply(&mut choice.effort, effort);
             apply(&mut choice.speed, speed);
             apply(&mut choice.compactor_speed, compactor_speed);
+            apply(&mut choice.compactor_harness, compactor_harness);
+            apply(&mut choice.compactor_model, compactor_model);
             if let Err(e) = crate::engine::save(&file, &choice) {
                 return error("write_failed", format!("{}: {e}", file.display()));
             }

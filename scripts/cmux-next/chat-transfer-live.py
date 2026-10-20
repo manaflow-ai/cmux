@@ -6,7 +6,7 @@
 
 Run on the GUI host where both builds already run, for example one fleet build launched in two
 capture slots of one host. Each build has its own control socket (`--a`, `--b`) and build tag,
-so its own acpmux home `<home>/.acpmux/tags/<tag slug>`: exactly one per tag (`--a-tag`,
+so its own acpmux home `<home>/.acpmux/builds/com.cmuxterm.app.debug.<tag slug>`: exactly one per tag (`--a-tag`,
 `--b-tag`, each a build's whole tag) under the `--home` dirs (the user's home by default). Never `/tmp/acpmux-<uid>` as
 such: other apps' daemons listen there too. No real agent and no credentials: each acpmux runs
 the test agent (cmux-tui/crates/acpmux/tests/fake_agent.py, `--fake-agent`) as harness `fake`.
@@ -153,7 +153,7 @@ def acpmux_homes(tag):
     /tmp/acpmux-<uid> as such: it is shared with every other app of this user."""
     found = {}
     for user_home in opts.home:
-        home = os.path.join(user_home, ".acpmux", "tags", tag_slug(tag))
+        home = os.path.join(user_home, ".acpmux", "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", tag.lower()).strip("."))
         if os.path.exists(socket_of(home)):
             found[home] = socket_of(home)
     return found

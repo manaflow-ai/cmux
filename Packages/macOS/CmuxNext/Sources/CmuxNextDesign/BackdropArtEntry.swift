@@ -19,6 +19,9 @@ public nonisolated struct BackdropArtEntry: Sendable {
     public let bundled: Bool
     /// The subject, as a fraction of the image from its top-left corner.
     let focal: (x: Double, y: Double)
+    /// What to keep whole and clear of the panes over the art, as fractions of the image from its
+    /// top-left corner (`subject` in the manifest).
+    let subject: (minX: Double, minY: Double, maxX: Double, maxY: Double)
     let tone: BackdropArtTone
     /// The dominant colors, most common first, as 0xRRGGBB.
     let palette: [UInt32]
@@ -42,7 +45,8 @@ public nonisolated struct BackdropArtEntry: Sendable {
                 ? .init(x: 0.02, y: 0.06, width: 0.42, height: 0.88)
                 : .init(x: 0.56, y: 0.06, width: 0.42, height: 0.88),
             preferredTintOpacity: tint,
-            range: BackdropArtRange(darkest: ThemeRGB(hex: darkest), lightest: ThemeRGB(hex: lightest))
+            range: BackdropArtRange(darkest: ThemeRGB(hex: darkest), lightest: ThemeRGB(hex: lightest)),
+            subjectBox: BackdropSubjectBox(minX: subject.minX, minY: subject.minY, maxX: subject.maxX, maxY: subject.maxY)
         )
     }
 }

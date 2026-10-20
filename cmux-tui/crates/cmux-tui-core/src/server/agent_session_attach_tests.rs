@@ -8,18 +8,15 @@
 //! with a bound session, carry no command-bearing or session params, prompts
 //! are one text block, and permission answers name only a request acpmux
 //! announced on the attachment.
-
+use super::agent_session_attach::{AGENT_SESSION_ATTACH_CAPABILITY, MAX_ATTACHMENTS_PER_CLIENT};
+use super::*;
+use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
-
-use serde_json::{Value, json};
-
-use super::agent_session_attach::{AGENT_SESSION_ATTACH_CAPABILITY, MAX_ATTACHMENTS_PER_CLIENT};
-use super::*;
 
 pub(super) const WAIT: Duration = Duration::from_secs(5);
 pub(super) const SESSION: &str = "acp_session_1";
@@ -344,6 +341,20 @@ impl Client {
         }
     }
 
+    /// The next event with this exact name (buffered first).
+    pub(super) fn named_event(&mut self, name: &str, timeout: Duration) -> Option<Value> {
+        if let Some(index) = self.events.iter().position(|e| e["event"] == name) {
+            return self.events.remove(index);
+        }
+        let deadline = Instant::now() + timeout;
+        loop {
+            let line = self.read_line(deadline)?;
+            if line["event"] == name {
+                return Some(line);
+            }
+        }
+    }
+
     /// The next `agent-session-*` event (buffered first).
     fn event(&mut self, timeout: Duration) -> Option<Value> {
         if let Some(index) = self.events.iter().position(is_agent_event) {
@@ -413,6 +424,8 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
     assert_eq!(reply["ok"], json!(false), "{reply}");
     assert_eq!(reply["error_code"], json!(code), "{reply}");
 }
+
+include!("agent_session_observe_tests.rs");
 
 // MARK: Capability and trust
 
@@ -548,6 +561,39 @@ fn prompt_cancel_and_permission_need_an_attachment() {
         assert_code(&client.request(frame), "agent_session.not_attached");
     }
     fake.no_connection();
+}
+
+/// cx-kpd0v: the agent pane asks for every kind it draws (9 since prompt
+/// bookmarks); an attach with that list passes to acpmux unchanged, and a list
+/// above the cap is still a bad request.
+#[test]
+fn attach_takes_the_agent_panes_whole_kind_list() {
+    let fake = FakeAcpmux::start("kinds");
+    let mux = mux_with(&fake, "asa-kinds");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "kinds");
+    let kinds = json!([
+        "transcript",
+        "available_commands_update",
+        "usage_update",
+        "config_option_update",
+        "bookmarks",
+        "secret_request",
+        "secret_decision",
+        "session_offer",
+        "session_offer_decision"
+    ]);
+    let too_many: Vec<String> =
+        (0..33).map(|n| format!("kind_{}", "x".repeat(n % 5 + 1))).collect();
+    let refused = client.request(json!({"cmd":"agent-session-attach","surface":surface,
+                                        "kinds":too_many}));
+    assert_code(&refused, "agent_session.bad_request");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,
+                                      "limit":400,"kinds":kinds}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/attach"));
+    assert_eq!(sent["params"]["kinds"], kinds);
 }
 
 // MARK: Streaming

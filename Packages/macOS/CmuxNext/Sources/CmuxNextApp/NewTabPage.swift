@@ -195,7 +195,7 @@ enum NewTabPage {
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).namingThisMac(machine.remoteFolders == nil)
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
@@ -206,12 +206,11 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).namingThisMac()
     }
 
-    /// Projects discovered off the main actor during app startup. The current
-    /// session cwd still arrives immediately from the pane handshake.
-    static func projects(_ services: AppServices) -> [String] { services.onboarding.projectFolders }
+    /// Startup folders only without `project-list-v1`; else the page asks `project.list` (removals win, cx-m0p7).
+    static func projects(_ services: AppServices) -> [String] { services.machines.local.projectStore == nil ? services.onboarding.projectFolders : [] }
 
     /// The page's handler: `open` is the pane's (it replaces the page with
     /// a tab); the location bar's jumps, the shortcut and default-kind edits
@@ -229,11 +228,12 @@ enum NewTabPage {
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             browseProject: { [weak services] in
-                guard let services else { return nil }
-                return await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path
+                guard let services, let path = await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path else { return nil }
+                return await services.machines.local.projectStore?.picked(path) ?? path
             },
             listProjects: { [weak services] query in
                 guard let services else { return [] }
+                if let paths = await services.machines.local.projectStore?.pickerPaths(query: query, limit: AgentPaneOmnibar.maximumEntries) { return paths }
                 let hints = services.history.agents.sessions.compactMap(\.cwd) + services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
                 return await Task.detached {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)

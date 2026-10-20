@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 extension WorkspaceRowView {
     /// The row's callbacks for workspace `id` in `list`, set on every dequeue
@@ -12,5 +13,12 @@ extension WorkspaceRowView {
         // An expanded row's hover pin (cx-13w3): nil while the App offers none.
         isPinned = { [weak list] in list?.model.workspacePin?.isPinned(id) }
         onPin = { [weak list] in list?.model.workspacePin?.toggle(id) }
+    }
+
+    /// Reads the agent mark, presence dot, row badge and stack size settings;
+    /// one shared observation (`SidebarTunablesWatch`) redraws the live rows
+    /// when one changes, not one new registration per configure.
+    func observedTunables() -> SidebarTunablesWatch.Values {
+        SidebarTunablesWatch.shared.values(for: self)
     }
 }

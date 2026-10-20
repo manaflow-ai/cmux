@@ -2,11 +2,11 @@ public import Foundation
 
 /// Shuffle Daily (cx-t2x.5): `appearance.background: "daily"` shows one work a local day.
 extension BackdropArt {
-    /// The work for `date`'s local day in `calendar`'s time zone. Consecutive days step through the
-    /// set by a stride that shares no factor with its size, so every work shows once before any
-    /// repeats and neighbouring days land far apart in the set (and its collections).
+    /// The work for `date`'s local day in `calendar`'s time zone, from ``dailyRotation``. Consecutive
+    /// days step through it by a stride that shares no factor with its size, so every work shows once
+    /// before any repeats and neighbouring days land far apart in the set (and its collections).
     public nonisolated static func daily(on date: Date, calendar: Calendar = .current) -> BackdropArt {
-        let works = allCases
+        let works = dailyRotation
         let index = (dayNumber(of: date, calendar: calendar) % works.count) * dailyStride(count: works.count) % works.count
         return works[index]
     }

@@ -388,24 +388,13 @@ pub(crate) struct PtyGeometry {
 }
 
 impl PtyGeometry {
-    fn pty_size(self) -> anyhow::Result<PtySize> {
-        let pixel_width = self.cols.checked_mul(self.cell_width.max(1)).ok_or_else(|| {
-            anyhow::anyhow!(
-                "PTY pixel width exceeds {}: {} columns at {} pixels per cell",
-                u16::MAX,
-                self.cols,
-                self.cell_width.max(1)
-            )
-        })?;
-        let pixel_height = self.rows.checked_mul(self.cell_height.max(1)).ok_or_else(|| {
-            anyhow::anyhow!(
-                "PTY pixel height exceeds {}: {} rows at {} pixels per cell",
-                u16::MAX,
-                self.rows,
-                self.cell_height.max(1)
-            )
-        })?;
-        Ok(PtySize { rows: self.rows, cols: self.cols, pixel_width, pixel_height })
+    /// The winsize for this geometry. The pixel fields saturate at
+    /// `u16::MAX`: a grid the size clamp accepts must not fail only because
+    /// `ws_xpixel`/`ws_ypixel` cannot hold its pixel extent.
+    fn pty_size(self) -> PtySize {
+        let pixel_width = self.cols.saturating_mul(self.cell_width.max(1));
+        let pixel_height = self.rows.saturating_mul(self.cell_height.max(1));
+        PtySize { rows: self.rows, cols: self.cols, pixel_width, pixel_height }
     }
 }
 
@@ -683,6 +672,11 @@ impl Surface {
             terminal_metadata.set_osc_progress(&snapshot.osc_progress),
             "terminal host returned invalid OSC progress metadata"
         );
+        // The prompt or running command the host saw, so a daemon that
+        // adopts a terminal after a restart does not read it as idle.
+        if let Some(activity) = snapshot.shell_activity {
+            terminal_metadata.activity.restore(activity);
+        }
         term.resize(
             snapshot.cols,
             snapshot.rows,
@@ -755,6 +749,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),

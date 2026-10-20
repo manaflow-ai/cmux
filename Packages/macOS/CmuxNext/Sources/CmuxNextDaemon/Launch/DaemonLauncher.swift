@@ -1,17 +1,16 @@
 public import Foundation
 import os
-import CmuxNextCompat
+public import CmuxNextCompat
 
 /// Locates the bundled cmux-tui binary and runs `cmux-tui --session <S>
 /// --json server ensure`, which returns a running owner or spawns a detached
 /// (`setsid`) one that survives app quit.
 ///
-/// Isolation: release builds use session `cmux-app` and cmux-tui's default
-/// state root; a tagged dev build (`CMUX_TAG`) uses `cmux-app-<tag>` and a
-/// tag-private `CMUX_TUI_STATE_DIR`, so dev state never shares a root with
-/// release state. An untagged nightly, rc or staging build is isolated the
-/// same way under its channel name (`cmux-app-nightly`, ``daemonTag(tag:bundleID:)``),
-/// so it runs beside release with its own daemon and state. `run_ensure` does not
+/// Isolation: one session and `CMUX_TUI_STATE_DIR` per build
+/// (``BuildIdentity/appSession``, per-build isolation S3): release keeps `cmux-app`
+/// and cmux-tui's default root, a channel or reload.sh DEV build keeps
+/// `cmux-app-<channel or tag>`, every other build (the untagged DEV build too)
+/// has `cmux-app--<key hash>`. `run_ensure` does not
 /// forward `--state`, so the env var is the only way the owner sees it.
 public struct DaemonLauncher: Sendable {
     public struct Configuration: Sendable, Hashable {
@@ -100,6 +99,8 @@ public struct DaemonLauncher: Sendable {
     private let rememberedSocket: RememberedSocket
     /// Version handoff state (`handOffIfStale`).
     let handoff = DaemonHandoffState()
+    /// How the last endpoint `ensure` ended: the gate of Restart cmux-tui (DaemonLauncher+Replace).
+    public let ensureOutcome = EnsureOutcome()
     let clock: any Clock<Duration>
     private let ensureTimeout: Duration
     /// Hard cap on one `server ensure`. The daemon bounds a restore itself
@@ -121,15 +122,14 @@ public struct DaemonLauncher: Sendable {
         self.clock = clock
     }
 
-    /// The standard app launcher: bundled binary, session from the app's own
-    /// tag or channel (``daemonTag(tag:bundleID:)``; never an inherited `CMUX_TAG`), login-shell environment captured
+    /// The standard app launcher: bundled binary, session and state of the app's own
+    /// build (``appNames(build:applicationSupport:)``; never an inherited `CMUX_TAG`), login-shell environment captured
     /// once per launch and remembered for the next (`LoginEnvironmentCache`). `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
     /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns;
     /// `daemonEnvironment` joins only `server ensure`; every cmux-tui process takes `CMUX_APPS_FIRST_PARTY_DIR` out of its
     /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
     public static func forApp(
-        tag: String?,
-        bundleID: String?,
+        build: BuildIdentity,
         terminalEnvironment: [String: String],
         daemonEnvironment: [String: String] = [:], webSocketPageOrigins: [String] = [],
         bundle: Bundle = .main,
@@ -137,11 +137,9 @@ public struct DaemonLauncher: Sendable {
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
         applicationSupport: URL = DaemonLauncher.applicationSupportDirectory()
     ) throws -> DaemonLauncher {
-        let tag = daemonTag(tag: tag, bundleID: bundleID)
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
-        let session = try sessionName(tag: tag)
-        let stateDirectory = tag.map { tagStateDirectory(tag: $0, applicationSupport: applicationSupport) }
+        let (session, stateDirectory) = appNames(build: build, applicationSupport: applicationSupport, log: true)
         let keyStore = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
@@ -169,16 +167,23 @@ public struct DaemonLauncher: Sendable {
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
+        // An unsigned (DEV) build proves it is the app to an owner it started with this home's
+        // install key, as with its own daemon: the owner then takes its origin.confirmation.issue
+        // (a Home page's Chief create on the person's gesture). A signed build proves it by its
+        // code signature and gets no key.
+        let installKey = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)?.loadOrCreate()
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
-                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle))
+                                          installKey: installKey, binaryIsBundled: isBundledBinary(binary, bundle: bundle))
         let environment = chiefEnvironment(processEnvironment)
         return DaemonLauncher(configuration: configuration, environment: { environment })
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
-    /// variables only, never a build's `CMUX_*` identity; and the brain's tools socket (chief.*).
+    /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and
+    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`).
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
-        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET"]
+        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
+                    "CMUX_TUI_CHIEF_BRAINS"]
         return base.filter { kept.contains($0.key) }
     }
 
@@ -241,18 +246,8 @@ public struct DaemonLauncher: Sendable {
         ("com.cmuxterm.app.staging", "staging"),
     ]
 
-    /// The tag that names an app's daemon session and state directory: the
-    /// build's own tag, else the channel of an untagged nightly, rc or
-    /// staging bundle id, else nil (release, `cmux-app`). A tagged channel
-    /// bundle (`com.cmuxterm.app.nightly.cmux-next`) already carries its tag.
-    public static func daemonTag(tag: String?, bundleID: String?) -> String? {
-        if let tag, !tag.isEmpty { return tag }
-        let bundle = bundleID?.trimmingCharacters(in: .whitespaces) ?? ""
-        return channelBundleIDs.first { $0.0 == bundle }?.1
-    }
-
     /// `cmux-app`, or `cmux-app-<tag>` with the tag reduced to a safe single
-    /// path component. `tag` is a ``daemonTag(tag:bundleID:)``.
+    /// path component (a kept name, ``BuildIdentity/appSession``).
     public static func sessionName(tag: String?) throws -> String {
         guard let tag else { return "cmux-app" }
         let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
@@ -424,28 +419,8 @@ public struct DaemonLauncher: Sendable {
                     return DaemonEndpoint(socketPath: path)
                 }
             }
-            return try await ensure().endpoint
+            return try await ensureRecordingOutcome().endpoint
         }
-    }
-
-    /// Build commit of the bundled binary (`cmux 0.1.0 (<commit>; ghostty …)`).
-    public func bundledBuildCommit() async throws -> String? {
-        let result = try await ProcessRunner.run(executable: configuration.binary, arguments: ["--version"],
-                                                 environment: nil, timeout: .seconds(5), clock: clock)
-        return Self.parseBuildCommit(String(decoding: result.stdout, as: UTF8.self))
-    }
-
-    static func parseBuildCommit(_ version: String) -> String? {
-        guard version.contains("(") else { return nil }
-        let commit = version.drop { $0 != "(" }.dropFirst().prefix { $0.isHexDigit }
-        return commit.count >= 7 ? String(commit) : nil
-    }
-
-    /// True when the running daemon was built from a different commit than
-    /// the bundled binary, so the app should hand off with `restartDaemon`.
-    public func isStale(_ identity: DaemonIdentity) async -> Bool {
-        guard let running = identity.buildCommit, let bundled = try? await bundledBuildCommit() else { return false }
-        return running != bundled
     }
 
     /// Asks the running owner to exit (version handoff), then ensures a new

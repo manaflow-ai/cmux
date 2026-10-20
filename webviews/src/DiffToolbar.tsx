@@ -162,12 +162,8 @@ export function SourceMenu({
         <Icon name="chevronDown" />
       </button>
       <span className="source-pill-stats" aria-label={label("diffStats")}>
-        <span className="source-pill-additions" title={label("additions")}>
-          +{additions}
-        </span>
-        <span className="source-pill-deletions" title={label("deletions")}>
-          -{deletions}
-        </span>
+        <span className="source-pill-additions">+{additions}</span>
+        <span className="source-pill-deletions">-{deletions}</span>
       </span>
       {open && style
         ? createPortal(
@@ -298,6 +294,7 @@ function SourceMenuRow({
       data-source-id={entry.id}
       aria-checked={entry.checked}
       aria-disabled={unavailable || undefined}
+      // tooltip-allow: why the option is unavailable
       title={unavailable ? label("optionNeedsHostSupport") : undefined}
       onClick={() => {
         if (!unavailable) onChoose();
@@ -565,6 +562,7 @@ function OverflowMenuRow({
       data-option={item.id}
       aria-checked={toggle ? item.checked : undefined}
       aria-disabled={item.available ? undefined : true}
+      // tooltip-allow: why the option is unavailable
       title={item.available ? undefined : label("optionNeedsHostSupport")}
       onClick={() => {
         if (item.available) onChoose();

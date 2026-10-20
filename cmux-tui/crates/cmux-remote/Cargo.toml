@@ -53,12 +53,9 @@ uuid.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
 
-[build-dependencies]
-# This root package uses Cargo's Git-aware default fingerprint to notice new
-# workspace-root files without recursively walking target/.
-cmux-tui-source-watch = { path = "../.." }
-
 [dev-dependencies]
+# The tests bootstrap with this build's real identity, as the binary does.
+cmux-build-identity.workspace = true
 cmux-relay = { path = "../cmux-relay" }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 cmux-wg.workspace = true

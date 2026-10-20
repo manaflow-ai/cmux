@@ -101,9 +101,9 @@ jobs:
   # merges grew the App past the cap. This workflow has no path filter, so the
   # check can be a required one.
   # Only the size cap runs here: the god-file checks stay warn-only. A pull
-  # request fails on what it grows (its merge commit's first parent is the
-  # base); a push fails on what it grew over the previous tip (event.before), so
-  # a push that went around safe-push turns the tip run red.
+  # request fails on real source growth against its merge commit's first parent
+  # (the base); comment/blank-line-only merge noise is ignored. A push compares
+  # against event.before, so a push that went around safe-push still turns red.
   app-size:
     name: cmux-next CmuxNextApp size cap
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
@@ -188,6 +188,7 @@ jobs:
     needs: [app-size, crash-ratchet]
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
     permissions:
+      actions: read
       checks: read
       contents: read
       pull-requests: write
@@ -211,3 +212,8 @@ jobs:
 
       - name: The defaults snapshot matches the exports
         run: python3 scripts/ci/defaults_guard.py check-fresh
+
+      # PR #19754 moved the workspace and tab menus' group rows into More and
+      # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
+      - name: The group rows stay at the top of the right-click menus
+        run: python3 scripts/cmux-next/check-group-menus.py

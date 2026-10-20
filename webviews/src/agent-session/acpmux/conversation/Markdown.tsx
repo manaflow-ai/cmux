@@ -2,13 +2,16 @@
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
 // DOM shape for every transcript: headings, paragraphs (single newlines are line
 // breaks), nested ordered/bullet/task lists, blockquotes, rules, aligned tables, fenced
-// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
+// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
+// ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
-import { safeHref } from "../model";
+import { appHref, safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
+import { canRender, RenderCard } from "./RenderCard";
+import { renderFence } from "./renderCall";
 import { isRemoteMedia, RemoteMedia } from "../chips/ReplyMedia";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
@@ -33,7 +36,8 @@ export type MdBlock =
   | { type: "blockquote"; children: MdBlock[] }
   | { type: "list"; ordered: boolean; start: number; items: MdListItem[] }
   | { type: "table"; align: Align[]; header: string[]; rows: string[][] }
-  | { type: "code"; lang: string; code: string }
+  /** `open`: the fence has no closing line yet (a streaming or cut reply). */
+  | { type: "code"; lang: string; code: string; open?: true }
   | { type: "math"; tex: string }
   /** `[^id]: text`, drawn in the notes under the reply (`Markdown`), not where it is written. */
   | { type: "footnote"; id: string; text: string };
@@ -68,8 +72,14 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       const body: string[] = [];
       i++;
       while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i++]);
+      const open = i >= lines.length;
       i++;
-      out.push({ type: "code", lang: fence[1] || "text", code: body.join("\n") });
+      out.push({
+        type: "code",
+        lang: fence[1] || "text",
+        code: body.join("\n"),
+        ...(open ? { open: true as const } : {}),
+      });
       continue;
     }
     const display = displayMath(lines, i);
@@ -370,12 +380,15 @@ function linkedGithubText(text: string, key: string, repository?: string, enable
   return out;
 }
 
-// Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a paragraph,
-// `$…$` (Pandoc's rule: no space inside either dollar and no digit after the closer, so
-// "$5 and $10" stays text; no backtick inside, so "$5 or `$PATH`" does too), and a backslash
-// escape (`\$`, `\*`) that draws its character, and a footnote reference (`[^id]`).
+// Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a
+// paragraph (not prose, words and punctuation, beside a space, so the shell's "echo $$ and $$"
+// and "echo $$ prints the shell's PID, and echo $$" stay text while
+// "$$ E = mc^2 $$" typesets), `$…$` (Pandoc's rule: no space inside either dollar and no digit
+// after the closer, so "$5 and $10" stays text; a `$` never ends one, so "$10 and echo $$" does
+// too; no backtick inside, so "$5 or `$PATH`" does too), a backslash escape (`\$`, `\*`) that
+// draws its character, and a footnote reference (`[^id]`).
 const INLINE_RE =
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$(?!\s[A-Za-z\s'’,.;:!?"()-]*\$\$|[A-Za-z\s'’,.;:!?"()-]*\s\$\$)[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`$]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(source: string, outer: InlineOptions = {}): ReactNode[] {
@@ -418,10 +431,18 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // link is a chip with its site's mark (chips/LinkChips.tsx).
       const path = linkPath(lm[2]);
       const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
+      const app = href ? undefined : appHref(lm[2]);
       if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
+      else if (app)
+        // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
+        out.push(
+          <a key={k++} className="cv-link is-app" href={app}>
+            {renderInline(lm[1], labelOpts)}
+          </a>,
+        );
       else if (linkKind(lm[2]) === "file")
         out.push(
-          <span key={k++} className="cv-link is-file" title={lm[2]}>
+          <span key={k++} className="cv-link is-file">
             {(opts.linkIcon ?? linkIcon)(lm[2])}
             {renderInline(lm[1], labelOpts)}
           </span>,
@@ -508,12 +529,12 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
   const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
   const href = safeHref(src);
   const fallback = !href ? (
-    <span className="cv-link is-image" title={src}>
+    <span className="cv-link is-image">
       <ImageIcon size={16} className="cv-link__icon" />
       {renderInline(name, labelOpts)}
     </span>
   ) : (
-    <a className="cv-link is-image" href={href} rel="noreferrer" title={src}>
+    <a className="cv-link is-image" href={href} rel="noreferrer">
       <ImageIcon size={16} className="cv-link__icon" />
       {renderInline(name, labelOpts)}
     </a>
@@ -527,7 +548,10 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
 function OversizedImage({ alt, opts }: { alt: string; opts: InlineOptions }) {
   const t = useT();
   return (
-    <span className="cv-link is-image" title={t("markdown.imageTooLarge")}>
+    <span
+      className="cv-link is-image"
+      /* tooltip-allow: why the image does not show */ title={t("markdown.imageTooLarge")}
+    >
       <ImageIcon size={16} className="cv-link__icon" />
       {alt
         ? renderInline(alt, { ...opts, githubRepository: undefined, linkGithubReferences: false })
@@ -638,12 +662,16 @@ function Block({
         </div>
       );
     }
-    case "code":
+    case "code": {
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
       if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
+      // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
+      const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
+      if (render) return <RenderCard call={render} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
       return <CodeBlock code={block.code} lang={block.lang} />;
+    }
     case "math":
       return <MathDisplay tex={block.tex} />;
     case "footnote": {
@@ -741,7 +769,9 @@ export function Markdown({
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
   // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
   // same object until a new reference arrives.
-  const noteIds = footnoteOrder(children).join(" ");
+  // The reveal clock can re-render a streaming reply while its source is unchanged. Keep the
+  // full footnote scan on source changes instead of repeating it for each animation frame.
+  const noteIds = useMemo(() => footnoteOrder(children).join(" "), [children]);
   // The reply's data URL budget; only a reply longer than the budget can pass it.
   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
   const overBudget = useMemo(() => dataUrlsOverBudget(budgetSource), [budgetSource]);

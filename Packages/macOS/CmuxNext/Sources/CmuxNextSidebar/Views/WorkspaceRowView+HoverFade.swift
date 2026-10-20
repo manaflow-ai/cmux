@@ -4,10 +4,10 @@ import QuartzCore
 
 /// Leo 2026-10-13 (cosmic-gray): moving between rows snapped their hover
 /// state. The row's hover controls (the x, the menu button, the pin, the tab
-/// chevron and the unread badge they replace) now fade in their own slots,
-/// both ways (`MotionFade.hover`), and the marks they cover fade with them,
-/// so nothing moves or resizes. Layouts that hover did not cause (reloads,
-/// recycling, theme) apply at once.
+/// chevron and the unread badge they replace) now reveal in their own slots
+/// immediately and clear with the short hover-out transition. The marks they
+/// cover stay in place, so nothing moves or resizes. Layouts that hover did
+/// not cause (reloads, recycling, theme) apply at once.
 extension WorkspaceRowView {
     /// Shows or hides `view` in its slot, fading when `fades`. A control
     /// fading out keeps its frame and takes no clicks (`hitTest` skips clear

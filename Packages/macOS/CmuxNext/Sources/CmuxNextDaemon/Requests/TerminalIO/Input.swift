@@ -16,6 +16,49 @@ public struct SendInputRequest: DaemonRequest {
     }
 }
 
+/// Writes to a terminal by its host id, also one still being created
+/// (`terminal-input-while-creating-v1`): the daemon queues input for a creating terminal and
+/// writes it after the commit, before any later input. Bytes it cannot write come back in one
+/// ``TerminalInputUnclaimed`` event on this connection.
+public struct SendTerminalInputRequest: DaemonRequest {
+    public struct Response: Decodable, Sendable, Equatable {
+        /// True when the terminal was still being created: the bytes wait in the daemon.
+        public var queued: Bool?
+    }
+    public static let command = "send"
+    public var terminalID: String
+    public var bytes: Data
+    public init(terminalID: String, bytes: Data) {
+        self.terminalID = terminalID
+        self.bytes = bytes
+    }
+}
+
+/// Bytes the daemon queued for a terminal that was being created and did not write
+/// (`terminal-input-while-creating-v1`), sent to the connection that queued them. The client
+/// gives them to the terminal that has focus.
+public struct TerminalInputUnclaimed: Decodable, Sendable, Equatable {
+    /// The event name (one place, so the protocol name can change here only).
+    public static let eventName = "terminal-input-unclaimed"
+    public var terminalId: String
+    public var bytesBase64: String
+    /// `failed`, `cancelled`, `expired` or `write-failed`.
+    public var reason: String
+    public var bytes: Data? { Data(base64Encoded: bytesBase64) }
+    /// The give-back in `event`, a side event of the control connection; nil for any other event.
+    public init?(_ event: DaemonEvent) {
+        guard case .unknown(let name, let payload) = event, name == Self.eventName,
+              let terminalID = payload["terminal_id"]?.stringValue,
+              let bytesBase64 = payload["bytes_base64"]?.stringValue else { return nil }
+        self.terminalId = terminalID
+        self.bytesBase64 = bytesBase64
+        reason = payload["reason"]?.stringValue ?? ""
+    }
+    enum CodingKeys: String, CodingKey {
+        case terminalId = "terminal_id", bytesBase64 = "bytes_base64", reason
+    }
+}
+
 public struct SendKeyRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "send-key"
@@ -30,6 +73,14 @@ public struct SendKeyRequest: DaemonRequest {
 public struct AttachSurfaceRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var lease: String?
+        /// This view's sizing participant and the terminal's size state, for a connection that
+        /// lists `shared-sizing-v1`.
+        public var participant: String?
+        public var sizeState: TerminalSizeState?
+        enum CodingKeys: String, CodingKey {
+            case lease, participant
+            case sizeState = "size_state"
+        }
     }
     public static let command = "attach-surface"
     public var surface: SurfaceID?

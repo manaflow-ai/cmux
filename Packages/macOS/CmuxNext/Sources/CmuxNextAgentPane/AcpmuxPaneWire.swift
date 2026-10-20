@@ -60,11 +60,28 @@ public nonisolated struct AgentPaneRemoteApprovals: Sendable {
     public let machineID: String
     public let label: String
     public let restart: @Sendable () async -> Failure?
+    /// Who decided that a keyed restart before a new chat loses nothing.
+    public enum Preparation: Sendable, Equatable {
+        /// That machine's cmux-tui answered `agent_session.needs_keyed_start` with
+        /// `safe_to_restart` (cx-0w0jj): restart now.
+        case daemonSaidSafe
+        /// A cmux-tui without `agent-session-start-keyed-reason-v1`: the app reads the acpmux
+        /// status itself (cx-oa6ah). Remove when the oldest supported cmux-tui has the capability.
+        case checkStatus
+    }
 
-    public init(machineID: String, label: String, restart: @escaping @Sendable () async -> Failure?) {
+    /// The keyed restart before a new chat starts there, only when that machine's agent daemon
+    /// runs no agent (none to hand off, cx-oa6ah): true when this app's key is then bound. A
+    /// daemon with live agents is left as it is; its Allow then shows the restart notice, and only
+    /// the person's click restarts it. Nil where the app cannot tell.
+    public let prepare: (@Sendable (Preparation) async -> Bool)?
+
+    public init(machineID: String, label: String, restart: @escaping @Sendable () async -> Failure?,
+                prepare: (@Sendable (Preparation) async -> Bool)? = nil) {
         self.machineID = machineID
         self.label = label
         self.restart = restart
+        self.prepare = prepare
     }
 }
 

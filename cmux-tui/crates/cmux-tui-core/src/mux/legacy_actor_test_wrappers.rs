@@ -142,7 +142,7 @@ impl Mux {
         ratio: Option<f32>,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
-        self.move_tab_to_split_as(&Actor::Daemon, surface, pane, edge, ratio, transaction)
+        self.move_tab_to_split_as(&Actor::Daemon, surface, pane, edge, ratio, false, transaction)
     }
 
     pub(crate) fn move_tab_to_column(
@@ -161,6 +161,7 @@ impl Mux {
             after_column,
             width,
             dock,
+            false,
             transaction,
         )
     }

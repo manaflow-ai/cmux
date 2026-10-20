@@ -21,19 +21,18 @@ public nonisolated enum MotionSpeed: String, Sendable, CaseIterable, Codable {
 
 /// Spring tokens. Each one is a response (seconds for one undamped period)
 /// and a damping fraction (1 = critically damped), as in SwiftUI
-/// `.spring(response:dampingFraction:)`. Damping 0.9 overshoots 0.05% (0.1
-/// pt on a 200 pt move, invisible) and ends visibly ~30% sooner than a
-/// critically damped spring's long tail. Values and rationale are in
-/// plans/cmux-next/motion.md; change them only there and here.
+/// `.spring(response:dampingFraction:)`. The structural ones (`move`,
+/// `appear`, `disappear`) are critically damped with a short response
+/// (they never pass the target; `ui.animations.bounce` subtle opts into a
+/// SwiftUI bounce). The values are the spec's design-tokens.json `motion`
+/// (cmux-motion reads the same file; scripts/cmux-next/motion-parity.py
+/// compares this port's paths with cmux-motion's). The cases are declared
+/// in cmux-motion's `MotionSpring::ALL` order, the token index of its C ABI
+/// (`cmux_motion_spring_base`): append new tokens on both sides.
 public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// An existing item moves or resizes: tab reflow and reorder, sidebar
     /// rows, pane and divider frames, pane unzoom, toolbar height.
     case move
-    /// A pane zooming to fill its screen: it owns the motion (Leo 2026-10-13).
-    case zoom
-    /// The panes a zoom leaves fade out, faster than anything arrives
-    /// (`Motion.exit(nearness:)`: the farthest first).
-    case exit
     /// Something appears or expands: tab grow-in, group expand, row insert,
     /// sidebar show.
     case appear
@@ -56,6 +55,18 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     case selection
     /// Floating panel open: palette scale-in, hover card slide.
     case panel
+    /// Home list pin drag: tiles making room, rows below the grid, a dropped
+    /// tile landing (MessagesLab `SidebarPinDragging.spring`).
+    case pinDrag
+    /// A pane zooming to fill its screen and back: it owns the motion and
+    /// covers the other panes (Leo 2026-10-13, Lawrence 2026-10-18).
+    case zoom
+    /// A pane closing: the neighbours that take its space grow over it, with
+    /// their dividers, on this one spring (Lawrence 2026-10-18).
+    case exit
+    /// A new tab growing in at its final slot while the tabs right of it make room, on one
+    /// spring (`ui.animations.newTab`, on by default). Structural.
+    case tabOpen
 
     /// Values at `MotionSpeed.fast`: the code default (`MotionTunables`),
     /// or its Debug Settings override in DEV and NIGHTLY builds.
@@ -63,3 +74,4 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
         MotionTunables.springs[self]?.value ?? SpringParameters(response: 0.2, dampingFraction: 0.9)
     }
 }
+

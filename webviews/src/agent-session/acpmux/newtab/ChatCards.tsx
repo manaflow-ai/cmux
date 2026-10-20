@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { useT } from "../i18n";
 import { AgentMark } from "../NewTabPage";
@@ -31,10 +31,45 @@ export function ChatCards({
   const nt = useNt();
   const t = useT();
   const list = useRef<HTMLDivElement>(null);
+  /// Parents whose child list is open; each starts collapsed.
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = (id: string) =>
+    setOpen((was) => {
+      const next = new Set(was);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  const row = (card: ChatCard, child: boolean) => (
+    <button
+      key={card.sessionId}
+      type="button"
+      className="nt-card"
+      data-state={card.state}
+      data-child={child ? "" : undefined}
+      aria-label={nt("card.open", { title: card.title })}
+      onClick={() => onOpen(card.sessionId)}
+    >
+      <span className="nt-card-meta">
+        <AgentMark harness={card.harness} />
+        <span className="nt-card-age">{card.age}</span>
+      </span>
+      <span className="nt-card-title">{card.title}</span>
+      {(card.state !== "idle" || card.message) && (
+        <span className="nt-card-message">
+          {card.state === "idle"
+            ? card.message
+            : card.state === "failed"
+              ? t("header.failed")
+              : nt(`card.${card.state}`)}
+        </span>
+      )}
+    </button>
+  );
   useListMotion(
     list,
-    ".nt-card-host > .nt-card",
-    cards.map((card) => card.sessionId),
+    ".nt-card-host > .nt-card, .nt-card-family > .nt-card",
+    // A chat keeps its row when acpmux's session takes its device chat's slot (one active chat).
+    cards.map((card) => (card.chatId ? `chat:${card.chatId}` : card.sessionId)),
   );
   return (
     <section className="nt-chats" aria-label={nt("sections")}>
@@ -77,28 +112,27 @@ export function ChatCards({
                   : []),
               ]}
             >
-              <button
-                type="button"
-                className="nt-card"
-                data-state={card.state}
-                aria-label={nt("card.open", { title: card.title })}
-                onClick={() => onOpen(card.sessionId)}
-              >
-                <span className="nt-card-meta">
-                  <AgentMark harness={card.harness} />
-                  <span className="nt-card-age">{card.age}</span>
-                </span>
-                <span className="nt-card-title">{card.title}</span>
-                {(card.state !== "idle" || card.message) && (
-                  <span className="nt-card-message">
-                    {card.state === "idle"
-                      ? card.message
-                      : card.state === "failed"
-                        ? t("header.failed")
-                        : nt(`card.${card.state}`)}
-                  </span>
-                )}
-              </button>
+              {/* The chats this chat's agent started, collapsed under it with their count (Leo
+                  2026-10-14); a click lists them below it. */}
+              {card.children && card.children.length > 0 ? (
+                <div className="nt-card-family">
+                  {row(card, false)}
+                  <button
+                    type="button"
+                    className="nt-card-children-toggle"
+                    aria-expanded={open.has(card.sessionId)}
+                    aria-label={nt("card.children", { n: String(card.children.length) })}
+                    onClick={() => toggle(card.sessionId)}
+                  >
+                    {card.children.length}
+                  </button>
+                  {open.has(card.sessionId) && (
+                    <div className="nt-card-children">{card.children.map((child) => row(child, true))}</div>
+                  )}
+                </div>
+              ) : (
+                row(card, false)
+              )}
             </ContextMenu>
           ))}
         </div>

@@ -10,12 +10,15 @@
 //! ([`SURVIVED_SIGNALS`]), are recorded and otherwise ignored. `SIGKILL` cannot be caught; the owner then names
 //! the loss from the missing exit record and these breadcrumbs.
 //!
-//! An orphaned host honors a plain `SIGTERM` from any sender (cx-hostorphan):
-//! when no client stream is attached (its owner daemon is gone and none
-//! adopted it), the host ends its terminal through the same path as an
-//! owner's `Terminate`. Such a host otherwise held its PTY until reboot,
-//! and only `SIGKILL` (no exit record) could free it. A host its daemon
-//! still serves keeps the rule above.
+//! In a build with an orphan grace (tagged DEV, staging, debug; cx-t2sqm
+//! D1), an orphaned host honors a plain `SIGTERM` from any sender
+//! (cx-hostorphan): when no client stream is attached (its owner daemon is
+//! gone and none adopted it), the host ends its terminal through the same
+//! path as an owner's `Terminate`, so a throwaway build's host does not hold
+//! its PTY until reboot. A normal install's host (no orphan grace) and a
+//! host its daemon still serves keep the rule above: quitting or updating
+//! cmux, a cleanup script or a `pkill` never ends a user's terminal
+//! (cx-t2sqm.17).
 //!
 //! One sender is always honored: a `SIGTERM` from PID 1, the service manager
 //! (launchd at logout, systemd stopping the unit or the machine, a container

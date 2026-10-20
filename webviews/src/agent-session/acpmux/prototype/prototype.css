@@ -101,13 +101,6 @@ body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  animation: proto-space-in 0.18s ease-out;
-}
-@keyframes proto-space-in {
-  from {
-    opacity: 0;
-    transform: translateX(6px);
-  }
 }
 .proto-stack-label {
   display: flex;
@@ -310,12 +303,12 @@ body {
   left: 60px;
   width: 248px;
   padding: 12px;
-  border: 0.5px solid var(--agent-border);
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-surface) 92%, transparent);
   -webkit-backdrop-filter: blur(30px);
   backdrop-filter: blur(30px);
-  box-shadow: 0 12px 36px var(--agent-shadow, rgb(0 0 0 / 40%));
+  box-shadow: var(--elevation-2);
   color: var(--agent-text);
 }
 .proto-row-settings h2 {
@@ -391,12 +384,12 @@ body {
   display: flex;
   flex-direction: column;
   width: 300px;
-  border: 0.5px solid var(--agent-border);
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-surface) 92%, transparent);
   -webkit-backdrop-filter: blur(30px);
   backdrop-filter: blur(30px);
-  box-shadow: 0 12px 36px var(--agent-shadow, rgb(0 0 0 / 40%));
+  box-shadow: var(--elevation-2);
   overflow: hidden;
 }
 .proto-history header {
@@ -449,7 +442,7 @@ body {
   content: "Open";
   flex: none;
   padding: 0 5px;
-  border: 0.5px solid var(--agent-border);
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 4px;
   color: var(--agent-muted);
   font-size: 11px;
@@ -687,12 +680,12 @@ body {
   flex-direction: column;
   width: 620px;
   height: 500px;
-  border: 0.5px solid var(--agent-border);
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-surface, var(--agent-page-bg)) 94%, transparent);
   -webkit-backdrop-filter: blur(40px) saturate(1.2);
   backdrop-filter: blur(40px) saturate(1.2);
-  box-shadow: 0 24px 64px rgb(0 0 0 / 50%);
+  box-shadow: var(--elevation-2);
   overflow: hidden;
   animation: proto-mini-in 0.2s ease-out;
 }
@@ -775,7 +768,7 @@ body {
 }
 .proto-mini-promote kbd {
   padding: 0 5px;
-  border: 0.5px solid var(--agent-border);
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 4px;
   color: var(--agent-muted);
   font-family: inherit;
@@ -784,7 +777,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .proto-stack-list,
   .proto-mini {
     animation: none;
   }

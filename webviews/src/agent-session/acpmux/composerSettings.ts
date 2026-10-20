@@ -4,17 +4,53 @@
 // hides the macOS way (composerChrome.tsx): its right-click offers Hide, and a right-click on the
 // composer's button row offers Show. The page sets the value at once and asks the host to write it
 // (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
+// The same event carries `reasoningSlider`, the Debug Settings toggle `agent.reasoningSlider`
+// (DEV and NIGHTLY, off by default; not a cmux.json key): the reasoning menu draws a stepped
+// slider instead of its list of levels. Only Debug Settings changes it. `modelMenu` is the Debug
+// Settings choice `agent.modelMenu` (compact by default in the app): what the model chip opens.
+// `plainFooter` is no cmux.json key either: Debug Settings' "Agent composer: plain footer" (Swift
+// AgentPaneTunables.composerPlainFooter, DEV and NIGHTLY builds) rides the same event and draws the
+// footer's chips as plain text at rest (composerLocation.css, [data-footer-look="plain"]).
 import { useSyncExternalStore } from "react";
 
-export type ComposerSettings = { showContextUsage: boolean; showDictation: boolean };
+export type ReasoningSliderStyle = "accent" | "minimal";
+/// What the model chip opens (the Debug Settings choice `agent.modelMenu`): the compact Claude Code
+/// style menu (the app's default) or the full picker. A page with no host (a gallery, a test) opens
+/// the full picker, as before the choice existed.
+export type ModelMenuStyle = "compact" | "full";
+export type ComposerSettings = {
+  showContextUsage: boolean;
+  showDictation: boolean;
+  reasoningSlider: boolean;
+  reasoningSliderStyle: ReasoningSliderStyle;
+  modelMenu: ModelMenuStyle;
+  plainFooter: boolean;
+};
 
-export const DEFAULT_COMPOSER: ComposerSettings = { showContextUsage: true, showDictation: true };
+export const DEFAULT_COMPOSER: ComposerSettings = {
+  showContextUsage: true,
+  showDictation: true,
+  reasoningSlider: false,
+  reasoningSliderStyle: "accent",
+  modelMenu: "full",
+  plainFooter: true,
+};
+const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
+type ComposerFlag = "showContextUsage" | "showDictation" | "reasoningSlider" | "plainFooter";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
-  const flag = (key: keyof ComposerSettings) => (typeof raw[key] === "boolean" ? raw[key] : DEFAULT_COMPOSER[key]);
-  return { showContextUsage: flag("showContextUsage"), showDictation: flag("showDictation") };
+  const flag = (key: ComposerFlag) => (typeof raw[key] === "boolean" ? raw[key] : DEFAULT_COMPOSER[key]);
+  const reasoningSliderStyle: ReasoningSliderStyle = raw.reasoningSliderStyle === "minimal" ? "minimal" : "accent";
+  return {
+    showContextUsage: flag("showContextUsage"),
+    showDictation: flag("showDictation"),
+    reasoningSlider: flag("reasoningSlider"),
+    reasoningSliderStyle,
+    modelMenu: raw.modelMenu === "compact" ? "compact" : "full",
+    plainFooter: flag("plainFooter"),
+  };
 }
 
 let current = DEFAULT_COMPOSER;
@@ -23,7 +59,7 @@ const listeners = new Set<() => void>();
 /// The host's whole value, or a page change to some settings (the rest stay as they are).
 export function setComposerSettings(value: unknown) {
   const next = readComposerSettings({ ...current, ...(value && typeof value === "object" ? value : {}) });
-  if (next.showContextUsage === current.showContextUsage && next.showDictation === current.showDictation) return;
+  if (KEYS.every((key) => next[key] === current[key])) return;
   current = next;
   for (const listener of listeners) listener();
 }
@@ -56,7 +92,7 @@ export function registerComposerHost(write: ComposerHost | undefined) {
 }
 
 /// Shows or hides a composer control in every composer, and asks the host to persist it.
-export function showComposerControl(key: keyof ComposerSettings, show: boolean) {
+export function showComposerControl(key: "showContextUsage" | "showDictation", show: boolean) {
   setComposerSettings({ [key]: show });
   composerHost?.(key === "showDictation" ? "pane.showDictation" : "pane.showContextUsage", show);
 }

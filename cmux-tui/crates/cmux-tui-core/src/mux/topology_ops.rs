@@ -114,6 +114,7 @@ impl Mux {
         };
         let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
         fields.extend(extra_fields);
+        tab_strip::tab_slot::insert_field(&mut fields, pane);
         if let Some((cols, rows)) = size {
             let (cell_width, cell_height) = self.cell_pixel_size();
             fields.insert("width_px".into(), Value::from(u64::from(cols) * u64::from(cell_width)));
@@ -297,6 +298,7 @@ impl Mux {
         let mut fields = Map::new();
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
+        tab_strip::tab_slot::insert_field(&mut fields, pane);
         let commit = self.commit_ordinary_topology_operation_by(
             actor,
             ResourceOperation::TabCreateTerminal,

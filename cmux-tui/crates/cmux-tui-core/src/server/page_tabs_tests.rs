@@ -239,6 +239,69 @@ fn history_closed_rows_leave_out_tabs_that_reopen_empty() {
     mux.shutdown();
 }
 
+/// Recently Closed lists only what is worth reopening (Leo 2026-10-14): no Chromium New Tab
+/// page, and one row per page however often it was closed, at its newest close. Removing that
+/// row removes every close of the page, so an older one never takes its place.
+#[test]
+fn history_closed_rows_are_only_things_worth_reopening() {
+    let mux = test_mux("history-closed-signal");
+    let (_, pane) = terminal_pane(&mux);
+    let browser = |url: &str| json!({"cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit"});
+    for url in [
+        "chrome://newtab/",
+        "https://example.com/",
+        "chrome://newtab",
+        "https://example.com/",
+        "https://cmux.com/",
+    ] {
+        let created = run(&mux, browser(url)).unwrap();
+        run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
+    }
+    let closed = |mux: &Arc<Mux>| {
+        let listed = resource(mux, "history.entries.list", json!({"kinds":["closed"]}), None);
+        listed["entries"].as_array().unwrap().clone()
+    };
+    let shown = |entries: &[Value]| -> Vec<String> {
+        entries.iter().map(|entry| entry["detail"].as_str().unwrap_or("-").to_owned()).collect()
+    };
+    let entries = closed(&mux);
+    assert_eq!(shown(&entries), ["https://cmux.com/", "https://example.com/"], "{entries:?}");
+
+    let example = entries[1]["id"].clone();
+    resource(&mux, "history.entries.remove", json!({"ids":[example]}), Some("remove-example"));
+    let entries = closed(&mux);
+    assert_eq!(shown(&entries), ["https://cmux.com/"], "{entries:?}");
+    mux.shutdown();
+}
+
+/// Reopening a page closed several times takes every close of it out of Recently Closed: the
+/// page is open again, so no older close becomes its row and Cmd-Shift-T never opens it twice.
+#[test]
+fn history_closed_reopening_a_page_leaves_no_older_close_of_it() {
+    let mux = test_mux("history-closed-reopen-once");
+    let (_, pane) = terminal_pane(&mux);
+    let browser = |url: &str| json!({"cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit"});
+    for url in ["https://example.com/", "https://cmux.com/", "https://example.com/"] {
+        let created = run(&mux, browser(url)).unwrap();
+        run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
+    }
+    let closed = |mux: &Arc<Mux>| {
+        let listed = resource(mux, "history.entries.list", json!({"kinds":["closed"]}), None);
+        listed["entries"].as_array().unwrap().clone()
+    };
+    let shown = |entries: &[Value]| -> Vec<String> {
+        entries.iter().map(|entry| entry["detail"].as_str().unwrap_or("-").to_owned()).collect()
+    };
+    let entries = closed(&mux);
+    assert_eq!(shown(&entries), ["https://example.com/", "https://cmux.com/"], "{entries:?}");
+
+    let example = entries[0]["id"].as_str().unwrap().strip_prefix("closed:daemon:").unwrap();
+    resource(&mux, "closed.reopen", json!({"closed": example}), Some("reopen-example"));
+    let entries = closed(&mux);
+    assert_eq!(shown(&entries), ["https://cmux.com/"], "{entries:?}");
+    mux.shutdown();
+}
+
 /// A page id is 1 to 64 lowercase letters, digits or '-', '_', '.'; a page
 /// and another source together are refused.
 #[test]

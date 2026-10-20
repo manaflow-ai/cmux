@@ -1,6 +1,6 @@
 // What a chat has produced so far, read from its transcript's tool calls: the pull requests it
 // opened, the files it wrote, its subagents, the wakeups it scheduled and the web pages it
-// read. The header's summary popover lists them (SummaryPopover).
+// read. The summary card lists them (SummaryCard.tsx, SummaryBody.tsx).
 import { turnFiles, type TurnFile } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
@@ -158,6 +158,10 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
     .map((end): SummaryBackgroundTask => ({ id: end.toolCallId, command: end.command, state: end.state }));
   return [...launched, ...endedOnly];
 }
+
+/// The chat's background shells still running (the running turn's line counts them, WorkingFor.tsx).
+export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
+  backgroundTasks(rows, tools(rows)).filter((task) => task.state === "running");
 
 export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
   const all = tools(rows);

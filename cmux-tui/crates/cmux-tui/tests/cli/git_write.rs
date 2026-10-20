@@ -458,3 +458,117 @@ fn removing_a_worktree_chat_keeps_unsaved_work_unless_told_to_discard_it() {
     assert!(repo.join("a.txt").exists());
     let _ = fs::remove_dir_all(root);
 }
+
+/// Sets `path`'s modification time far in the past, so git hashes it again
+/// (through its clean filter) instead of trusting the index.
+fn make_stat_dirty(path: &std::path::Path) {
+    let old = UNIX_EPOCH + Duration::from_secs(978_307_200);
+    fs::File::options().write(true).open(path).and_then(|file| file.set_modified(old)).unwrap();
+}
+
+#[test]
+fn applying_a_worktree_runs_no_clean_filter_from_the_main_checkouts_config() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-git-worktree-apply-filter-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    let marker = root.join("marker");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "git-worktree-apply-filter",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join(".gitattributes"), "b.txt filter=m\n").unwrap();
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    fs::write(repo.join("b.txt"), "kept\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let args = ["worktree", "create", "--name", "chat", "--idempotency-key", "c1"];
+    assert_success(&git_cli(&server, &repo, &args));
+    let worktree = home.join(".cmux/worktrees/project/chat");
+    fs::write(worktree.join("a.txt"), "two\n").unwrap();
+
+    // The main checkout's own clean filter (not the worktree's), and a file
+    // there git must hash again.
+    git(&repo, &["config", "extensions.worktreeConfig", "true"]);
+    let clean = format!("touch '{}'; cat", marker.display());
+    git(&repo, &["config", "--worktree", "filter.m.clean", clean.as_str()]);
+    make_stat_dirty(&repo.join("b.txt"));
+
+    let applied = git_cli(&server, &worktree, &["worktree", "apply", "--idempotency-key", "a1"]);
+    assert_success(&applied);
+    assert_eq!(fs::read_to_string(repo.join("a.txt")).unwrap(), "two\n");
+    assert!(!marker.exists(), "checking the main checkout ran its clean filter");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn the_worktree_remove_guard_runs_no_clean_filter_from_a_submodules_config() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-git-worktree-remove-submodule-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    let library = root.join("library");
+    let marker = root.join("marker");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(&library).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "git-worktree-remove-submodule",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    for dir in [&repo, &library] {
+        git(dir, &["init", "-q", "-b", "main"]);
+        git(dir, &["config", "user.name", "cmux test"]);
+        git(dir, &["config", "user.email", "cmux@example.invalid"]);
+        git(dir, &["config", "commit.gpgsign", "false"]);
+    }
+    fs::write(library.join(".gitattributes"), "* filter=s\n").unwrap();
+    fs::write(library.join("f.txt"), "one\n").unwrap();
+    git(&library, &["add", "."]);
+    git(&library, &["commit", "-q", "-m", "library"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let args = ["worktree", "create", "--name", "chat", "--idempotency-key", "c1"];
+    assert_success(&git_cli(&server, &repo, &args));
+    let worktree = home.join(".cmux/worktrees/project/chat");
+    let source = library.to_str().unwrap();
+    git(&worktree, &["-c", "protocol.file.allow=always", "submodule", "add", "-q", source, "sub"]);
+    git(&worktree, &["commit", "-q", "-m", "add the submodule"]);
+    // The submodule's own clean filter, and a file there git must hash again.
+    let clean = format!("touch '{}'; cat", marker.display());
+    git(&worktree.join("sub"), &["config", "filter.s.clean", clean.as_str()]);
+    make_stat_dirty(&worktree.join("sub/f.txt"));
+    fs::write(worktree.join("notes.txt"), "draft\n").unwrap();
+
+    let refused = git_cli(&server, &worktree, &["worktree", "remove", "--idempotency-key", "r1"]);
+    assert!(!refused.status.success(), "a worktree with uncommitted work was removed");
+    let reason = String::from_utf8_lossy(&refused.stderr).to_string();
+    assert!(reason.contains("uncommitted_changes"), "{reason}");
+    assert!(!marker.exists(), "the remove guard ran the submodule's clean filter");
+
+    // A real change inside the submodule still keeps the worktree.
+    fs::remove_file(worktree.join("notes.txt")).unwrap();
+    fs::write(worktree.join("sub/f.txt"), "changed\n").unwrap();
+    let refused = git_cli(&server, &worktree, &["worktree", "remove", "--idempotency-key", "r2"]);
+    assert!(!refused.status.success(), "a worktree with a changed submodule was removed");
+    let reason = String::from_utf8_lossy(&refused.stderr).to_string();
+    assert!(reason.contains("uncommitted_changes"), "{reason}");
+    let _ = fs::remove_dir_all(root);
+}

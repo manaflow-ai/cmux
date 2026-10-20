@@ -202,7 +202,6 @@ function PendingQuestion({ question, onReply }: { question: AgentQuestion; onRep
               aria-current={index === state.activeItem ? "step" : undefined}
               data-answered={(answer && itemAnswerText(each, answer) !== "") || undefined}
               aria-label={t("question.step", { n: index + 1, count: state.question.items.length })}
-              title={each.header ?? each.prompt}
               onClick={() => goToItem(index)}
             >
               {each.header ?? index + 1}

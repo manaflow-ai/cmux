@@ -58,7 +58,7 @@ extension NewTabPage {
         // A pane of another machine shows the same page, never a prewarmed spare: a spare is connected
         // to this Mac's acpmux, and that pane's chat starts on its machine at the first send (cx-k21v).
         let spare = seed == nil && pane.daemon.isLocal
-            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: pane.view.contentHost.bounds.size) })
+            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane)) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, then: then) }) else {
@@ -80,7 +80,7 @@ extension NewTabPage {
         // budget (cx-98s). Cold pages still need the immediate strip sync because their content
         // is presented by the normal scheduler on a later frame.
         if !showedSpare {
-            BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true, animating: false) }
+            BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
                                            milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))

@@ -32,7 +32,7 @@ final class DockBackdropView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// `cover` is the backdrop's frame in the superview; `column` the
@@ -57,9 +57,10 @@ final class DockBackdropView: NSView {
         fill.cornerRadius = paneCornerRadius
         if let layer = shadowView.layer {
             layer.shadowPath = outer
-            layer.shadowOpacity = 1
-            layer.shadowRadius = Metrics.space5
-            layer.shadowOffset = .zero
+            // The raised elevation step (PopupStyle.elevation2), not an opaque halo.
+            layer.shadowOpacity = Float(PopupStyle.elevation2.alpha)
+            layer.shadowRadius = PopupStyle.elevation2.layerRadius
+            layer.shadowOffset = PopupStyle.elevation2.layerOffset()
         }
         CATransaction.commit()
         self.column = column

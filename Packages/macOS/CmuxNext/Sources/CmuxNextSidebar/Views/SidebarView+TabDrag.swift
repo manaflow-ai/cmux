@@ -17,7 +17,7 @@ public struct SidebarTabDropHit: Hashable, Sendable {
     public var highlightFrame: CGRect
 }
 
-extension SidebarView {
+extension SidebarViewComponents {
     // MARK: External tab drag (driven by the App's TabDragSession)
 
     /// Hover time before a tab drag over a workspace row selects it.
@@ -39,7 +39,10 @@ extension SidebarView {
     /// - Parameter sourceMachine: the tab's daemon; drops stay on that machine.
     /// - Parameter reordersTabRows: a tab drag, whose drop on a tab row's edge goes before that tab
     ///   (workspace and screen drags keep the gap after the workspace there).
-    public func tabDragUpdate(screenPoint: CGPoint, sourceMachine: MachineID?, reordersTabRows: Bool = false) -> SidebarTabDropHit? {
+    /// - Parameter slotDwell: how long the pointer rests between two rows before that slot opens
+    ///   a new-workspace gap; before that the row under the pointer takes the tab.
+    public func tabDragUpdate(screenPoint: CGPoint, sourceMachine: MachineID?, reordersTabRows: Bool = false,
+                              slotDwell: CFTimeInterval = 0) -> SidebarTabDropHit? {
         guard let window, model.presentation != .hidden, !isHiddenOrHasHiddenAncestor else { return nil }
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
         let local = convert(windowPoint, from: nil)
@@ -63,7 +66,8 @@ extension SidebarView {
             )
         }
         guard let nearest = nearestListPoint(windowPoint),
-              let (drop, rect) = list.externalDragMoved(windowPoint: nearest, sourceMachine: sourceMachine, reordersTabRows: reordersTabRows) else {
+              let (drop, rect) = list.externalDragMoved(windowPoint: nearest, sourceMachine: sourceMachine, reordersTabRows: reordersTabRows,
+                                                        slotDwell: slotDwell) else {
             return nil
         }
         showDropOutline(list.convert(rect, to: nil), refused: false)
@@ -97,6 +101,10 @@ extension SidebarView {
         return list.convert(CGPoint(x: min(max(inList.x, visible.minX), visible.maxX),
                                     y: min(max(inList.y, visible.minY), visible.maxY)), to: nil)
     }
+
+    /// When the slot between two rows under a resting pointer opens its
+    /// new-workspace gap (`tabDragUpdate`'s `slotDwell`); nil when none is pending.
+    public var tabDragSlotDeadline: CFTimeInterval? { list.externalDragSlotDeadline }
 
     /// The drag left the sidebar or was cancelled (Escape).
     public func tabDragExited() {

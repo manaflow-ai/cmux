@@ -74,5 +74,21 @@ export default componentEntry<Props>({
       props: { used: 33551, size: 200000, setup: 12000 },
       play: openKnownByAutomation,
     },
+    "usage-empty": {
+      note: "A fresh chat: usage is known but nothing is used, so only the 1px track shows.",
+      props: { used: 0, size: 200000 },
+    },
+    "usage-30": {
+      note: "About a third used: a filled wedge from twelve o'clock, read as a share rather than a spinner.",
+      props: { used: 60000, size: 200000 },
+    },
+    "usage-75": {
+      note: "Three quarters used: the wedge covers most of the disc, still in the quiet text color.",
+      props: { used: 150000, size: 200000 },
+    },
+    "usage-full": {
+      note: "The window is full: the wedge is a whole disc inside the track.",
+      props: { used: 200000, size: 200000 },
+    },
   },
 });

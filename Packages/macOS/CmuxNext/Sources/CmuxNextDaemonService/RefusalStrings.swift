@@ -42,6 +42,8 @@ public nonisolated enum RefusalStrings {
     public static var homeKeepsItsTabs: String { text("handlers.refusal.homeKeepsItsTabs", "Home's tabs stay in Home.") }
     /// The user's close of a permanent docked column (cmux-tui `dock-column-permanent`).
     public static var columnStaysDocked: String { text("handlers.refusal.columnStaysDocked", "This column stays docked and can't be closed.") }
+    /// The user's close of Home's tab in its pinned dock column (cmux-tui `dock-column-pinned`).
+    public static var homeTabStays: String { text("handlers.refusal.homeTabStays", "Home stays open in its column.") }
     /// The user's close the daemon refused for another reason.
     public static var closeRefused: String { text("handlers.refusal.closeRefused", "The tab could not be closed.") }
     /// A Home action that opens the page or a sheet, run by automation that may not change the view.
