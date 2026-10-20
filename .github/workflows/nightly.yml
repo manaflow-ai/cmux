@@ -4115,8 +4115,8 @@ jobs:
           # ran from a copy or the detached mount) to stop through its socket
           # with this bundle's cmux-tui, which ends its terminals; SIGTERM only
           # that exact owner PID if the request fails, takes over 10 s, or the
-          # step is past its 80 s budget. Terminal hosts are never matched.
-          deadline=$((SECONDS + 80))
+          # step is past its 70 s budget. Terminal hosts are never matched.
+          deadline=$((SECONDS + 70))
           ps -axww -o pid= -o args= | while read -r pid args; do
             case "$args" in
               */Contents/Resources/bin/cmux-tui\ --headless\ *) ;;
@@ -4153,7 +4153,7 @@ jobs:
           # then SIGKILL the ones still alive after 5 s.
           app_name="$(basename "$app")"
           left() {
-            ps -axww -o pid= -o args= -U "$(id -u)" | while read -r pid args; do
+            ps -ww -o pid= -o args= -U "$(id -u)" | while read -r pid args; do
               case "$args" in
                 *"/$app_name/Contents/"*) echo "$pid" ;;
               esac
