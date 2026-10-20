@@ -87,7 +87,7 @@ export default componentEntry<Props>({
   },
   variants: {
     card: {
-      note: 'Card A (Note): "Updated to nightly 3845050", the lead change as the headline, the count of the rest. The composer\'s surface on a plain page.',
+      note: 'Card #01 Compact list (u2441): "Updated to nightly 3845050", the top changes one line each, the count of the rest beside See What\'s New, the x on hover only. The composer\'s surface on a plain page.',
       props: { surface: "card", data: base },
     },
     "card-wallpaper": {
@@ -95,7 +95,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: base, wallpaper: true },
     },
     "card-one-change": {
-      note: "An update with one listed change: no count line.",
+      note: "An update with one listed change and nothing more: no count.",
       props: { surface: "card", data: { ...base, items: base.items.slice(0, 1), moreCount: 0 } },
     },
     "card-no-highlights": {
@@ -107,7 +107,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: { ...base, source: "none", items: [], moreCount: 0 }, wallpaper: true },
     },
     "card-long-title": {
-      note: "A long localized headline clamps to two lines.",
+      note: "A long localized change title ends in an ellipsis on its one line.",
       props: {
         surface: "card",
         data: {

@@ -138,8 +138,9 @@ export default markdownPageEntry({
   covers: [
     "page:cmux.markdown",
     "pages/markdown/MarkdownPage.tsx",
-    // The toolbar's Aa button opens it on every variant.
+    // The toolbar's Aa button opens it on every variant; its text width row is WidthField.
     "pages/markdown/ReadingSettings.tsx",
+    "pages/markdown/WidthField.tsx",
     "viewer-empty/MarkdownEmptyState.tsx",
   ],
   variants: {
