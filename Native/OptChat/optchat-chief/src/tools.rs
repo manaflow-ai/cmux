@@ -120,6 +120,13 @@ pub trait Orchestrator: Send + Sync {
         let _ = call;
         Err("this Chief host cannot sleep".into())
     }
+    /// `escalate_auth`: subagent `agent` needs the user's sign-in; the Chief
+    /// gets it as an urgent note (ahead of the queue, steered into a running
+    /// turn) and drives the sign-in (skill `chief-auth-escalation`).
+    fn escalate_auth(&self, agent: &str, request: &AuthEscalation) -> Result<String, String> {
+        let _ = (agent, request);
+        Err("this Chief host takes no sign-in escalations".into())
+    }
 }
 
 /// One `send` call (plans/cmux-next/chief-tools-DESIGN.md).
@@ -260,6 +267,48 @@ pub struct SleepCall {
     pub until: Option<String>,
 }
 
+/// What a subagent's `escalate_auth` asks for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthEscalation {
+    /// The site's host name, for example `npmjs.com`.
+    pub site: String,
+    /// The page where the sign-in starts.
+    pub url: String,
+    /// Why the subagent needs it (one line).
+    pub reason: String,
+    /// One of [`AUTH_KINDS`].
+    pub kind: String,
+}
+
+/// The kinds of sign-in `escalate_auth` takes.
+pub const AUTH_KINDS: [&str; 4] = ["password", "passkey", "2fa", "oauth"];
+
+impl AuthEscalation {
+    /// The note the Chief reads: who, where, what, and the skill to follow.
+    pub fn note(&self, agent: &str) -> String {
+        format!(
+            "[{agent}] needs a sign-in ({kind}) on {site}: {reason}. Page: {url}. Urgent: follow the chief-auth-escalation skill now: open or reuse a browser tab in Home's right pane on that page, fill what you may (never read or type a password; use passkeys, the password manager's autofill or WebAuthn), press the passkey or security-key button so macOS shows the Touch ID sheet, then post one line \"Needs you: touch the sensor ({site})\", watch the tab and tell({agent}) when it is signed in.",
+            kind = self.kind,
+            site = self.site,
+            reason = self.reason,
+            url = self.url,
+        )
+    }
+}
+
+/// The subagent id (`a<N>`) in an acpmux session name
+/// (`optchat-sub-<home id>-a<N>`, maybe with acpmux's `-<n>` suffix).
+pub fn subagent_of_session(name: &str) -> Option<String> {
+    let rest = name.trim().strip_prefix("optchat-sub-")?;
+    // The home id first, then the subagent id.
+    rest.split('-')
+        .skip(1)
+        .find(|part| {
+            part.len() > 1 && part.starts_with('a') && part[1..].chars().all(|c| c.is_ascii_digit())
+        })
+        .map(str::to_owned)
+}
+
 /// What `chief zoom|date|spawn|tell WORDS` asks: the tool call, its usage
 /// asked for (`--help`, `-h`), or its usage for words that do not fit.
 #[derive(Debug, PartialEq)]
@@ -349,6 +398,14 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             "tell",
             &serde_json::json!({"id": id, "message": message.join(" "), "queue": true}),
         ),
+        ("escalate-auth" | "escalate_auth", [kind, site, url, reason @ ..])
+            if !reason.is_empty() =>
+        {
+            Call::parse(
+                "escalate_auth",
+                &serde_json::json!({"kind": kind, "site": site, "url": url, "reason": reason.join(" ")}),
+            )
+        }
         ("tell", [id, message @ ..]) if !message.is_empty() => Call::parse(
             "tell",
             &serde_json::json!({"id": id, "message": message.join(" ")}),
@@ -370,6 +427,8 @@ pub fn usage(tool: &str) -> String {
             "send" => "[--reply-to ID] \"text\"",
             "stop" => "",
             "sleep" => "SECONDS [\"note\"]",
+            "escalate-auth" | "escalate_auth" =>
+                "password|passkey|2fa|oauth SITE URL \"why you need it\"",
             "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
             "profile" => "['{\"role\": \"...\", \"avatar_path\": \"/path/pic.png\"}']",
             "chiefs" =>
@@ -540,6 +599,13 @@ pub enum Call {
     Sleep(SleepCall),
     /// `control` (brain/control.rs): subagent control.
     Control(ControlCall),
+    /// `escalate_auth` (a subagent's only write tool): the Chief drives a
+    /// sign-in for it. `agent` is the caller's own id as it claims it; the
+    /// host prefers the id its session binding gives (turn_caller.rs).
+    EscalateAuth {
+        request: AuthEscalation,
+        agent: Option<String>,
+    },
     /// `profile` (chief_profile.rs): read or change the Chief's own record.
     Profile {
         args: Value,
@@ -677,6 +743,37 @@ impl Call {
             "stop" => Ok(Call::Stop),
             "sleep" => SleepCall::parse(args).map(Call::Sleep),
             "control" => ControlCall::parse(args).map(Call::Control),
+            "escalate_auth" => {
+                let text = |key: &str| {
+                    args.get(key)
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|t| !t.is_empty())
+                        .map(str::to_owned)
+                        .ok_or_else(|| format!("escalate_auth: `{key}` must be a non-empty text"))
+                };
+                let kind = text("kind")?.to_ascii_lowercase();
+                if !AUTH_KINDS.contains(&kind.as_str()) {
+                    return Err(format!(
+                        "escalate_auth: no kind {kind}; one of {}",
+                        AUTH_KINDS.join(", ")
+                    ));
+                }
+                let url = text("url")?;
+                if !(url.starts_with("https://") || url.starts_with("http://")) {
+                    return Err("escalate_auth: `url` must be an http(s) page".into());
+                }
+                let site = text("site")?;
+                Ok(Call::EscalateAuth {
+                    request: AuthEscalation {
+                        site,
+                        url,
+                        reason: text("reason")?,
+                        kind,
+                    },
+                    agent: text("agent").ok().filter(|a| agent_id(a)),
+                })
+            }
             "profile" => {
                 let mut args = args.as_object().cloned().unwrap_or_default();
                 // The socket request's own keys are not the tool's arguments.
@@ -716,6 +813,7 @@ impl Call {
             | Call::Sleep(_)
             | Call::Control(_)
             | Call::ZoomAgent { .. }
+            | Call::EscalateAuth { .. }
             | Call::Profile { .. }
             | Call::Chiefs { .. } => {
                 "spawn, tell, profile, chiefs and a subagent's zoom are served by the Chief host"
@@ -770,6 +868,19 @@ impl Call {
             Call::Stop => json!({"tool": "stop"}),
             Call::Sleep(c) => c.to_json(),
             Call::Control(c) => c.to_json(),
+            Call::EscalateAuth { request, agent } => {
+                let mut v = json!({
+                    "tool": "escalate_auth",
+                    "site": request.site,
+                    "url": request.url,
+                    "reason": request.reason,
+                    "kind": request.kind,
+                });
+                if let Some(agent) = agent {
+                    v["agent"] = json!(agent);
+                }
+                v
+            }
             Call::Profile { args } => {
                 let mut v = args.clone();
                 if !v.is_object() {
@@ -1124,6 +1235,26 @@ fn connection(conn: UnixStream, served: &Served) {
                         Some(o) => o.control(request),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
+                    // Only a subagent escalates; its id comes from its bound
+                    // session when there is one, else from what it says.
+                    Ok(Call::EscalateAuth { request, agent }) => {
+                        let bound = match (&served.turn, peer) {
+                            (Some(binding), Some(pid)) => binding.subagent_of(pid),
+                            _ => None,
+                        };
+                        match (&served.orchestrator, bound.or(agent)) {
+                            (_, None) if !subagent => Err(
+                                "escalate_auth is a subagent's tool; the Chief drives sign-ins itself"
+                                    .to_owned(),
+                            ),
+                            (_, None) => Err(
+                                "escalate_auth: cannot tell which subagent you are; pass `agent` (a<N>)"
+                                    .to_owned(),
+                            ),
+                            (Some(o), Some(id)) => o.escalate_auth(&id, &request),
+                            (None, Some(_)) => Err("this Chief host runs no subagents".to_owned()),
+                        }
+                    }
                     // A subagent may read another's chat too (the reference
                     // client gives zoom to every agent).
                     Ok(Call::ZoomAgent { id, at }) => match &served.orchestrator {
@@ -1171,8 +1302,26 @@ pub fn ask(path: &Path, call: Call) -> Result<String, String> {
     ask_json(path, &call.to_json())
 }
 
+/// `call` with the caller's own subagent id when it is an `escalate_auth`
+/// that names none: from `ACPMUX_SESSION_NAME` (acpmux sets it for every
+/// agent it starts, and a subagent's tools inherit it).
+pub fn with_caller(call: Call, session_name: Option<&str>) -> Call {
+    match call {
+        Call::EscalateAuth {
+            request,
+            agent: None,
+        } => Call::EscalateAuth {
+            request,
+            agent: session_name.and_then(subagent_of_session),
+        },
+        other => other,
+    }
+}
+
 /// Asks the host on `path` as a subagent's tools (no spawn, no tell).
 pub fn ask_as(path: &Path, call: Call, subagent: bool) -> Result<String, String> {
+    let name = std::env::var("ACPMUX_SESSION_NAME").ok();
+    let call = with_caller(call, name.as_deref());
     let mut request = call.to_json();
     if subagent {
         request["from"] = json!("subagent");
