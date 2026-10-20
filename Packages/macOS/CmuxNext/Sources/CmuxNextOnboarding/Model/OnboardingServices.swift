@@ -22,6 +22,18 @@ public protocol OnboardingServices: AnyObject {
     /// then the files it exported, into `profile` (nil: the default profile).
     /// Reads no browser's own data, so it works where detection finds nothing.
     func importFromFiles(into profile: String?)
+    /// Browsers on this Mac whose profile folder cmux has no grant for yet;
+    /// listed by name only, nothing inside is read. Empty when import reads
+    /// folders without a grant.
+    func browsersAwaitingAccess() async -> [ImportBrowser]
+    /// The open panel at `browser`'s profile folder: true once the person
+    /// picked that folder (kept as a security-scoped bookmark).
+    func requestFolderAccess(for browser: ImportBrowser) async -> Bool
+    /// The profile folder a grant for `browser` must pick (the explainer names it).
+    func accessFolder(for browser: ImportBrowser) -> URL?
+    /// Import Passwords from CSV… into `profile` (nil: the default profile):
+    /// the person's own export, no Keychain.
+    func importPasswordsFromCSV(into profile: String?)
 
     // Computer use
     /// The helper app's grants, or nil when this build has no computer use.
@@ -32,6 +44,10 @@ public extension OnboardingServices {
     var computerUsePermissions: (any ComputerUsePermissionSource)? { nil }
     func canImportPasswords() async -> Bool { false }
     func importFromFiles(into profile: String?) {}
+    func browsersAwaitingAccess() async -> [ImportBrowser] { [] }
+    func requestFolderAccess(for browser: ImportBrowser) async -> Bool { false }
+    func accessFolder(for browser: ImportBrowser) -> URL? { nil }
+    func importPasswordsFromCSV(into profile: String?) {}
 }
 
 /// System Settings deep links.

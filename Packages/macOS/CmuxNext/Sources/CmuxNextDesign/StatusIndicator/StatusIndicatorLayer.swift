@@ -41,8 +41,8 @@ public final class StatusIndicatorLayer {
                    accent: Palette.textPrimary.cgColor)
         }
 
-        /// Codex's unread dot, sampled from the Codex app (rgb 57 130 245).
-        static let unread = CGColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1)
+        /// The unread dot: ``Palette/notificationBlue``.
+        static var unread: CGColor { Palette.notificationBlue.cgColor }
 
         /// The color a plan's tint draws in.
         public func color(for tint: StatusIndicatorPlan.Tint) -> CGColor {

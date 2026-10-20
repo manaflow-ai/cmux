@@ -76,6 +76,10 @@ fn serve(
                             "screen": 8, "surface": 10, "terminal_id": "term_1",
                             "terminal_incarnation": null, "terminal_revision": 1, "workspace": 7
                         }),
+                        // The user's own group by a topic name is reused.
+                        "list-workspace-groups" => json!({"groups": [
+                            {"id": "grp_user_sidebar", "name": "Sidebar & Tabs", "collapsed": false}
+                        ]}),
                         "new-conversation-tab" => json!({
                             "content_resource_id": null, "conversation": {"agent_session": req["agent_session"]},
                             "replayed": false, "surface": 11, "tab_resource_id": null
@@ -143,6 +147,7 @@ fn a_subagent_workspace_is_made_in_the_hosts_own_session() {
             &optchat_chief::workspaces::new_key(),
             "sess-1",
             "a1 · summarize",
+            "Chief agents",
             Path::new("/Users/x/fun/repo"),
         )
         .unwrap();
@@ -175,6 +180,7 @@ fn a_daemon_without_agent_session_tabs_is_refused_before_any_write() {
             &optchat_chief::workspaces::new_key(),
             "sess-1",
             "a1 · x",
+            "Chief agents",
             Path::new("/tmp"),
         )
         .unwrap_err();
@@ -197,6 +203,7 @@ fn open(w: &DaemonWorkspaces) -> Result<String, String> {
         &optchat_chief::workspaces::new_key(),
         "sess-1",
         "a1 · x",
+        "Chief agents",
         Path::new("/tmp"),
     )
 }
@@ -242,4 +249,40 @@ fn a_refused_group_never_stops_the_subagent_start() {
     open(&w).unwrap();
     assert_eq!(commands(&requests, "create-terminal").len(), 1);
     assert_eq!(commands(&requests, "new-conversation-tab").len(), 1);
+}
+
+fn open_in(w: &DaemonWorkspaces, group: &str) -> Result<String, String> {
+    w.open(
+        &optchat_chief::workspaces::new_key(),
+        "sess-1",
+        "a1 · Sidebar group drag",
+        group,
+        Path::new("/tmp"),
+    )
+}
+
+/// Lawrence 2026-10-19: "you need to group it better as well": a topic the
+/// session has no group for gets one, with a stable id per topic.
+#[test]
+fn a_subagent_workspace_goes_into_a_new_topic_group() {
+    let (w, requests, _dir) = workspaces(GROUPED.to_vec());
+    open_in(&w, "Home & chat").unwrap();
+    let group = commands(&requests, "create-workspace-group");
+    assert_eq!(group.len(), 1);
+    assert_eq!(group[0]["group"], "chief-topic-home-chat");
+    assert_eq!(group[0]["name"], "Home & chat");
+    let moved = commands(&requests, "move-workspace-to-group");
+    assert_eq!(moved[0]["group"], "chief-topic-home-chat");
+    assert_eq!(moved[0]["workspace"], 7);
+}
+
+/// The user's own group of that topic (any case) is reused, never doubled.
+#[test]
+fn a_topic_group_the_session_has_is_reused() {
+    let (w, requests, _dir) = workspaces(GROUPED.to_vec());
+    open_in(&w, "Sidebar & tabs").unwrap();
+    assert!(commands(&requests, "create-workspace-group").is_empty());
+    let moved = commands(&requests, "move-workspace-to-group");
+    assert_eq!(moved.len(), 1);
+    assert_eq!(moved[0]["group"], "grp_user_sidebar");
 }
