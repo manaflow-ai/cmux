@@ -382,7 +382,7 @@ struct CrashDiagnosticSessionPolicyTests {
 
         #expect(pruned.removedAny)
         #expect(pruned.snapshot?.windows.count == 1)
-        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.count == 2)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.count == 3)
         #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.first?.currentDirectory == projectDirectory)
     }
 
