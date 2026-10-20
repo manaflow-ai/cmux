@@ -349,7 +349,8 @@ async fn dispatch_request(
                     && crate::hub::vm_host_peer_approves(
                         vm_host,
                         cfg!(target_os = "macos"),
-                        conn.origin == Origin::Peer,
+                        super::remote_guard::control_of(conn.origin, conn.auth, &params)
+                            == crate::hub::Control::Peer,
                     )
                 {
                     hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
