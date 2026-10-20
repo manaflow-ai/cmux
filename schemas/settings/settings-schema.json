@@ -8716,7 +8716,8 @@
         "dore-empyrean",
         "dore-raven",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
-        "file:/Users/Shared/Harbor.png"
+        "file:/Users/Shared/Harbor.png",
+        "collage:c-2f9a1b7c04de"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -9998,6 +9999,8 @@
         "system:",
         "file:relative.png",
         "file:",
+        "collage:",
+        "collage:../evil",
         "__not_a_backdrop__",
         1,
         true
