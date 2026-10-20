@@ -109,23 +109,63 @@ pub(crate) fn parse_latest(body: &[u8]) -> Option<String> {
 
 /// `major.minor.patch` and whether a pre-release suffix follows.
 fn numbers(version: &str) -> Option<([u64; 3], bool)> {
-    let (core, pre) = match version.split_once(['-', '+']) {
-        Some((core, rest)) => (core, version[core.len()..].starts_with('-') && !rest.is_empty()),
-        None => (version, false),
-    };
-    let mut parts = core.split('.').map(|part| part.parse::<u64>().ok());
-    let triple = [parts.next()??, parts.next()??, parts.next()??];
-    parts.next().is_none().then_some((triple, pre))
+    parts(version).map(|(core, pre)| (core, pre.is_some()))
 }
 
-/// Whether `latest` is a newer release than `current`.
-pub(crate) fn newer(latest: &str, current: &str) -> bool {
-    match (numbers(latest), numbers(current)) {
-        (Some((latest, latest_pre)), Some((current, current_pre))) => {
-            latest > current || (latest == current && current_pre && !latest_pre)
+/// `major.minor.patch` and the pre-release suffix after `-`, if any (build metadata after `+` is ignored).
+fn parts(version: &str) -> Option<([u64; 3], Option<&str>)> {
+    let version = version.split('+').next()?;
+    let (core, pre) = match version.split_once('-') {
+        Some((core, pre)) if !pre.is_empty() => (core, Some(pre)),
+        Some(_) => return None,
+        None => (version, None),
+    };
+    let mut fields = core.split('.').map(|part| part.parse::<u64>().ok());
+    let triple = [fields.next()??, fields.next()??, fields.next()??];
+    fields.next().is_none().then_some((triple, pre))
+}
+
+/// Semver pre-release order: numeric identifiers by value, others by text,
+/// numeric before text, and a shorter list first when one is a prefix.
+fn pre_release_order(left: &str, right: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let mut left = left.split('.');
+    let mut right = right.split('.');
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(a), Some(b)) => {
+                let order = match (a.parse::<u64>(), b.parse::<u64>()) {
+                    (Ok(a), Ok(b)) => a.cmp(&b),
+                    (Ok(_), Err(_)) => Ordering::Less,
+                    (Err(_), Ok(_)) => Ordering::Greater,
+                    (Err(_), Err(_)) => a.cmp(b),
+                };
+                if order != Ordering::Equal {
+                    return order;
+                }
+            }
         }
-        _ => false,
     }
+}
+
+/// Whether `latest` is a newer release than `current` (semver order).
+pub(crate) fn newer(latest: &str, current: &str) -> bool {
+    use std::cmp::Ordering;
+    let (Some((latest_core, latest_pre)), Some((current_core, current_pre))) =
+        (parts(latest), parts(current))
+    else {
+        return false;
+    };
+    let order = latest_core.cmp(&current_core).then_with(|| match (latest_pre, current_pre) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(a), Some(b)) => pre_release_order(a, b),
+    });
+    order == Ordering::Greater
 }
 
 /// One cached registry answer.
@@ -331,6 +371,10 @@ mod tester_rollout_tests {
         assert!(!newer("0.13.3", "0.13.4"));
         assert!(!newer("1.0.0-rc.2", "1.0.0"));
         assert!(!newer("garbage", "0.1.0"));
+        assert!(newer("1.1.0-next.4", "1.1.0-next.3"));
+        assert!(newer("1.1.0-next.10", "1.1.0-next.9"));
+        assert!(!newer("1.1.0-next.3", "1.1.0-next.3"));
+        assert!(newer("1.1.0-next.1", "1.1.0-alpha.9"));
     }
 
     #[test]
