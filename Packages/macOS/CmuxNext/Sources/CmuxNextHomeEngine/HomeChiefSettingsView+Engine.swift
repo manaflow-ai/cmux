@@ -1,0 +1,150 @@
+import AppKit
+import CmuxNextHome
+import Foundation
+
+/// The card's engine rows (`HomeChiefSettingsView`): reading the brain's engine, writing a pick,
+/// and saying why one did not take.
+extension HomeChiefSettingsView {
+    // MARK: Engine
+
+    /// Re-reads the engine and the last turns (a new message or a turn's
+    /// end) off the main actor, then shows them, or why it could not.
+    @discardableResult
+    public func refresh() -> Task<Void, Never> {
+        let source = source
+        let home = muxHome
+        // task-owner: one read off the main actor; ends when it is shown
+        return Task { [weak self] in
+            let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
+                do { return .success(try await source.read()) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
+            }.value
+            // A read of the Chief shown before (another conversation) is not shown.
+            guard let self, self.source.isLocal == source.isLocal, self.source.place == source.place, muxHome == home else { return }
+            switch result {
+            case .success(let snapshot): show(snapshot)
+            case .failure(let error): say(error, readable: false)
+            }
+        }
+    }
+
+    /// Sets (nil: clears) one engine field on the brain, then shows the result.
+    @discardableResult
+    public func pick(_ key: String, _ value: String?) -> Task<Void, Never> {
+        pick([key: value])
+    }
+
+    /// Sets (nil: clears) engine fields on the brain in one write, then shows
+    /// the result. A write the brain refuses shows what it still runs again,
+    /// so a popup never keeps a value the brain did not take.
+    @discardableResult
+    func pick(_ fields: [String: String?]) -> Task<Void, Never> {
+        let source = source
+        let home = muxHome
+        changeFailed = false
+        // task-owner: one write off the main actor; ends when its result is shown
+        return Task { [weak self] in
+            let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
+                do { return .success(try await source.set(fields)) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
+            }.value
+            // A pick for the Chief shown before (another conversation) is not shown.
+            guard let self, muxHome == home else { return }
+            switch result {
+            case .success(let snapshot):
+                show(snapshot)
+                onEngineChanged()
+            case .failure(let error):
+                if let shownEngine { show(shownEngine) }
+                say(error, readable: true)
+            }
+        }
+    }
+
+    /// Says `error`; the pickers stay usable only when the brain answered before. A pick's error
+    /// (`readable`: the brain answered, then refused) stays until the next change.
+    func say(_ error: HomeChiefEngineError, readable: Bool) {
+        if !readable { for button in [harness, model, effort] { button.isEnabled = false } }
+        note(error.text, kept: readable)
+    }
+
+    /// Shows `text` in the note and has VoiceOver say it; `kept` keeps it through refreshes.
+    func note(_ text: String, kept: Bool) {
+        failure.stringValue = text
+        failure.isHidden = false
+        changeFailed = kept
+        NSAccessibility.post(element: failure, notification: .announcementRequested,
+                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        onResize()
+    }
+
+    func show(_ snapshot: HomeChiefSnapshot) {
+        shownEngine = snapshot
+        if !changeFailed { failure.isHidden = true }
+        for button in [harness, model, effort] { button.isEnabled = true }
+        let shown = HomeChiefEngineTitles(snapshot)
+        fill(harness, shown.harnesses, current: snapshot.harness, defaultTitle: shown.defaultHarness, title: ChiefBackend.title(for:))
+        showHarnessHint()
+        fill(model, shown.models, current: snapshot.model, defaultTitle: shown.defaultModel)
+        fill(effort, shown.efforts, current: snapshot.effort, defaultTitle: shown.defaultEffort)
+        stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
+        // Which engine answered each recent reply (the trace's turn.end).
+        replies.stringValue = snapshot.turns.isEmpty ? ""
+            : HomeEngineStrings.answeredBy + "\n" + snapshot.turns.map(HomeEngineStrings.reply).joined(separator: "\n")
+        replies.isHidden = snapshot.turns.isEmpty
+        onResize()
+    }
+
+    /// `values` (value, title) after a "Default" item that names what it runs,
+    /// and the current value kept even when it is not one of them (titled by `title`).
+    func fill(_ button: NSPopUpButton, _ values: [(value: String, title: String)], current: String?, defaultTitle: String,
+              title: (String) -> String = { $0 }) {
+        button.removeAllItems()
+        button.addItem(withTitle: defaultTitle)
+        button.lastItem?.representedObject = nil
+        var all = values
+        if let current, !all.contains(where: { $0.value == current }) { all.append((current, title(current))) }
+        for item in all {
+            button.addItem(withTitle: item.title)
+            button.lastItem?.representedObject = item.value
+        }
+        if let current, let index = all.firstIndex(where: { $0.value == current }) {
+            button.selectItem(at: index + 1)
+        } else {
+            button.selectItem(at: 0)
+        }
+    }
+
+    @objc func picked(_ sender: NSPopUpButton) {
+        let value = sender.selectedItem?.representedObject as? String
+        guard sender === harness else {
+            pick(sender === model ? "model" : "effort", value)
+            return
+        }
+        showHarnessHint()
+        // A new harness starts on its own default model and effort, as the Chief editor's
+        // backend picker does: the brain keeps a field it is not sent, and another
+        // harness's model would not run on this one.
+        if Self.keepsHarness(value, shown: shownEngine) { pick("harness", value) } else { pick(["harness": value, "model": nil, "effort": nil]) }
+    }
+
+    /// Whether a harness pick keeps the harness the turns run on: the chosen one again, or, while
+    /// none is chosen, the harness Default runs picked by name. Default picked while a harness is
+    /// chosen counts as a change, since what Default would run is not known then.
+    nonisolated static func keepsHarness(_ value: String?, shown: HomeChiefSnapshot?) -> Bool {
+        guard let shown else { return false }
+        if shown.harness == value { return true }
+        // What Default runs is known only while no harness is chosen.
+        guard shown.harness == nil, let runs = shown.effective?.harness else { return false }
+        return value == runs
+    }
+
+    /// The hint under the Harness row: only UniiChat's (sign in with `unii login` first), since
+    /// the other engines' sign-in is the brain host's own (a cloud Chief's runs on its server).
+    func showHarnessHint() {
+        let unii = harness.selectedItem?.representedObject as? String == ChiefBackend.unii.id
+        let hint = unii ? ChiefBackend.unii.hint : nil
+        harnessHint.stringValue = hint ?? ""
+        let changed = harnessHint.isHidden != (hint == nil)
+        harnessHint.isHidden = hint == nil
+        if changed { onResize() }
+    }
+}
