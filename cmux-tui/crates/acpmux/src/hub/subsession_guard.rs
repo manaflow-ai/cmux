@@ -401,4 +401,20 @@ mod tests {
             assert!(argv_full_access(&argv(a)).is_none(), "{a:?}");
         }
     }
+
+    #[test]
+    fn attached_short_flags_and_gemini_auto_approval_are_full_access() {
+        for a in [
+            &["codex", "-sdanger-full-access"][..],
+            &["codex", "-csandbox_mode=danger-full-access"],
+            &["gemini", "-y"],
+            &["qwen", "--approval-mode", "yolo"],
+            &["gemini", "--approval-mode=auto_edit"],
+        ] {
+            assert!(argv_full_access(&argv(a)).is_some(), "{a:?}");
+        }
+        for a in [&["gemini", "--approval-mode", "default"][..], &["codex", "-sworkspace-write"]] {
+            assert!(argv_full_access(&argv(a)).is_none(), "{a:?}");
+        }
+    }
 }
