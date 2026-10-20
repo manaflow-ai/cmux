@@ -152,14 +152,26 @@ import Testing
         defer { model.stop() }
         model.setSources([Self.source("a", folder.url)])
         await model.refresh()
-        try folder.write("Screenshot live.png")
+        // FolderWatcher schedules its FSEvents stream asynchronously, so a write right after the
+        // read can come before it: keep writing (as FileHelpersTests does) until one shows.
+        let writer = Task.detached {
+            var n = 0
+            while !Task.isCancelled {
+                _ = try? folder.write("Screenshot live \(n).png")
+                n += 1
+                // A bounded, cancelled pause between writes (the real signal is the model change below).
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+        defer { writer.cancel() }
         // Each pass waits for the model's next change (no polling); the watch is the only writer.
-        while !model.visibleItems.contains(where: { $0.name == "Screenshot live.png" }) {
+        while !model.visibleItems.contains(where: { $0.name.hasPrefix("Screenshot live") }) {
             await withCheckedContinuation { continuation in
                 withObservationTracking { _ = model.visibleItems } onChange: { continuation.resume() }
             }
         }
-        #expect(model.visibleItems.map(\.name) == ["Screenshot live.png"])
+        writer.cancel()
+        #expect(model.visibleItems.allSatisfy { $0.name.hasPrefix("Screenshot live") })
     }
 }
 
