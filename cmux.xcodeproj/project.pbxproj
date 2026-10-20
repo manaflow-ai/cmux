@@ -2199,6 +2199,7 @@
 		A2CFBE5869E987D3E306CB7A /* FileExplorerOpenedTabDragSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06880917B87678F2857EC8FB /* FileExplorerOpenedTabDragSourceTests.swift */; };
 		828800020000000000000002 /* FileExplorerPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 828800020000000000000001 /* FileExplorerPalette.swift */; };
 		D38ACA7DC265E9BC23C08CBE /* FileExplorerPreviewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE752CEBF4A6BCFA11FDD35 /* FileExplorerPreviewCoordinator.swift */; };
+		AF3DB86F592FC844439578F5 /* FileExplorerRemoteTmuxRootTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEFD050842C69541B3169029 /* FileExplorerRemoteTmuxRootTests.swift */; };
 		FE002101 /* FileExplorerRootResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002001 /* FileExplorerRootResolverTests.swift */; };
 		9F8A6669D6F54F0EA8E8BEB8 /* FileExplorerRootSyncPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */; };
 		FE5996040000000000000002 /* FileExplorerRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996040000000000000001 /* FileExplorerRowView.swift */; };
@@ -6872,6 +6873,7 @@
 		06880917B87678F2857EC8FB /* FileExplorerOpenedTabDragSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerOpenedTabDragSourceTests.swift; sourceTree = "<group>"; };
 		828800020000000000000001 /* FileExplorerPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerPalette.swift; sourceTree = "<group>"; };
 		1DE752CEBF4A6BCFA11FDD35 /* FileExplorerPreviewCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerPreviewCoordinator.swift"; sourceTree = "<group>"; };
+		AEFD050842C69541B3169029 /* FileExplorerRemoteTmuxRootTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerRemoteTmuxRootTests.swift"; sourceTree = "<group>"; };
 		FE002001 /* FileExplorerRootResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootResolverTests.swift; sourceTree = "<group>"; };
 		120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootSyncPolicyTests.swift; sourceTree = "<group>"; };
 		FE5996040000000000000001 /* FileExplorerRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRowView.swift; sourceTree = "<group>"; };
@@ -14248,6 +14250,7 @@
 				F152960A3E2799807D8DD3EE /* VaultClaudeCustomTitleTests.swift */,
 				745FF9094E4E0023E0EFB065 /* SidebarWorkspaceSnapshotTests.swift */,
 				ED0B9F5049CC27EC7AAA3419 /* CMUXCLIRestoreRecordRefreshTests.swift */,
+				AEFD050842C69541B3169029 /* FileExplorerRemoteTmuxRootTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18907,6 +18910,7 @@
 				FE002112 /* FileExplorerGitStatusProviderTests.swift in Sources */,
 				9860F0029860F0029860F002 /* FileExplorerNativeDragOwnershipTests.swift in Sources */,
 				A2CFBE5869E987D3E306CB7A /* FileExplorerOpenedTabDragSourceTests.swift in Sources */,
+				AF3DB86F592FC844439578F5 /* FileExplorerRemoteTmuxRootTests.swift in Sources */,
 				FE002101 /* FileExplorerRootResolverTests.swift in Sources */,
 				9F8A6669D6F54F0EA8E8BEB8 /* FileExplorerRootSyncPolicyTests.swift in Sources */,
 				F5996002A1B2C3D4E5F60001 /* FileExplorerShortcutSettingsTests.swift in Sources */,
