@@ -30,6 +30,7 @@ mod startup;
 mod terminal;
 mod terminal_input;
 pub(crate) mod terminal_respawn;
+mod update_notice;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
@@ -58,17 +59,29 @@ pub(crate) use skew::SkewMessages;
 pub(crate) use startup::StartupMessages;
 pub(crate) use terminal::TerminalMessages;
 pub(crate) use terminal_input::TerminalInputMessages;
+pub(crate) use update_notice::UpdateNoticeMessages;
 
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
-/// Format a dollar amount with two decimals and thousands separators.
-/// Non-finite or negative inputs render as zero so a bad upstream number
-/// can never produce a misleading readout.
+/// The English update notice strings, for tests that check both languages.
+#[cfg(test)]
+pub(crate) fn update_notice_english() -> &'static UpdateNoticeMessages {
+    &update_notice::ENGLISH
+}
+
+#[cfg(test)]
+pub(crate) fn update_notice_japanese() -> &'static UpdateNoticeMessages {
+    &update_notice::JAPANESE
+}
+
 /// `cmux attach --help`, naming the program the way it was run.
 pub(crate) fn attach_help() -> String {
     catalog().attach.help.replace("{program}", &crate::cli::BIN.to_string())
 }
 
+/// Format a dollar amount with two decimals and thousands separators.
+/// Non-finite or negative inputs render as zero so a bad upstream number
+/// can never produce a misleading readout.
 pub(crate) fn format_usd(amount: f64) -> String {
     let amount = if amount.is_finite() && amount > 0.0 { amount } else { 0.0 };
     let cents = (amount * 100.0).round() as u64;
@@ -136,6 +149,7 @@ pub(crate) struct Catalog {
     pub agents_doctor: AgentsDoctorMessages,
     pub app_control: AppControlMessages,
     pub coderouter: CodeRouterMessages,
+    pub update_notice: UpdateNoticeMessages,
 }
 
 impl Catalog {
@@ -148,6 +162,7 @@ impl Catalog {
 static ENGLISH: Catalog = Catalog {
     japanese: false,
     coderouter: coderouter::ENGLISH,
+    update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
     agent_wrapper: agent_wrapper::ENGLISH,
     agents_doctor: agents_doctor::ENGLISH,
@@ -178,6 +193,7 @@ static ENGLISH: Catalog = Catalog {
 static JAPANESE: Catalog = Catalog {
     japanese: true,
     coderouter: coderouter::JAPANESE,
+    update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,
     agent_wrapper: agent_wrapper::JAPANESE,
     agents_doctor: agents_doctor::JAPANESE,

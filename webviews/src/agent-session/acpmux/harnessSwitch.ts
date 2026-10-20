@@ -566,11 +566,13 @@ export class HarnessSwitch {
       if (isHostRefusal(error)) this.handlers.notice?.(errorMessage(error));
     };
     const ticket = (key: string) => intent.tickets.get(key) ?? Promise.resolve(undefined);
+    // A held mode the agent refuses always says so: a company-managed Mac's Claude Code settings can
+    // disable a mode, and the chat would otherwise run on another one with no reason given.
     if (mode)
       applied.push(
         ticket("mode")
           .then((t) => port.setMode(mode, t))
-          .catch(pickRefused),
+          .catch((error) => this.handlers.notice?.(t("switch.modeFailed", { mode, reason: errorText(error) || "?" }))),
       );
     for (const [configId, value] of Object.entries(options))
       applied.push(

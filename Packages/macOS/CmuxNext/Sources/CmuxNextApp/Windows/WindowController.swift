@@ -42,6 +42,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// it (with the color transition).
     let themeScope = ThemeScope(level: .room)
     private var roomObservation: Task<Void, Never>?
+    private var roomBrowserProfileObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
@@ -107,6 +108,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation?.cancel()
         startupObservation?.cancel()
         roomObservation?.cancel()
+        roomBrowserProfileObservation?.cancel()
+        state.roomBrowserProfileOf = nil
         content?.teardown()
         content = nil
         parked.values.forEach { $0.teardown() }
@@ -125,6 +128,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
                 guard let self else { return }
                 services.themes.windowDidChange(self)
             }
+        }
+        // The room's browser profile for tab badges: set in the switch's own turn (`WindowState.profileID`),
+        // and again when the room's record changes.
+        let home = services.machines.local.store
+        state.roomBrowserProfileOf = { [weak home] room in home?.profile(room)?.browserProfileID?.rawValue }
+        roomBrowserProfileObservation = Task {
+            for await _ in ObservationStream({ home.profile(state.profileID)?.browserProfileID }) { state.refreshRoomBrowserProfile() }
         }
     }
 
@@ -337,7 +347,27 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting {
+    CursorRectHoldHosting, TrafficLightsResting {
+    /// The traffic lights' last windowed place: their left edge, their top's
+    /// distance from the window's top, and their size (the window may come
+    /// back from full screen at another height).
+    private var windowedLights: (x: CGFloat, fromTop: CGFloat, size: CGSize)?
+    /// Between `willExitFullScreen` and its end (WindowController+FullScreen).
+    var isLeavingFullScreen = false
+
+    /// Where the lights come back to while the window leaves full screen.
+    var restingTrafficLights: CGRect? {
+        guard isLeavingFullScreen, let windowedLights else { return nil }
+        return CGRect(x: windowedLights.x, y: frame.height - windowedLights.fromTop - windowedLights.size.height,
+                      width: windowedLights.size.width, height: windowedLights.size.height)
+    }
+
+    /// The root's layout reports the lights it found (window coordinates).
+    func noteTrafficLights(_ lights: CGRect) {
+        guard !styleMask.contains(.fullScreen), !isLeavingFullScreen else { return }
+        windowedLights = (lights.minX, frame.height - lights.maxY, lights.size)
+    }
+
     /// A pane policy that may hold cursor-rect invalidations (ShellWindow+Events.swift).
     weak var cursorRectHold: (any CursorRectHoldPolicy)?
     /// The incognito badge in the top row while the sidebar is hidden.
@@ -392,6 +422,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// their home's place here, so a pane ring follows a pane that moved
     /// because an ancestor moved (sidebar width), not only its own layout.
     override func layoutIfNeeded() {
+        #if DEBUG
+        let traced = DebugWindowTransition.shared.isActive && overlayLayer.layoutDepth == 0
+        let began = traced ? CACurrentMediaTime() : 0
+        defer { if traced { DebugWindowTransition.shared.noteLayoutPass(self, seconds: CACurrentMediaTime() - began) } }
+        #endif
         overlayLayer.windowWillLayout()
         super.layoutIfNeeded()
         // The outermost pass only, and before the overlay layer's own
@@ -439,8 +474,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: controller.focus.state.pane, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
-        let accepted = super.makeFirstResponder(responder)
-        if accepted { cursorRectHold?.firstResponderDidChange(in: self); reportResponder() }
+        let accepted = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }
+        if accepted { cursorRectHold?.firstResponderDidChange(in: self); BenchSpans.measure("focus.reportResponder") { reportResponder() } }
         return accepted
     }
 }
