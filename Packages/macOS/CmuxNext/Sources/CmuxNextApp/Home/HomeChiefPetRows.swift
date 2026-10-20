@@ -132,10 +132,12 @@ final class HomeChiefPetRows: NSObject {
 extension HomeHostView {
     static let live = NSHashTable<HomeHostView>.weakObjects()
 
-    /// Opens the Chief Settings popover over a Chief's Home on screen, the key window's first,
-    /// then the main window's. False when no Home shows the Chief.
-    static func openChiefSettingsOnScreen() -> Bool {
-        func rank(_ view: HomeHostView) -> Int { view.window?.isKeyWindow == true ? 0 : view.window?.isMainWindow == true ? 1 : 2 }
-        return live.allObjects.sorted { rank($0) < rank($1) }.contains { $0.openChiefSettings() }
+    /// Opens the Chief Settings popover over a Chief's Home on screen, frontmost window first
+    /// (`NSApp.orderedWindows`: the pet is right-clicked while cmux is usually in the background,
+    /// where no window is key or main). False when no Home shows the Chief.
+    static func openChiefSettingsOnScreen(noActivate: Bool) -> Bool {
+        let order = NSApp.orderedWindows
+        func rank(_ view: HomeHostView) -> Int { view.window.flatMap { window in order.firstIndex { $0 === window } } ?? order.count }
+        return live.allObjects.sorted { rank($0) < rank($1) }.contains { $0.openChiefSettings(noActivate: noActivate) }
     }
 }

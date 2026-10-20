@@ -271,10 +271,10 @@ final class HomeHostView: NSView {
 
     /// Opens (never closes) the Chief's settings under the pill when this view shows the Chief in
     /// a visible window, bringing that window forward (the Chief pet's Chief Pet Settings…).
-    /// False when it cannot open here.
-    func openChiefSettings() -> Bool {
+    /// False when it cannot open here. `noActivate` (tests, captures) raises the window without focus.
+    func openChiefSettings(noActivate: Bool) -> Bool {
         guard isChief, let window, window.isVisible, !window.isMiniaturized, !isHiddenOrHasHiddenAncestor else { return false }
-        window.makeKeyAndOrderFront(nil)
+        WindowActivation.show(window, noActivate ? .raise : .focus)
         if settings.isShown { return true }
         settingsView.refresh()
         return settings.show(relativeTo: transcript.namePill, toggles: transcript.namePillToggles)

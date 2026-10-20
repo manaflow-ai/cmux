@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFloating
 import CmuxNextSettings
 
@@ -21,10 +22,11 @@ struct ChiefPetRoutes {
     /// Appearance rows), else Settings on Show Chief Pet. The pet never activates cmux; this does.
     func openSettings() {
         guard let services else { return }
-        if !services.environment.noActivate { NSApp.activate() }
-        if HomeHostView.openChiefSettingsOnScreen() { return }
+        let noActivate = services.environment.noActivate
+        if !noActivate { NSApp.activate() }
+        if HomeHostView.openChiefSettingsOnScreen(noActivate: noActivate) { return }
         try? services.settingsWindow.show(section: nil, setting: HomeChiefPetSetting.configPath.joined(separator: "."), focus: true)
-        services.windows.active?.window?.makeKeyAndOrderFront(nil)
+        if let window = services.windows.active?.window { WindowActivation.show(window, noActivate ? .raise : .focus) }
     }
 
     /// Hide Chief Pet: `home.chiefPetEnabled` off, the write the settings' switch makes; the pet
