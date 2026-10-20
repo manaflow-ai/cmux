@@ -734,6 +734,40 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "app search-chats",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "a",
+        "modifiers" : [
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "search.chats",
+      "main_menu" : "window",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Search Chats & Agents…",
+      "title_key" : "action.search.chats",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "app task-manager",
       "context_menu" : "noObject",
@@ -3603,6 +3637,34 @@
       "palette_suggested" : null,
       "title" : "Move Pane to New Workspace",
       "title_key" : "action.pane.moveToNewWorkspace",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "pane move-to-new-window",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "pane.moveToNewWindow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Pane to New Window",
+      "title_key" : "action.pane.moveToNewWindow",
       "title_table" : "WorkspaceActions"
     },
     {
@@ -8520,13 +8582,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "a",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "tab.search",
       "main_menu" : "file",
       "mcp" : "offered",
@@ -13435,13 +13491,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "f",
-        "modifiers" : [
-          "opt",
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "browser.focusSearch",
       "main_menu" : null,
       "mcp" : "focusMove",
@@ -30267,6 +30317,398 @@
       "title_table" : "PhoneActions"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "phone list",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.list",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Phones",
+      "title_key" : "action.phone.list",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone shutdown",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.shutdown",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Shut Down Phone",
+      "title_key" : "action.phone.shutdown",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone tap",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.tap",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Tap Phone Screen",
+      "title_key" : "action.phone.tap",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone swipe",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.swipe",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Swipe on Phone",
+      "title_key" : "action.phone.swipe",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone type",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.type",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Type on Phone",
+      "title_key" : "action.phone.type",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone button",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.button",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Press Phone Button",
+      "title_key" : "action.phone.button",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone ui",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.ui",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Read Phone Screen Elements",
+      "title_key" : "action.phone.ui",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone appearance",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.appearance",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Phone Appearance",
+      "title_key" : "action.phone.appearance",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone location",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.location",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Phone Location",
+      "title_key" : "action.phone.location",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone locale",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.locale",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Phone Language",
+      "title_key" : "action.phone.locale",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone install",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.install",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Install App on Phone",
+      "title_key" : "action.phone.install",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone launch",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.launch",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Launch App on Phone",
+      "title_key" : "action.phone.launch",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone rotate",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.rotate",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Rotate Phone",
+      "title_key" : "action.phone.rotate",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone logs",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.logs",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Phone Logs",
+      "title_key" : "action.phone.logs",
+      "title_table" : "PhoneActions"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "action files-open",
       "context_menu" : "noObject",
@@ -34072,7 +34514,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "column.moveLeft",
+                  "id" : "pane.moveToNewWindow",
                   "kind" : "action",
                   "order" : 5,
                   "visible_when" : {
@@ -34085,9 +34527,22 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "column.moveRight",
+                  "id" : "column.moveLeft",
                   "kind" : "action",
                   "order" : 6,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "column.moveRight",
+                  "kind" : "action",
+                  "order" : 7,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
