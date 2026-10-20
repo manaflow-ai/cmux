@@ -32,6 +32,19 @@ fi
 LIPO_TOOL="${CMUX_LIPO_TOOL:-lipo}"
 FILE_TOOL="${CMUX_FILE_TOOL:-file}"
 
+# Only files that start with a Mach-O or fat magic reach the real `file`
+# (list-macho-candidates.py); it calls nothing else Mach-O, so the loop sees
+# the same files with one process per Mach-O instead of one per file. A
+# substitute CMUX_FILE_TOOL (tests) sees every file, as before.
+list_files() {
+  if [ -n "${CMUX_FILE_TOOL:-}" ]; then
+    find "$APP_PATH" -path "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" -prune -o -type f -print0
+  else
+    find "$APP_PATH" -path "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" -prune -o -type f -print0 \
+      | python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/list-macho-candidates.py"
+  fi
+}
+
 thinned=0
 kept=0
 while IFS= read -r -d '' path; do
@@ -60,9 +73,6 @@ while IFS= read -r -d '' path; do
   chmod --reference="$path" "$tmp" 2>/dev/null || chmod "$(stat -f '%Lp' "$path")" "$tmp"
   mv -f "$tmp" "$path"
   thinned=$((thinned + 1))
-# Only files that start with a Mach-O or fat magic reach `file`
-# (list-macho-candidates.py); every other file was skipped by the loop anyway.
-done < <(find "$APP_PATH" -path "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" -prune -o -type f -print0 \
-  | python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/list-macho-candidates.py")
+done < <(list_files)
 
 echo "thinned $thinned fat Mach-O files to $ARCH in $APP_PATH ($kept already $ARCH-only)"
