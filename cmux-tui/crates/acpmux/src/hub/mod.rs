@@ -5,6 +5,8 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod adoption;
+mod agent_pairs;
+pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
 mod btw;
@@ -326,6 +328,8 @@ pub struct Hub {
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
+    /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
+    pub(super) agent_pairs: agent_pairs::AgentPairs,
 }
 
 impl Hub {
@@ -388,6 +392,7 @@ impl Hub {
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
+            agent_pairs: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -569,6 +574,7 @@ impl Hub {
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
+            last_progress: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
@@ -674,6 +680,10 @@ impl Hub {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
+        // The agent message runaway guard reads progress from here, not the store.
+        if agent_pairs::progress_record(&record) {
+            session.last_progress.store(seq, Ordering::SeqCst);
+        }
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
