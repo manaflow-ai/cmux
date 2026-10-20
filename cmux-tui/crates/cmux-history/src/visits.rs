@@ -24,6 +24,29 @@ const MAX_IMPORT_URL_BYTES: i64 = 8_192;
 const MAX_IMPORT_TITLE_BYTES: i64 = 1_024;
 const MAX_IMPORT_TAB_BYTES: i64 = 1_024;
 
+struct ImportMetadata {
+    source_bytes: u64,
+    source_modified: u128,
+    components: [Option<(u64, u128)>; 3],
+}
+
+impl ImportMetadata {
+    fn marker(&self, path: &Path) -> String {
+        let components = self
+            .components
+            .iter()
+            .map(|component| {
+                component.map_or_else(
+                    || "missing".into(),
+                    |(size, modified)| format!("{size}:{modified}"),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("|");
+        format!("{}|{}|{}|{components}", path.display(), self.source_bytes, self.source_modified)
+    }
+}
+
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS visits(
   id INTEGER PRIMARY KEY, url TEXT NOT NULL, title TEXT,
@@ -447,10 +470,10 @@ impl VisitStore {
 
     /// [`VisitStore::import`] at an explicit retention time.
     pub fn import_at(&self, other: &Path, now_ms: i64) -> Result<usize, HistoryError> {
-        let (source_bytes, source_modified) = Self::import_metadata(other)?;
-        // Keep the v3 marker shape so a retry across an app upgrade does not
-        // duplicate a source already committed before the reply was lost.
-        let marker = format!("{}|{}|{}", other.display(), source_bytes, source_modified);
+        let metadata = Self::import_metadata(other)?;
+        // Keep the v3 marker's leading fields so its source remains legible;
+        // WAL/SHM identity distinguishes a later complete SQLite generation.
+        let marker = metadata.marker(other);
         let mut source = Connection::open_with_flags(
             other,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -571,11 +594,12 @@ impl VisitStore {
 
     /// Size and latest modification of the legacy database and its SQLite
     /// sidecars. Every present component must be a regular file, never a link.
-    fn import_metadata(path: &Path) -> Result<(u64, u128), HistoryError> {
+    fn import_metadata(path: &Path) -> Result<ImportMetadata, HistoryError> {
         let mut bytes = 0_u64;
         let mut source_bytes = 0_u64;
         let mut source_modified = 0_u128;
-        for suffix in ["", "-wal", "-shm"] {
+        let mut components = [None; 3];
+        for (index, suffix) in ["", "-wal", "-shm"].into_iter().enumerate() {
             let candidate = if suffix.is_empty() {
                 path.to_path_buf()
             } else {
@@ -612,8 +636,9 @@ impl VisitStore {
                 source_bytes = metadata.len();
                 source_modified = stamp;
             }
+            components[index] = Some((metadata.len(), stamp));
         }
-        Ok((source_bytes, source_modified))
+        Ok(ImportMetadata { source_bytes, source_modified, components })
     }
 
     pub fn count(&self) -> Result<u64, HistoryError> {
