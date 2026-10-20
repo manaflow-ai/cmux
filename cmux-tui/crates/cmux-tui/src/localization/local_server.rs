@@ -77,6 +77,22 @@ impl LocalServerMessages {
         self.owner_spawn_failed.to_string()
     }
 
+    /// The message of a failed ensure, shared by `server ensure` and attach.
+    pub(crate) fn ensure_failed(&self, error: &crate::local_owner::EnsureError) -> String {
+        use crate::local_owner::EnsureError;
+        match error {
+            EnsureError::Spawn(_) => self.owner_spawn_failed(),
+            EnsureError::NotReady => self.owner_not_ready.to_string(),
+            EnsureError::RestoreTimeout => self.owner_restore_timeout.to_string(),
+            EnsureError::Busy => self.owner_busy.to_string(),
+            EnsureError::WrongOwner => self.wrong_owner.to_string(),
+            EnsureError::DifferentSession => self.different_session.to_string(),
+            EnsureError::DifferentState => self.different_state.to_string(),
+            EnsureError::InvalidIdentity => self.invalid_identity.to_string(),
+            EnsureError::UnsupportedProtocol => self.unsupported_protocol.to_string(),
+        }
+    }
+
     pub(crate) fn unknown_scope(&self, scope: &str, suggestion: Option<&str>) -> String {
         self.with_suggestion(self.unknown_scope.replace("{scope}", scope), suggestion)
     }
