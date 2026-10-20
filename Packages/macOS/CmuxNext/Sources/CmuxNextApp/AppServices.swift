@@ -151,6 +151,8 @@ final class AppServices {
     )
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
+    /// The panes in Full Width Tab mode (`PaneFullWidthTabs`).
+    let paneFullWidthTabs = PaneFullWidthTabs()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
