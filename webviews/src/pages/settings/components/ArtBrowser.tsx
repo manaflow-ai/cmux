@@ -85,7 +85,9 @@ export function ArtBrowser({ onClose }: { onClose: () => void }) {
               <span className="backdrop-title">{result.title}</span>
               {(using === result.key || failedKey === result.key) && (
                 <span className="backdrop-title backdrop-status">
-                  {using === result.key ? t("settingsWindow.artBrowser.downloading") : t("settingsWindow.artBrowser.failed")}
+                  {using === result.key
+                    ? t("settingsWindow.artBrowser.downloading")
+                    : t("settingsWindow.artBrowser.failed")}
                 </span>
               )}
             </button>
