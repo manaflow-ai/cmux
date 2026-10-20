@@ -148,7 +148,7 @@ env:
 
 jobs:
   admission-placement:
-    environment: ci-pr-routing
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     # Spread-first admission (vars.CI_OWNED_SPREAD == '1'): a std mini has
     # two root runners and a compile takes either free root, so two compiles
     # can share a mini while another mini's root runners sit idle. Just before
@@ -217,7 +217,7 @@ jobs:
 
   macos-compile-admission:
     name: macOS compile admission
-    environment: ci-pr-build
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-build-cache-reader' || '' }}
     # Spend one macOS slot proving that the product compiles before
     # cli-product-tests (the shell regressions) starts. That job downloads
     # this run's build products, so a successful build is not repeated.
@@ -1362,7 +1362,7 @@ jobs:
           PY
 
   late-placement:
-    environment: ci-pr-routing
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     # The picker (pr_runner_pool.py) places every job when the run starts, but
     # cli-product-tests starts only after compile admission, often ten minutes
     # later. When the owned pool was full
