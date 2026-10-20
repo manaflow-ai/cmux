@@ -49,3 +49,28 @@ tab-switch-matrix.py: one pane holding N tabs of a kind, warm; end-to-end = OS i
 | Chat | 10 | 9.2 / 15.3 | 11.4 / 19.1 | 14.9 / 21.1 | 0/20, 0/20, 0/20 | 38.31 MB |
 | Chat | 30 | 14.7 / 25.1 | 14.8 / 24.1 | 18.5 / 24.7 | 0/58, 0/58, 0/52 | 12.78 MB |
 
+
+## Tab switch before and after (cmux20, Debug)
+
+Same host, same matrix, end-to-end p50 / p90 ms. Before: step 914d13021d593bfc1910ebc7 at [e775c2af222](https://github.com/manaflow-ai/cmux/commit/e775c2af222689df9d64549912b3f6f46384e7ce). After: a168's tab-switch rewrite, step 8a623e17ed6f5d146dc9718b at [0bb9f3250e3](https://github.com/manaflow-ai/cmux/commit/0bb9f3250e36a5521114b63beb9476eec1dbfaf4) (Markdown and chat were not in that run). Δ = after p50 − before p50.
+
+| Kind | Tabs | Input | Before | After | Δ p50 |
+|---|---|---|---|---|---|
+| Browser (Chromium) | 2 | Ctrl-Tab | 14.7 / 18.3 | 15.9 / 18.6 | +1.2 |
+| Browser (Chromium) | 2 | Cmd-Shift-] | 15.5 / 17.9 | 14.6 / 15.4 | -0.9 |
+| Browser (Chromium) | 2 | Click | 23.7 / 25.0 | 26.9 / 28.9 | +3.2 |
+| Browser (Chromium) | 10 | Ctrl-Tab | 17.7 / 21.5 | 15.6 / 18.7 | -2.0 |
+| Browser (Chromium) | 10 | Cmd-Shift-] | 19.4 / 21.4 | 17.2 / 21.1 | -2.2 |
+| Browser (Chromium) | 10 | Click | 27.9 / 32.4 | 25.5 / 30.6 | -2.4 |
+| Browser (Chromium) | 30 | Ctrl-Tab | 22.9 / 33.2 | 27.0 / 36.1 | +4.1 |
+| Browser (Chromium) | 30 | Cmd-Shift-] | 26.9 / 39.0 | 27.5 / 37.5 | +0.6 |
+| Browser (Chromium) | 30 | Click | 34.0 / 40.4 | 32.9 / 40.7 | -1.2 |
+| Browser (WebKit) | 2 | Ctrl-Tab | 15.0 / 19.1 | 11.0 / 13.7 | -3.9 |
+| Browser (WebKit) | 2 | Cmd-Shift-] | 15.0 / 20.0 | 13.7 / 17.7 | -1.3 |
+| Browser (WebKit) | 2 | Click | 19.0 / 22.8 | 17.2 / 19.4 | -1.9 |
+| Browser (WebKit) | 10 | Ctrl-Tab | 17.7 / 20.6 | 14.8 / 21.6 | -2.9 |
+| Browser (WebKit) | 10 | Cmd-Shift-] | 14.6 / 18.3 | 14.6 / 21.7 | +0.0 |
+| Browser (WebKit) | 10 | Click | 18.6 / 24.4 | 18.4 / 24.9 | -0.1 |
+| Browser (WebKit) | 30 | Ctrl-Tab | 20.3 / 26.0 | 19.2 / 26.5 | -1.0 |
+| Browser (WebKit) | 30 | Cmd-Shift-] | 19.8 / 24.4 | 17.7 / 25.8 | -2.1 |
+| Browser (WebKit) | 30 | Click | 22.6 / 26.8 | 22.1 / 27.5 | -0.5 |
