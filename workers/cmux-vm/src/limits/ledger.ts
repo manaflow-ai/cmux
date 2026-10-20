@@ -175,6 +175,23 @@ export class TenantLedger {
     });
   }
 
+  /**
+   * The provider definitely rejected this exact allocation (nothing exists at its slug): the intent returns to
+   * `claimed` (a fork's to `snapshotted`) and its retained slot is freed, so a retry is a fresh create.
+   */
+  async cancelIntent(key: string, vmId: string): Promise<boolean> {
+    return this.storage.transaction(async (storage) => {
+      const storageKey = `idem:${key}`;
+      const record = checked(isRecord, await storage.get(storageKey));
+      if (record?.progress.phase !== "creating" || record.progress.vmId !== vmId) return false;
+      await storage.delete(`reserve:${record.progress.reservationId}`);
+      // A fork keeps its snapshot resumable; a plain create is forgotten by abandon.
+      const snapshotId = record.progress.snapshotId;
+      await storage.put(storageKey, { ...record, progress: snapshotId === undefined ? { phase: "claimed" } : { phase: "snapshotted", snapshotId } });
+      return true;
+    });
+  }
+
   /** Claims `key` for a request with `fingerprint`, or reports what an earlier request with the key did. */
   async begin(key: string, fingerprint: string, nowMs: number): Promise<IdempotencyBegin> {
     return this.storage.transaction(async (storage) => {

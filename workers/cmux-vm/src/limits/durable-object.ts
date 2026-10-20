@@ -35,6 +35,8 @@ export class TenantLimitsObject extends DurableObject {
 
   creationReservation(key: string, vmId: string): Promise<string | null> { return this.ledger.creationReservation(key, vmId); }
 
+  cancelIntent(key: string, vmId: string): Promise<boolean> { return this.ledger.cancelIntent(key, vmId); }
+
   rate(rateClass: RateClass, rule: RateRule, nowMs: number): Promise<RateDecision> {
     return this.ledger.rate(rateClass, rule, nowMs);
   }

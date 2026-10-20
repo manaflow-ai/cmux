@@ -25,6 +25,8 @@ export interface TenantLimitsService {
   readonly inspect: (tenantId: TenantId, key: string) => Effect.Effect<IdempotencyRecord | null, LimitsUnavailable>;
   readonly settleCreation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<void, LimitsUnavailable>;
   readonly creationReservation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<string | null, LimitsUnavailable>;
+  /** Drops a creating intent the provider definitely rejected, with its retained slot. Best effort. */
+  readonly cancelIntent: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<void>;
   readonly rate: (tenantId: TenantId, rateClass: RateClass, rule: RateRule) => Effect.Effect<RateDecision, LimitsUnavailable>;
   readonly reserve: (tenantId: TenantId, kind: string, limit: number, liveCount: number) => Effect.Effect<ReserveDecision, LimitsUnavailable>;
   readonly release: (tenantId: TenantId, reservationId: string) => Effect.Effect<void>;
@@ -44,6 +46,7 @@ interface LedgerHandle {
   inspect(key: string): Promise<IdempotencyRecord | null>;
   settleCreation(key: string, vmId: string, nowMs: number): Promise<void>;
   creationReservation(key: string, vmId: string): Promise<string | null>;
+  cancelIntent(key: string, vmId: string): Promise<boolean>;
   rate(rateClass: RateClass, rule: RateRule, nowMs: number): Promise<RateDecision>;
   reserve(kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string): Promise<ReserveDecision>;
   release(reservationId: string): Promise<void>;
@@ -63,6 +66,7 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     inspect: (tenantId, key) => call((ledger) => ledger.inspect(key))(tenantId),
     settleCreation: (tenantId, key, vmId) => call((ledger, now) => ledger.settleCreation(key, vmId, now))(tenantId),
     creationReservation: (tenantId, key, vmId) => call((ledger) => ledger.creationReservation(key, vmId))(tenantId),
+    cancelIntent: (tenantId, key, vmId) => call((ledger) => ledger.cancelIntent(key, vmId))(tenantId).pipe(Effect.ignore),
     rate: (tenantId, rateClass, rule) => call((ledger, now) => ledger.rate(rateClass, rule, now))(tenantId),
     reserve: (tenantId, kind, limit, liveCount) =>
       call((ledger, now) => ledger.reserve(kind, limit, liveCount, now, crypto.randomUUID()))(tenantId),
@@ -95,6 +99,7 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
           if (!await decoded(Schema.Boolean)(stub.settleCreation(key, vmId, nowMs))) throw new Error("allocation settlement was not confirmed");
         },
         creationReservation: (key, vmId) => decoded(Schema.NullOr(Schema.String))(stub.creationReservation(key, vmId)),
+        cancelIntent: (key, vmId) => decoded(Schema.Boolean)(stub.cancelIntent(key, vmId)),
         rate: (rateClass, rule, nowMs) => decoded(RateDecision)(stub.rate(rateClass, rule, nowMs)),
         reserve: (kind, limit, liveCount, nowMs, reservationId) =>
           decoded(ReserveDecision)(stub.reserve(kind, limit, liveCount, nowMs, reservationId)),

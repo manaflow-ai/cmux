@@ -13,7 +13,9 @@ interface Machine {
 export const teamVmApiService = (tenant: string) => {
   const vms = new Map<string, Machine>(), intents = new Map<string, { body: string; id: string }>()
   const calls: Array<{ method: string; path: string; body: Record<string, any> | null; key: string | null }> = []
-  const control = { creationState: "missing" as "missing" | "pending" | "committed", loseNextCreate: false, forbidden: false, actor: "team-vm-service", key: "team-transport-test-key", creates: 0, fileReads: 0, breakNextFileRead: false, fileOffsets: [] as number[] }
+  // The real API answers a repeated DELETE of the caller's own deleted VM with 204 (workers/cmux-vm handlers/vms.ts).
+  const tombstones = new Set<string>()
+  const control = { creationState: "missing" as "missing" | "pending" | "committed", loseNextDelete: false, loseNextCreate: false, forbidden: false, actor: "team-vm-service", key: "team-transport-test-key", creates: 0, fileReads: 0, breakNextFileRead: false, fileOffsets: [] as number[] }
   const bodyOf = (m: Machine) => ({ id: m.id, displayName: m.displayName, labels: m.labels, state: m.state,
     resources: { vcpus: 4, memoryMib: 8192, diskMib: 32768 }, idleTimeoutSeconds: 300,
     maxRunSeconds: null, autoDeleteSeconds: null, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" })
@@ -59,10 +61,15 @@ export const teamVmApiService = (tenant: string) => {
       return Response.json({ ...bodyOf(m), bootImage: { ...m.image, displayName: "Team VM" }, initialNetwork: { publicEgress: true, httpsProxyHosts: [] } }, { status: 201 })
     }
     const id = u.pathname.split("/")[3]!, m = vms.get(id)
+    if (!m && !control.forbidden && r.method === "DELETE" && u.pathname === `/v1/vms/${id}` && tombstones.has(id)) return new Response(null, { status: 204 })
     if (!m || control.forbidden) return notFound()
     if (u.pathname.endsWith("/identity")) return Response.json({ id, scheme: "sha256-v1", fingerprint: await instanceFingerprint(m.instance), ...(u.searchParams.get("checkPresence") === "true" ? { presence: m.present ? "present" : "missing" } : {}) })
     if (u.pathname === `/v1/vms/${id}`) {
-      if (r.method === "DELETE") { vms.delete(id); return new Response(null, { status: 204 }) }
+      if (r.method === "DELETE") {
+        vms.delete(id); tombstones.add(id)
+        if (control.loseNextDelete) { control.loseNextDelete = false; throw new TypeError("lost API answer") }
+        return new Response(null, { status: 204 })
+      }
       return m.present ? Response.json(bodyOf(m)) : notFound()
     }
     if (u.pathname.endsWith("/start")) {
