@@ -3756,6 +3756,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does.</string>
+			<key>pfm_name</key>
+			<string>sidebar.showTimestamps</string>
+			<key>pfm_title</key>
+			<string>Show Timestamps</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>off</string>
 			<key>pfm_description</key>
 			<string>Hides the chosen sections until the pointer is over the sidebar.</string>

@@ -375,6 +375,7 @@
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
+              "sidebar.showTimestamps",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -18922,6 +18923,60 @@
       "title" : {
         "key" : "settings.sidebar.detailedStatusIcons",
         "text" : "Detailed Status Icons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showTimestamps.help",
+        "text" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showTimestamps",
+      "keywords" : [
+        "sidebar",
+        "timestamps",
+        "time",
+        "times",
+        "age",
+        "ago",
+        "elapsed",
+        "duration",
+        "last activity",
+        "clock",
+        "rows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showTimestamps"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showTimestamps",
+        "text" : "Show Timestamps"
       },
       "validation" : "portable"
     },
