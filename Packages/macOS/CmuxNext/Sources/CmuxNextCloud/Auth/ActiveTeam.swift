@@ -102,7 +102,15 @@ public final class ActiveTeam {
         defer { isSwitching = false; next = nil }
         while let target = next {
             next = nil
-            if target != self.id { try await source.selectTeam(id: target) }
+            // Checked again: a refresh, a sign-out or a managed-team change can land during a save.
+            guard source.isAuthenticated else { throw Refusal.signedOut }
+            guard managedTeamID == nil || target == managedTeamID,
+                  source.availableTeams.contains(where: { $0.id == target }), target != self.id else { continue }
+            do {
+                try await source.selectTeam(id: target)
+            } catch {
+                if next == nil { throw error } // else a newer choice replaces the one that failed
+            }
         }
     }
 
