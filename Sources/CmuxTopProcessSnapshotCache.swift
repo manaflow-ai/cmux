@@ -3,10 +3,18 @@ import Foundation
 
 extension CmuxTopProcessSnapshot {
     /// Builds the app-scoped process census authority at the composition root.
-    static func makeProcessSnapshotService() -> ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields> {
-        ProcessSnapshotService(
-            capture: { try CmuxTopProcessSampler().capture() },
-            enrich: { try CmuxTopProcessSampler().enrich($0, fields: $1) }
+    /// - Parameters:
+    ///   - reader: Native process reads; tests pass a synthetic reader.
+    ///   - now: Monotonic clock for the service's age bounds.
+    static func makeProcessSnapshotService(
+        reader: any CmuxTopProcessReading = CmuxTopProcessReader(),
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }
+    ) -> ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields> {
+        let sampler = CmuxTopProcessSampler(reader: reader)
+        return ProcessSnapshotService(
+            now: now,
+            capture: { try sampler.capture() },
+            enrich: { try sampler.enrich($0, fields: $1) }
         )
     }
 

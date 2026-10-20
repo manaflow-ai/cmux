@@ -171,4 +171,53 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         release.continuation.finish()
     }
 
+    // An idle machine: back-to-back fresh censuses of the same 4096 processes.
+    // Each process's argv/environment (KERN_PROCARGS2) and details are read
+    // once, not once per census: a census per few seconds over ~4000 agent
+    // processes kept a full core busy in sysctl (2026-10-20, cmux 0.65.2).
+    @Test func idleFreshCensusesReadEachUnchangedProcessOnce() async {
+        let reader = SyntheticProcessSnapshotReader()
+        let service = CmuxTopProcessSnapshot.makeProcessSnapshotService(reader: reader, now: { reader.now() })
+        _ = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false, service: service)
+        let first = reader.state.withLock { $0.counts }
+        var last: CmuxTopProcessSnapshot?
+        for _ in 0..<2 {
+            last = await CmuxTopProcessSnapshot.capture(
+                includeProcessDetails: true, includeResources: false, service: service
+            )
+        }
+        let counts = reader.state.withLock { $0.counts }
+        #expect(counts.enumerations == 3)
+        // Two more fresh censuses read no argv/environment, names or paths...
+        #expect(counts.scope - first.scope == 0)
+        #expect(counts.paths - first.paths == 0)
+        #expect(counts.names - first.names == 0)
+        // ...and one cheap exec-identity read per process each.
+        #expect(counts.identity - first.identity == 2 * 4096)
+        #expect(last?.cmuxScopedProcesses().count == 4096)
+    }
+
+    // A process that execs keeps its PID and start time; only it is read again,
+    // and its new scope is seen (absence is never kept across an exec).
+    @Test func freshCensusRereadsOnlyAProcessThatExeced() async {
+        let reader = SyntheticProcessSnapshotReader(count: 100)
+        reader.state.withLock { $0.hasScope = false }
+        let service = CmuxTopProcessSnapshot.makeProcessSnapshotService(reader: reader, now: { reader.now() })
+        let first = await CmuxTopProcessSnapshot.capture(includeResources: false, service: service)
+        #expect(first.cmuxScopedProcesses().isEmpty)
+        reader.state.withLock { $0.hasScope = true; $0.execedPID = 150 }
+        let fresh = await CmuxTopProcessSnapshot.capture(includeResources: false, service: service)
+        #expect(reader.state.withLock { $0.counts.scope } == 101)
+        #expect(fresh.cmuxScopedProcesses().map(\.pid) == [150])
+    }
+
+    // A reused PID (new process, same number) is a different process: read again.
+    @Test func freshCensusRereadsAReusedPID() async {
+        let reader = SyntheticProcessSnapshotReader(count: 100)
+        let service = CmuxTopProcessSnapshot.makeProcessSnapshotService(reader: reader, now: { reader.now() })
+        _ = await CmuxTopProcessSnapshot.capture(includeResources: false, service: service)
+        reader.state.withLock { $0.reusedPID = 160 }
+        _ = await CmuxTopProcessSnapshot.capture(includeResources: false, service: service)
+        #expect(reader.state.withLock { $0.counts.scope } == 101)
+    }
 }

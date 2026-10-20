@@ -26,6 +26,10 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
         var instant = ContinuousClock.now
         var replacedPID: Int?
         var missingPID: Int?
+        /// A PID whose process exec'd: same PID and start time, new image.
+        var execedPID: Int?
+        /// A PID now held by a different process with the same start time.
+        var reusedPID: Int?
         var complete = true
         var hasScope = true
         var mainThreadReads = 0
