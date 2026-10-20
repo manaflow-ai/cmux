@@ -1,6 +1,6 @@
 // Session reference hover cards (started/SessionHoverCard.tsx): a started chat's name chip and a
 // session id in a reply show the session as a row of Claude Code's PR list does, the title over
-// `Status · repo #N` and nothing more, beside the chip (above it when more of the reply runs under
+// `Status · repo #N`, then its folder and branch, beside the chip (above it when more of the reply runs under
 // it), after a short rest of the pointer, at once for keyboard focus, and a click on it opens it.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -34,12 +34,16 @@ describe("hover info", () => {
     expect(status({ indicator: "done" })).toBe("done");
   });
 
-  test("the title and status, and nothing more", () => {
+  test("the title, the status, then where it runs: its folder and branch", () => {
     expect(hoverInfo(entry({ updatedAt: 5 }))).toEqual({
       sessionId: ID,
       title: "Switch gh-merge-green to merge-freeze issues",
       status: "done",
+      meta: ["cmux"],
     });
+    expect(hoverInfo(entry({ branch: "merge-freeze" })).meta).toEqual(["cmux", "merge-freeze"]);
+    expect(hoverInfo(entry({ host: "mini-7", hostKind: "cloud", branch: "main" })).meta).toEqual(["cmux", "mini-7"]);
+    expect(hoverInfo(sessionEntry({ sessionId: ID, title: "No folder" })).meta).toBeUndefined();
   });
 
   test("a pull request's status leads, as on the chat's row", () => {
@@ -103,20 +107,31 @@ describe("SessionHoverStore", () => {
 describe("the card", () => {
   const info = { sessionId: ID, title: "Switch gh-merge-green to merge-freeze issues" };
 
-  // Claude Code's PR list rows: the title, then the status line (glyph and word in its colour, then
-  // `· repo #N`). No project, no age, no outline around the status.
-  test("the title over the status line, and nothing more", () => {
+  // Claude Code's PR list rows, then Claude desktop's card meta (Leo, 2026-10-20: "title, then the
+  // status row, then meta"): the title, the status line (glyph and word in its colour, then
+  // `· repo #N`), then the folder and branch in the muted caption. No age, no outline around the status.
+  test("the title over the status line over the meta line", () => {
     const html = renderToStaticMarkup(
       <SessionHoverContent
-        info={{ ...info, status: "failing", pullRequests: { count: 1, tone: "failing", number: 22092, repo: "cmux" } }}
+        info={{
+          ...info,
+          status: "failing",
+          pullRequests: { count: 1, tone: "failing", number: 22092, repo: "cmux" },
+          meta: ["cmux", "merge-freeze"],
+        }}
         onOpen={() => undefined}
       />,
     );
     expect(html).toMatch(
-      /class="acpmux-session-hover-title">Switch gh-merge-green to merge-freeze issues<[^]*class="acpmux-session-status" data-status="failing"[^]*>Checks failed<[^]*>cmux #22092</,
+      /class="acpmux-session-hover-title">Switch gh-merge-green to merge-freeze issues<[^]*class="acpmux-session-status" data-status="failing"[^]*>Checks failed<[^]*>cmux #22092<[^]*class="acpmux-session-hover-meta">cmux · merge-freeze</,
     );
     expect(html).not.toContain("pill");
     expect(html).not.toContain("age");
+  });
+
+  test("without a folder there is no meta line", () => {
+    const html = renderToStaticMarkup(<SessionHoverContent info={{ ...info, status: "done" }} onOpen={() => undefined} />);
+    expect(html).not.toContain("acpmux-session-hover-meta");
   });
 
   test("a running session's status draws the bare spinner", () => {

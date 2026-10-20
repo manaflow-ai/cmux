@@ -2,11 +2,11 @@
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { sessionEntry } from "../sessionList";
-import { type SessionHoverInfo, SessionHoverStore } from "./sessionHover";
+import { type SessionHoverInfo, SessionHoverStore, hoverInfo } from "./sessionHover";
 import { SessionHoverContent, SessionHoverContext } from "./SessionHoverCard";
 import { StartedSessionChip } from "./StartedSessionCard";
 
-type Props = { mode: "states" | "chip" };
+type Props = { mode: "states" | "chip" | "reply" };
 
 const NOW = Date.now();
 /// One card for each kind of status line: a PR's status, needs input, failed, running, new activity, done.
@@ -36,22 +36,36 @@ const cards: SessionHoverInfo[] = [
 ];
 
 const CHIP_ID = "01a0ebd5-0efe-721d-9edc-cf1a6ba78d98";
+const chipEntry = sessionEntry({
+  sessionId: CHIP_ID,
+  title: "Switch gh-merge-green to merge-freeze issues",
+  cwd: "/Users/you/Projects/cmux",
+  branch: "merge-freeze",
+  indicator: "working",
+  updatedAt: NOW,
+  pullRequests: ["https://github.com/manaflow-ai/cmux/pull/22092"],
+  pullRequest: { number: 22092, title: "Switch gh-merge-green", state: "open", checks: "failing" },
+});
 const store = new SessionHoverStore();
-store.set([
-  sessionEntry({
-    sessionId: CHIP_ID,
-    title: "Switch gh-merge-green to merge-freeze issues",
-    cwd: "/Users/you/Projects/cmux",
-    indicator: "working",
-    updatedAt: NOW,
-    pullRequests: ["https://github.com/manaflow-ai/cmux/pull/22092"],
-    pullRequest: { number: 22092, title: "Switch gh-merge-green", state: "open", checks: "failing" },
-  }),
-]);
+store.set([chipEntry]);
 
 /// Each state's card as it shows over a reference, or a reply whose session id chip shows its card
 /// on hover.
 function GallerySessionHover({ mode }: Props) {
+  // The card where it shows in the app: over the transcript, beside a user bubble it must not read as.
+  if (mode === "reply")
+    return (
+      <div className="acpmux-shell">
+        <div data-hover-fixture style={{ flex: 1, minWidth: 0, padding: 12 }}>
+          <div className="acpmux-user" style={{ marginBottom: 12 }}>
+            <div className="acpmux-user-bubble">Run the merge-freeze switch as a background chat.</div>
+          </div>
+          <div className="ui-tooltip ui-card acpmux-session-hover-card" style={{ position: "static", width: "fit-content" }}>
+            <SessionHoverContent info={hoverInfo(chipEntry)} onOpen={() => undefined} />
+          </div>
+        </div>
+      </div>
+    );
   if (mode === "chip")
     return (
       <div className="acpmux-shell">
@@ -116,6 +130,11 @@ export default componentEntry<Props>({
     states: {
       note: "Each kind of status line under the title: checks failed and merged PRs, needs input, failed, running (the bare spinner), new activity and done.",
       props: { mode: "states" },
+    },
+    reply: {
+      note: "The card over the transcript beside a user bubble: the popup surface, a hairline and the hover card elevation, then the title, the status row and the folder and branch.",
+      props: { mode: "reply" },
+      height: 180,
     },
     chip: {
       note: "Play: focus on a reply's session chip shows its card at once; the pointer waits 500 ms first.",
