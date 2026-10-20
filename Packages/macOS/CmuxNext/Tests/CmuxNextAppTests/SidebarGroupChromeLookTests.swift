@@ -122,10 +122,17 @@ import Testing
             .group(SidebarGroup(id: open, name: "Backend", color: .green, workspaces: [w[1], w[2]])),
             .group(SidebarGroup(id: closed, name: "Infra", color: .orange, isCollapsed: true, workspaces: [w[3], w[4]])),
         ]
+        // The member count is opt-in (`sidebar.groupHeader.memberCount`, Lawrence 2026-10-20).
+        let design = DesignSettings()
+        design.sidebarSections.groupHeaderMemberCount = true
         let sidebar = SidebarView(model: SidebarModel(sections: [CmuxNextSidebar.SidebarSection(kind: section.kind, nodes: nodes)]),
-                                  design: DesignSettings())
+                                  design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
+        // The settings reach the list on an observation a turn later; draw them in this turn.
+        sidebar.renderNow()
         sidebar.layoutSubtreeIfNeeded()
+        sidebar.list.reload(animated: false)
+        sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
         return (sidebar, w[0].id)
     }
 }
