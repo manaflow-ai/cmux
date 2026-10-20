@@ -1,11 +1,10 @@
-import CmuxAuthRuntime
 import CmuxNextCloud
 
 @MainActor
 final class CloudSessionLifecycleWorld {
-    var selected: AuthenticatedSessionIdentity?
+    var selected: CloudSessionLifecycle.Identity?
     private(set) var events: [String] = []
-    private(set) var live: AuthenticatedSessionIdentity?
+    private(set) var live: CloudSessionLifecycle.Identity?
     private var hold = false
     private var pending: CheckedContinuation<Void, Never>?
     private let held = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -13,8 +12,8 @@ final class CloudSessionLifecycleWorld {
         start: { [weak self] in await self?.start($0) },
         retire: { [weak self] in self?.retire($0) })
 
-    func choose(_ account: String, generation: UInt64) -> AuthenticatedSessionIdentity {
-        let identity = AuthenticatedSessionIdentity(generation: generation, accountID: account)
+    func choose(_ account: String, generation: UInt64) -> CloudSessionLifecycle.Identity {
+        let identity = CloudSessionLifecycle.Identity(generation: generation, accountID: account)
         selected = identity
         return identity
     }
@@ -23,8 +22,8 @@ final class CloudSessionLifecycleWorld {
     func waitUntilHeld() async { var i = held.stream.makeAsyncIterator(); _ = await i.next() }
     func release() { pending?.resume(); pending = nil }
 
-    private func label(_ identity: AuthenticatedSessionIdentity) -> String { "\(identity.accountID):\(identity.generation)" }
-    private func start(_ identity: AuthenticatedSessionIdentity) async {
+    private func label(_ identity: CloudSessionLifecycle.Identity) -> String { "\(identity.accountID):\(identity.generation)" }
+    private func start(_ identity: CloudSessionLifecycle.Identity) async {
         events.append("begin " + label(identity))
         if hold {
             hold = false

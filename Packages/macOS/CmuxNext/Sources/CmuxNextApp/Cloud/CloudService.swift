@@ -119,7 +119,7 @@ final class CloudService {
             })
         }
         credentialProvider = CloudCredentialOwner(auth: auth, identity: identity, scope: scope, transport: transport, native: nativeLink).provider
-        sessionLifecycle = makeSessionLifecycle()
+        if configuration.linkSource == .appServer { sessionLifecycle = makeSessionLifecycle() }
     }
 
     var isSignedIn: Bool { auth.isSignedIn }
@@ -155,13 +155,7 @@ final class CloudService {
             })
         }
         observers.append(Task { [weak self] in
-            guard let self, let lifecycle = self.sessionLifecycle else { return }
-            let identities = auth.coordinator.authenticatedSessionIdentities()
-            await auth.awaitRestored()
-            for await identity in identities {
-                guard !Task.isCancelled else { return }
-                await lifecycle.update(identity).value
-            }
+            await self?.observeCloudSessions()
         })
         observers.append(Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
@@ -192,7 +186,8 @@ final class CloudService {
             // task-owner: one list fetch after the policy lifted
             Task { [weak self] in
                 guard let self, auth.isSignedIn else { return }
-                await sessionLifecycle?.refresh(auth.coordinator.authenticatedSessionIdentity).value
+                if let sessionLifecycle { await sessionLifecycle.refresh(auth.coordinator.authenticatedSessionIdentity).value }
+                else { await hub?.resume(); await installSignedIn(); await refresh() }
             }
         }
     }
@@ -358,7 +353,7 @@ final class CloudService {
         isSigningOut = true
         defer { isSigningOut = false }
         if let sessionLifecycle { await sessionLifecycle.suspend().value }
-        else { await retireCloudSession(.session) }
+        else { dropAllMachines(); await endCredentialSession(); await nativeLink?.end() }
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser {

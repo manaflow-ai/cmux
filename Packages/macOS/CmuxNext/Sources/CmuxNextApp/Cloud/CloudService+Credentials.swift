@@ -1,9 +1,9 @@
-import CmuxAuthRuntime
+import CmuxNextCloud
 import CmuxNextDaemon
 
 extension CloudService {
     /// Only a live sign-in can reopen the provider; a reconnect cannot end the sign-out barrier.
-    func beginCredentialSession(identity: AuthenticatedSessionIdentity) async {
+    func beginCredentialSession(identity: CloudSessionLifecycle.Identity) async {
         guard configuration.linkSource == .appServer, let provider = credentialProvider else { return }
         await provider.waitForSessionDrain()
         guard isCloudSessionCurrent(identity), !Task.isCancelled else { return }

@@ -1,5 +1,5 @@
-import CmuxAuthRuntime
 import CmuxNextCloud
+import CmuxNextCompat
 
 extension CloudService {
     func makeSessionLifecycle() -> CloudSessionLifecycle {
@@ -9,12 +9,41 @@ extension CloudService {
             retire: { [weak self] in await self?.retireCloudSession($0) })
     }
 
-    func isCloudSessionCurrent(_ identity: AuthenticatedSessionIdentity) -> Bool {
-        !isSigningOut && sessionLifecycle?.isCurrent(identity) == true
+    func isCloudSessionCurrent(_ identity: CloudSessionLifecycle.Identity) -> Bool {
+        guard !isSigningOut, auth.coordinator.isAuthenticatedSessionIdentityCurrent(identity) else { return false }
+        return sessionLifecycle?.isCurrent(identity) ?? (configuration.linkSource == .legacy)
+    }
+
+    func observeCloudSessions() async {
+        if let sessionLifecycle {
+            let identities = auth.coordinator.authenticatedSessionIdentities()
+            await auth.awaitRestored()
+            for await identity in identities {
+                guard !Task.isCancelled else { return }
+                await sessionLifecycle.update(identity).value
+            }
+        } else {
+            // The frozen legacy route retains its existing hub/revoke lifetime.
+            await auth.awaitRestored()
+            for await signedIn in ObservationStream({ self.auth.isSignedIn }) {
+                if signedIn {
+                    guard auth.isSignedIn, !isSigningOut, !Task.isCancelled else { continue }
+                    await hub?.resume()
+                    await installSignedIn()
+                    hands.start()
+                    await refresh()
+                } else {
+                    dropAllMachines()
+                    await endCredentialSession()
+                    await installIdentity.unbind()
+                    hands.stop()
+                }
+            }
+        }
     }
 
     /// Each awaited startup stage remains bound to the original session.
-    private func startCloudSession(_ identity: AuthenticatedSessionIdentity) async {
+    private func startCloudSession(_ identity: CloudSessionLifecycle.Identity) async {
         guard isCloudSessionCurrent(identity), !policyDisabled, !Task.isCancelled else { return }
         await nativeLink?.resume()
         guard isCloudSessionCurrent(identity), !policyDisabled else { return }
@@ -37,7 +66,6 @@ extension CloudService {
         case .session: await nativeLink?.end()
         case .quit: await nativeLink?.suspend()
         }
-        await hub?.stop()
         await installIdentity.unbind()
     }
 }
