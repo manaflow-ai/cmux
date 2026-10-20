@@ -94,6 +94,11 @@ export const snapshotDelete = (config: CloudConfig, state: CloudState, params: u
   return { ok: true, state: s, value: { deleted: true }, writes: [...cancelled, upsertLedger(ledger, rev), upsertSnapshot(row, stored.n)] }
 }
 
+/** A snapshot_delete may settle on an empty key fence when no capture under the key can still be in flight:
+ *  a journaled capture, or a row whose capture already ended (ready, or a legacy failure that predates the journal). */
+export const emptyFenceSettles = (l: Pick<LedgerRow, "capture_protocol" | "snapshot_status">): boolean =>
+  l.capture_protocol === 1 || l.snapshot_status === "ready" || l.snapshot_status === "failed"
+
 /** cloud.snapshot.restore: a new machine from a ready snapshot (all create checks), through create's from_snapshot. */
 export const snapshotRestore = (_state: CloudState, params: unknown, ctx: ReduceContext, create: (params: unknown) => ReduceResult<CloudState>): ReduceResult<CloudState> => {
   const d = decodeParams<typeof CloudSnapshotRestore.params.Type>(CloudSnapshotRestore, params)
