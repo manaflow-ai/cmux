@@ -84,6 +84,9 @@ DAEMON_PATHS = (
     # The classic import and migration suites start the live daemon too.
     PACKAGE + "Tests/CmuxNextAppTests/ClassicImportTests.swift",
     PACKAGE + "Tests/CmuxNextAppTests/ClassicMigrationTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeSimulationTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeHugeSimulationTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeSimulator.swift",
     PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicSessions.swift",
     PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift",
 )
