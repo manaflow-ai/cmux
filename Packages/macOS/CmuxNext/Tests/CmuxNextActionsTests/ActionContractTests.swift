@@ -29,7 +29,8 @@ import Testing
     /// rows act on the right-clicked element; Archive Chief and Open
     /// Conversation act on a row of the Home page's list; Send Message… and Send to (Chief)… act on
     /// the right-clicked object or selection, and Send Message To… is their palette row; Start Agent from
-    /// Any App is the system-wide key of Start Agent, whose row it is; the sidebar's Compact
+    /// Any App and Message the Chief from Any App are the system-wide keys of Start Agent and Message the
+    /// Chief, whose rows they are; the sidebar's Compact
     /// and Comfortable rows are the app density's "Density: Compact/Comfortable" rows).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
@@ -40,7 +41,7 @@ import Testing
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
             == (["agent.openSessionWorkspace", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
-                "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.messageAbout", "home.openConversation", "home.sendSelectionTo",
+                "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo",
                 "home.sendSelectionToChief", "list.next", "list.previous",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
                 "sidebar.density.comfortable", "sidebar.density.compact"]

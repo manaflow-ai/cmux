@@ -76,8 +76,13 @@ extension HomeChiefPetSetting {
     /// Message the Chief (`home.messageChiefPet`; the palette, and a shortcut a person can bind): the
     /// pet with its reply box open. Off, it turns `home.chiefPetEnabled` on as the person first, then
     /// `summon` runs once the write has landed; on, `summon` runs at once. Person-only, like the
-    /// toggle: an agent can neither turn the pet on nor put a box that takes the keys over every app.
+    /// toggle: an agent cannot put a box that takes the keys over every app (it turns the pet on
+    /// with `cmux settings set`, which opens no box).
     public static let messageAction: ActionID = "home.messageChiefPet"
+    /// Message the Chief from Any App: its system-wide key (Ctrl-Opt-Cmd-C). Enabled only while the pet is
+    /// on, so GlobalHotKeyService registers it only then (`ActionRegistry.globalHotKeys`); with the pet off
+    /// the key stays with other apps.
+    public static let messageFromAnyAppAction: ActionID = "home.messageChiefFromAnyApp"
 
     @MainActor public func bindMessage(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
                                        unavailable: String, summon: @escaping @MainActor () -> Void) {
@@ -88,7 +93,7 @@ extension HomeChiefPetSetting {
     /// that write lands, and its own write goes after it, so the newest command wins.
     @MainActor func bindMessage(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
                                 unavailable: String, toggles: ChiefPetToggles, summon: @escaping @MainActor () -> Void) {
-        registry.bind(Self.messageAction, invoke: { invocation in
+        let message: @MainActor (ActionInvocation) -> Void = { invocation in
             // The control socket refuses a person-only action first; an in-app run from elsewhere stops here,
             // with the settings layer's own words for a user-only key.
             guard invocation.origin == .user else {
@@ -113,7 +118,9 @@ extension HomeChiefPetSetting {
             }
             if !enabled { toggles.last = work }
             registry.track(work)
-        })
+        }
+        registry.bind(Self.messageAction, invoke: message)
+        registry.bind(Self.messageFromAnyAppAction, isEnabled: { settings()?.snapshot.homeChiefPetEnabled == true }, invoke: message)
     }
 }
 
