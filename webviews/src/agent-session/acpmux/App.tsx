@@ -55,7 +55,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
-import { isAgentHome, projectLabel } from "./sessionList";
+import { isAgentHome, projectLabel, sessionTitle } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
@@ -99,7 +99,9 @@ import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
 import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
+import { cardTakesShortcuts } from "./permissionKeys";
 import { QuestionCard } from "./question/QuestionCard";
+import { QUESTION_RECORD } from "./question/record";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
@@ -218,7 +220,8 @@ import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
-import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
+import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
@@ -229,6 +232,7 @@ import {
   SUBAGENT_ROW,
   type SubagentRows,
   childView,
+  runningGroups,
   subagentRowsFrom,
   subagentsIn,
 } from "./subagents/subagentRows";
@@ -240,6 +244,7 @@ import {
   SubagentNavContext,
   SubagentOfRow,
   SubagentPaneContext,
+  SubagentClockContext,
   SubagentStopContext,
   running,
 } from "./subagents/SubagentGroup";
@@ -764,6 +769,15 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// A decided question's record (question/record.ts): the card's own answered or cancelled form,
+/// which answers nothing.
+const QuestionRecordRow = memo(
+  function QuestionRecordRow({ row }: RowProps) {
+    return row.question ? <QuestionCard question={row.question} onReply={ignoreReply} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const ignoreReply = () => {};
 /// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
 const SubagentGroupRow = memo(
   function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
@@ -844,6 +858,7 @@ const defaultRegistry: NativeRegistry = {
   [OFFER_RESULT]: OfferResultRow,
   typing: NoticeRow,
   permission: PermissionRow,
+  [QUESTION_RECORD]: QuestionRecordRow,
   [SHELL_ROW]: ShellRow,
   [SUBAGENTS]: SubagentGroupRow,
   [SUBAGENT_ROW]: SubagentRow,
@@ -2536,20 +2551,34 @@ function PermissionAsk({
   permission,
   harness,
   focusComposer,
+  shortcuts,
+  waiting = 0,
 }: {
   permission: AcpmuxPermission;
   harness?: string;
   focusComposer?: () => void;
+  /// False while a permission group's panel takes the shortcuts (permissionKeys.ts `cardTakesShortcuts`).
+  shortcuts?: boolean;
+  /// More asks waiting behind this one (snapshot `permissionsWaiting`).
+  waiting?: number;
 }) {
-  return permission.question ? (
-    <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
-  ) : (
-    <PermissionCard
-      permission={permission}
-      harness={harness}
-      focusComposer={focusComposer}
-      onAnswer={answerPermission(permission)}
-    />
+  const t = useT();
+  if (!permission.question)
+    return (
+      <PermissionCard
+        permission={permission}
+        harness={harness}
+        focusComposer={focusComposer}
+        shortcuts={shortcuts}
+        onAnswer={answerPermission(permission)}
+        waiting={waiting}
+      />
+    );
+  return (
+    <>
+      {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
+      <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
+    </>
   );
 }
 
@@ -2871,6 +2900,8 @@ function AcpmuxPane() {
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
   // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
   const [readHealth, setHarnessHealth] = useState<HarnessHealth>();
+  /// An agent CLI update on offer (hq#2569 #12): the model chip's dot and picker row, not a banner.
+  const [updateOffer, setUpdateOffer] = useState<UpdateOffer>();
   const healthHarness = snapshot.summary?.harness;
   const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
   /// `harness.health {id, refresh?, rescan?}` answered by this Mac's acpmux (the Harnesses page asks
@@ -3086,7 +3117,9 @@ function AcpmuxPane() {
   /// A fresh chat shows its empty state until something is in it: a prompt, or a command it ran.
   const freshView = freshChat && chatShellRuns.length === 0;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
-  const chatName = snapshot.summary?.title || snapshot.summary?.name || "";
+  // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
+  // name (`claude-2`), and "New chat" before it has a title, never nothing.
+  const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
   const childRows = useMemo(
     () =>
       subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
@@ -3169,9 +3202,32 @@ function AcpmuxPane() {
   // Another chat closes the subagent view in the render that shows it, not an effect later (which
   // drew one frame of the old subagent id against the new chat's rows: an empty child view).
   const [subagentChat, setSubagentChat] = useState(shownSessionId);
+  // The groups opened on their own, each once: a group the person closes stays closed.
+  const [openedGroups, setOpenedGroups] = useState<ReadonlySet<string>>(() => new Set());
+  // The open folds are each chat's own (row ids such as `subagents-<seq>` repeat across chats):
+  // the chats shown before keep theirs here for a switch back.
+  const [chatFolds, setChatFolds] = useState<
+    ReadonlyMap<string, { expanded: Set<string>; opened: ReadonlySet<string> }>
+  >(() => new Map());
   if (subagentChat !== shownSessionId) {
     setSubagentChat(shownSessionId);
     setSubagentView(undefined);
+    const kept = shownSessionId === undefined ? undefined : chatFolds.get(shownSessionId);
+    if (subagentChat !== undefined)
+      setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups }));
+    setExpanded(kept?.expanded ?? new Set());
+    setOpenedGroups(kept?.opened ?? new Set());
+  }
+  // A group of subagents starts open while its agents run in the working turn, in the render that
+  // first draws it (an agent a cancel or a reconnect left "running" in an earlier turn opens none).
+  const liveGroups = useMemo(
+    () => (snapshot.isWorking ? runningGroups(snapshot.rows, snapshot.subagentViews) : []),
+    [snapshot.isWorking, snapshot.rows, snapshot.subagentViews],
+  );
+  const newGroups = subagentChat === shownSessionId ? liveGroups.filter((id) => !openedGroups.has(id)) : [];
+  if (newGroups.length > 0) {
+    setOpenedGroups(new Set([...openedGroups, ...newGroups]));
+    setExpanded((current) => new Set([...current, ...newGroups]));
   }
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
   useEffect(() => {
@@ -3841,7 +3897,7 @@ function AcpmuxPane() {
     if (!prompt.current) return false;
     prompt.current.focus();
     return true;
-  });
+  }, pageHostClient());
   /// The New Tab page's field, while it shows: dictation writes there then (it has no composer).
   const newTabDictationField = useRef<DictationField | null>(null);
   const dictationTarget = useRef<{ readonly current: DictationField | null }>({
@@ -5403,50 +5459,54 @@ function AcpmuxPane() {
                     <SubagentPaneContext.Provider value={showSubagent}>
                       <WorkingCountsContext.Provider value={workingCounts}>
                         <SubagentStopContext.Provider value={stopSubagent}>
-                          <SubagentHarnessContext.Provider
-                            value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                          >
-                            <ChatFindScope
-                              rows={childRows ?? sourceRows}
-                              shown={childRows ? undefined : transcriptRows}
-                              openFold={openFold}
-                              findRef={findRef}
+                          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+                            <SubagentHarnessContext.Provider
+                              value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                             >
-                              {(find) => (
-                                <VirtualTranscript
-                                  rows={transcriptRows}
-                                  working={snapshot.isWorking}
-                                  // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                  jumpButton={!quick}
-                                  focusComposer={() => composerHandle.current?.focus()}
-                                  // Quick Chat's panel stacks its composer below the transcript.
-                                  dock={quick ? undefined : dock}
-                                  find={quick ? undefined : find}
-                                  sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                                  canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                  onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
-                                  openAt={
-                                    !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                                      ? scrollAnchor
-                                      : undefined
-                                  }
-                                  anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                  onAnchor={
-                                    quick || childRows || !shownSessionId
-                                      ? undefined
-                                      : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                  }
-                                  expanded={expanded}
-                                  reveal={childRows ? undefined : revealRow}
-                                  registry={registry}
-                                  githubRepository={githubRepository}
-                                  // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                  onOpenDiff={quick ? undefined : openDiff}
-                                  onToggleActivity={toggleActivity}
-                                />
-                              )}
-                            </ChatFindScope>
-                          </SubagentHarnessContext.Provider>
+                              <ChatFindScope
+                                rows={childRows ?? sourceRows}
+                                shown={childRows ? undefined : transcriptRows}
+                                openFold={openFold}
+                                findRef={findRef}
+                              >
+                                {(find) => (
+                                  <VirtualTranscript
+                                    rows={transcriptRows}
+                                    working={snapshot.isWorking}
+                                    // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                    jumpButton={!quick}
+                                    focusComposer={() => composerHandle.current?.focus()}
+                                    // Quick Chat's panel stacks its composer below the transcript.
+                                    dock={quick ? undefined : dock}
+                                    find={quick ? undefined : find}
+                                    sessionId={
+                                      childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
+                                    }
+                                    canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                    onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
+                                    openAt={
+                                      !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                        ? scrollAnchor
+                                        : undefined
+                                    }
+                                    anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                    onAnchor={
+                                      quick || childRows || !shownSessionId
+                                        ? undefined
+                                        : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                    }
+                                    expanded={expanded}
+                                    reveal={childRows ? undefined : revealRow}
+                                    registry={registry}
+                                    githubRepository={githubRepository}
+                                    // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                    onOpenDiff={quick ? undefined : openDiff}
+                                    onToggleActivity={toggleActivity}
+                                  />
+                                )}
+                              </ChatFindScope>
+                            </SubagentHarnessContext.Provider>
+                          </SubagentClockContext.Provider>
                         </SubagentStopContext.Provider>
                       </WorkingCountsContext.Provider>
                     </SubagentPaneContext.Provider>
@@ -5530,7 +5590,10 @@ function AcpmuxPane() {
           />
           {individualPermission && (
             <PermissionAsk
+              key={individualPermission.permissionId}
               permission={individualPermission}
+              shortcuts={cardTakesShortcuts(snapshot.permissionGroups)}
+              waiting={snapshot.permissionsWaiting}
               harness={snapshot.summary?.harness}
               focusComposer={() => composerHandle.current?.focus()}
             />
@@ -5619,21 +5682,35 @@ function AcpmuxPane() {
           failed={recapCard.failed}
         />
       )}
-      <DictationNotice dictation={dictation} />
-      {importError && (
+      <Notice id="dictation" tier="error" when={dictation.notice?.message}>
+        <DictationNotice dictation={dictation} />
+      </Notice>
+      <Notice id="import-error" tier="error" when={importError}>
         <p className="acpmux-composer-remote-note" role="alert">
           {importError}
         </p>
-      )}
-      <InstructionsNotice
-        failure={instructionsFailure?.failure}
-        onRetry={() =>
-          instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
-        }
-        onDismiss={() => setInstructionsFailure(undefined)}
-      />
-      {harnessCard ?? (
-        <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+      </Notice>
+      <Notice id="instructions" tier="error" when={instructionsFailure}>
+        <InstructionsNotice
+          failure={instructionsFailure?.failure}
+          onRetry={() =>
+            instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
+          }
+          onDismiss={() => setInstructionsFailure(undefined)}
+        />
+      </Notice>
+      {harnessCard ? (
+        <Notice id="harness-block" tier="error" when>
+          {harnessCard}
+        </Notice>
+      ) : (
+        <Notice
+          id="switch"
+          tier={snapshot.switching?.phase === "deferred" ? "status" : "error"}
+          when={snapshot.switching && snapshot.switching.phase !== "starting"}
+        >
+          <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+        </Notice>
       )}
       {!harnessCard && (
         <HarnessHealthNotice
@@ -5648,12 +5725,13 @@ function AcpmuxPane() {
           native={callNative}
           turnRunning={snapshot.isWorking}
           onUpdated={recheckHealth}
+          onOffer={setUpdateOffer}
         />
       )}
-      {folderNeeded && !snapshot.sessionId && (
+      <Notice id="missing-folder" tier="error" when={folderNeeded && !snapshot.sessionId}>
         <MissingFolder
-          reason={folderNeeded.reason}
-          error={folderNeeded.error}
+          reason={folderNeeded?.reason ?? ""}
+          error={folderNeeded?.error}
           onChoose={() => {
             void chooseChatFolder(
               () => callNative("chat.folder.choose"),
@@ -5673,7 +5751,7 @@ function AcpmuxPane() {
             );
           }}
         />
-      )}
+      </Notice>
       {pendingFolder ? (
         <StartFolderAsk
           ask={pendingFolder.ask}
@@ -5693,14 +5771,18 @@ function AcpmuxPane() {
           }}
         />
       ) : (
-        showsFolderChoice({
-          offered: chooseFolder,
-          freshChat,
-          quick,
-          projectDraft,
-          sessionId: snapshot.sessionId,
-          missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
-        }) && (
+        <Notice
+          id="folder-choice"
+          tier="hint"
+          when={showsFolderChoice({
+            offered: chooseFolder,
+            freshChat,
+            quick,
+            projectDraft,
+            sessionId: snapshot.sessionId,
+            missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
+          })}
+        >
           <FolderChoice
             error={folderError}
             onChoose={() => {
@@ -5714,14 +5796,14 @@ function AcpmuxPane() {
                 .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
             }}
           />
-        )
+        </Notice>
       )}
-      {worktreeCreating && freshChat && !snapshot.sessionId && (
+      <Notice id="worktree-creating" tier="status" when={worktreeCreating && freshChat && !snapshot.sessionId}>
         <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
-      )}
-      {worktreeError && freshChat && !snapshot.sessionId && (
-        <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />
-      )}
+      </Notice>
+      <Notice id="worktree-error" tier="error" when={worktreeError && freshChat && !snapshot.sessionId}>
+        <WorktreeFailure error={worktreeError ?? ""} onDismiss={() => setWorktreeError(undefined)} />
+      </Notice>
       {aside && (
         <SideQuestion
           state={aside}
@@ -5736,13 +5818,15 @@ function AcpmuxPane() {
       {/* The agents pill (subagents/AgentsPill.tsx): in the bottom stack, right above the composer,
           while the turn works; an agent a cancel or a reconnect left "running" shows none. */}
       {!quick && !freshView && snapshot.isWorking && chatTones && chatAgents.some(running) && (
-        <AgentsPill
-          key={shownSessionId}
-          agents={chatAgents}
-          waiting={waitingAgents}
-          tones={chatTones}
-          onOpen={showSubagent}
-        />
+        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+          <AgentsPill
+            key={shownSessionId}
+            agents={chatAgents}
+            waiting={waitingAgents}
+            tones={chatTones}
+            onOpen={showSubagent}
+          />
+        </SubagentClockContext.Provider>
       )}
       {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
       <ImageViewerContext.Provider value={openImage}>
@@ -5902,8 +5986,10 @@ function AcpmuxPane() {
       </ImageViewerContext.Provider>
     </>
   );
-  const hostErrorCard = hostError && (
-    <HostError message={hostError} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
+  const hostErrorCard = (
+    <Notice id="host-error" tier="error" when={hostError}>
+      <HostError message={hostError ?? ""} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
+    </Notice>
   );
   // The floating chat's compact bar shows whether the chat is working or waiting on the user, and
   // the reply's last line.
@@ -5977,18 +6063,20 @@ function AcpmuxPane() {
     // Its Subagents tab draws the transcript's subagent rows, avatars carrying the harness's mark and
     // a running one's stop button.
     <SubagentStopContext.Provider value={stopSubagent}>
-      <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
-        <SummaryCard
-          key={snapshot.sessionId}
-          card={summaryCard}
-          rows={snapshot.rows}
-          changes={quick ? undefined : lastChanges}
-          onOpenChanges={toggleLastChanges}
-          onOpenOutput={quick ? undefined : openOutput}
-          onOpenImage={quick ? undefined : openImage}
-          subagents={cardSubagents}
-        />
-      </SubagentHarnessContext.Provider>
+      <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+        <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+          <SummaryCard
+            key={snapshot.sessionId}
+            card={summaryCard}
+            rows={snapshot.rows}
+            changes={quick ? undefined : lastChanges}
+            onOpenChanges={toggleLastChanges}
+            onOpenOutput={quick ? undefined : openOutput}
+            onOpenImage={quick ? undefined : openImage}
+            subagents={cardSubagents}
+          />
+        </SubagentHarnessContext.Provider>
+      </SubagentClockContext.Provider>
     </SubagentStopContext.Provider>
   );
   const pane = (
@@ -6367,7 +6455,11 @@ function AcpmuxPane() {
   );
   return (
     <SignInContext.Provider value={signIn}>
-      <ChatAccountsContext.Provider value={chatAccounts}>{pane}</ChatAccountsContext.Provider>
+      <ChatAccountsContext.Provider value={chatAccounts}>
+        <UpdateOfferContext.Provider value={updateOffer}>
+          <NoticeSlot>{pane}</NoticeSlot>
+        </UpdateOfferContext.Provider>
+      </ChatAccountsContext.Provider>
     </SignInContext.Provider>
   );
 }
