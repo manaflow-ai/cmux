@@ -11,13 +11,17 @@ mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser: async () => user }),
 }));
 
-const { runCloudClient, RunSessionSetupError } = await import("../services/runs/cloudClient");
+const { runCloudClient, runCloudOrigin, RunSessionSetupError } = await import("../services/runs/cloudClient");
+const { projects } = await import("../scripts/cloud-vm/projects.mjs");
 const savedUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+const savedProject = process.env.VERCEL_PROJECT_ID;
 
 afterEach(() => {
   user = null;
   if (savedUrl === undefined) delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
   else process.env.VERCEL_PROJECT_PRODUCTION_URL = savedUrl;
+  if (savedProject === undefined) delete process.env.VERCEL_PROJECT_ID;
+  else process.env.VERCEL_PROJECT_ID = savedProject;
 });
 
 async function setupStage(): Promise<string> {
@@ -51,6 +55,7 @@ describe("Run worker Cloud session setup", () => {
   });
 
   test("names the Cloud origin when the deployment URL is not recognized", async () => {
+    delete process.env.VERCEL_PROJECT_ID;
     process.env.VERCEL_PROJECT_PRODUCTION_URL = "staging.example.invalid";
     user = { createSession: tokens({ accessToken: "a", refreshToken: "r" }) };
     expect(await setupStage()).toBe("cloud-origin");
@@ -60,5 +65,25 @@ describe("Run worker Cloud session setup", () => {
     process.env.VERCEL_PROJECT_PRODUCTION_URL = "cmux-staging.vercel.app";
     user = { createSession: tokens({ accessToken: "a", refreshToken: "r" }) };
     expect(typeof await runCloudClient("user-1", "team-1")).toBe("function");
+  });
+});
+
+// Staging dogfood run 39356945500 failed at cloud-origin: Vercel sets
+// VERCEL_PROJECT_PRODUCTION_URL to the project's shortest production domain,
+// which on staging is not cmux-staging.vercel.app. The project ID is fixed per
+// deployment, so it picks the origin the Cloud ops scripts already use.
+describe("Run worker Cloud origin", () => {
+  test("each Cloud project resolves to its ops origin whatever its production domain", () => {
+    for (const project of Object.values(projects)) {
+      process.env.VERCEL_PROJECT_ID = project.projectId;
+      process.env.VERCEL_PROJECT_PRODUCTION_URL = "some-custom-domain.example";
+      expect(runCloudOrigin()).toBe(project.url);
+    }
+  });
+
+  test("an unknown project never takes its origin from the production domain", () => {
+    process.env.VERCEL_PROJECT_ID = "prj_unknown";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "cmux-staging.vercel.app";
+    expect(() => runCloudOrigin()).toThrow();
   });
 });
