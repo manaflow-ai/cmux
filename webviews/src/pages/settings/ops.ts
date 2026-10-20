@@ -101,6 +101,8 @@ export type HostLists = {
   settings_file?: string | null;
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
+  /** Settings > Mobile: the iPhone host's status, space and connected phones; every text localized by the host. */
+  iphone?: IPhoneHostState | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -118,6 +120,61 @@ export type HostLists = {
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
+  /** Where a number row's slider starts when the app narrows its range (over a background
+   * picture, the window Opacity's legibility floor: a lower value paints the same tint). */
+  derived_min?: Record<string, number>;
+};
+
+/**
+ * The Mobile page's iPhone card: the cnx phone host the app runs while the schema row
+ * `mobile.allowIPhoneConnections` is on and an account is signed in. Every text is localized by
+ * the host.
+ */
+export type IPhoneHostState = {
+  title: string;
+  allowed: boolean;
+  status_title: string;
+  status: string;
+  /** `off`, `unavailable`, `connecting`, `online` or `waiting`. */
+  phase: string;
+  account_title: string;
+  /** "Registered as <email>": the account phones must sign in with; null while signed out. */
+  account: string | null;
+  space_title: string;
+  /** The team the Mac is listed in (or the personal space); null while signed out. */
+  space: string | null;
+  how_title: string;
+  how: string;
+  phones_title: string;
+  phones_empty: string;
+  /**
+   * The account's phones (with their live link when connected), then live links of phones the list
+   * does not have yet. `transport` (`webrtc`, `wireguard`) and `path` (`direct`, `relay`, `turn`)
+   * are read-only facts of a live link; only a `removable` row has Remove.
+   */
+  phones: Array<{
+    id: string;
+    title: string;
+    subtitle: string;
+    connected: boolean;
+    removable: boolean;
+    transport: string | null;
+    path: string | null;
+  }>;
+  /** Why the list could not load or a removal failed; null when it worked. */
+  phones_error: string | null;
+  remove_title: string;
+  remove_help: string;
+  /** With phase `removed` (the owner removed this Mac): the button that allows connections again. */
+  allow_again_title?: string;
+  /** Phones asking to pair, oldest first; Allow and Don't Allow are the person's own gesture. */
+  pending_title?: string;
+  pending?: Array<{ id: string; title: string; subtitle: string }>;
+  pair_allow_title?: string;
+  pair_deny_title?: string;
+  /** "Blocked requests: N" after a Don't Allow quieted prompts (or too many asked); null when none. */
+  blocked?: string | null;
+  blocked_help?: string;
 };
 
 /** `ComputerUseSetup.Phase` in the app. */
@@ -157,12 +214,27 @@ export type AccountsRow = {
   paste: { title: string; body: string; placeholder: string; buttons: AccountsButton[] } | null;
 };
 
+/**
+ * cmux's own account row. Button ids are run as actions: `cmux.signIn`, `cmux.cancelSignIn`,
+ * `cmux.continueInBrowser`, `cmux.switchAccount`, `cmux.signOut`.
+ */
+export type AccountsCmux = {
+  title: string;
+  detail: string | null;
+  status: string;
+  statusKind: "success" | "attention" | "neutral" | "quiet";
+  busy: boolean;
+  buttons: AccountsButton[];
+  note: string | null;
+  error: string | null;
+};
+
 /** The Accounts part as the host draws it (texts already localized by the app). */
 export type AccountsState = {
   refresh: string;
   refreshing: boolean;
-  /** The Sign In to cmux button's title when cmux is signed out. */
-  signIn: string | null;
+  /** cmux's own account: who is signed in, sign in, switch and sign out. */
+  cmux: AccountsCmux;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
 };
@@ -258,6 +330,8 @@ export type HarnessRow = {
   auth?: "signedIn" | "signedOut" | "unknown";
   /** How to update it; `elevated`: needs sudo, so the page shows `command` and never runs it. */
   update?: { command: string; elevated: boolean } | null;
+  /** The update owner runs this channel (npm or native); without it Update is not offered. */
+  ownerUpdate?: boolean;
   /** acpmux runs its update on its own when a check finds it outdated (off by default). */
   autoUpdate?: boolean;
   /** What auto-update last did for it. */
@@ -270,13 +344,32 @@ export type HarnessesState = {
   /** `unavailable`: no acpmux in this app; `unreachable`: its daemon did not answer. */
   problem: "unavailable" | "unreachable" | null;
   harnesses: HarnessRow[];
+  /** Receipts and terminal observations from the captured update owner. */
+  jobs?: Array<{
+    machine: string;
+    session: string;
+    cli: string;
+    profiles: string[];
+    terminal?: string;
+    intent_key?: string;
+    can_resume?: boolean;
+    /** Nothing runs for it (or the owner cannot tell): Dismiss stops it blocking another update. */
+    can_dismiss?: boolean;
+    state: "created" | "pending" | "exited" | "unknown";
+    exit_code?: number;
+    signal?: number;
+    /** With `exited`: the owner saw the end but no process result; settled, never a success. */
+    outcome?: "unknown";
+  }>;
 };
 
 /** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`; Update
- * (one `id`) and Update all type the harness's own update command into a terminal tab. */
+ * (one `id`) and Update all start owner-bound native terminal jobs. */
 export type HarnessesRun = {
-  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate";
+  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate" | "resumeUpdate" | "dismissUpdate";
   id?: string;
+  /** With `resumeUpdate` and `dismissUpdate`: the retained intent key, not a new operation id. */
+  intent?: string;
   /** With `autoUpdate`: turn it on or off for `id`. */
   on?: boolean;
   /** With `refresh`: the daemon checks every harness again (after an update). */
@@ -297,6 +390,12 @@ export type SettingsOps = {
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
+  /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
+  "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
+  /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
+  "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
+  /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
+  "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
@@ -439,6 +538,7 @@ export const settingsPageActions = [
   "palette.openCmuxSettingsFile",
   "openSettings",
   "browserProfile.new",
+  "server.addServer",
   "browserProfile.rename",
   "browserProfile.setColor",
   "browserProfile.clearColor",

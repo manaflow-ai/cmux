@@ -780,6 +780,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py
 
+      - name: Validate the INTERNAL iOS builder decisions
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ios_internal_builder.py
+
+      - name: Validate the INTERNAL iOS builder What to Test notes
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ios_internal_notes.py
+
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
@@ -1060,17 +1068,9 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_workflow_dispatch_ref.py
 
-      - name: Validate iOS simulator build-once contract
-        if: ${{ matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_simulator_build_once.py
-
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
-
-      - name: Validate iOS video recording failures
-        if: ${{ matrix.group == 'app-host-cache' }}
-        run: python3 tests/test_ios_video_recording.py
 
       - name: Validate selected iOS test execution guard
         if: ${{ matrix.group == 'app-host-cache' }}

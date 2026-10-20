@@ -22,6 +22,8 @@ nonisolated enum SidebarPerfCounters {
         case rebuilds
         case sectionSets = "section_sets"
         case listReloads = "list_reloads"
+        /// A group's fold drawn by splicing its rows (`SidebarListView.foldGroup`), no list reload.
+        case groupFolds = "group_folds"
         case rowPatches = "row_patches"
         case rowConfigures = "row_configures"
         case selectionPatches = "selection_patches"

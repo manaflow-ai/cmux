@@ -7,25 +7,36 @@ import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { elapsed, running, useNow } from "../subagents/SubagentGroup";
+import { elapsed, running, STATE_LABEL, useNow } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
 
 const ROW_ICON = rowIconSize(12);
 
 /// What a row says of its subagent: a subagent that asks the user for a permission or an answer
-/// is waiting on them, not running; a cancelled or lost one ended without its result.
-export type SubagentStatus = "running" | "waiting" | "done" | "failed";
+/// is waiting on them, not running; a cancelled (stopped by the person) or disconnected (lost by
+/// acpmux) one is stopped: it ended without its result, but did not fail.
+export type SubagentStatus = "running" | "waiting" | "done" | "failed" | "stopped";
 
 export const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
   running: "subagents.state.running",
   waiting: "subagents.state.waiting",
   done: "subagents.state.completed",
   failed: "subagents.state.failed",
+  stopped: "subagents.state.cancelled",
 };
 
 export function subagentStatus(agent: Subagent, waiting: ReadonlySet<string>): SubagentStatus {
   if (running(agent)) return waiting.has(agent.id) ? "waiting" : "running";
-  return agent.state === "completed" ? "done" : "failed";
+  if (agent.state === "completed") return "done";
+  return agent.state === "cancelled" || agent.state === "disconnected" ? "stopped" : "failed";
+}
+
+/// The label of a subagent's status: a stopped one says how it stopped (Cancelled, Disconnected),
+/// as its transcript row does.
+export function subagentStatusLabel(agent: Subagent, waiting: ReadonlySet<string>): StringKey {
+  const status = subagentStatus(agent, waiting);
+  if (status !== "stopped") return STATUS_LABEL[status];
+  return agent.state === "disconnected" ? STATE_LABEL.disconnected : STATE_LABEL.cancelled;
 }
 
 /// The tool calls the chat's open asks are about: the pending permission (`snapshot.permission`),
@@ -62,7 +73,8 @@ export function waitingSubagents(
 /// Depth-first from the chat's own subagents; on each level the ones waiting on the user first, then
 /// the running ones, then the ended ones, each newest first.
 function ordered(agents: readonly Subagent[], waiting: ReadonlySet<string>): { agent: Subagent; depth: number }[] {
-  const rank = (agent: Subagent) => ({ waiting: 0, running: 1, done: 2, failed: 2 })[subagentStatus(agent, waiting)];
+  const rank = (agent: Subagent) =>
+    ({ waiting: 0, running: 1, done: 2, failed: 2, stopped: 2 })[subagentStatus(agent, waiting)];
   const known = new Set(agents.map((agent) => agent.id));
   const out: { agent: Subagent; depth: number }[] = [];
   const visit = (parent: string | null, depth: number) => {
@@ -139,7 +151,9 @@ export function SubagentStatusList({
                   )}
                 </span>
                 <span className="acpmux-summary-meta">{formatDuration(elapsed(agent, now))}</span>
-                <span className="acpmux-summary-meta acpmux-summary-agent__state">{t(STATUS_LABEL[status])}</span>
+                <span className="acpmux-summary-meta acpmux-summary-agent__state">
+                  {t(subagentStatusLabel(agent, waiting))}
+                </span>
               </button>
             </li>
           );
