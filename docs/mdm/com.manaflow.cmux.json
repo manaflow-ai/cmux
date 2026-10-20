@@ -2415,6 +2415,12 @@
       "title" : "Rows",
       "type" : "boolean"
     },
+    "layout.scrollAreas" : {
+      "default" : false,
+      "description" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns.",
+      "title" : "Scroll Areas",
+      "type" : "boolean"
+    },
     "layout.splitSizing" : {
       "default" : "even",
       "description" : "Even gives every pane in the column the same size after a split.",
