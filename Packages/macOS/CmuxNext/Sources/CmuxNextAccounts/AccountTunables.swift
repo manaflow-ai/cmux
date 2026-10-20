@@ -15,7 +15,8 @@ public nonisolated enum SignInWindowChoice: String, Sendable, CaseIterable, Tuna
 }
 
 /// Debug Settings of the cmux account (DEV and NIGHTLY; Release uses the defaults).
-public nonisolated enum AccountTunables {
+public nonisolated struct AccountTunables {
+    public nonisolated init() {}
     static let section = TunableSection(id: "accounts", title: "Accounts", symbol: "person.crop.circle", order: 47)
 
     /// Where Sign In to cmux opens. Every entry point goes through CloudAuth.beginSignIn.
