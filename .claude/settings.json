@@ -16,7 +16,7 @@
           },
           {
             "type": "command",
-            "command": "bash scripts/ci/check-post-edit.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/ci/check-post-edit.sh\"",
             "timeout": 15
           }
         ]
