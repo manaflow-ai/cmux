@@ -212,7 +212,7 @@ impl Hub {
                 prompt_id: p.prompt_id.to_owned(),
                 turn_id: turn_id.to_owned(),
                 client: p.client.to_owned(),
-                preview: short_text(p.text, 200),
+                preview: super::session::masked_preview(p.text, 200),
                 queued_at: now_ms(),
                 withdraw: withdraw.clone(),
                 run: Arc::new(PromptRun {
@@ -579,7 +579,7 @@ impl Hub {
                 prompt_id: prompt_id.clone(),
                 turn_id,
                 client: field("client"),
-                preview: short_text(&text, 200),
+                preview: super::session::masked_preview(&text, 200),
                 queued_at: e.at,
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(PromptRun { blocks, control, trust_gate, provenance }),

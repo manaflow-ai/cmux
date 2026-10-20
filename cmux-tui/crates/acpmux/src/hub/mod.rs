@@ -87,6 +87,7 @@ mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+mod subsession_guard;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
