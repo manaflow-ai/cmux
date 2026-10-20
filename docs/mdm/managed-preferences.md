@@ -140,6 +140,17 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `ui.animations.enabled` | boolean | `true` |  | Play Animations. Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area. |
+| `ui.animations.sidebar` | boolean | `true` |  | Animate the Sidebar. Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once. |
+| `ui.animations.tabs` | boolean | `true` |  | Animate Tabs. Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once. |
+| `ui.animations.panes` | boolean | `true` |  | Animate Panes and Windows. Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once. |
+| `ui.animations.overlays` | boolean | `true` |  | Animate Menus and Cards. Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once. |
+| `ui.animations.hoverCards` | boolean | `true` |  | Animate Hover Cards. Hover cards and tooltips fade and slide in. Off: they show and hide at once. |
+| `ui.animations.home` | boolean | `true` |  | Animate Home and Chats. The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once. |
+| `ui.animations.cursor` | boolean | `true` |  | Animate the Agent Cursor. The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple. |
+| `ui.animations.indicators` | boolean | `true` |  | Animate Spinners and Progress. Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph. |
+| `ui.animations.feedback` | boolean | `true` |  | Animate Highlights and Colors. Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once. |
+| `ui.animations.web` | boolean | `true` |  | Animate cmux Web Pages. Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed. |
 | `appearance.surfaces.sidebar.color` | string |  |  | Sidebar Color |
 | `appearance.surfaces.sidebar.opacity` | real |  | 0 to 1 | Sidebar Opacity |
 | `appearance.surfaces.tabBar.color` | string |  |  | Tab Bar Color |
@@ -265,6 +276,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.groupBy` | string | `"none"` | `none`, `folder` | Group Projects By |
 | `sidebar.showSpaces` | boolean | `true` |  | Show Spaces |
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
+| `sidebar.showSearchButton` | boolean | `true` |  | Show Search Button. A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette. |
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Workspace rows show only their icon, name and unread mark, and section titles become thin lines. |
 | `sidebar.density` | string | `"compact"` | `compact`, `comfortable`, `expanded` | Sidebar Density. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer. |
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you. |
@@ -289,6 +301,16 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.hoverCards.sections.git` | boolean | `true` |  | Show Branch in Workspace Cards. The workspace's branch and pull request. |
 | `sidebar.hoverCards.sections.ports` | boolean | `true` |  | Show Ports in Workspace Cards. The ports the workspace listens on. |
 | `sidebar.hoverCards.maxRows` | real | `20` | 1 to 100 | Workspace Card History Lines. The most prompts, waits and finished turns a workspace's card lists. The list scrolls. |
+| `sidebar.hoverCards.groups.workspaceGroups` | boolean | `true` |  | Cards on Workspace Groups. A summary card opens when the pointer rests on a workspace group's header. |
+| `sidebar.hoverCards.groups.tabGroups` | boolean | `true` |  | Cards on Tab Groups. A summary card opens when the pointer rests on a tab group's chip. |
+| `sidebar.hoverCards.groups.delay` | real | `600` | 0 to 5000 | Group Card Delay. How long the pointer rests on a group before its summary card opens. |
+| `sidebar.hoverCards.groups.order` | string | `"status"` | `status`, `members`, `activity` | Group Card Leads With. Which part of a group's card comes first. |
+| `sidebar.hoverCards.groups.maxMembers` | real | `8` | 1 to 50 | Group Card Members. The most members a group's card lists by name. |
+| `sidebar.hoverCards.groups.sections.status` | boolean | `true` |  | Group Card: Status. Show how many members work, wait, failed or have unread items. |
+| `sidebar.hoverCards.groups.sections.members` | boolean | `true` |  | Group Card: Members. Show the member count and the members' names. |
+| `sidebar.hoverCards.groups.sections.activity` | boolean | `true` |  | Group Card: Latest Activity. Show the member that changed last, and when. |
+| `sidebar.hoverCards.groups.sections.git` | boolean | `true` |  | Group Card: Branches. Show the members' git branches. |
+| `sidebar.hoverCards.groups.sections.ports` | boolean | `true` |  | Group Card: Ports. Show the members' listening ports. |
 | `sidebar.nowPlaying.enabled` | boolean | `false` |  | Show Now Playing. A player for what is playing, at the bottom of the sidebar. |
 | `tabs.newTabNowPlaying` | boolean | `true` |  | Show Now Playing on New Tab. A player for what is playing, on the New Tab page. |
 | `appearance.colorTransition.enabled` | boolean | `true` |  | Animate Color Changes. Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once. |
@@ -378,6 +400,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.newTabPage` | string | `""` |  | New Tab Page. An address such as https://example.com. Empty opens a blank page. |
 | `browser.showBookmarksBar` | boolean | `false` |  | Show Bookmarks Bar. A row of bookmarks under each browser toolbar. |
 | `browser.showAgentCursor` | boolean | `true` |  | Show Agent Cursor. When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots. |
+| `browser.agentMouse.motion` | string | `"human"` | `human`, `instant` | Agent Pointer Motion. How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once. |
+| `browser.agentMouse.maxMoveMs` | real | `350` | 60 to 1000 | Longest Agent Pointer Move. The longest time one agent pointer move takes with human motion. Short moves take less. |
 | `browser.builtInAdBlocker` | boolean | `true` |  | Built-in uBlock Origin. The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts. |
 | `browser.hibernation` | string | `"moderate"` | `moderate`, `aggressive`, `off` | Hibernate Hidden Tabs. Frees memory; history and position are kept. Also accepts a number from 1 to 1440 in a raw profile. |
 | `browser.hibernationExclusions` | array | `[]` |  | Never Hibernate. Hosts such as mail.google.com or *.example.com. |

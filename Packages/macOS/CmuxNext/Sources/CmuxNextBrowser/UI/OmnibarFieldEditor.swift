@@ -206,7 +206,7 @@ final class OmnibarFieldEditor: NSTextView {
 }
 
 /// Hands the omnibar its own field editor.
-final class AddressFieldCell: ChromeTextFieldCell {
+final class AddressFieldCell: NSTextFieldCell {
     let editor = OmnibarFieldEditor()
 
     override func fieldEditor(for controlView: NSView) -> NSTextView? { editor }

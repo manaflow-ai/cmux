@@ -19,7 +19,7 @@ struct SplitSpringMotionTests {
 
     static let dt = 1.0 / 120
     /// The token's time scale (`ui.animationSpeed`), so budgets hold at any speed.
-    static var scale: Double { Motion.spring(.move).response / MotionSpring.move.base.response }
+    static var scale: Double { Motion.panes.spring(.move).response / MotionSpring.move.base.response }
 
     final class Screen {
         let provider = Panes()

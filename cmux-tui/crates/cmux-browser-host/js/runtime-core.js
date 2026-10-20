@@ -2113,7 +2113,19 @@
     }
     async wheel(deltaX, deltaY) {
       if (typeof deltaX !== "number" || typeof deltaY !== "number" || !Number.isFinite(deltaX) || !Number.isFinite(deltaY)) throw new Error(`mouse.wheel: deltaX and deltaY: expected numbers, got ${JSON.stringify(deltaX)}, ${JSON.stringify(deltaY)}`);
-      await this._event("wheel", { deltaX, deltaY });
+      const cfg = this._motion({});
+      if (!cfg) {
+        await this._event("wheel", { deltaX, deltaY });
+        return;
+      }
+      // A fling: decaying parts on the clock, a late part sent at once.
+      const session = this._page._session;
+      const start = session.now();
+      for (const part of HM.planWheel(deltaX, deltaY, cfg)) {
+        const wait = part.t - (session.now() - start);
+        if (wait > 0) await session.sleep(wait);
+        await this._event("wheel", { deltaX: part.dx, deltaY: part.dy });
+      }
     }
   }
 
