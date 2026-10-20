@@ -77,10 +77,10 @@ fn refused() -> io::Error {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct ProcessStart(u64, u64);
+pub(super) struct ProcessStart(u64, u64);
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn process_start(pid: u32) -> io::Result<ProcessStart> {
+pub(super) fn process_start(pid: u32) -> io::Result<ProcessStart> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))?;
     linux_start(&stat).ok_or_else(refused)
 }

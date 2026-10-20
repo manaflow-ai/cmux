@@ -18,6 +18,20 @@ mod supervised;
 #[cfg(unix)]
 pub use supervised::SupervisedChild;
 
+#[cfg(target_os = "linux")]
+mod root;
+#[cfg(target_os = "linux")]
+pub use root::RootOwnedDaemon;
+
+/// Authenticate the root endpoint of a private inherited bootstrap channel.
+/// This separate entry point never changes ordinary same-user admission.
+/// It proves parenthood, not enrollment or permission to serve. Do not use
+/// it to authorize a caller on a public socket or a caller-selected path.
+#[cfg(target_os = "linux")]
+pub fn verify_inherited_root_parent(fd: std::os::fd::RawFd) -> Result<(), CallerRefused> {
+    root::verify_parent(fd)
+}
+
 use std::fmt;
 use std::io;
 

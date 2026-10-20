@@ -1054,6 +1054,10 @@ jobs:
           # The same script runs the filter on macOS (`macos` job), cx-jcfoz.
           ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER"
 
+      - name: Root and work-user bootstrap boundary
+        if: runner.os == 'Linux' && (inputs.mode == 'full' || inputs.test_filter == 'receiver_root')
+        run: python3 scripts/ci/verify-link-root-boundary.py
+
       - name: Optional Iroh route and auth tests
         if: inputs.mode == 'full'
         working-directory: cmux-tui

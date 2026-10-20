@@ -14,3 +14,7 @@ failures cannot reopen or clear newer authority.
 
 Receiving handshakes acquire bounded authority before reading a hello, so
 revocation and expiry also close partial frames before service admission.
+
+Linux root bootstrap admission is separate from ordinary same-user callers:
+the host retains its actual daemon child and kernel start identity, and the
+daemon accepts only its root parent's private inherited stream.
