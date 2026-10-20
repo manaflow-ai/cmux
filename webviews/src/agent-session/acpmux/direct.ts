@@ -839,6 +839,8 @@ export class AcpmuxDirectClient {
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
   onHarnessesChanged?: () => void;
+  /// `_acpmux/process_update` listeners (summary/sessionProcesses.ts).
+  private readonly processListeners = new Set<(process: unknown) => void>();
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
 
@@ -1187,7 +1189,8 @@ export class AcpmuxDirectClient {
     else if (notification.method === "_acpmux/harnesses_changed") {
       this.onHarnessesChanged?.();
       startModeChanged();
-    }
+    } else if (notification.method === "_acpmux/process_update")
+      for (const listener of this.processListeners) listener(notification.params?.process);
     // A new chat's start mode may have changed (a pick in any pane, a config reload, the
     // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
@@ -1354,6 +1357,23 @@ export class AcpmuxDirectClient {
       level,
       ...(this.selectedSessionId ? { sessionId: this.selectedSessionId } : {}),
     });
+  }
+
+  /// Chat `sessionId`'s background processes (acpmux docs/background-processes.md).
+  listProcesses(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/process/list", { sessionId });
+  }
+
+  /// Each `_acpmux/process_update` for the attached chat; returns the listener's removal.
+  watchProcesses(listener: (process: unknown) => void): () => void {
+    this.processListeners.add(listener);
+    return () => void this.processListeners.delete(listener);
+  }
+
+  /// Stops background process `processId` (Claude's stop_task, Codex's terminate). A harness
+  /// that never answers fails it after 10 s.
+  killProcess(processId: string): Promise<unknown> {
+    return this.request("_acpmux/process/kill", { processId }, 10_000);
   }
 
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
