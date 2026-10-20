@@ -353,10 +353,13 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         expect(r.y).toBeGreaterThanOrEqual(list.y - 1);
         expect(r.y + r.height).toBeLessThanOrEqual(list.y + list.height + 1);
       }
-      // The transcript ends above the question, the question above the pull requests, the pull
-      // requests above the queue and the queue above the composer.
+      // The transcript runs under the stack to the pane's bottom (bottomStack.css), and the stack
+      // holds the question above the pull requests, the pull requests above the queue and the
+      // queue above the composer.
       const card = await box(".acpmux-permission-card");
-      expect(scroller.y + scroller.height).toBeLessThanOrEqual(card.y + 1);
+      const stack = await box(".acpmux-main > .acpmux-dock");
+      expect(stack.y).toBeLessThanOrEqual(card.y + 1);
+      expect(Math.abs(scroller.y + scroller.height - (stack.y + stack.height))).toBeLessThanOrEqual(1);
       expect(card.y + card.height).toBeLessThanOrEqual(dock.y + 1);
       expect(dock.y + dock.height).toBeLessThanOrEqual(list.y + 1);
       // The queue shows its own bottom edge: nothing below tucks it under.

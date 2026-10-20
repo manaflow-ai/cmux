@@ -94,10 +94,41 @@ import Testing
         // The chrome's top is the strip's bottom. An outlined pane draws its outline's top line
         // there, and that line is the edge above the bar; without one the edge is the tab pills'
         // bottom, one gap above the strip's bottom.
+        // The row's content is the taller of the bar and the toolbar buttons; the bar is centered
+        // in it, so its space above equals its space below.
+        let inset = (max(chrome.addressBar.bounds.height, chrome.reloadButton.bounds.height) - chrome.addressBar.bounds.height) / 2
         let above = Metrics.paneBorder == .subtle ? bar.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : bar.minY - top + gap
         let below = page.minY - bar.maxY
-        #expect(abs(above - gap) <= 0.5, "\(style): \(above) pt above the omnibar, the gap is \(gap)")
-        #expect(abs(below - gap) <= 0.5, "\(style): \(below) pt below the omnibar, the gap is \(gap)")
+        #expect(abs(above - (gap + inset)) <= 0.5, "\(style): \(above) pt above the omnibar, the gap is \(gap) + \(inset)")
+        #expect(abs(below - (gap + inset)) <= 0.5, "\(style): \(below) pt below the omnibar, the gap is \(gap) + \(inset)")
         #expect(abs(above - below) <= 0.5, "\(style): \(above) pt above the omnibar, \(below) pt below")
+    }
+
+    /// The toolbar buttons are Chrome's size (`kToolbarButtonSize`-like 34 pt square, a 20 pt
+    /// icon in a circle highlight; a128 2026-10-19), taller than the 28 pt omnibar. The row's one
+    /// gap then runs from the tallest thing in it, the buttons: the same above them as below
+    /// them, and the omnibar sits on their center line.
+    @Test(arguments: ChromeStyle.allCases)
+    func theToolbarButtonsAreChromesSizeAndKeepTheRowsEvenGap(style: ChromeStyle) throws {
+        defer { load(nil) }
+        load(style)
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        let window = window(CGSize(width: 1000, height: 600))
+        defer { window.close() }
+        let chrome = BrowserChromeView(tab: tab)
+        chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
+        window.contentView = chrome
+        chrome.layoutSubtreeIfNeeded()
+        let gap = PaneChromeMetrics.current.tabGap(scale: window.backingScaleFactor)
+        let top = topLeft(chrome.bounds, in: chrome, window: window).minY
+        let reload = topLeft(chrome.reloadButton.bounds, in: chrome.reloadButton, window: window)
+        let bar = topLeft(chrome.addressBar.bounds, in: chrome.addressBar, window: window)
+        let page = topLeft(chrome.contentContainer.bounds, in: chrome.contentContainer, window: window)
+        #expect(reload.width == 34 && reload.height == 34, "\(style): the reload button is \(reload.size)")
+        #expect(abs(reload.midY - bar.midY) <= 0.5, "\(style): the omnibar's center is \(bar.midY), the buttons' \(reload.midY)")
+        let above = Metrics.paneBorder == .subtle ? reload.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : reload.minY - top + gap
+        let below = page.minY - reload.maxY
+        #expect(abs(above - gap) <= 0.5, "\(style): \(above) pt above the buttons, the gap is \(gap)")
+        #expect(abs(below - gap) <= 0.5, "\(style): \(below) pt below the buttons, the gap is \(gap)")
     }
 }
