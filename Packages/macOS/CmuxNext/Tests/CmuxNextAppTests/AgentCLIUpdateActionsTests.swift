@@ -21,6 +21,8 @@ import Testing
         var loseReply = false
         var outcome = "pending"
         var refuse: Set<AgentCLIFamily> = []
+        /// The owner answers busy for this family (its key's original request still runs).
+        var busy: Set<AgentCLIFamily> = []
         var claudeChannel = "native"
         /// A reconnect advances the epoch; routes captured before it retire.
         var epoch = 0
@@ -47,6 +49,10 @@ import Testing
                 if self.refuse.contains(cli) {
                     throw DaemonError.command(cmd: "agent-cli-update-job", message: "The owner could not start the update job",
                                               code: "agent_cli_job.refused")
+                }
+                if self.busy.contains(cli) {
+                    throw DaemonError.command(cmd: "agent-cli-update-job", message: "Another agent CLI update is running",
+                                              code: "agent_cli_job.busy")
                 }
                 if self.loseReply { throw DaemonError.notConnected }
                 return try self.receipt(cli)
@@ -320,5 +326,26 @@ import Testing
         owner.refuse = []
         _ = try await updates.runSettings(id: "work-profile", context: page("after-refused-replay"), registry: registry)
         #expect(owner.starts.last?.1 == "after-refused-replay")
+    }
+
+    @Test func aReplayedStartTheOwnerFindsBusyKeepsTheLostJob() async throws {
+        let (owner, updates, registry) = make()
+        owner.loseReply = true
+        do { _ = try await updates.runSettings(id: "work-profile", context: page("lost-then-busy"), registry: registry) } catch {}
+        owner.loseReply = false
+        // Busy on a replay means the key's original request may still be running: the job
+        // stays, the CLI stays blocked, and the next refresh replays the same key.
+        owner.busy = [.codex]
+        await updates.refresh()
+        #expect(updates.state.arrayValue?.count == 1)
+        await #expect(throws: (any Error).self) {
+            _ = try await updates.runSettings(id: "work-profile", context: page("while-busy"), registry: registry)
+        }
+        owner.busy = []
+        let replays = owner.starts.count
+        await updates.refresh()
+        #expect(owner.starts.count == replays + 1)
+        #expect(owner.starts.last?.1 == owner.starts.first?.1)
+        #expect(updates.state.arrayValue?.first?["terminal"]?.stringValue != nil)
     }
 }
