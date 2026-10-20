@@ -330,6 +330,7 @@ public nonisolated struct AgentPaneTunables {
 
     public static var all: [TunableDescriptor] {
         [
+            agentPairGuard.descriptor,
             chatWidth.descriptor,
             codexToolRuns.descriptor,
             composerPlainFooter.descriptor,
