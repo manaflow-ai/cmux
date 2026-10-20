@@ -3,26 +3,18 @@ public import AppKit
 /// Default entries that are not an action's own catalog key (plans/cmux-next/keybindings.md
 /// section 5).
 ///
-/// The Chrome tab keys (`tabSwitching`, Leo 2026-10-12: "chrome/chatgpt/claude has them all
-/// the same") select sidebar items, what Chrome calls tabs, from any focus:
-/// - Cmd-Opt-Right, Ctrl-PageDown: the next item;
-/// - Cmd-Opt-Left, Ctrl-PageUp: the previous item;
-/// - Cmd-1 to Cmd-8 the nth item, Cmd-9 the last (`sidebar.cmd9`).
-/// Ctrl-Tab / Ctrl-Shift-Tab and Cmd-Shift-] / [ cycle the focused pane's tabs instead
-/// (`nextSurface` / `prevSurface`; Leo 2026-10-12: as a workspace switch they got
-/// inconsistent once more was open; Lawrence 2026-10-15: Cmd-Shift-] / [ switching
-/// workspaces is "extremely bad"). They are here too, so a terminal's Ghostty keybind
-/// does not take them either.
-/// They go after the Ghostty config's keybinds and claims, so a terminal, its Ghostty
-/// keybinds (`ctrl+tab=next_tab`, `super+[`), a web page and the agent composer never take
-/// them; only cmux.json entries and `-<id>` removals change them.
+/// Every entry here is a cmux default: cmux.json and the user's own Ghostty keybinds win over
+/// it, Ghostty's defaults lose to it (cmux.json > the user's Ghostty config > cmux defaults >
+/// Ghostty defaults, with no forced tier; Lawrence 2026-10-20).
 ///
+/// - Cmd-Shift-] / [ are aliases for Next / Previous Tab in Pane (`nextSurface` /
+///   `prevSurface`, catalog keys Ctrl-Tab / Ctrl-Shift-Tab), as Ghostty's `next_tab` /
+///   `previous_tab` defaults and the shipping cmux.
 /// - Ctrl-Cmd arrows are aliases for the pane-resize actions (Ghostty's
 ///   `resize_split` defaults); their catalog keys are Ctrl-Shift H/J/K/L.
-/// - Ctrl-Cmd J/K are aliases for focus down/up, whose catalog keys are
-///   Cmd-Opt Down/Up (PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS); focus
-///   left/right have Ctrl-Cmd H/L as their catalog keys, since Cmd-Opt
-///   Left/Right are Chrome tab keys.
+/// - Ctrl-Cmd H/J/K/L are aliases for the pane-focus actions, whose catalog
+///   keys are Cmd-Opt arrows, Ghostty's `goto_split` defaults
+///   (PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS).
 public nonisolated struct KeyBindingDefaults {
     public nonisolated init() {}
     static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey)) ?? UnicodeScalar(0)))
@@ -36,37 +28,17 @@ public nonisolated struct KeyBindingDefaults {
 
     public static let notTerminal = WhenClause.notEquals(KeyContext.surfaceKind, .string("terminal"))
 
-    /// The Chrome tab keys, without the registry's unbinding applied. The
-    /// catalog keys of `nextSidebarTab` / `prevSidebarTab` (Ctrl-Cmd-] / [)
-    /// and `selectWorkspaceByNumber` (Cmd-1…9) are here too, so they also win
-    /// over a Ghostty keybind.
-    public static let tabSwitching: [KeyBinding] = {
-        func bind(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ id: ActionID, _ argument: String? = nil) -> KeyBinding {
-            KeyBinding(keys: [Shortcut(key, modifiers: modifiers)], command: id, argument: argument)
-        }
-        return [
-            bind("\t", [.control], "nextSurface"), bind("\t", [.control, .shift], "prevSurface"),
-            bind("]", [.command, .shift], "nextSurface"), bind("[", [.command, .shift], "prevSurface"),
-            bind(right, [.command, .option], "nextSidebarTab"), bind(left, [.command, .option], "prevSidebarTab"),
-            bind(pageDown, [.control], "nextSidebarTab"), bind(pageUp, [.control], "prevSidebarTab"),
-            bind("]", [.control, .command], "nextSidebarTab"), bind("[", [.control, .command], "prevSidebarTab"),
-        ] + (1...9).map { bind(String($0), [.command], "selectWorkspaceByNumber", String($0)) }
-    }()
-
-    /// The Chrome tab keys whose action is on and not removed or rebound
-    /// in cmux.json (a rebound action keeps only its cmux.json key).
-    @MainActor static func tabSwitching(registry: ActionRegistry) -> [KeyBinding] {
-        tabSwitching.filter { binding in
-            registry.disabledFeature(for: binding.command) == nil && registry.effectiveShortcut(for: binding.command) != nil
-                && !registry.shortcutOverrides.keys.contains(binding.command) && registry.chordOverrides[binding.command] == nil
-        }
-    }
+    /// Cmd-Shift-] / [ step the focused pane's tabs (Lawrence 2026-10-15: switching
+    /// workspaces on them is "extremely bad"); Ctrl-Tab / Ctrl-Shift-Tab are the catalog keys.
+    public static let tabCycleAliases: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("]", modifiers: [.command, .shift])], command: "nextSurface"),
+        KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "prevSurface"),
+    ]
 
     /// Scoped defaults that replace a global default key in their context:
     /// placed after the catalog's defaults, so in their context they win and
     /// elsewhere the global key runs. Any page adds its own keys here with a
-    /// `when` that names it. (Home's Cmd-Shift-[ / ] went to the Chrome tab
-    /// keys, Leo 2026-10-12: Home is a sidebar item too.)
+    /// `when` that names it.
     ///
     /// Cmd-N is New Workspace everywhere, Home too (Lawrence 2026-10-20: "Command + N needs to
     /// always make a new workspace"); New Message keeps its compose button, palette and menu.
@@ -108,8 +80,10 @@ public nonisolated struct KeyBindingDefaults {
     /// catalog Cmd-Opt arrow; they disappear when a user overrides or
     /// unbinds that action.
     public static let paneFocusAliases: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("h", modifiers: [.control, .command])], command: "focusLeft"),
         KeyBinding(keys: [Shortcut("j", modifiers: [.control, .command])], command: "focusDown"),
         KeyBinding(keys: [Shortcut("k", modifiers: [.control, .command])], command: "focusUp"),
+        KeyBinding(keys: [Shortcut("l", modifiers: [.control, .command])], command: "focusRight"),
     ]
 
     /// Cmd-[ / Cmd-] are focus history Back / Forward everywhere but a web
@@ -137,7 +111,7 @@ public nonisolated struct KeyBindingDefaults {
 
     /// Aliases that follow their action's catalog key: present only while
     /// the action has its default key (no cmux.json override or chord).
-    public static var actionAliases: [KeyBinding] { paneResizeAliases + paneFocusAliases + focusHistoryAliases + zoomAliases }
+    public static var actionAliases: [KeyBinding] { tabCycleAliases + paneResizeAliases + paneFocusAliases + focusHistoryAliases + zoomAliases }
 
     /// Actions whose default key Monaco also uses for editing (R127,
     /// webviews/src/pages/editor/README.md): while the code editor has the
@@ -226,7 +200,7 @@ public nonisolated struct KeyBindingDefaults {
 
     /// The aliases whose action still has its default key, then list
     /// navigation (removed one by one with `-list.next` entries in
-    /// keybindings.json). The Chrome tab keys go later (`tabSwitching(registry:)`).
+    /// keybindings.json).
     @MainActor static func entries(registry: ActionRegistry) -> [KeyBinding] {
         var entries = actionAliases.filter { binding in
             registry.effectiveShortcut(for: binding.command) != nil

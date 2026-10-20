@@ -15,10 +15,10 @@
       "expect": {"action": "prevSurface"}
     },
     {
-      "name": "Ctrl-PageDown in Home is the next sidebar item",
+      "name": "Ctrl-PageDown in Home has no cmux default (it reaches the page)",
       "context": {"surfaceKind": "home"},
       "keys": ["ctrl+pagedown"],
-      "expect": {"action": "nextSidebarTab"}
+      "expect": {"none": true}
     },
     {
       "name": "Ctrl-Tab in a terminal is the focused pane's next tab too (#20116: from every focus)",
@@ -137,9 +137,9 @@
     {
       "name": "A removal keeps the action's other keys",
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
-      "removals": [{"key": "ctrl+cmd+]", "command": "nextSidebarTab"}],
-      "keys": ["ctrl+pagedown"],
-      "expect": {"action": "nextSidebarTab"}
+      "removals": [{"key": "cmd+shift+]", "command": "nextSurface"}],
+      "keys": ["ctrl+tab"],
+      "expect": {"action": "nextSurface"}
     },
     {
       "name": "Cmd-Opt-Up in a terminal focuses the pane above",
