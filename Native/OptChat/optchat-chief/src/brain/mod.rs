@@ -366,6 +366,9 @@ impl std::fmt::Debug for Engine {
 pub struct Settings {
     /// The constant working directory of every turn session.
     pub session_dir: PathBuf,
+    /// A separate cwd/pool identity for group and non-owner turns. Its
+    /// instruction files never contain the owner's private profile.
+    pub shared_session_dir: PathBuf,
     /// `MUX_HARNESS` (default claude, or a configured claude-cr).
     pub harness: String,
     /// `MUX_POLICY` (default approve-all).
@@ -523,6 +526,7 @@ enum Source {
     Resume {
         remote: bool,
         requires_approval: bool,
+        conversation_scoped: bool,
         cut: Vec<String>,
     },
 }
@@ -712,6 +716,8 @@ pub struct Brain {
     tool_stopped: bool,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
+    /// Fresh single-use folder this turn may attach generated media from.
+    media_outbox: Option<PathBuf>,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
@@ -834,6 +840,7 @@ impl Brain {
             sent_keys: std::collections::HashSet::new(),
             tool_stopped: false,
             previewer: None,
+            media_outbox: None,
             cuts: 0,
             resume_at: None,
             orphan_wait: None,
@@ -850,6 +857,7 @@ impl Brain {
                 source: Source::Resume {
                     remote: resume.remote,
                     requires_approval: resume.requires_approval,
+                    conversation_scoped: resume.conversation_scoped,
                     cut: resume.messages,
                 },
                 images: Vec::new(),
