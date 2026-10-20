@@ -178,8 +178,13 @@ export const TASKS = Object.freeze([
     tier: "app",
     prompt: "On {fixture}/signup, sign me up as Ada Lovelace with the Pro plan. Use the cmux browser on my right.",
     setup: [],
-    checks: [req("new_tabs", { min: 1, kind: "browser" }), req("new_tabs_right_of_origin"), ...COMMON, NO_NEW_WS],
-    server_check: { path: "/signup", body: { name: "Ada Lovelace", plan: "pro" } },
+    checks: [
+      req("server_received", { path: "/signup", body: { name: "Ada Lovelace", plan: "pro" } }),
+      req("new_tabs", { min: 1, kind: "browser" }),
+      req("new_tabs_right_of_origin"),
+      ...COMMON,
+      NO_NEW_WS,
+    ],
   },
   {
     id: "website-read",

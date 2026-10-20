@@ -17,6 +17,7 @@ import { gradeTask } from "./grade.mjs";
 import { renderResults } from "./report.mjs";
 import { capture, normalize } from "./snapshot.mjs";
 import { TASKS } from "./tasks.mjs";
+import { PLAN_MD, startFixtureServer } from "./fixtures.mjs";
 
 const pexec = promisify(execFile);
 const HERE = import.meta.dir;
@@ -33,6 +34,8 @@ const PARALLEL = Number(arg("parallel", "3"));
 const TIER = arg("tier", "headless");
 const REAL_CLI = arg("cli", process.env.CMUX_EVAL_CLI ?? "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux");
 const APP_SOCKET = arg("app-socket", null);
+// The agent's own service dropped mid-task: an infra failure, not a cmux-use failure.
+const INFRA_ERROR = [/WritableIterable is closed/, /Connection lost, reconnecting/, /API Error: 5\d\d/, /database is locked/];
 const PREFACE = "(You are running inside a terminal in cmux.)\n\n";
 
 const taskIds = arg("tasks", "all");
@@ -67,7 +70,7 @@ function evalEnv(dir) {
   return env;
 }
 
-function writeFixtures(dir, task, session) {
+function writeFixtures(dir, task, session, work) {
   mkdirSync(join(dir, "bin"), { recursive: true });
   mkdirSync(join(dir, "zdot"), { recursive: true });
   for (const f of [".zshenv", ".zprofile", ".zshrc", ".zlogin"]) {
@@ -79,7 +82,10 @@ function writeFixtures(dir, task, session) {
   mkdirSync(join(dir, "markers"), { recursive: true });
   mkdirSync(join(dir, "work"), { recursive: true });
   writeFileSync(join(dir, "cmux-next.json"), JSON.stringify({ mcp: { enabled: true } }));
-  writeFileSync(join(dir, "prompt.txt"), PREFACE + task.prompt);
+  mkdirSync(join(work, "notes"), { recursive: true });
+  writeFileSync(join(work, "notes/PLAN.md"), PLAN_MD);
+  const prompt = task.prompt.replaceAll("{fixture}", FIXTURE?.url ?? "http://127.0.0.1:9").replaceAll("{workdir}", work);
+  writeFileSync(join(dir, "prompt.txt"), PREFACE + prompt);
   // The cmux shim: log argv, then run the real CLI.
   const shim = join(dir, "bin/cmux");
   writeFileSync(
@@ -109,6 +115,7 @@ function writeFixtures(dir, task, session) {
       "(allow default)",
       '(deny network-outbound (remote unix-socket (path-regex #"cmux")))',
       `(allow network-outbound (remote unix-socket (path-regex #"/${session.replace(/[.-]/g, "\\$&")}\\.sock$")))`,
+      ...(APP_SOCKET ? [`(allow network-outbound (remote unix-socket (literal ${JSON.stringify(APP_SOCKET)})))`] : []),
       "",
     ].join("\n"),
   );
@@ -120,8 +127,9 @@ async function runOne({ agent, surface }, task, index) {
   const dir = join(OUT, `${agent}-${surface}`, task.id);
   mkdirSync(dir, { recursive: true });
   const session = `ae-${process.pid}-${index}`;
-  writeFixtures(dir, task, session);
   const work = mkdtempSync(join(tmpdir(), "cmux-eval-work-"));
+  writeFixtures(dir, task, session, work);
+  const postsBefore = FIXTURE?.posts.length ?? 0;
   const env = evalEnv(dir);
   const cmux = async (args, { json = true } = {}) => {
     const full = ["--session", session, ...(APP_SOCKET ? ["--app-socket", APP_SOCKET] : []), ...(json ? ["--json"] : []), ...args];
@@ -171,7 +179,7 @@ async function runOne({ agent, surface }, task, index) {
         // Preflight: the CLI reaches this session and no app.
         `sandbox-exec -f "$EVAL_DIR/sandbox.sb" cmux --json workspace list > "$EVAL_DIR/preflight-ws.json" 2>&1`,
         `if sandbox-exec -f "$EVAL_DIR/sandbox.sb" ${JSON.stringify(REAL_CLI)} --app-socket "$HOME/.local/state/cmux/cmux-nightly.sock" app ping > /dev/null 2>&1; then echo live-app-reachable >> "$EVAL_DIR/preflight-fail"; fi`,
-        APP_SOCKET ? "true" : `if cmux --json identify > "$EVAL_DIR/preflight-identify.json" 2>&1; then echo app-reachable > "$EVAL_DIR/preflight-fail"; fi`,
+        APP_SOCKET ? "true" : `if sandbox-exec -f "$EVAL_DIR/sandbox.sb" cmux --json identify > "$EVAL_DIR/preflight-identify.json" 2>&1; then echo app-reachable > "$EVAL_DIR/preflight-fail"; fi`,
         `grep -q ${JSON.stringify(origin.workspace_id)} "$EVAL_DIR/preflight-ws.json" || echo wrong-session >> "$EVAL_DIR/preflight-fail"`,
         `if [ -f "$EVAL_DIR/preflight-fail" ]; then echo 97 > "$EVAL_DIR/agent.exit"; exit 0; fi`,
         `touch "$EVAL_DIR/calls.on"`,
@@ -190,6 +198,7 @@ async function runOne({ agent, surface }, task, index) {
     const beforeTabs = new Set(before.tabs.map((t) => t.id));
     const afterRaw = await capture(cmux, { textFor: (t) => !beforeTabs.has(t.id) });
     const after = normalize(afterRaw);
+    writeFileSync(join(dir, "ctx.json"), JSON.stringify({ origin, aliases, session, sockets: [env.CMUX_SOCKET_PATH] }, null, 1));
     writeFileSync(join(dir, "before.json"), JSON.stringify(before, null, 1));
     writeFileSync(join(dir, "after.json"), JSON.stringify(after, null, 1));
 
@@ -199,7 +208,7 @@ async function runOne({ agent, surface }, task, index) {
       readdirSync(join(dir, "markers")).map((role) => [role, readFileSync(join(dir, "markers", role), "utf8").trim()]),
     );
     const answer = AGENTS[agent].answer(dir);
-        const grade = gradeTask(task, { before, after, origin, aliases, answer, calls, markers, session: { name: session } });
+        const grade = gradeTask(task, { before, after, origin, aliases, answer, calls, markers, session: { name: session, sockets: [env.CMUX_SOCKET_PATH] }, posts: FIXTURE?.posts.slice(postsBefore) ?? [] });
     const errText = `${read(join(dir, "agent.err"))}\n${read(join(dir, "agent.out")).slice(0, 4000)}`;
     Object.assign(row, grade, {
       wall_ms: Date.now() - started,
@@ -217,7 +226,7 @@ async function runOne({ agent, surface }, task, index) {
       else Object.assign(row, { category: "timeout" });
     } else if (NO_LOGIN_PATTERNS.some((p) => p.test(errText)) && row.calls === 0) {
       Object.assign(row, { pass: false, score: 0, category: "no_login" });
-    } else if (exit !== 0 && !row.pass && row.calls === 0) {
+    } else if (exit !== 0 && !row.pass && (row.calls === 0 || INFRA_ERROR.some((p) => p.test(errText)))) {
       Object.assign(row, { category: "agent_error" });
     }
   } catch (error) {
@@ -278,6 +287,10 @@ function readJsonl(path) {
     .filter(Boolean);
 }
 
+// One fixture site per run for app-tier tasks (posts are sliced per task run;
+// app-tier runs that post must not run in parallel with each other).
+const FIXTURE = tasks.some((t) => t.tier === "app") ? startFixtureServer() : null;
+
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const jobs = runs.flatMap((r) => tasks.map((t) => [r, t]));
@@ -306,6 +319,7 @@ async function main() {
   const md = renderResults({ run: RUN, date: new Date().toISOString().slice(0, 10), rows });
   writeFileSync(join(OUT, "RESULTS.md"), md);
   console.log(`\n${md}`);
+  FIXTURE?.stop();
 }
 
 await main();

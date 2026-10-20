@@ -1,6 +1,6 @@
 # cmux next: agent evals (how well agents drive cmux)
 
-Design, 2026-10-19. Asked by Lawrence (Chief a190): "evals of how well agents
+Design, 2026-10-19. Asked by Lawrence (Chief subagent "Agent cmux-use evals"): "evals of how well agents
 are able to use cmux: CLI, code mode, etc. ... ask Claude Code, Codex, OpenCode
 and poly to use stuff, use a browser, open markdown files, operate stuff on
 websites. They should open it to the right very smartly and, at the end, create
@@ -145,6 +145,18 @@ with the category of its first failed required check:
 
 ## Runner rules
 
+- Each prompt starts with one line of context, "(You are running inside a
+  terminal in cmux.)", and nothing more about how to use cmux.
+- The agent runs under `sandbox-exec` with a profile that denies every unix
+  socket whose path contains `cmux`, except the eval session's own socket (and
+  the `--app-socket` in the app tier). Smoke runs showed that this is needed:
+  OpenCode tried the user's live app socket, and Codex connected to a parallel
+  eval session.
+- Login shells (Codex runs `zsh -lc`) rebuild PATH. A run-local `ZDOTDIR` puts
+  the `cmux` call-log shim first again.
+- OpenCode runs one at a time, because its SQLite database locks under
+  parallel runs.
+
 - Retries 0 for scoring. Timeout 300 s per task (headless).
 - Parallel by session; each task run is independent.
 - Unit tests (`bun test tests/agent-evals`) cover graders, snapshot
@@ -154,8 +166,14 @@ with the category of its first failed required check:
 
 ## Steps
 
+Status 2026-10-20: e1 to e3 done. The first baseline is in
+[tests/agent-evals/RESULTS.md](../../tests/agent-evals/RESULTS.md). The app-tier
+fixtures (local site, PLAN.md, the server-side form grader) are in the suite.
+Running them needs e4.
+
 | Step | Content | Verification |
 | --- | --- | --- |
+
 | e1 | this design, task table, graders, snapshot model, report; unit tests red then green | `bun test tests/agent-evals` |
 | e2 | runner: isolated session, shim, preflight, agent adapters, headless tasks | live smoke against a scripted "oracle" agent that does each task right (must score 100%) and a "noop" agent (must fail) |
 | e3 | first baseline per logged-in agent, RESULTS.md | headless tier on this Mac |

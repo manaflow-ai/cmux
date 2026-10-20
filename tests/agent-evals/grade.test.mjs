@@ -310,6 +310,10 @@ describe("stayed_in_session", () => {
     expect(run("stayed_in_session", own(["tab", "ae-1-0:tab_1", "show"])).ok).toBe(true);
     expect(run("stayed_in_session", own(["tab", "main:tab_1", "show"])).ok).toBe(false);
     expect(run("stayed_in_session", own(["--socket", "/tmp/cmux-tui-501/main.sock", "pane", "list"])).ok).toBe(false);
+    // The app socket the eval session was given (CMUX_SOCKET_PATH) is its own too.
+    const app = (argv) => ({ ...ctx(base(), base(), { calls: [{ argv }] }), session: { name: "ae-1-0", sockets: ["/e/no-app.sock"] } });
+    expect(run("stayed_in_session", app(["--app-socket", "/e/no-app.sock", "action", "list"])).ok).toBe(true);
+    expect(run("stayed_in_session", app(["--app-socket", "/Users/x/.local/state/cmux/cmux-nightly.sock", "app", "ping"])).ok).toBe(false);
   });
 });
 

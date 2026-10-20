@@ -6,6 +6,8 @@
 // answer is the agent's final message, calls is the cmux call log
 // ([{ argv }]) and markers maps a stub agent's role to the terminal it ran in.
 
+import { serverReceived } from "./fixtures.mjs";
+
 export const CATEGORIES = Object.freeze([
   "wrong_place", "extra_split", "docked", "focus_stolen", "stray_workspace", "closed_user_tab",
   "changed_layout", "not_done", "no_grouping", "wrong_grouping", "wrong_answer", "left_session",
@@ -198,6 +200,10 @@ export const CHECKS = Object.freeze({
     }
     return result(false, "no side-by-side screen with the text on the right");
   },
+  server_received(ctx, { path, body }) {
+    const ok = serverReceived(ctx.posts ?? [], { path, body });
+    return result(ok, `${(ctx.posts ?? []).filter((p) => p.path === path).length} posts to ${path}`);
+  },
   answer_contains(ctx, { text }) {
     return result(lower(ctx.answer).includes(lower(text)), ctx.answer ? "" : "no answer");
   },
@@ -205,12 +211,14 @@ export const CHECKS = Object.freeze({
     // The eval session may be named outright (`--session NAME`, `--socket .../NAME.sock`,
     // `NAME:ws_…`); any other target leaves it.
     const name = ctx.session?.name;
-    const own = (value) => !!name && (value === name || String(value).endsWith(`/${name}.sock`));
+    const sockets = ctx.session?.sockets ?? [];
+    const own = (value) =>
+      (!!name && (value === name || String(value).endsWith(`/${name}.sock`))) || sockets.includes(value);
     const leaves = (argv) =>
       argv.some((a, i) => {
         const [flag, inline] = a.split("=");
-        if (flag === "--all-sessions" || flag === "--app-socket") return true;
-        if (flag === "--socket" || flag === "--session") return !own(inline ?? argv[i + 1]);
+        if (flag === "--all-sessions") return true;
+        if (flag === "--socket" || flag === "--session" || flag === "--app-socket") return !own(inline ?? argv[i + 1]);
         const routed = /^([\w.-]+):(ws|screen|pane|tab|term)_/.exec(a);
         return !!routed && !own(routed[1]);
       });
@@ -243,6 +251,7 @@ export const CHECK_CATEGORY = Object.freeze({
   workspace_in_group: "no_grouping",
   workspace_side_by_side: "not_done",
   answer_contains: "wrong_answer",
+  server_received: "not_done",
   stayed_in_session: "left_session",
 });
 
