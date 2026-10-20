@@ -37,14 +37,14 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 9 | Mark agent chat unread | `palette.toggleTabUnread` on a read agent chat | Marking as unread is not available yet | Handlers/TabHandlers+More.swift | S | todo |
 | 10 | Restore Previous App Launch | `reopenPreviousSession` | needs daemon capability `closed-history-v1` | Handlers/WorkspaceHandlers.swift | M | todo |
 | 11 | Toggle Full Width Tab | `palette.toggleFullWidthTab` | needs full-width tab support in the tab strip | Handlers/TabHandlers+More.swift | M | todo |
-| 12 | Sleepy Mode | `palette.sleepyMode` | needs app capability `sleepy-mode` | Handlers/WindowHandlers.swift | M | todo |
+| 12 | Sleepy Mode | `palette.sleepyMode` | needs app capability `sleepy-mode` | Handlers/WindowHandlers.swift | M | done f7ac14bca75 (left: classic theme/mascot/colors settings section, Low Power toggle, pets) |
 | 13 | Task Manager (2) | `palette.openTaskManager`, `taskManager.killProcess` | needs app capability `task-manager` | Handlers/WindowHandlers.swift | M | todo |
 | 14 | Workspace description (2) | `editWorkspaceDescription`, `palette.clearWorkspaceDescription` | needs daemon capability `workspace-description-v1` | Handlers/WorkspaceMetadataHandlers.swift | M (Rust + app) | todo |
 | 15 | Workspace status (3) | `markWorkspaceDone`, `cycleWorkspaceStatus`, `palette.workspaceStatus` | needs daemon capability `workspace-status-v1` | Handlers/WorkspaceMetadataHandlers.swift | M (Rust + app) | todo |
 | 16 | Resume command (3) | `resumeCommandSet`, `resumeCommandEdit`, `resumeCommandClear` | needs daemon capability `resume-command` | Handlers/TerminalHandlers.swift | M (Rust + app) | todo |
 | 17 | Disconnect SSH Tab | `disconnectRemoteTab` | needs daemon capability `remote-ssh-tabs` | Handlers/TabHandlers+More.swift | M | todo |
 | 18 | Remote workspaces (3) | `reconnectWorkspace`, `disconnectWorkspace`, `copyWorkspaceSSHError` | needs daemon capability `remote-workspaces-v1` | Handlers/WorkspaceHandlers.swift | M | todo |
-| 19 | Find Work | `palette.findWork` | needs app capability `github-integration` | Handlers/WorkspaceHandlers.swift | M | todo |
+| 19 | Find Work | `palette.findWork` | needs app capability `github-integration` | Handlers/WorkspaceHandlers.swift | M | done fa216b5093a |
 | 20 | Screenshot Section | `browserScreenshotSection` | needs a selection overlay | Handlers/BrowserHandlers.swift | M | done b8230d79c38 |
 | 21 | Layout templates (3) | `saveLayoutTemplate`, `palette.layout.open`, `manageLayouts` | needs daemon capability `layout-templates-v1` | Handlers/WorkspaceHandlers.swift | M | todo |
 | 22 | Workspace checklist (9) | `palette.addWorkspaceChecklistItem`, `toggleChecklistItemComplete`, `palette.openWorkspaceTodoPane`, `checklistEditItem`, `checklistMarkInProgress`, `checklistCompleteItem`, `checklistRemoveItem`, `checklistOpenAsPane`, `checklistAttachImages` | needs daemon capability `workspace-checklist-v1` | Handlers/WorkspaceMetadataHandlers.swift, Handlers/SidebarHandlers.swift | L (Rust + app + pane) | todo |
