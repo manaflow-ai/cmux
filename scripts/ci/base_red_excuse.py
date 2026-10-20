@@ -67,6 +67,9 @@ RUN_NOISE = re.compile(r"\btmp\.[A-Za-z0-9]{6,}|\b[0-9a-f]{7,40}\b")
 # check-l10n.sh prints its first 200 errors, then this.
 CUT_SHORT = re.compile(r"^\.\.\. \d+ more$")
 ANSI = re.compile(r"\x1b\[[0-9;]*m|\^\[\[[0-9;]*m")
+# A log GitHub served without step names, and the lines that end a job's last step there.
+UNKNOWN_STEP = "UNKNOWN STEP"
+POST_STEPS = re.compile(r"^(Post job cleanup\.|A job completed hook has been configured|Cleaning up orphan processes)")
 CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper died on signal|"
                         r"no \"Test run with\" summary line")
 
@@ -95,6 +98,31 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
     return steps, tests, errors
 
 
+def step_lines(log: str) -> list[tuple[str, str]]:
+    """(step, text) for each `job<TAB>step<TAB>stamp text` line of `gh run view --log`.
+    GitHub sometimes serves a job's log with no step names, every line under `UNKNOWN STEP`
+    (2026-10-20: the checks job of #22200 on a Blacksmith runner, while the base's had them).
+    Then each step is told by the `##[group]Run ...` echo that opens it and ends at the next one
+    or at the job's post steps, and the runner's own setup and cleanup belong to no step:
+    otherwise the whole job, its runner banner and fetched tags, counted as one failed step's
+    findings that no base run could have."""
+    parsed = [(parts[1], parts[2]) for parts in (line.split("\t", 2) for line in log.splitlines())
+              if len(parts) == 3]
+    if not parsed or any(step != UNKNOWN_STEP for step, _ in parsed):
+        return parsed
+    found, step, blocks = [], None, 0
+    for _, raw in parsed:
+        text = ANSI.sub("", STAMP.sub("", raw.lstrip("\ufeff"))).strip()
+        if text.startswith("##[group]Run "):
+            blocks += 1
+            step = f"{UNKNOWN_STEP} {blocks}"
+        elif POST_STEPS.match(text):
+            step = None
+        if step is not None:
+            found.append((step, raw))
+    return found
+
+
 def printed(job: dict, log: str) -> Counter[str]:
     """What the job's failed steps printed, each line counted, with numbers masked
     unless a letter leads them (a line number, total or duration; never `step2`): each
@@ -104,17 +132,16 @@ def printed(job: dict, log: str) -> Counter[str]:
     cannot be compared."""
     failed = {step["name"] for step in job.get("steps") or []
               if step.get("conclusion") not in (None, "success", "skipped")}
-    for line in log.splitlines():
-        parts = line.split("\t", 2)
-        if len(parts) == 3 and "##[error]" in parts[2]:
-            failed.add(parts[1])
+    lines = step_lines(log)
+    for step, raw in lines:
+        if "##[error]" in raw:
+            failed.add(step)
     found: Counter[str] = Counter()
     echo: set[str] = set()
-    for line in log.splitlines():
-        parts = line.split("\t", 2)
-        if len(parts) < 3 or parts[1] not in failed:
+    for step, raw in lines:
+        if step not in failed:
             continue
-        step, text = parts[1], ANSI.sub("", STAMP.sub("", parts[2].lstrip("\ufeff"))).strip()
+        text = ANSI.sub("", STAMP.sub("", raw.lstrip("\ufeff"))).strip()
         if text.startswith("##[group]"):
             echo.add(step)
             continue
