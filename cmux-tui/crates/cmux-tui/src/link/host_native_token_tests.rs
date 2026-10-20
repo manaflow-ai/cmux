@@ -5,6 +5,10 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 fn receiver() -> Box<dyn TokenVerifier> {
+    Box::new(owned_receiver(30_000))
+}
+
+pub(super) fn owned_receiver(lease_ms: u64) -> cmux_link::native_token::NativeTokenVerifier {
     use cmux_link::native_token::*;
     let f: Value =
         serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json"))
@@ -26,7 +30,7 @@ fn receiver() -> Box<dyn TokenVerifier> {
             epoch: 4,
             team: f["claims"]["team"].as_str().unwrap().into(),
             checked_at_ms: now.unix_ms,
-            expires_at_ms: now.unix_ms + 30_000,
+            expires_at_ms: now.unix_ms + lease_ms,
             request_started: now.monotonic,
             peers: vec![NativePeer {
                 install: f["claims"]["sub"].as_str().unwrap().into(),
@@ -35,7 +39,7 @@ fn receiver() -> Box<dyn TokenVerifier> {
             }],
         })
         .unwrap();
-    Box::new(verifier)
+    verifier
 }
 
 #[tokio::test]

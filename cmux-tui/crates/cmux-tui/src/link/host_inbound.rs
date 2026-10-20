@@ -108,3 +108,7 @@ mod tests;
 #[cfg(test)]
 #[path = "host_native_token_tests.rs"]
 mod native_token_tests;
+
+#[cfg(test)]
+#[path = "host_stream_lifetime_tests.rs"]
+mod stream_lifetime_tests;
