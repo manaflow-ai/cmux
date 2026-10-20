@@ -671,10 +671,32 @@ pub fn shareable_workspace_folders(folders: Vec<PathBuf>, home: &Path) -> Vec<Pa
     out
 }
 
-/// `CNX_FILE_ROOTS` (the Chat Folders) and the shareable workspace folders.
+/// `path` resolved and spelled as the filesystem stores it (on macOS, `F_GETPATH`:
+/// the stored case and Unicode form), as acpmux's `fs_spelling` compares roots, so a
+/// tab whose shell spelled home `/users/ME` is still home. None when it can't be opened.
+pub fn stored_spelling(path: &Path) -> Option<PathBuf> {
+    let canonical = std::fs::canonicalize(path).ok()?;
+    #[cfg(target_vendor = "apple")]
+    {
+        use std::os::fd::AsRawFd;
+        let file = std::fs::File::open(&canonical).ok()?;
+        let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+        // SAFETY: F_GETPATH writes at most PATH_MAX bytes into `buffer`, which holds
+        // PATH_MAX bytes, for a descriptor this function owns.
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } != -1 {
+            let end = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
+            return Some(PathBuf::from(String::from_utf8_lossy(&buffer[..end]).into_owned()));
+        }
+    }
+    Some(canonical)
+}
+
+/// `CNX_FILE_ROOTS` (the Chat Folders) and the shareable workspace folders. Without a
+/// home folder that resolves, no workspace folder is shared (one might be home).
 pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &Path) -> Vec<PathBuf> {
-    let home = std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
     let mut roots = file_roots.to_vec();
+    let Some(home) = stored_spelling(home) else { return roots };
+    let folders = folders.iter().filter_map(|f| stored_spelling(f)).collect();
     for folder in shareable_workspace_folders(folders, &home) {
         if !roots.contains(&folder) {
             roots.push(folder);
@@ -694,8 +716,10 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     let (resolved, roots) = match confine(&config.file_roots, Path::new(requested)) {
         Ok(resolved) => (resolved, config.file_roots.clone()),
         Err(refusal) if refusal.code == "forbidden" => {
-            let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"));
-            // No daemon answer: only the Chat Folders (the refusal stands).
+            // No home folder or no daemon answer: only the Chat Folders (the refusal stands).
+            let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from) else {
+                return Err(refusal);
+            };
             let folders = daemon_folders(config).await.unwrap_or_default();
             let roots = shared_file_roots(&config.file_roots, folders, &home);
             (confine(&roots, Path::new(requested))?, roots)
@@ -1240,6 +1264,9 @@ mod tests {
         let roots = shared_file_roots(&[], vec![project.path().to_path_buf(), home.path().to_path_buf()], home.path());
         assert!(confine(&roots, &project.path().join("README.md")).is_ok());
         assert_eq!(roots.len(), 1, "home is never a root: {roots:?}");
+        // A home that doesn't resolve shares no workspace folder at all.
+        let gone = home.path().join("missing");
+        assert!(shared_file_roots(&[], vec![project.path().to_path_buf()], &gone).is_empty());
     }
 
     #[test]
