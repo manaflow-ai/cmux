@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import { ALL_SCOPES, bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 import { addressBody, enrollBody, makeInstallKey, rotateBody } from "../support/mesh-signing.ts";
@@ -66,7 +67,7 @@ describe("VM receiver policy", () => {
       deviceId: client.id, wgPublicKey: client.wg, installPublicKey: client.install.publicKey,
       allow: [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }],
     }]);
-    expect(h.audit).toContainEqual(expect.objectContaining({ action: "mesh.vm.receiver_policy", cmuxId: vm, outcome: "success" }));
+    expect(h.audit).toContainEqual(expect.objectContaining({ action: "mesh.vm.receiver_policy", cmuxId: vm, outcome: "ok" }));
   });
 
   it("never promotes a public-address transport rule into a service grant", async () => {
@@ -111,5 +112,48 @@ describe("VM receiver policy", () => {
     expect((await policy(await h.addKey(TEAM, ALL_SCOPES, { allowlist: [] }))).status).toBe(404);
     expect((await h.request(`/v1/meshes/${mesh}/vms/${vm}/receiver-policy`, {})).status).toBe(401);
     expect(h.upstreamRequests).toHaveLength(before);
+  });
+
+  it.each(["wgPublicKey", "installPublicKey"] as const)("omits an ambiguous %s even when the other device has no VM grant", async (field) => {
+    const client = await enroll(), shadow = await enroll();
+    expect((await apply([{ src: [client.id], dst: [vm], allow: ["tcp:22"] }])).status).toBe(200);
+    const row = h.mesh.store.devices.find((d) => d.deviceId === shadow.id)!;
+    Object.assign(row, { [field]: field === "wgPublicKey" ? client.wg : client.install.publicKey });
+    const response = await policy(); expect(response.status).toBe(200);
+    expect((await json(response))["peers"]).toEqual([]);
+  });
+
+  it("omits a deleted device even while the stored ACL still names it", async () => {
+    const client = await enroll();
+    expect((await apply([{ src: [client.id], dst: [vm], allow: ["tcp:22"] }])).status).toBe(200);
+    expect((await call(`/v1/devices/${client.id}`, admin, "DELETE")).status).toBe(204);
+    const response = await policy(); expect(response.status).toBe(200);
+    expect((await json(response))["peers"]).toEqual([]);
+  });
+
+  it("uses fresh membership and refuses a membership dependency failure", async () => {
+    h.addMember(TEAM, "user_vm_client");
+    const owner = { ...bearer(await h.sessionToken("user_vm_client")), "x-cmux-team-id": TEAM };
+    const install = await makeInstallKey(), wg = btoa("m".repeat(32));
+    const created = await h.request(`/v1/meshes/${mesh}/devices`, owner, { method: "POST", body: await enrollBody(install, mesh, { name: "member", wgPublicKey: wg }) });
+    expect(created.status).toBe(201);
+    const id = record((await json(created))["device"])["id"];
+    expect((await apply([{ src: [id], dst: [vm], allow: ["tcp:22"] }])).status).toBe(200);
+    expect((await json(await policy()))["peers"]).toHaveLength(1);
+    h.failStackFor("user_vm_client");
+    expect((await policy()).status).toBe(503);
+    h.failStackFor("user_vm_client", false);h.removeMember(TEAM, "user_vm_client");
+    const response = await policy();expect(response.status).toBe(200);
+    expect((await json(response))["peers"]).toEqual([]);
+  });
+
+  it("refuses an identity changed across the snapshot boundary", async () => {
+    const client = await enroll();
+    expect((await apply([{ src: [client.id], dst: [vm], allow: ["tcp:22"] }])).status).toBe(200);
+    const original = h.mesh.store.listDevices;let reads = 0;
+    Object.assign(h.mesh.store, { listDevices: (...args: Parameters<typeof original>) => original(...args).pipe(Effect.tap(() => Effect.sync(() => {
+      if (++reads === 2) Object.assign(h.mesh.store.devices.find((d) => d.deviceId === client.id)!, { wgPublicKey: btoa("n".repeat(32)) });
+    }))) });
+    expect((await policy()).status).toBe(503);
   });
 });
