@@ -126,7 +126,10 @@ final class PaletteScopeChipView: NSView {
                 switch ink.fill {
                 case .none: layer?.backgroundColor = nil
                 case .selection: layer?.backgroundColor = Palette.selectionFill.cgColor
-                case .halfSelection: layer?.backgroundColor = Palette.selectionFill.withAlphaComponent(0.5).cgColor
+                case .halfSelection:
+                    // Half the fill's own alpha (what PaletteScopeChipContrastTests measures).
+                    let fill = Palette.selectionFill
+                    layer?.backgroundColor = fill.withAlphaComponent(fill.alphaComponent * 0.5).cgColor
                 }
                 layer?.borderColor = Palette.separator.cgColor
                 layer?.borderWidth = ink.outlined ? Metrics.dividerThickness : 0
