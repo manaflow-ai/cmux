@@ -5,6 +5,66 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedArchiveParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub items: Option<Vec<FeedItemId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<FeedFilter>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedArchiveResultItemsItem {
+    pub id: FeedItemId,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedArchiveResult {
+    pub items: Vec<FeedArchiveResultItemsItem>,
+}
+
+wire_errors! {
+    /// The error codes feed.archive declares.
+    FeedArchiveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Cancel an open item: its poster withdraws it, an adapter reports it answered elsewhere, or the user declines it.
+    FeedCancelOp {
+        name: "feed.cancel",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: FeedCancelParams,
+        result: FeedCancelResult,
+        error: FeedCancelError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedCancelParams {
+    pub item: FeedItemId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<FeedCancelReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedCancelResult {
     pub item: FeedItem,
 }
@@ -840,63 +900,4 @@ pub struct FirewallGetResult {
     pub destination: FirewallGetResultDestination,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes firewall.get declares.
-    FirewallGetError {
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// List firewall rules attached to the caller's private network.
-    FirewallListOp {
-        name: "firewall.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Session],
-        params: FirewallListParams,
-        result: FirewallListResult,
-        error: FirewallListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-}
-
-wire_enum! {
-    FirewallListResultRulesItemSourceProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallListResultRulesItemSource {
-    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cidr: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<FirewallListResultRulesItemSourceProtocol>,
 }

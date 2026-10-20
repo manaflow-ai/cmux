@@ -4,6 +4,52 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes team.policy.update declares.
+    TeamPolicyUpdateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise).
+    TeamVmAccountsOp {
+        name: "team_vm.accounts",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamVmAccountsParams,
+        result: TeamVmAccountsResult,
+        error: TeamVmAccountsError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmAccountsParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmAccountsResult {
+    pub team: TeamId,
+    pub users: Vec<TeamVmAccountUser>,
+}
+
+wire_errors! {
+    /// The error codes team_vm.accounts declares.
+    TeamVmAccountsError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        OwnerUnreachable = "owner.unreachable",
+        TeamVmStaleEpoch = "team_vm.stale_epoch",
+    }
+}
+
 wire_op! {
     /// Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires).
     TeamVmEnsureAwakeOp {
@@ -845,59 +891,5 @@ wire_errors! {
         RevisionConflict = "revision.conflict",
         SelectorNotFound = "selector.not_found",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Rotate an owned tunnel's WireGuard public key without changing its address.
-    TunnelRotateKeyOp {
-        name: "tunnel.rotate-key",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: TunnelRotateKeyParams,
-        result: TunnelRotateKeyResult,
-        error: TunnelRotateKeyError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelRotateKeyParams {
-    pub device_fingerprint: String,
-    pub client_public_key: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelRotateKeyResult {
-    pub tunnel_id: String,
-    pub client_public_key: String,
-}
-
-wire_errors! {
-    /// The error codes tunnel.rotate-key declares.
-    TunnelRotateKeyError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling.
-    UsageCapSetOp {
-        name: "usage.cap.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UsageMeterDO",
-        risk: "money",
-        principals: [Session],
-        params: UsageCapSetParams,
-        result: UsageCapSetResult,
-        error: UsageCapSetError,
     }
 }

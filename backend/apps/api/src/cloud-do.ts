@@ -1,5 +1,6 @@
 import { CloudNetworkObservation } from "./cloud-network-observation.ts"
 import { cloudVmReceiverPolicy } from "./cloud-vm-receiver-policy.ts"
+import { cloudVmReceiverLifecycle } from "./cloud-vm-receiver-lifecycle.ts"
 import { cloudDriverFor } from "./cloud-vm-api-driver.ts"
 import type { NativeLinkAuthority } from "./cloud-connect.ts"
 import { vmApiConnection } from "./cloud-vm-api-config.ts"
@@ -233,6 +234,11 @@ export class CloudDO extends CloudIdle {
   async vmOp(entity: string, principal: Principal, op: string, params: unknown): Promise<VmReply> {
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
     const now = Date.now() + this.skewMs
+    if (op === "cloud.vm.receiver.lifecycle") return cloudVmReceiverLifecycle({ team: entity, rows, now: () => Date.now() + this.skewMs,
+      sql: () => this.sqlStore,
+      own: (user, install, grant, machine) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).vmNetworkIdentity(user, install, grant, entity, machine),
+      audit: (entry) => { if (this.isBound(entity)) this.audit.record({ op: "vm_receiver_lifecycle", user: principal.user ?? null, install: principal.install ?? null, at: Date.now() + this.skewMs, ...entry }) }
+    }, principal, params)
     if (op === "cloud.vm.status.report") {
       let applied: { machine: string; report: unknown } | undefined
       const r = vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => {

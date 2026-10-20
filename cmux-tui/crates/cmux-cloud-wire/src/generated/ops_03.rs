@@ -16,6 +16,68 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring.
+    CloudVmReceiverLifecycleOp {
+        name: "cloud.vm.receiver.lifecycle",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmReceiverLifecycleParams,
+        result: CloudVmReceiverLifecycleResult,
+        error: CloudVmReceiverLifecycleError,
+    }
+}
+
+wire_enum! {
+    CloudVmReceiverLifecycleParamsPhase {
+        Read = "read",
+        Begin = "begin",
+        Ready = "ready",
+        End = "end",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmReceiverLifecycleParams {
+    pub machine: MachineId,
+    pub phase: CloudVmReceiverLifecycleParamsPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt: Option<String>,
+}
+
+wire_enum! {
+    CloudVmReceiverLifecycleResultPhase {
+        Idle = "idle",
+        Starting = "starting",
+        Ready = "ready",
+        Stopped = "stopped",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmReceiverLifecycleResult {
+    pub machine: MachineId,
+    pub generation: String,
+    pub phase: CloudVmReceiverLifecycleResultPhase,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.receiver.lifecycle declares.
+    CloudVmReceiverLifecycleError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmSelfGetOp {
         name: "cloud.vm.self.get",
@@ -839,64 +901,4 @@ wire_op! {
         result: FeedArchiveResult,
         error: FeedArchiveError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedArchiveParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub items: Option<Vec<FeedItemId>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub filter: Option<FeedFilter>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedArchiveResultItemsItem {
-    pub id: FeedItemId,
-    pub revision: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedArchiveResult {
-    pub items: Vec<FeedArchiveResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.archive declares.
-    FeedArchiveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Cancel an open item: its poster withdraws it, an adapter reports it answered elsewhere, or the user declines it.
-    FeedCancelOp {
-        name: "feed.cancel",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedCancelParams,
-        result: FeedCancelResult,
-        error: FeedCancelError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCancelParams {
-    pub item: FeedItemId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<FeedCancelReason>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
 }

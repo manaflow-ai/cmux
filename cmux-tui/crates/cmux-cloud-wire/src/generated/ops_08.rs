@@ -4,6 +4,56 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionDisableParams {
+    pub connection: SsoConnectionId,
+}
+
+wire_errors! {
+    /// The error codes sso.connection.disable declares.
+    SsoConnectionDisableError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The team's SSO connections, without secrets (owners and admins).
+    SsoConnectionListOp {
+        name: "sso.connection.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session],
+        params: SsoConnectionListParams,
+        result: SsoConnectionListResult,
+        error: SsoConnectionListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionListParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionListResult {
+    pub team: TeamId,
+    pub connections: Vec<SsoConnection>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes sso.connection.list declares.
+    SsoConnectionListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
 wire_op! {
     /// Seal the OIDC client secret (owners and admins). The secret is never returned, logged or recorded in events.
     SsoConnectionSetSecretOp {
@@ -843,50 +893,4 @@ pub struct TeamPolicyUpdateParams {
     pub expected_version: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes team.policy.update declares.
-    TeamPolicyUpdateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise).
-    TeamVmAccountsOp {
-        name: "team_vm.accounts",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamVmAccountsParams,
-        result: TeamVmAccountsResult,
-        error: TeamVmAccountsError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmAccountsParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmAccountsResult {
-    pub team: TeamId,
-    pub users: Vec<TeamVmAccountUser>,
-}
-
-wire_errors! {
-    /// The error codes team_vm.accounts declares.
-    TeamVmAccountsError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        OwnerUnreachable = "owner.unreachable",
-        TeamVmStaleEpoch = "team_vm.stale_epoch",
-    }
 }

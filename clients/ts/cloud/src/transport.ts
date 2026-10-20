@@ -43,8 +43,8 @@ export interface CloudClientOptions {
 }
 
 /**
- * Typed transport for cloud ops. Mutations always carry an idempotency key
- * (reuse the same key to retry; the owner replays the original result).
+ * Typed transport for cloud ops. Required-key mutations replay the original
+ * result on retry; operations without a replay key recheck authority every time.
  */
 export const createCloudClient = (options: CloudClientOptions) => {
   const doFetch = options.fetch ?? fetch
@@ -66,10 +66,12 @@ export const createCloudClient = (options: CloudClientOptions) => {
       params: CloudOps[K]["params"],
       opts: { idempotencyKey?: string; expectedRevision?: string; origin?: "user" | "cli" | "mcp" | "script" | "remote" } = {}
     ): Promise<CloudMutationOutcome<CloudOps[K]["result"]>> {
+      const keyed = cloudOpMeta[op].idempotency === "required"
+      if (!keyed && opts.idempotencyKey !== undefined) throw new TypeError(`${op} does not accept an idempotency key`)
       const r = (await post("/v1/ops", {
         op,
         params,
-        idempotency_key: opts.idempotencyKey ?? crypto.randomUUID(),
+        ...(keyed ? { idempotency_key: opts.idempotencyKey ?? crypto.randomUUID() } : {}),
         origin: opts.origin ?? "user",
         ...(opts.expectedRevision ? { expected_revision: opts.expectedRevision } : {})
       })) as Record<string, unknown>

@@ -8,6 +8,31 @@ const fakeFetch = (status: number, body: unknown, seen: Array<{ url: string; ini
   }) as unknown as typeof fetch
 
 describe("cloud client transport", () => {
+  it("sends fresh receiver lifecycle calls without replay keys", async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = []
+    const value = { machine: "vm_00000000000000000000", generation: "a".repeat(64), phase: "idle" }
+    let tokenReads = 0
+    const client = createCloudClient({
+      baseUrl: "https://api.test", token: () => `vm-token-${++tokenReads}`,
+      fetch: fakeFetch(200, { ok: true, op: "cloud.vm.receiver.lifecycle", value, transaction: "tx", replayed: false, idempotency_key: "", stream: "team:team_x", sequence: 0 }, seen)
+    })
+    for (let i = 0; i < 2; i++) {
+      const reply = await client.mutate("cloud.vm.receiver.lifecycle", { machine: value.machine, phase: "read" })
+      expect(reply).toMatchObject({ ok: true, value, replayed: false, idempotency_key: "" })
+      expect(seen[i]!.url).toBe("https://api.test/v1/ops")
+      expect(JSON.parse(String(seen[i]!.init.body))).toEqual({ op: "cloud.vm.receiver.lifecycle", params: { machine: value.machine, phase: "read" }, origin: "user" })
+      expect((seen[i]!.init.headers as Record<string, string>).authorization).toBe(`Bearer vm-token-${i + 1}`)
+    }
+    expect(tokenReads).toBe(2)
+  })
+
+  it("refuses a caller replay key for a fresh-authority operation before sending", async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = []
+    const client = createCloudClient({ baseUrl: "https://api.test", token: () => "vm-token", fetch: fakeFetch(200, {}, seen) })
+    await expect(client.mutate("cloud.vm.receiver.lifecycle", { machine: "vm_00000000000000000000", phase: "read" }, { idempotencyKey: "old-reply" })).rejects.toBeInstanceOf(TypeError)
+    expect(seen).toHaveLength(0)
+  })
+
   it("sends a mutation with a bearer token and an idempotency key, and returns the settle", async () => {
     const seen: Array<{ url: string; init: RequestInit }> = []
     const client = createCloudClient({

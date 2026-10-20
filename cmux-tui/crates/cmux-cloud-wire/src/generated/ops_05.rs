@@ -4,6 +4,65 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes firewall.get declares.
+    FirewallGetError {
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// List firewall rules attached to the caller's private network.
+    FirewallListOp {
+        name: "firewall.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session],
+        params: FirewallListParams,
+        result: FirewallListResult,
+        error: FirewallListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FirewallListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vpc_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tunnel_id: Option<String>,
+}
+
+wire_enum! {
+    FirewallListResultRulesItemSourceProtocol {
+        Tcp = "tcp",
+        Udp = "udp",
+        Icmp = "icmp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FirewallListResultRulesItemSource {
+    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
+    pub vm_id: Option<String>,
+    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
+    pub vpc_id: Option<String>,
+    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
+    pub tunnel_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cidr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<FirewallListResultRulesItemSourceProtocol>,
+}
+
 wire_enum! {
     FirewallListResultRulesItemDestinationProtocol {
         Tcp = "tcp",
@@ -840,57 +899,5 @@ wire_op! {
         params: IntegrationApprovalGetParams,
         result: IntegrationApprovalGetResult,
         error: IntegrationApprovalGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationApprovalGetParams {
-    pub request: String,
-}
-
-wire_enum! {
-    IntegrationApprovalGetResultState {
-        Pending = "pending",
-        Done = "done",
-        Denied = "denied",
-        Expired = "expired",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationApprovalGetResult {
-    pub request: String,
-    pub op: String,
-    pub connection: String,
-    pub target: String,
-    pub summary: String,
-    pub params: Value,
-    pub digest: String,
-    pub state: IntegrationApprovalGetResultState,
-    pub created_at: WireNumber,
-    pub expires_at: WireNumber,
-}
-
-wire_errors! {
-    /// The error codes integration.approval.get declares.
-    IntegrationApprovalGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Finish a connection from the provider's redirect (the signed-in user must be the one who started it).
-    IntegrationCompleteOp {
-        name: "integration.complete",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: IntegrationCompleteParams,
-        result: Connection,
-        error: IntegrationCompleteError,
     }
 }
