@@ -27,7 +27,7 @@ extension IPhoneHostService {
             "remove_help": .string(IPhoneHostStrings.removeHelp),
             // Shown with phase "removed": the person's way to let iPhones connect again.
             "allow_again_title": .string(IPhoneHostStrings.allowAgain),
-            // Phones asking to pair (cnx-ios verify/phone-approvals.md): Allow and Don't Allow
+            // Phones asking to pair (cmux-next-ios verify/phone-approvals.md): Allow and Don't Allow
             // here are the person's own gesture, as in the prompt.
             "pending_title": .string(IPhoneHostStrings.pendingTitle),
             "pending": .array(pendingRows),
@@ -44,7 +44,7 @@ extension IPhoneHostService {
         return prompts.pending.map { request in
             var facts = [IPhoneHostStrings.signedInAs(account?.email ?? account?.userID ?? "")]
             if let registered = request.registeredAt { facts.append(IPhoneHostStrings.deviceRegistered(registered)) }
-            facts.append(IPhoneHostStrings.pairKey(CnxPairedDevices.fingerprint(request.approvalKey)))
+            facts.append(IPhoneHostStrings.pairKey(MobileHostPairedDevices.fingerprint(request.approvalKey)))
             return ["id": .string(request.phoneDeviceID), "title": .string(IPhoneHostStrings.noticeTitle(Self.displayName(request))),
                     "subtitle": .string(facts.joined(separator: " · "))]
         }
@@ -57,7 +57,7 @@ extension IPhoneHostService {
         let links = state.phones
         var rows: [JSONValue] = knownPhones.map { phone in
             let link = links.first { phone.owns($0.phoneDeviceID) }
-            // Paired here (cnx-ios verify/phone-approvals.md): its links and Face ID approvals
+            // Paired here (cmux-next-ios verify/phone-approvals.md): its links and Face ID approvals
             // count; Remove also forgets the pairing.
             let pairing = paired?.devices.first { phone.owns($0.id) }
             return ["id": .string(phone.id), "title": .string(phone.name),
@@ -101,7 +101,7 @@ extension IPhoneHostService {
         }
     }
 
-    static func subtitle(_ phone: CnxPhoneLink) -> String {
+    static func subtitle(_ phone: MobileHostPhoneLink) -> String {
         var parts = [IPhoneHostStrings.transport(phone.transport), IPhoneHostStrings.path(phone.path)]
         if let media = phone.mediaPath { parts.append(IPhoneHostStrings.videoWebRTC(media)) }
         if let since = phone.since {

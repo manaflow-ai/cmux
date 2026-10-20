@@ -32,7 +32,7 @@ let package = Package(
         .package(path: "../../Packages/iOS/CmuxTabsKit"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
-    targets: [.binaryTarget(name: "CnxFFIFFI", path: "Frameworks/CnxFFI.xcframework")]
+    targets: [.binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework")]
 )
 """
 
@@ -71,7 +71,7 @@ class MarketingVersionTests(unittest.TestCase):
 
 
 class RelevantPathTests(unittest.TestCase):
-    def test_package_paths_come_from_cnxkit(self):
+    def test_package_paths_come_from_cmux_mobile_kit(self):
         self.assertEqual(
             ib.package_paths(PACKAGE_SWIFT),
             ["Packages/Shared/CmuxGhosttyKit/", "Packages/iOS/CmuxTabsKit/", "vendor/stack-auth-swift-sdk-prerelease/"],
@@ -79,7 +79,7 @@ class RelevantPathTests(unittest.TestCase):
 
     def test_ios_changes_are_relevant(self):
         prefixes = ib.relevant_prefixes(PACKAGE_SWIFT)
-        for path in ("cnx-ios/App/RootView.swift", "Packages/iOS/CmuxTabsKit/Sources/X.swift",
+        for path in ("cmux-next-ios/App/RootView.swift", "Packages/iOS/CmuxTabsKit/Sources/X.swift",
                      "cmux-tui/crates/cmux-wg/src/lib.rs", ".github/workflows/ios-internal-nightly.yml",
                      "scripts/ci/ios_internal_builder.py", "Packages/Shared/CmuxGhosttyKit/Package.swift"):
             self.assertTrue(ib.touches_ios([path], prefixes), path)
@@ -92,7 +92,7 @@ class RelevantPathTests(unittest.TestCase):
 
 class PlanTests(unittest.TestCase):
     def plan(self, **kw):
-        args = dict(head=C, runs=[run(A)], changed=["cnx-ios/App/A.swift"], has_cnx_ios=True, now=NOW,
+        args = dict(head=C, runs=[run(A)], changed=["cmux-next-ios/App/A.swift"], has_cmux_next_ios=True, now=NOW,
                     prefixes=ib.relevant_prefixes(PACKAGE_SWIFT))
         args.update(kw)
         return ib.plan(**args)
@@ -107,10 +107,16 @@ class PlanTests(unittest.TestCase):
         self.assertTrue(decision.build, decision.reason)
         self.assertIsNone(decision.base)
 
-    def test_skips_until_cnx_ios_is_on_the_branch(self):
-        decision = self.plan(has_cnx_ios=False)
+    def test_skips_until_cmux_next_ios_is_on_the_branch(self):
+        decision = self.plan(has_cmux_next_ios=False)
         self.assertFalse(decision.build)
-        self.assertIn("cnx-ios", decision.reason)
+        self.assertIn("cmux-next-ios", decision.reason)
+
+    def test_skips_while_the_signing_branch_predates_the_rename(self):
+        decision = self.plan(builder_ready=False)
+        self.assertFalse(decision.build)
+        self.assertIn("fast-forwards", decision.reason)
+        self.assertEqual(decision.base, A)
 
     def test_skips_the_head_already_uploaded(self):
         decision = self.plan(runs=[run(C)])

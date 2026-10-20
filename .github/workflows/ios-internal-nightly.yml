@@ -1,7 +1,7 @@
-name: cnx-ios INTERNAL builder (cmux-next)
-run-name: ${{ github.event_name == 'push' && 'cnx-ios INTERNAL builder branch moved' || format('cnx-ios INTERNAL {0}', inputs.sha) }}
+name: cmux-next iPhone INTERNAL builder
+run-name: ${{ github.event_name == 'push' && 'cmux-next-ios INTERNAL builder branch moved' || format('cmux-next-ios INTERNAL {0}', inputs.sha) }}
 
-# Continuous TestFlight builds of cmux-next's iPhone app (cnx-ios, App Store
+# Continuous TestFlight builds of cmux-next's iPhone app (cmux-next-ios, App Store
 # Connect app "cmux INTERNAL", dev.cmux.app.internal) for internal testers.
 # Design: plans/cmux-next/ios-testflight-builder-DESIGN.md.
 #
@@ -35,7 +35,7 @@ permissions:
 # One build runs, at most one waits, and a newer dispatch replaces the waiting
 # one, so the newest feat-cmux-next head always builds next.
 concurrency:
-  group: cnx-ios-internal-next
+  group: cmux-mobile-internal-next
   cancel-in-progress: false
 
 jobs:
@@ -51,7 +51,7 @@ jobs:
       build_number: ${{ steps.stamp.outputs.build_number }}
     env:
       SHA: ${{ inputs.sha }}
-      # The dedicated mini keeps ~/cnx-ios-builds/.cache (xcframework, cargo,
+      # The dedicated mini keeps ~/cmux-mobile-builds/.cache (xcframework, cargo,
       # SwiftPM) warm between builds; a hosted fallback builds under its temp.
       HOSTED_FALLBACK: ${{ vars.CI_IOS_INTERNAL_RUNNER == '' }}
     steps:
@@ -87,7 +87,7 @@ jobs:
 
       - name: Version and build number
         id: stamp
-        run: python3 scripts/ci/ios_internal_builder.py stamp --project-yml cnx-ios/project.yml
+        run: python3 scripts/ci/ios_internal_builder.py stamp --project-yml cmux-next-ios/project.yml
 
       - name: Archive
         env:
@@ -95,14 +95,14 @@ jobs:
           BUILD_NUMBER: ${{ steps.stamp.outputs.build_number }}
         run: |
           set -euo pipefail
-          root="$HOME/cnx-ios-builds"
-          [ "$HOSTED_FALLBACK" != true ] || root="$RUNNER_TEMP/cnx-builds"
-          export CNX_BUILDS_ROOT="$root"
-          cnx-ios/scripts/testflight-build.sh --ref "$SHA" --unsigned --no-asc \
+          root="$HOME/cmux-mobile-builds"
+          [ "$HOSTED_FALLBACK" != true ] || root="$RUNNER_TEMP/cmux-mobile-builds"
+          export CMUX_MOBILE_BUILDS_ROOT="$root"
+          cmux-next-ios/scripts/testflight-build.sh --ref "$SHA" --unsigned --no-asc \
             --marketing-version "$MARKETING" --build-number "$BUILD_NUMBER"
           out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"
           mkdir -p "$RUNNER_TEMP/handoff"
-          ditto -c -k --keepParent "$out/CnxApp.xcarchive" "$RUNNER_TEMP/handoff/CnxApp.xcarchive.zip"
+          ditto -c -k --keepParent "$out/CmuxMobileApp.xcarchive" "$RUNNER_TEMP/handoff/CmuxMobileApp.xcarchive.zip"
           cp "$out/MANIFEST.md" "$RUNNER_TEMP/handoff/"
           cat "$out/MANIFEST.md" >> "$GITHUB_STEP_SUMMARY"
 
@@ -112,16 +112,16 @@ jobs:
       - name: App Store review rules (built app)
         run: |
           set -euo pipefail
-          root="$HOME/cnx-ios-builds"
-          [ "$HOSTED_FALLBACK" != true ] || root="$RUNNER_TEMP/cnx-builds"
+          root="$HOME/cmux-mobile-builds"
+          [ "$HOSTED_FALLBACK" != true ] || root="$RUNNER_TEMP/cmux-mobile-builds"
           out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"
           python3 -I scripts/cmux-next/check-app-store-rules.py --source .
-          python3 -I scripts/cmux-next/check-app-store-rules.py --app "$out/CnxApp.xcarchive/Products/Applications/CnxApp.app"
+          python3 -I scripts/cmux-next/check-app-store-rules.py --app "$out/CmuxMobileApp.xcarchive/Products/Applications/CmuxMobileApp.app"
 
       - name: Hand the archive to the signer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cnx-ios-internal-archive-${{ github.run_id }}
+          name: cmux-mobile-internal-archive-${{ github.run_id }}
           path: ${{ runner.temp }}/handoff/
           retention-days: 3
           if-no-files-found: error
@@ -158,8 +158,8 @@ jobs:
 
       - name: Check the builder branch carries the signing script
         run: |
-          [ -x cnx-ios/scripts/testflight-build.sh ] || {
-            echo "::error::rc/cnx-ios-builder has no cnx-ios/scripts/testflight-build.sh. An admin fast-forwards it to a feat-cmux-next commit that has cnx-ios (plans/cmux-next/ios-testflight-builder-DESIGN.md, Operations)."
+          [ -x cmux-next-ios/scripts/testflight-build.sh ] || {
+            echo "::error::rc/cnx-ios-builder has no cmux-next-ios/scripts/testflight-build.sh. An admin fast-forwards it to a feat-cmux-next commit that has cmux-next-ios (plans/cmux-next/ios-testflight-builder-DESIGN.md, Operations)."
             exit 1
           }
 
@@ -172,7 +172,7 @@ jobs:
       - name: Download the archive
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cnx-ios-internal-archive-${{ github.run_id }}
+          name: cmux-mobile-internal-archive-${{ github.run_id }}
           path: ${{ runner.temp }}/handoff
 
       - name: Materialize App Store Connect API key
@@ -195,7 +195,7 @@ jobs:
           set -euo pipefail
           [ -n "${IOS_DISTRIBUTION_CERTIFICATE_BASE64:-}" ] && [ -n "${IOS_DISTRIBUTION_CERTIFICATE_PASSWORD:-}" ] \
             || { echo "Missing IOS_DISTRIBUTION_CERTIFICATE_BASE64 / _PASSWORD in the release environment" >&2; exit 1; }
-          keychain=cnx-internal-next.keychain
+          keychain=cmux-mobile-internal.keychain
           password="$(uuidgen)"
           cert="$RUNNER_TEMP/ios-distribution.p12"
           printf '%s' "$IOS_DISTRIBUTION_CERTIFICATE_BASE64" | base64 --decode > "$cert"
@@ -216,7 +216,7 @@ jobs:
           [ -n "${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64:-}" ] || { echo "no internal profile secret; testflight-build.sh downloads the current one"; exit 0; }
           profile="$RUNNER_TEMP/asc/internal.mobileprovision"
           printf '%s' "$IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64" | base64 --decode > "$profile"
-          echo "CNX_PROFILE_PATH=$profile" >> "$GITHUB_ENV"
+          echo "CMUX_MOBILE_PROFILE_PATH=$profile" >> "$GITHUB_ENV"
 
       - name: What to Test
         run: |
@@ -226,7 +226,7 @@ jobs:
             if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
               echo
               echo "Changes since the last build (${BASE:0:10}):"
-              git log --no-merges --format='- %s' "$BASE..$SHA" -- cnx-ios Packages/iOS Packages/Shared cmux-tui/crates/cmux-wg cmux-tui/crates/cmux-transport | head -40
+              git log --no-merges --format='- %s' "$BASE..$SHA" -- cmux-next-ios Packages/iOS Packages/Shared cmux-tui/crates/cmux-wg cmux-tui/crates/cmux-transport | head -40
             fi
           } | cut -c1-200 | head -c 3800 > "$RUNNER_TEMP/what-to-test.txt"
           cat "$RUNNER_TEMP/what-to-test.txt"
@@ -234,30 +234,30 @@ jobs:
       - name: Sign, validate, upload
         id: upload
         env:
-          CNX_CI_ASC: "1"
+          CMUX_MOBILE_CI_ASC: "1"
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/archive"
-          ditto -x -k "$RUNNER_TEMP/handoff/CnxApp.xcarchive.zip" "$RUNNER_TEMP/archive"
-          CNX_BUILDS_ROOT="$RUNNER_TEMP/cnx-builds" cnx-ios/scripts/testflight-build.sh --ref "$SHA" \
-            --from-archive "$RUNNER_TEMP/archive/CnxApp.xcarchive" --upload --internal-only \
+          ditto -x -k "$RUNNER_TEMP/handoff/CmuxMobileApp.xcarchive.zip" "$RUNNER_TEMP/archive"
+          CMUX_MOBILE_BUILDS_ROOT="$RUNNER_TEMP/cmux-mobile-builds" cmux-next-ios/scripts/testflight-build.sh --ref "$SHA" \
+            --from-archive "$RUNNER_TEMP/archive/CmuxMobileApp.xcarchive" --upload --internal-only \
             --what-to-test "$(cat "$RUNNER_TEMP/what-to-test.txt")"
-          out="$(find "$RUNNER_TEMP/cnx-builds" -maxdepth 1 -type d -name "*-testflight" | head -1)"
+          out="$(find "$RUNNER_TEMP/cmux-mobile-builds" -maxdepth 1 -type d -name "*-testflight" | head -1)"
           cat "$out/MANIFEST.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the manifest and logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cnx-ios-internal-${{ github.run_id }}
+          name: cmux-mobile-internal-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/cnx-builds/*-testflight/MANIFEST.md
-            ${{ runner.temp }}/cnx-builds/*-testflight/ExportOptions.plist
-            ${{ runner.temp }}/cnx-builds/*-testflight/logs/
+            ${{ runner.temp }}/cmux-mobile-builds/*-testflight/MANIFEST.md
+            ${{ runner.temp }}/cmux-mobile-builds/*-testflight/ExportOptions.plist
+            ${{ runner.temp }}/cmux-mobile-builds/*-testflight/logs/
           if-no-files-found: ignore
 
       - name: Delete signing material
         if: always()
         run: |
-          security delete-keychain cnx-internal-next.keychain >/dev/null 2>&1 || true
+          security delete-keychain cmux-mobile-internal.keychain >/dev/null 2>&1 || true
           rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/archive" "$RUNNER_TEMP/handoff"

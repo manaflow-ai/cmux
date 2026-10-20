@@ -7,14 +7,11 @@ public import CmuxNextSettings
 public import Foundation
 
 extension IPhoneHostService {
-    /// The cnx service phones and this Mac meet at: production for production sign-in, the dev
-    /// Worker for development sign-in. `CMUX_NEXT_CNX_API_URL` (a launch variable; CMUX_NEXT_*
+    /// The mobile service phones and this Mac meet at: production for production sign-in, the dev
+    /// Worker for development sign-in. `CMUX_NEXT_MOBILE_API_URL` (a launch variable; CMUX_NEXT_*
     /// survive the launch) points a Debug build at another one.
-    static let productionAPI = URL(string: "https://cnx-ios-api.cmux.dev")
-    /// The renamed production service (cnx-ios/verify/naming-migration.md). Not used yet: it
-    /// replaces ``productionAPI`` once its TURN and push secrets are installed.
-    static let renamedProductionAPI = URL(string: "https://cmux-next-ios-api.cmux.dev")
-    static let developmentAPI = URL(string: "https://cnx-ios-api-dev.debussy.workers.dev")
+    static let productionAPI = URL(string: "https://mobile-api.cmux.dev")
+    static let developmentAPI = URL(string: "https://cmux-mobile-api-dev.debussy.workers.dev")
 
     /// Hands the host what it needs from the app: the bundled hostd, the account's tokens,
     /// the app's daemon socket and acpmux, the chat roots, the computer name, and the
@@ -40,11 +37,11 @@ extension IPhoneHostService {
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
-        let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/cnx-hostd", isDirectory: false)
+        let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-mobile-host", isDirectory: false)
         // Debug builds may point at another hostd or service; a release build never does.
         #if DEBUG
-        let override = processEnvironment["CMUX_NEXT_CNX_HOSTD_BIN"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-        let serviceOverride = processEnvironment["CMUX_NEXT_CNX_API_URL"].flatMap { $0.isEmpty ? nil : URL(string: $0) }
+        let override = processEnvironment["CMUX_NEXT_MOBILE_HOST_BIN"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+        let serviceOverride = processEnvironment["CMUX_NEXT_MOBILE_API_URL"].flatMap { $0.isEmpty ? nil : URL(string: $0) }
         #else
         let override: URL? = nil
         let serviceOverride: URL? = nil
@@ -52,12 +49,11 @@ extension IPhoneHostService {
         let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         // Each Worker accepts only its own sign-in project's tokens.
         guard let base = serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
-        let state = DaemonLauncher.applicationSupportDirectory()
-            .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
-            .appendingPathComponent("cnx-host", isDirectory: true)
+        let state = MobileHostStateDirectory(parent: DaemonLauncher.applicationSupportDirectory()
+            .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)).resolve()
         // The phone's browser tabs stream from this build's own remote browser host
         // (Contents/Helpers, every configuration on arm64).
-        let browserHosts: (any CnxBrowserHosting)? = IPhoneBrowserHosts.available()
+        let browserHosts: (any MobileHostBrowserHosting)? = IPhoneBrowserHosts.available()
             ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
         defer {
@@ -117,7 +113,7 @@ extension IPhoneHostService {
         guard signedIn, let user = auth.user else { return nil }
         let team = auth.teamID
         return Account(
-            userID: user.id, teamID: CnxHostLaunch.teamID(selected: team, userID: user.id),
+            userID: user.id, teamID: MobileHostLaunch.teamID(selected: team, userID: user.id),
             teamName: team.flatMap { id in auth.teams.first { $0.id == id }?.displayName },
             email: user.primaryEmail)
     }
