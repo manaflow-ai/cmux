@@ -2186,6 +2186,12 @@
       "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
+  "settingsWindow.backdropPicker.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling: German writes Video as English does; an explicit translated entry remains required."
+    }
+  },
   "settings.automation.kiro.notificationLevel.minimal": {
     "source": "Minimal",
     "identityLocales": {
