@@ -126,7 +126,11 @@ final class ClassicUpgradeSimulator {
     }
 
     /// The first launch after the update: restore, then the launch's own migration run.
-    func launch() async -> Launch {
+    ///
+    /// - Parameter deadline: how long the migration may run before the
+    ///   simulation stops waiting and reports where it got to (it prints
+    ///   `CLASSIC-SIM progress` every 10 s meanwhile).
+    func launch(deadline budget: Duration = .seconds(150)) async -> Launch {
         let clock = ContinuousClock()
         let start = clock.now
         let launcher = self.launcher
@@ -148,11 +152,27 @@ final class ClassicUpgradeSimulator {
         let migrating = clock.now
         launchMade = Set(made().keys)
         watch(from: migrating)
-        switch await run.result {
-        case .success(let outcome):
+        final class Box { var result: Result<ClassicMigrationOutcome, any Error>? }
+        let box = Box()
+        let waiter = Task { @MainActor in box.result = await run.result }
+        var lastReport = clock.now
+        while box.result == nil, clock.now - migrating < budget {
+            try? await Task.sleep(for: .milliseconds(100))
+            if clock.now - lastReport >= .seconds(10) {
+                lastReport = clock.now
+                let ledger = try? mac.readLedger()
+                let stages = Dictionary(grouping: ledger?.workspaces.values.map(\.stage.rawValue) ?? [], by: { $0 }).mapValues(\.count)
+                print("CLASSIC-SIM progress t=\(Int((clock.now - migrating).simSeconds))s made=\(made().count) ledger=\(stages)")
+            }
+        }
+        switch box.result {
+        case .success(let outcome)?:
             result.outcome = outcome
             lastOutcome = outcome
-        case .failure(let error): result.failure = error
+        case .failure(let error)?: result.failure = error
+        case nil:
+            waiter.cancel()
+            result.failure = SimulationFailure.overBudget(made: made().count)
         }
         result.migration = clock.now - migrating
         watcher?.cancel()
@@ -348,7 +368,11 @@ final class ClassicUpgradeSimulator {
         #expect(try mac.classicDigest() == classicBefore, "\(label): classic's files changed", sourceLocation: sourceLocation)
     }
 
-    enum SimulationFailure: Error { case noRun }
+    enum SimulationFailure: Error {
+        case noRun
+        /// The migration was still running at the deadline, with `made` workspaces made.
+        case overBudget(made: Int)
+    }
 }
 
 extension Duration {
