@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { makeAcpAdapter } from "../adapters/acp";
-import { mergeRemoteModelOptionsForTest, minimaxProviderForTest } from "../server";
+import { mergeRemoteModelOptionsForTest, minimaxProviderForTest, sanitizeStartOptions } from "../server";
 import type { AgentEvent, SessionCtx } from "../types";
 
 for (const selected of [undefined, "MiniMax-M3.1-Flash", "MiniMax-M3", "MiniMax-M2.7", "custom-model"]) {
@@ -10,7 +10,7 @@ for (const selected of [undefined, "MiniMax-M3.1-Flash", "MiniMax-M3", "MiniMax-
     const events: AgentEvent[] = [];
     const session: SessionCtx = {
       id: "offline", provider: "minimax", cwd: import.meta.dir, title: "offline",
-      autoApprove: false, startOptions: selected ? { model: selected } : {},
+      autoApprove: false, startOptions: await sanitizeStartOptions("minimax", import.meta.dir, selected ? { model: selected } : {}),
       status: "idle", events, internal: {},
       emit(event) { events.push(event); },
       setStatus(status) { this.status = status; },

@@ -14,7 +14,8 @@ import type {
 import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
-import { makeAcpAdapter } from "./adapters/acp";
+import { makeAcpAdapter, mergeAcpModelOption } from "./adapters/acp";
+import { MINIMAX_DEFAULT_MODEL, minimaxModels } from "./minimax";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
@@ -133,10 +134,6 @@ const GEMINI_MODELS = [
   { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
   { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
 ];
-const MINIMAX_MODELS = [
-  { value: "MiniMax-M3", label: "MiniMax M3" },
-  { value: "MiniMax-M2.7", label: "MiniMax M2.7" },
-];
 
 function geminiCatalogModels(): { value: string; label: string; description?: string }[] {
   const remote = agentModelCatalog.provider("gemini");
@@ -149,13 +146,11 @@ function geminiDefaultModel(): string | undefined {
 }
 
 function minimaxCatalogModels(): { value: string; label: string; description?: string }[] {
-  const remote = agentModelCatalog.provider("minimax");
-  if (remote) return remote.models.map((model) => ({ value: model.id, label: model.label, description: model.description }));
-  return agentModelCatalog.hasPayload ? [] : MINIMAX_MODELS;
+  return minimaxModels(agentModelCatalog.provider("minimax"));
 }
 
 function minimaxDefaultModel(): string | undefined {
-  return agentModelCatalog.provider("minimax")?.defaultModel ?? (agentModelCatalog.hasPayload ? undefined : "MiniMax-M3");
+  return MINIMAX_DEFAULT_MODEL;
 }
 
 const PROVIDERS: ProviderDef[] = [
@@ -641,10 +636,14 @@ function applyAutoApproveDefaults(provider: string, autoApprove: boolean, raw: R
   return out;
 }
 
-async function sanitizeStartOptions(provider: string, cwd: string, raw: Record<string, OptionValue>): Promise<Record<string, OptionValue>> {
+export async function sanitizeStartOptions(provider: string, cwd: string, raw: Record<string, OptionValue>): Promise<Record<string, OptionValue>> {
   if (!Object.keys(raw).length) return raw;
   const catalog = await catalogOptions(provider, cwd, { refreshMissing: false });
-  return filterOptions(raw, catalog);
+  const options = filterOptions(raw, catalog);
+  if (provider === "minimax" && typeof raw.model === "string" && raw.model.trim()) {
+    options.model = raw.model;
+  }
+  return options;
 }
 
 function filterOptions(raw: Record<string, OptionValue>, catalog: SessionOption[]): Record<string, OptionValue> {
@@ -664,6 +663,11 @@ function fallbackOptions(provider: string): SessionOption[] {
 }
 
 function mergeRemoteModelOptions(provider: string, options: SessionOption[], remote = agentModelCatalog.provider(provider)): SessionOption[] {
+  if (provider === "minimax") {
+    const model = options.find((option) => option.id === "model" && option.kind === "select");
+    const nextModel = mergeAcpModelOption(model, minimaxModels(remote), MINIMAX_DEFAULT_MODEL, undefined, true);
+    return model ? options.map((option) => option === model ? nextModel : option) : [nextModel, ...options];
+  }
   if (!remote) return options;
   const model = options.find((option) => option.id === "model" && option.kind === "select");
   const binary = new Map((model?.choices ?? []).map((choice) => [choice.value, choice]));

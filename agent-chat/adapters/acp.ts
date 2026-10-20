@@ -109,7 +109,7 @@ function acpFallbackOptions(def: ProviderDef): SessionOption[] {
 }
 
 function effectiveSpawnModel(def: ProviderDef, options: Record<string, OptionValue>): string {
-  return typeof options.model === "string" && def.models?.some((m) => m.value === options.model)
+  return typeof options.model === "string" && (def.id === "minimax" ? Boolean(options.model.trim()) : def.models?.some((m) => m.value === options.model))
     ? options.model
     : def.defaultModel ?? def.models?.[0]?.value ?? "";
 }
@@ -320,7 +320,7 @@ function ingestAcpOptions(st: AcpState, payload: any, def?: ProviderDef, spawnMo
     sources.set("model", "model");
   }
   if (def?.models?.length) {
-    options.set("model", mergeAcpModelOption(options.get("model"), def.models, def.defaultModel, spawnModel));
+    options.set("model", mergeAcpModelOption(options.get("model"), def.models, def.defaultModel, spawnModel, def.id === "minimax"));
     sources.set("model", "spawnModel");
   }
   st.options = [...options.values()];
@@ -332,6 +332,7 @@ export function mergeAcpModelOption(
   curated: OptionChoice[],
   defaultModel?: string,
   spawnModel?: string,
+  curatedOnly = false,
 ): SessionOption {
   const binary = new Map((existing?.choices ?? []).map((choice) => [choice.value, choice]));
   const choices: OptionChoice[] = curated.map((choice) => {
@@ -339,7 +340,7 @@ export function mergeAcpModelOption(
     binary.delete(choice.value);
     return { ...reported, ...choice };
   });
-  choices.push(...binary.values());
+  if (!curatedOnly) choices.push(...binary.values());
   const value = String(spawnModel || existing?.value || defaultModel || choices[0]?.value || "");
   if (value && !choices.some((choice) => choice.value === value)) {
     choices.push({ value, label: prettifyModelLabel(value), description: "Reported by the agent" });
