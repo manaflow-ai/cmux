@@ -1,5 +1,6 @@
-//! Version 1 acknowledges only an empty lifetime fence. No service or private
-//! payload is accepted by this transport-only recipient.
+//! Seal private root stdin before terminal exec. Lifetime-only mode starts no
+//! service; Native support is advertised only after an owned recipient attaches.
+//! That recipient must drain and reap before returning a stop acknowledgement.
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::os::fd::{AsRawFd, FromRawFd};
@@ -10,14 +11,61 @@ use std::thread::JoinHandle;
 use super::refused;
 use crate::caller::verify_inherited_root_parent;
 
+#[path = "daemon_native.rs"]
+mod native;
+
+/// Proof of Native support requested on this root parent's startup channel.
+/// This cannot be constructed from a role frame or a public caller claim.
+#[derive(Clone)]
+pub struct NativePermit {
+    _sealed: (),
+}
+
 /// A private root-parent watcher, owned by the session daemon's startup scope.
 pub struct Daemon {
     parent: Arc<UnixStream>,
     control: Arc<UnixStream>,
     task: Option<JoinHandle<io::Result<()>>>,
+    native: bool,
+    pending: Option<UnixStream>,
 }
 
 impl Daemon {
+    pub fn native_permit(&self) -> Option<NativePermit> {
+        self.native.then_some(NativePermit { _sealed: () })
+    }
+
+    /// Attach only after the session mux and remote-entry path exist. The
+    /// recipient returns only after stopping/draining and reaping its child.
+    /// Its second socket ends when the root parent/control channel disappears.
+    pub fn attach_native<F>(&mut self, recipient: F) -> io::Result<()>
+    where
+        F: Fn(UnixStream, UnixStream) -> io::Result<()> + Send + Sync + 'static,
+    {
+        if !self.native || self.task.is_some() {
+            return Err(refused());
+        }
+        let endpoint = self.pending.take().ok_or_else(refused)?;
+        let parent = self.parent.clone();
+        let control = self.control.clone();
+        let recipient = Arc::new(recipient);
+        self.task =
+            Some(std::thread::Builder::new().name("cmux-root-native".into()).spawn(move || {
+                let result = native::run(&parent, &control, recipient);
+                let _ = parent.shutdown(Shutdown::Both);
+                let _ = control.shutdown(Shutdown::Both);
+                result
+            })?);
+        if let Err(error) =
+            cmux_unix_socket::descriptor::send(&self.parent, &[2], endpoint.as_raw_fd())
+        {
+            let _ = self.parent.shutdown(Shutdown::Both);
+            let _ = self.control.shutdown(Shutdown::Both);
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// Call before any terminal-host exec. Ordinary stdin is left untouched.
     /// Valid private stdin is duplicated and sealed before later children run.
     pub fn from_stdin() -> io::Result<Option<Self>> {
@@ -52,21 +100,44 @@ impl Daemon {
         if flags < 0 || unsafe { libc::fcntl(0, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
             return Err(io::Error::last_os_error());
         }
+        // The root writes the optional suffix before spawn. Peek once without
+        // delaying an old supervisor, and seal the common v1 prefix first so
+        // an old daemon can safely refuse Native support without leaking stdin.
+        let mut suffix = [0; 4];
+        // SAFETY: live socket and correctly sized output buffer, no blocking.
+        let size = unsafe {
+            libc::recv(
+                parent.as_raw_fd(),
+                suffix.as_mut_ptr().cast(),
+                suffix.len(),
+                libc::MSG_PEEK | libc::MSG_DONTWAIT,
+            )
+        };
+        let native = size == suffix.len() as isize && suffix == super::NATIVE;
+        if native {
+            input.read_exact(&mut suffix)?;
+            // This daemon retains the original private frame while supervising
+            // reception. Root startup must protect it before capability/keys.
+            crate::caller::protect_private_process()?;
+        }
         parent.set_nonblocking(true)?;
         let (control, host) = UnixStream::pair()?;
         // The returned endpoint was created after the work-uid transition:
         // its credentials name this actual child, not the inherited creator.
-        cmux_unix_socket::descriptor::send(&parent, &[1], host.as_raw_fd())?;
-        drop(host);
         control.set_nonblocking(true)?;
         let parent = Arc::new(parent);
         let control = Arc::new(control);
+        if native {
+            return Ok(Some(Self { parent, control, task: None, native, pending: Some(host) }));
+        }
+        cmux_unix_socket::descriptor::send(&parent, &[1], host.as_raw_fd())?;
+        drop(host);
         let watched_parent = parent.clone();
         let watched_control = control.clone();
         let task = std::thread::Builder::new()
             .name("cmux-root-bootstrap".into())
             .spawn(move || run(&watched_parent, &watched_control))?;
-        Ok(Some(Self { parent, control, task: Some(task) }))
+        Ok(Some(Self { parent, control, task: Some(task), native, pending: None }))
     }
 
     pub fn wait(mut self) -> io::Result<()> {

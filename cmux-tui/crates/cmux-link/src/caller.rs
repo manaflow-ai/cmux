@@ -35,6 +35,28 @@ pub fn verify_inherited_root_parent(fd: std::os::fd::RawFd) -> Result<(), Caller
 use std::fmt;
 use std::io;
 
+/// Protect a private bootstrap recipient from same-user process inspection and
+/// core dumps. Call only after authenticating its startup authority, before
+/// advertising support or accepting private material. Ordinary caller admission
+/// is unchanged. Failure must leave the private receiving role unavailable.
+#[cfg(target_os = "linux")]
+pub fn protect_private_process() -> io::Result<()> {
+    // SAFETY: integer-only prctl changes only this process's dumpability.
+    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: integer-only prctl reads this process's current dumpability.
+    let state = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) };
+    match state {
+        0 => Ok(()),
+        -1 => Err(io::Error::last_os_error()),
+        _ => Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "link.private_process.inspection_not_blocked",
+        )),
+    }
+}
+
 /// Why a caller was refused.
 #[derive(Debug)]
 pub enum CallerRefused {

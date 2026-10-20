@@ -24,6 +24,7 @@
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
 pub mod client;
+pub mod private_bootstrap;
 pub mod receiver;
 #[cfg(target_os = "linux")]
 pub mod receiver_agent;

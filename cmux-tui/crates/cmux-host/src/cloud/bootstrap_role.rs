@@ -3,7 +3,8 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use cmux_link::root_bootstrap::{Host, StopReceipt, Ticket, WakeSet};
+use cmux_link::root_bootstrap::{Host, NativeRequest, StopReceipt, Ticket, WakeSet};
+use zeroize::Zeroizing;
 
 pub(super) struct RoleBridge {
     host: Arc<Host>,
@@ -55,5 +56,31 @@ impl WorkerBridge {
         // The host retires failed endpoints. Optional transport failure
         // never stops Cloud status/activity or its live enrollment intent.
         let _ = self.host.drive();
+    }
+    /// Capture the actual recipient before a protected/network read. A new
+    /// daemon or role incarnation cannot consume this request's late result.
+    pub(super) fn prepare_native(&self) -> Option<NativeRequest> {
+        self.host.prepare_native(&self.ticket)
+    }
+    pub(super) fn publish_native(&self, request: NativeRequest, frame: Zeroizing<Vec<u8>>) -> bool {
+        self.host.publish_native(request, frame)
+    }
+
+    /// Pin the role and actual daemon before touching protected identity or
+    /// starting Cloud I/O. An obsolete read must never reach another recipient.
+    pub(super) fn publish_original<H: super::client::Http>(
+        &self,
+        paths: &crate::config::Paths,
+        instance: &str,
+        client: &mut super::client::CloudClient<H>,
+        wall_ms: u64,
+    ) -> Result<bool, String> {
+        let Some(request) = self.prepare_native() else { return Ok(false) };
+        let frame = super::receiver_files::bootstrap(paths, instance, client, wall_ms)?.encode()?;
+        if self.publish_native(request, frame) {
+            Ok(true)
+        } else {
+            Err("Native receiving bootstrap recipient changed".into())
+        }
     }
 }

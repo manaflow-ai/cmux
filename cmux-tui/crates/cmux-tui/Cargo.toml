@@ -122,6 +122,7 @@ tokio.workspace = true
 windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 
 [dev-dependencies]
+ring.workspace = true
 cmux-pty.workspace = true
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 tempfile = "3"

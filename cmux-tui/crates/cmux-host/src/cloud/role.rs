@@ -327,6 +327,8 @@ struct Live {
 
 struct Worker {
     bootstrap: Option<super::bootstrap_role::WorkerBridge>,
+    bootstrap_retry_at: Option<u64>,
+    bootstrap_backoff: Backoff,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -359,6 +361,8 @@ impl Worker {
         control.set_nonblocking(true)?;
         Ok(Worker {
             bootstrap: None,
+            bootstrap_retry_at: None,
+            bootstrap_backoff: Backoff::new(1_000, 30_000),
             store: FileStore::new(paths.clone()),
             paths,
             instance_id,
@@ -399,10 +403,12 @@ impl Worker {
             log("no bind.json and no bound.json; waiting for bind.json");
         }
         loop {
+            self.drive_bootstrap();
             let deadline = [
                 self.live.as_ref().and_then(|l| l.session.next_deadline()),
                 self.bind_retry_at,
                 self.activity.retry_at,
+                self.bootstrap_retry_at,
             ]
             .into_iter()
             .flatten()
@@ -435,7 +441,6 @@ impl Worker {
                 });
             }
             let bootstrap_wakes = self.bootstrap.as_ref().and_then(|bridge| bridge.wake_set());
-            let bootstrap_from = fds.len();
             if let Some(wakes) = &bootstrap_wakes {
                 fds.extend(wakes.fds());
             }
@@ -452,11 +457,8 @@ impl Worker {
             if ready(0) && self.control_words()? {
                 return Ok(());
             }
-            if fds[bootstrap_from..].iter().any(|fd| fd.revents != 0)
-                && let Some(bridge) = &self.bootstrap
-            {
-                bridge.drive();
-            }
+            // The retained bootstrap descriptors wake the next loop's drive.
+            // Process control and binding changes before preparing private data.
             if ready(1) {
                 let bind = self.inotify.read_events()?.iter().any(|e| e.name == "bind.json");
                 if bind {
@@ -497,6 +499,8 @@ impl Worker {
             match word.as_str() {
                 "stop" => return Ok(true),
                 "resume" => {
+                    self.bootstrap_retry_at = None;
+                    self.bootstrap_backoff.reset();
                     if let Some(bridge) = &mut self.bootstrap {
                         bridge.resume();
                         if self.live.is_some() {
@@ -971,3 +975,6 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
 #[cfg(test)]
 #[path = "role_tests.rs"]
 mod role_tests;
+
+#[path = "role_bootstrap.rs"]
+mod bootstrap;

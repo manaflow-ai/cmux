@@ -1133,6 +1133,7 @@ dependencies = [
  "tempfile",
  "url",
  "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1155,6 +1156,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
@@ -1517,6 +1519,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "ring",
  "rusqlite",
  "rustls",
  "serde",
