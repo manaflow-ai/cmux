@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -60,7 +61,16 @@ def rpc(method, params=None, timeout=60):
 
 
 def action(name, args=None, focus=False):
-    return rpc("action.run", {"action": name, "args": args or {}, "focus": focus}, timeout=180)
+    """Runs an action; a reply of `in_progress` past the socket's deadline is retried with the same key."""
+    key = f"phone-live-{uuid.uuid4().hex}"
+    deadline = time.monotonic() + 240
+    while True:
+        reply = rpc("action.run", {"action": name, "args": args or {}, "focus": focus, "idempotency_key": key}, timeout=60)
+        error = (reply or {}).get("error") if isinstance(reply, dict) else None
+        state = ((error or {}).get("data") or {}).get("state") if isinstance(error, dict) else None
+        if not (error and state == "in_progress" and time.monotonic() < deadline):
+            return reply
+        time.sleep(0.25)  # bounded retry of a keyed run the app is still doing
 
 
 def quiet_wait(predicate, seconds):
