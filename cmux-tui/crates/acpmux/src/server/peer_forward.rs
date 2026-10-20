@@ -30,6 +30,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_SHUTDOWN,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
+    // Agent pairs are this daemon's own (`hub/agent_pairs.rs`).
+    method::MUX_AGENT_PAIR_RESUME,
     method::MUX_HANDOFF_PREPARE,
     method::MUX_HANDOFF_GET,
     method::MUX_HANDOFF_DRAFT,

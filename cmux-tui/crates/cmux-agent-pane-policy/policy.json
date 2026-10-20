@@ -13,7 +13,7 @@
     "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable",
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread",
     "_acpmux/harness/health", "_acpmux/side", "_acpmux/offer_respond", "_acpmux/start_mode",
-    "_acpmux/subagent_stop"
+    "_acpmux/subagent_stop", "_acpmux/agent_pair_resume"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -23,7 +23,7 @@
     "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
     "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side",
-    "_acpmux/offer_respond", "_acpmux/subagent_stop"
+    "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume"
   ],
   "optionally_session_scoped": ["acp.trust.get", "acp.trust.set"],
   "scoped_session_params": {"_acpmux/side": ["chat"]},
@@ -41,7 +41,8 @@
     "_acpmux/harness_enable": "always",
     "_acpmux/permission_respond": "when_option_allows",
     "_acpmux/permission_group_respond": "when_decision_allows",
-    "_acpmux/secret_submit": "always"
+    "_acpmux/secret_submit": "always",
+    "_acpmux/agent_pair_resume": "always"
   },
   "non_trusting_levels": ["untrusted", "unknown"],
   "setting_methods": ["session/set_mode", "session/set_config_option"],
@@ -87,6 +88,7 @@
     "_acpmux/side": {"params": ["sessionId", "chat"], "acpmux": []},
     "_acpmux/offer_respond": {"params": ["sessionId", "offerId", "outcome", "childSessionId"], "acpmux": []},
     "_acpmux/subagent_stop": {"params": ["sessionId", "subagentSessionId"], "acpmux": []},
+    "_acpmux/agent_pair_resume": {"params": ["sessionId", "peerSessionId"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},
