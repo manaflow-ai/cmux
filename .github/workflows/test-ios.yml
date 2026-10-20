@@ -980,7 +980,7 @@ jobs:
               -clonedSourcePackagesDirPath "$IOS_SPM_CACHE" \
               -skipMacroValidation \
               -skipPackagePluginValidation
-          grep -Eq '(Test Suite .* passed|Executed [1-9][0-9]* tests?|Test run with [1-9][0-9]* tests)' "$log_path" || {
+          grep -Eq '(Executed [1-9][0-9]* tests?|Test run with [1-9][0-9]* tests?)' "$log_path" || {
             echo "::error::CmuxiOS unit tests ran no tests"
             exit 1
           }
