@@ -38,7 +38,9 @@ impl Hub {
         // harness gets them in `mcpServers` whatever its args.
         let args: &[String] = if claude { &profile.argv } else { &[] };
         let remote = session.meta().remote_origin;
-        let mut cmux = if crate::agent_tools::left_out(remote, &profile.env, args) {
+        let left_out = crate::agent_tools::left_out(remote, &profile.env, args);
+        session.launched_with_tools.store(if left_out { 2 } else { 1 }, Ordering::SeqCst);
+        let mut cmux = if left_out {
             Vec::new()
         } else {
             crate::agent_tools::current().scoped(&profile.env).tool_rows(claude, claude)

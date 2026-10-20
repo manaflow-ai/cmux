@@ -314,7 +314,8 @@ def handle_prompt(rid, params):
     # the FIFO at PATH (no timers), then streams "after-gate" and ends.
     if text.startswith("gate:"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
-        with open(text[5:].strip()) as gate:
+        # The path ends where a hidden context block (`<cmux-rules-context>`) starts.
+        with open(text[5:].split("<", 1)[0].strip()) as gate:
             gate.read()
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
