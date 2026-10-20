@@ -536,6 +536,12 @@ pub const SESSION_JOURNAL_PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROT
 pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
 pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
 pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
+
+/// The API revisions this build speaks: `(current, oldest it translates)`
+/// (server/api_revision_wire.rs, cmux-tui/spec/api-compat.json).
+pub fn api_revision_range() -> (u32, u32) {
+    api_revision_wire::identify_fields()
+}
 mod protocol_key;
 #[cfg(test)]
 use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
@@ -762,6 +768,13 @@ enum Command {
         /// (server/api_revision_wire.rs). Absent: revision 12.
         #[serde(default)]
         api_revision: Option<u32>,
+        /// The client's release (`cmux --version`), for refusals and logs.
+        #[serde(default)]
+        version: Option<String>,
+        /// How the client was installed (`npm`, `pypi`, `app`, `other`),
+        /// so a refusal names its update command.
+        #[serde(default)]
+        install: Option<String>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.

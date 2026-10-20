@@ -95,3 +95,38 @@ fn api_revision_identify_and_set_client_info() {
     assert!(run(json!({"cmd":"set-client-info","api_revision": current})).is_ok());
     mux.shutdown();
 }
+
+#[test]
+fn api_revision_too_old_refusal_names_the_clients_update_command() {
+    let mux = Mux::new_for_test("api-revision-refusal", crate::SurfaceOptions::default());
+    let (writer, _outbound) = writer_with_outbound();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let run = |request: Value| {
+        let command: Command = serde_json::from_value(request).unwrap();
+        handle_command(&mux, client, command, &writer)
+    };
+    let (_, base) = super::identify_fields();
+    let refuse = |install: Option<&str>| {
+        let mut request =
+            json!({"cmd":"set-client-info","api_revision": base - 1,"version":"0.13.4"});
+        if let Some(install) = install {
+            request["install"] = json!(install);
+        }
+        run(request).unwrap_err().to_string()
+    };
+    let npm = refuse(Some("npm"));
+    assert!(npm.starts_with("this client (cmux 0.13.4) is too old"), "{npm}");
+    assert!(npm.ends_with("run `npm install --global cmux@latest`"), "{npm}");
+    assert!(refuse(Some("pypi")).ends_with("run `uv tool upgrade cmux`"));
+    assert!(refuse(Some("app")).contains("Check for Updates"));
+    let unknown = refuse(None);
+    assert!(
+        unknown.contains("npm install --global cmux@latest")
+            && unknown.contains("uv tool upgrade cmux")
+    );
+
+    let identity = run(json!({"cmd":"identify"})).unwrap();
+    assert_eq!(identity["version"], crate::release::DISTRIBUTION_VERSION);
+    assert!(identity["install"].is_string());
+    mux.shutdown();
+}
