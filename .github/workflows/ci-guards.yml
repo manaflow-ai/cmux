@@ -149,6 +149,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_base_red_excuse.py
 
+      - name: Validate base-red evidence with a gh that has no --slurp
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_evidence_paginate_without_slurp.py
+
       - name: Validate merge freezes as issues
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_merge_freeze.py
