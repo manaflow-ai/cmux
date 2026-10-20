@@ -2029,8 +2029,10 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
         env:
           CMUX_NOTICES_ALLOW_CARGO: "1"
-          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
         run: |
+          # A trusted NEXT worker keeps the crate sources between jobs
+          # (nightly_build_state.py); every other runner downloads them.
+          export CMUX_NOTICES_CACHE="${CMUX_NEXT_NOTICES_CACHE:-$RUNNER_TEMP/cmux-notices}"
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
