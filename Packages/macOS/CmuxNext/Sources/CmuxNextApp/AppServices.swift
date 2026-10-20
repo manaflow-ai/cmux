@@ -412,6 +412,9 @@ final class AppServices {
             if self.sleepyMode.consumesKeyDown() { return true }
             return self.keyRouter.interceptKeyDown(event, in: window)
         }
+        (NSApp as? CmuxApplication)?.actionTargetOverride = { [weak self] action, found in
+            self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)
+        }
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
         cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
