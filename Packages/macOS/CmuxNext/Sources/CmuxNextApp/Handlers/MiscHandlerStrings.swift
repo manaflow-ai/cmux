@@ -24,7 +24,8 @@ enum MiscHandlerStrings {
         String(localized: "handlers.misc.defaultBrowserIsCmux", defaultValue: "cmux is the default browser, so the link opens in cmux", table: "MiscHandlers", bundle: .module)
     }
     static var noDefaultBrowser: String { String(localized: "handlers.misc.noDefaultBrowser", defaultValue: "No app opens this link", table: "MiscHandlers", bundle: .module) }
-    static var agentChat: String { String(localized: "handlers.misc.unavailable.agentChat", defaultValue: "Agent chat views are not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
+    static var terminalChatNoSession: String { String(localized: "handlers.misc.failed.terminalChatNoSession", defaultValue: "The focused terminal runs no agent session to open as a chat.", table: "MiscHandlers", bundle: .module) }
+    static var terminalChatHarness: String { String(localized: "handlers.misc.failed.terminalChatHarness", defaultValue: "Only Claude Code and Codex sessions can open as a chat.", table: "MiscHandlers", bundle: .module) }
     static var agentTeams: String { String(localized: "handlers.misc.unavailable.agentTeams", defaultValue: "The Claude and Codex Teams launcher is not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
     static var computerUse: String { String(localized: "handlers.misc.unavailable.computerUse", defaultValue: "Computer Use integration is not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
     static var noBrowser: String { String(localized: "handlers.misc.failed.noBrowser", defaultValue: "No browser tab is focused.", table: "MiscHandlers", bundle: .module) }
