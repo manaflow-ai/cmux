@@ -82,6 +82,13 @@ cycle() {  # cycle MAJOR OUT
   local app; app=$(ssh "${SSHB[@]}" "admin@$ip" 'set -e; pkill -x "System Settings" || true; pkill -x Terminal || true; rm -rf ~/fuzzapp; mkdir ~/fuzzapp;
     ditto -x -k ~/build.zip ~/fuzzapp; ls -d ~/fuzzapp/*.app | head -1' </dev/null)
   local rargs=(); if [[ -n "$REPLAY" ]]; then rargs=(--replay "$REPLAY"); fi
+  if [[ -n "${FUZZ_DYLIB:-}" ]]; then
+    # Diagnostics only: a dylib loaded with DYLD_INSERT_LIBRARIES, which the hardened runtime
+    # refuses, so the guest copy of the app is re-signed ad hoc without it.
+    scp "${SSHB[@]}" -q "$FUZZ_DYLIB" "admin@$ip:/Users/admin/fuzz-diag.dylib" </dev/null
+    ssh "${SSHB[@]}" "admin@$ip" "codesign --force --deep --sign - $(printf %q "$app") >/dev/null 2>&1" </dev/null
+    rargs+=(--insert-dylib /Users/admin/fuzz-diag.dylib)
+  fi
   python3 -I "$HERE/fuzz.py" --ssh "admin@$ip" --vnc "$vncarg" --app "$app" --seed "$SEED" --steps "$STEPS" \
     --out "$out" ${rargs[@]+"${rargs[@]}"} ${FUZZ_ARGS:-} --ssh-opt=-oPubkeyAuthentication=no \
     --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive --ssh-opt=-oNumberOfPasswordPrompts=1 \

@@ -57,6 +57,7 @@ class Guest:
         self.target, self.app = target, app
         self.cli = f"{app}/Contents/Resources/bin/cmux"
         self.binary = ""
+        self.env = "CMUX_NEXT_SOCKET_MODE=automation"
         self.socket = ""
         self.ctl = f"/tmp/fuzz-ssh-{os.getpid()}"
         self.base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
@@ -128,8 +129,34 @@ class Guest:
         # Other apps a stray key or click opened; the fuzz targets only cmux.
         self.sh("for a in Music Calendar 'System Settings' Photos Mail Maps Messages FaceTime Notes Reminders "
                 "Freeform TV News 'App Store' Safari Contacts Preview TextEdit; do pkill -x \"$a\"; done; true")
-        self.sh(f"open -a {shlex.quote(self.app)}")
+        for _ in range(3):
+            self.sh(f"open -a {shlex.quote(self.app)}")
+            time.sleep(0.7)
+            info = self.winfo()
+            if info is None or info.get("front_pid") == info.get("pid"):
+                break
         return True
+
+    STATE_DIRS = ("~", "~/Library/Application Support", "~/Library/Caches", "~/Library/Preferences",
+                  "~/Library/Saved Application State", "~/Library/HTTPStorages", "~/Library/WebKit", "/tmp",
+                  "$(getconf DARWIN_USER_TEMP_DIR)")
+
+    def _state_dirs(self) -> str:
+        return " ".join('"$HOME' + d[1:] + '"' if d.startswith("~") else d if d.startswith("$(") else shlex.quote(d)
+                        for d in self.STATE_DIRS)
+
+    def snapshot_state(self) -> None:
+        """Record what the state folders hold before the app's first launch (see ``reset``)."""
+        dirs = self._state_dirs()
+        self.sh(f"for d in {dirs}; do ls -A \"$d\" | sed \"s|^|$d/|\"; done > /tmp/fuzz-baseline.txt 2>/dev/null; true")
+
+    def reset(self) -> None:
+        """Quit the app and its helpers and delete every file the app created since ``snapshot_state``."""
+        dirs = self._state_dirs()
+        self.sh(f"pkill -9 -f {shlex.quote(self.app + '/Contents/')}; sleep 1; "
+                f"for d in {dirs}; do ls -A \"$d\" | sed \"s|^|$d/|\"; done 2>/dev/null | grep -vxF -f /tmp/fuzz-baseline.txt "
+                "| grep -v -E '/tmp/fuzz-|/tmp/cmux-fuzz-app.log' | while IFS= read -r p; do rm -rf \"$p\"; done; "
+                "killall cfprefsd 2>/dev/null; true", timeout=60)
 
     def install_helpers(self) -> None:
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "winfo.js")).read()
@@ -140,8 +167,10 @@ class Guest:
         plist = self.sh(f"/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' {shlex.quote(self.app + '/Contents/Info.plist')}")
         self.binary = f"{self.app}/Contents/MacOS/{plist.stdout.strip()}"
         before = time.time()
-        self.sh(f"CMUX_NEXT_SOCKET_MODE=automation nohup {shlex.quote(self.binary)} "
-                f">>/tmp/cmux-fuzz-app.log 2>&1 </dev/null & disown; true")
+        # Not `nohup`: dyld strips DYLD_* variables from SIP-protected binaries and their
+        # children, so the shell exports them and execs the app itself (ignoring SIGHUP).
+        self.sh(f"( trap '' HUP; export {self.env}; exec {shlex.quote(self.binary)} "
+                f">>/tmp/cmux-fuzz-app.log 2>&1 </dev/null ) & disown; true")
         while time.time() - before < deadline:
             r = self.sh("ls -t /tmp/cmux-*.sock 2>/dev/null | head -1")
             self.socket = r.stdout.strip()
@@ -289,6 +318,7 @@ def check_input(g: Guest, vnc: RFB) -> dict:
     tried = {}
     for name, sym in CMD_CANDIDATES:
         rfb.KEYSYM["cmd"] = sym
+        g.refocus()
         vnc.chord("esc")
         time.sleep(0.3)
         before = workspace_count(g)
@@ -303,9 +333,71 @@ def check_input(g: Guest, vnc: RFB) -> dict:
 
 
 def new_reports(g: Guest, since: float, seen: set[str]) -> list[str]:
-    r = g.sh("find ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports -maxdepth 1 "
-             f"-newermt @{int(since)} \\( -name '*cmux*' -o -name '*acpmux*' -o -name '*.hang' \\) 2>/dev/null")
-    return [p for p in r.stdout.split() if p and p not in seen]
+    """Crash (.ips) and hang reports of the app's processes written since `since` (epoch s)."""
+    code = ("import glob,os,sys\n"
+            "for d in (os.path.expanduser('~/Library/Logs/DiagnosticReports'), '/Library/Logs/DiagnosticReports'):\n"
+            "  for p in glob.glob(d + '/*'):\n"
+            "    n = os.path.basename(p)\n"
+            "    if ('cmux' in n or 'acpmux' in n or 'optchat' in n or n.endswith('.hang')) and os.path.getmtime(p) > float(sys.argv[1]):\n"
+            "      print(p)\n")
+    r = g.sh(f"/usr/bin/python3 -I -c {shlex.quote(code)} {since}")
+    return [p for p in r.stdout.splitlines() if p and p not in seen]
+
+
+def minimize(steps: list[dict], g: Guest, vnc: RFB, out: str) -> list[dict]:
+    """Delta-debug (ddmin) the steps before the last one down to a minimal list that still kills the app.
+
+    Every trial resets the app's state in the same VM, launches it, runs the candidate steps and checks
+    the app is still alive 5 s after the last one. Writes each trial and the result to `out`.
+    """
+    last = steps[-1]
+    trials = open(os.path.join(out, "minimize.jsonl"), "a")
+
+    def dies(prefix: list[dict]) -> bool:
+        g.reset()
+        if not g.launch():
+            return False
+        g.refocus()
+        for st in prefix + [last]:
+            g.refocus()
+            try:
+                run_step(st, g, vnc)
+            except (ConnectionError, OSError):
+                pass
+            time.sleep(0.15)
+        time.sleep(5)
+        dead = g.pid() is None
+        trials.write(json.dumps({"n": len(prefix), "dies": dead}) + "\n")
+        trials.flush()
+        print(f"trial {len(prefix)} steps: {'DIES' if dead else 'lives'}", flush=True)
+        return dead
+
+    cur = steps[:-1]
+    if not dies(cur):
+        print("the full list does not kill the app in a fresh state; nothing to minimize", flush=True)
+        return steps
+    n = 2
+    while len(cur) >= 2:
+        chunk = max(1, len(cur) // n)
+        parts = [cur[i:i + chunk] for i in range(0, len(cur), chunk)]
+        reduced = False
+        for i in range(len(parts)):
+            complement = [x for j, p in enumerate(parts) if j != i for x in p]
+            if dies(complement):
+                cur, n, reduced = complement, max(n - 1, 2), True
+                break
+        if not reduced:
+            if n >= len(cur):
+                break
+            n = min(len(cur), n * 2)
+    if not cur and not dies([]):
+        pass
+    result = cur + [last]
+    with open(os.path.join(out, "minimal.jsonl"), "w") as f:
+        for st in result:
+            f.write(json.dumps({"step": st}) + "\n")
+    print(f"minimal: {len(result)} steps", flush=True)
+    return result
 
 
 def main() -> int:
@@ -320,18 +412,25 @@ def main() -> int:
     ap.add_argument("--replay", help="steps.jsonl from an earlier run")
     ap.add_argument("--no-tour", action="store_true")
     ap.add_argument("--probe-keys", action="store_true", help="only find the Command keysym, then exit")
+    ap.add_argument("--minimize", action="store_true", help="with --replay: delta-debug the steps to a minimal crash")
     ap.add_argument("--shot-every", type=int, default=50, help="VNC screenshot every N steps (0: never)")
     ap.add_argument("--ssh-opt", action="append", default=[], help="extra ssh option (repeatable)")
+    ap.add_argument("--insert-dylib", help="guest path of a diagnostic dylib to load (DYLD_INSERT_LIBRARIES); "
+                    "the app must be signed without the hardened runtime")
     o = ap.parse_args()
 
     os.makedirs(o.out, exist_ok=True)
     host, port, *pw = o.vnc.split(":")
     vnc = RFB(host, int(port), pw[0] if pw else None)
     g = Guest(o.ssh, o.app, o.ssh_opt)
+    if o.insert_dylib:
+        g.env += f" DYLD_INSERT_LIBRARIES={shlex.quote(o.insert_dylib)}"
     osver = g.sh("sw_vers -productVersion").stdout.strip()
     if g.sh(f"test -d {shlex.quote(o.app)}").returncode != 0:
         sys.exit(f"no app at {o.app!r} in the guest")
     g.install_helpers()
+    if o.minimize:
+        g.snapshot_state()
     if not g.launch():
         sys.exit("the app did not answer a ping within the launch deadline")
     actions = load_actions(g)
@@ -351,6 +450,9 @@ def main() -> int:
             pass
     if o.probe_keys:
         return 0 if summary_input["ok"] else 1
+    if o.minimize:
+        minimize(steps, g, vnc, o.out)
+        return 0
     log = open(os.path.join(o.out, "steps.jsonl"), "w")
     findings = open(os.path.join(o.out, "findings.jsonl"), "a")
     seen: set[str] = set()
@@ -409,8 +511,36 @@ def main() -> int:
                 summary["guest_lost_at"] = i
                 finding("guest-lost", i, step, {})
                 break
+            if pid is not None:
+                # Alive but not answering: record where the main thread is; never start a second copy.
+                summary["unresponsive"] = summary.get("unresponsive", 0) + 1
+                g.sh(f"sample {pid} 2 -file /tmp/fuzz-unresp-{i}.txt >/dev/null 2>&1", timeout=20)
+                open(os.path.join(o.out, f"unresponsive-{i}.sample.txt"), "w").write(g.sh(f"cat /tmp/fuzz-unresp-{i}.txt").stdout)
+                finding("unresponsive", i, step, {})
+                continue
             summary["relaunches"] += 1
+            found: list[str] = []
+            for _ in range(10):  # ReportCrash writes the .ips up to ~20 s after the exit
+                time.sleep(3)
+                found = new_reports(g, t0, seen)
+                if found:
+                    break
+            for path in found:
+                seen.add(path)
+                name = os.path.basename(path)
+                open(os.path.join(o.out, name), "w").write(g.sh(f"cat {shlex.quote(path)}", timeout=30).stdout)
+                if not name.endswith(".hang"):
+                    summary["crashes"] += 1
+                finding("crash" if not name.endswith(".hang") else "hang-report", i, step, {"report": name})
+            # The runtime's fatal-error text (e.g. "freed pointer was not the last allocation")
+            # goes to stderr only, never into the .ips.
+            open(os.path.join(o.out, f"dead-{i}.stderr.txt"), "w").write(
+                g.sh("tail -c 8000 /tmp/cmux-fuzz-app.log", timeout=20).stdout)
+            if o.insert_dylib:
+                open(os.path.join(o.out, f"dead-{i}.dylib.txt"), "w").write(
+                    g.sh("cat /tmp/taskalloc-*.log 2>/dev/null", timeout=30).stdout)
             finding("dead", i, step, {"ping_ms": ms})
+            g.sh(": >/tmp/cmux-fuzz-app.log", timeout=20)
             g.launch()
 
     faults = g.sh(f"log show --style ndjson --start '@{int(t0)}' --predicate "
