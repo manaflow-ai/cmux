@@ -66,7 +66,9 @@ public final class ControlService {
             registry: registry,
             settingsStore: settings?.file,
             settingsWriter: settings,
-            configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode, passwordVerifier: verifier,
+            configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode,
+                                                             protectStateDirectory: protectsStateDirectory(launch),
+                                                             passwordVerifier: verifier,
                                                              trustedExecutables: bundledExecutables(bundle, environment: environment),
                                                              compatibilityLink: launch.compatibilityLink),
             identity: identity,
@@ -145,6 +147,13 @@ public final class ControlService {
         #else
         false
         #endif
+    }
+
+    /// Whether `launch` names the canonical directory cmux owns, rather than an override parent.
+    static func protectsStateDirectory(_ launch: LaunchIdentity) -> Bool {
+        if launch.compatibilityLink != nil { return true }
+        let parent = URL(fileURLWithPath: launch.socketPath).deletingLastPathComponent().standardizedFileURL.path
+        return parent == ControlSocketPath.shared.stateDirectory()
     }
 
     /// The bundled cmux binary (`bin/cmux`, also run as `bin/cmux-tui`),

@@ -24,6 +24,8 @@ public final class ControlSocketServer: Sendable {
     public struct Configuration: Sendable {
         public var path: String
         public var accessMode: ControlAccessMode
+        /// Tightens and validates an existing parent as cmux's canonical state directory.
+        public var protectStateDirectory: Bool
         /// Verifies a password for `.password` mode. Nil rejects every login.
         public var passwordVerifier: (@Sendable (String) -> Bool)?
         /// Process whose descendants `.cmuxOnly` admits (default: this app).
@@ -45,6 +47,7 @@ public final class ControlSocketServer: Sendable {
         public init(
             path: String,
             accessMode: ControlAccessMode,
+            protectStateDirectory: Bool = false,
             passwordVerifier: (@Sendable (String) -> Bool)? = nil,
             trustedAncestor: pid_t = getpid(),
             trustedExecutables: Set<String> = [],
@@ -55,6 +58,7 @@ public final class ControlSocketServer: Sendable {
         ) {
             self.path = path
             self.accessMode = accessMode
+            self.protectStateDirectory = protectStateDirectory
             self.passwordVerifier = passwordVerifier
             self.trustedAncestor = trustedAncestor
             self.trustedExecutables = trustedExecutables
@@ -136,7 +140,7 @@ public final class ControlSocketServer: Sendable {
         guard configuration.accessMode != .off else { throw StartError.disabled }
         guard !isRunning else { return }
         let path = configuration.path
-        Self.makeStateDirectory(for: path)
+        try Self.makeStateDirectory(for: path, protectExisting: configuration.protectStateDirectory)
         try Self.reclaimStalePath(path)
         let (source, identity) = try makeListener()
         state.withLock {
