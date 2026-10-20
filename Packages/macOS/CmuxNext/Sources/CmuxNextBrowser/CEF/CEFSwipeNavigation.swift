@@ -17,6 +17,7 @@ final class CEFSwipeNavigation {
     private unowned let runtime: CEFRuntime
     private var monitor: Any?
     private var gesture = BrowserSwipeGesture()
+    private let pageProbe = BrowserSwipeProbe()
     /// The page the current gesture began over.
     private weak var tab: CEFTab?
     private weak var hostView: CEFHostView?
@@ -92,11 +93,12 @@ final class CEFSwipeNavigation {
     private func probe() {
         guard let tab, let hostView else { return }
         let zoom = max(CGFloat(tab.state.zoom), 0.25)
-        let script = BrowserSwipeProbe.script(x: point.x / zoom, y: (hostView.bounds.height - point.y) / zoom)
+        let script = pageProbe.script(x: point.x / zoom, y: (hostView.bounds.height - point.y) / zoom)
         let generation = gesture.generation
+        let pageProbe = pageProbe
         Task { @MainActor [weak self, weak tab] in
             let value = try? await tab?.evaluate(script, world: .page)
-            self?.gesture.probeAnswered(value.flatMap(BrowserSwipeProbe.edges), generation: generation)
+            self?.gesture.probeAnswered(value.flatMap(pageProbe.edges), generation: generation)
         }
     }
 

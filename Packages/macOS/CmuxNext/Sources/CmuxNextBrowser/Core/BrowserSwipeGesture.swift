@@ -57,7 +57,7 @@ nonisolated struct BrowserSwipeGesture: Equatable, Sendable {
 
     enum Step: Equatable, Sendable {
         case none
-        /// Ask the page (`probeAnswered` with the same `generation`).
+        /// Ask the page (`probeAnswered` with the `generation` this step left).
         case probe
         /// Call `trackSwipeEvent` with this event and keep it from the page.
         case track(BrowserSwipeDirection)
@@ -68,7 +68,9 @@ nonisolated struct BrowserSwipeGesture: Equatable, Sendable {
     static let dominance: CGFloat = 1.5
 
     private(set) var phase: Phase = .idle
-    /// Counts gestures, so a late probe answer of an earlier one is ignored.
+    /// Counts probes: each probe of each gesture has its own. Only the answer to the latest probe
+    /// counts, so a late answer of an earlier gesture, or the first probe's answer arriving after
+    /// the gesture asked the confirming one, is ignored.
     private(set) var generation = 0
     private var dx: CGFloat = 0
     private var dy: CGFloat = 0
@@ -105,6 +107,7 @@ nonisolated struct BrowserSwipeGesture: Equatable, Sendable {
                     return .none
                 }
                 phase = .confirming(direction)
+                generation += 1
                 return .probe
             case .ready(let direction):
                 // The fingers turned back the other way before the swipe started: the page keeps it.

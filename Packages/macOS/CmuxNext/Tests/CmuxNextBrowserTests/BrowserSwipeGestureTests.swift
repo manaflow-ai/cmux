@@ -86,12 +86,35 @@ import Testing
         #expect(gesture.phase == .pending)
     }
 
+    @Test func theFirstProbesLateAnswerDoesNotConfirm() {
+        // Crossed `slop` before the first probe answered: the first answer (the carousel's listener
+        // only just installed) must not stand in for the confirming one.
+        var gesture = BrowserSwipeGesture()
+        #expect(gesture.scroll(.began, deltaX: 0, deltaY: 0) == .probe)
+        let first = gesture.generation
+        _ = gesture.scroll(.changed, deltaX: 4, deltaY: 0)
+        #expect(gesture.scroll(.changed, deltaX: 4, deltaY: 0) == .probe)
+        #expect(gesture.phase == .confirming(.back))
+        gesture.probeAnswered(Self.atEdges, generation: first)
+        #expect(gesture.phase == .confirming(.back))
+        #expect(gesture.scroll(.changed, deltaX: 4, deltaY: 0) == .none)
+        gesture.probeAnswered(BrowserSwipeEdges(canScrollLeft: false, canScrollRight: false, consumesHorizontal: true),
+                              generation: gesture.generation)
+        #expect(gesture.phase == .declined)
+    }
+
+    @Test func aFrameThePageCannotReadKeepsTheGesture() {
+        let script = BrowserSwipeProbe().script(x: 10, y: 10)
+        #expect(script.contains("tag !== 'IFRAME'"))
+        #expect(script.contains("left = true; right = true"))
+    }
+
     @Test func theProbeAnswerParsesOnlyItsOwnShape() {
-        #expect(BrowserSwipeProbe.edges(.array([.bool(true), .bool(false), .bool(false)]))
+        #expect(BrowserSwipeProbe().edges(.array([.bool(true), .bool(false), .bool(false)]))
             == BrowserSwipeEdges(canScrollLeft: true, canScrollRight: false, consumesHorizontal: false))
-        #expect(BrowserSwipeProbe.edges(.array([.bool(true), .bool(false)])) == nil)
-        #expect(BrowserSwipeProbe.edges(.string("[true,false,false]")) == nil)
-        #expect(BrowserSwipeProbe.script(x: .nan, y: 10).contains("elementFromPoint(0.0, 10.0)"))
+        #expect(BrowserSwipeProbe().edges(.array([.bool(true), .bool(false)])) == nil)
+        #expect(BrowserSwipeProbe().edges(.string("[true,false,false]")) == nil)
+        #expect(BrowserSwipeProbe().script(x: .nan, y: 10).contains("scan(window, 0.0, 10.0, 0)"))
     }
 
     @MainActor @Test func theIndicatorSlidesInFromTheEdgeItPointsTo() {
