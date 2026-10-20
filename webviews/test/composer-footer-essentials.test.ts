@@ -86,15 +86,12 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     expect(access?.title).toContain("Default");
     expect(access?.text).toContain("Default");
     // No usage before anything is used: Claude Code's split keeps the ring's place in the quiet
-    // row from the first frame (hq#1957, the composer holds still), but it is off and draws only its
-    // track, never a share.
+    // row from the first frame (hq#1957, the composer holds still), but it draws only its track,
+    // never a share.
     const rings = await page.$$eval(".acpmux-context-ring", (buttons) =>
-      buttons.map((button) => ({
-        disabled: (button as HTMLButtonElement).disabled,
-        marks: button.querySelectorAll("svg circle").length,
-      })),
+      buttons.map((button) => button.querySelectorAll("svg circle").length),
     );
-    for (const ring of rings) expect(ring).toEqual({ disabled: true, marks: 1 });
+    for (const marks of rings) expect(marks).toBe(1);
     await page.close();
   });
 

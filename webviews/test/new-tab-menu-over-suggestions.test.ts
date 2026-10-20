@@ -124,8 +124,10 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
   const MENUS_ON = [...MENUS];
 
   // Cards, the app's default page, draws Claude Code's split: the chips sit in the quiet row under
-  // the box, and the suggestions hang under that row, never over it (greptile on #22285).
-  for (const { name, query, height, button, menu, rows } of MENUS) {
+  // the box, and the suggestions hang under that row, never over it (greptile on #22285). There
+  // the model menu reaches over the suggestions; the effort and access menus open clear of them
+  // (CI on #22285 measured no overlap), so only the model menu has an overlap to check.
+  for (const { name, query, height, button, menu, rows } of MENUS.filter((entry) => entry.name === "model")) {
     MENUS_ON.push({
       name: `${name} (Cards, split)`,
       query: `${query ? `${query}&` : "?"}template=cards`,
