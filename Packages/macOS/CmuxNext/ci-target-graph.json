@@ -322,7 +322,8 @@
         "CmuxGhosttyKit",
         "CmuxHomeCore",
         "CmuxHomeRender",
-        "CmuxMessagesLab"
+        "CmuxMessagesLab",
+        "CmuxUpdater"
       ],
       "reads": [
         "Resources/cmux-themes/",
