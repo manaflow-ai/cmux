@@ -199,10 +199,10 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** Open-ended ring used as the "working" spinner. */
+/** Open-ended ring used as the "working" spinner; it turns (`.cv-spinner`, conversation.css). */
 export const Spinner = ({ size = 16, className, style, strokeWidth = 1.5 }: CvIconProps) => (
   <svg
-    className={className}
+    className={className ? `cv-spinner ${className}` : "cv-spinner"}
     style={style}
     width={size}
     height={size}
