@@ -95,6 +95,7 @@ enum AppActions {
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
         IconMenuVisibility.install(registry, context: context)
+        TabSelectionTitles(context: context).install(in: registry)
         TopPages.installTabTargetReasons(services)
         HomeRules.install(services)
         TopPages.registerProviders(services)
