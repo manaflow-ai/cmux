@@ -70,7 +70,7 @@ export const hostNetworkPolicy = async (d: Deps, p: Principal, params: unknown):
     const point = pointOf(own)!, original = hostStamp(d, host)
     const read = await verifyNetworkIdentity(d.http, origin, host.kind === "server" ? "server" : "device",
       { ...host.network, wg: host.wg_public_key!, point }, decoded.value.proof, d.now())
-    if (!read.ok) return read
+    if (!read.ok) return read.code === "selector.not_found" ? forbidden() : read
     const native = peersOf(read.policy, host, point), all = networkHosts(d)
     if (!native || !all) return unavailable()
     const candidates = all.filter((h) => sameNetwork(host, h) && liveHost(d, h))

@@ -79,6 +79,14 @@ it("refuses an owner whose original install is revoked during the signed Native 
   expect((await f.read()).status).not.toBe(200)
 })
 
+it("refuses a removed Native identity with the declared authorization error", async () => {
+  const f = await policyWorld()
+  f.policies.delete(f.server.device)
+  const read = await f.read()
+  expect(read.status).toBe(403)
+  expect(read.json.code).toBe("auth.forbidden")
+})
+
 it("does not renew freshness after a slow Native read", async () => {
   const f = await policyWorld(), start = Date.now()
   let now = start
