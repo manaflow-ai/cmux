@@ -90,7 +90,9 @@ A fold, end to end:
 3. `SidebarListView.foldGroup` builds a new layout with `SidebarLayout.folding`. That splices only
    the group's member rows (the same rows `make` would build; `SidebarLayoutFoldTests` checks this
    row by row). The rows after the group move by the height change.
-   `SidebarLayoutKeyIndex` takes the splice without hashing every key again.
+   `SidebarLayoutKeyIndex` takes the splice without hashing every key again. The rows below move
+   by one strided vector add over their `y` field (microseconds at 10,000 rows); that is the one
+   step left that touches every later row, and it copies none.
    Only realized views (the viewport plus overscan) move, open or close. Group lines below the
    group move by the same height.
 4. `SidebarDocStore.setGroupCollapsed` sends `group.update {collapsed: value}`: the value, not a
@@ -122,12 +124,18 @@ echo with the old value does not undo a newer click.
 Mac-mini fleet, `SidebarGroupToggleScalingTests` (a real chevron click on a 10-member group near
 the top; workspaces in 100 groups, all open; median and p90 of 16 toggles; main thread):
 
-| Workspaces | Before median / p90 (ms) | After median / p90 (ms) |
-| --- | --- | --- |
-| 10 | TBD | TBD |
-| 100 | TBD | TBD |
-| 1,000 | TBD | TBD |
-| 10,000 | TBD | TBD |
+| Workspaces | Before median / p90 (ms) | After median / p90 (ms) | List reloads per toggle (before → after) |
+| --- | --- | --- | --- |
+| 10 | 0.79 / 0.80 | 0.36 / 0.39 | 2 → 0 |
+| 100 | 7.5 / 7.6 | 1.08 / 1.25 | 2 → 0 |
+| 1,000 | 39.1 / 39.9 | 0.97 / 0.99 | 2 → 0 |
+| 10,000 | 365.7 / 377.2 | 1.11 / 1.19 | 2 → 0 |
+
+Same host (aws-m4pro-6), Debug test build. Before: test commit `df23b124756` alone (guard ratio
+46.8x, fails). After: the fix (guard ratio 1.29x, passes). Of the 1.1 ms after, about 1.0 ms is
+the list moving and configuring its ~44 realized row views; the model write is under 0.001 ms and
+the render check about 0.01 ms. These numbers cover the click on the main thread only: the daemon
+round trip is no longer on the click path, and before the fix it added a full tree snapshot on top.
 
 Guard: the median at 10,000 workspaces may cost at most 1.5x the one at 100, the p90 must fit in
 one 8 ms frame, and a toggle may lay the list out at most once.
