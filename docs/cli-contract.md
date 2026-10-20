@@ -521,7 +521,7 @@ Diff subcommands:
 
 AI accounts subcommands:
 
-Each verb maps to one `aiAccounts.*` socket method handled by the app. Credential safety: Claude and Codex OAuth files are read by the cmux app; API-key providers read `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` from the shell environment, and `--key` overrides but exposes the secret in shell history and process listings. Only sanitized account records are stored on the tenant.
+Each verb maps to one `aiAccounts.*` socket method handled by the app. Credential safety: Claude and Codex OAuth files are read by the cmux app; API-key providers read `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` from the shell environment, and `--key` overrides but exposes the secret in shell history and process listings. The uploaded credentials themselves are stored on the team's tenant; only `ai-accounts list` output is sanitized (secrets are never included in listings).
 
 | Command | Contract |
 | --- | --- |
