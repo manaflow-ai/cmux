@@ -135263,6 +135263,530 @@
           }
         }
       }
+    },
+    "settings.sidebar.groupHeader.memberCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Group Member Count"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار عدد أعضاء المجموعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži broj članova grupe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis antal medlemmer i gruppen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mitgliederzahl der Gruppe anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar número de miembros del grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher le nombre de membres du groupe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra numero di membri del gruppo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループのメンバー数を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញចំនួនសមាជិកក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹 멤버 수 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis antall medlemmer i gruppen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuj liczbę członków grupy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar número de membros do grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать число участников группы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงจำนวนสมาชิกของกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grup üye sayısını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати кількість учасників групи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện số thành viên nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示分组成员数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示群組成員數"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupHeader.memberCount.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض المجموعة المطوية عدد مساحات العمل التي تضمها بعد اسمها. عند الإيقاف، تعرض مؤشر التحميل فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skupljena grupa nakon naziva prikazuje koliko radnih prostora sadrži. Isključeno: prikazuje samo indikator učitavanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sammenklappet gruppe viser efter navnet, hvor mange arbejdsområder den har. Fra: Den viser kun sin indlæsningsindikator."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine eingeklappte Gruppe zeigt nach ihrem Namen, wie viele Arbeitsbereiche sie enthält. Aus: Sie zeigt nur ihren Ladeindikator."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un grupo contraído muestra cuántos espacios de trabajo contiene después de su nombre. Desactivado, solo muestra su indicador de carga."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un groupe replié affiche le nombre de ses espaces de travail après son nom. Désactivé, il n’affiche que son indicateur de chargement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un gruppo compresso mostra quanti spazi di lavoro contiene dopo il nome. Disattivato, mostra solo l’indicatore di caricamento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折りたたんだグループの名前の後に、含まれるワークスペースの数を表示します。オフの場合は読み込み中のスピナーのみを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមដែលបានបង្រួមបង្ហាញចំនួនកន្លែងធ្វើការបន្ទាប់ពីឈ្មោះ។ ពេលបិទ វាបង្ហាញតែសញ្ញាកំពុងផ្ទុកប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "접힌 그룹은 이름 뒤에 포함된 워크스페이스 수를 표시합니다. 끄면 로딩 표시기만 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sammenslått gruppe viser etter navnet hvor mange arbeidsområder den har. Av: Den viser bare innlastingsindikatoren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwinięta grupa pokazuje po nazwie, ile zawiera obszarów roboczych. Wyłączone: pokazuje tylko wskaźnik ładowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um grupo recolhido mostra quantos espaços de trabalho contém após o nome. Desativado, mostra apenas o indicador de carregamento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Свёрнутая группа показывает после названия, сколько в ней рабочих пространств. Если выключено, показывается только индикатор загрузки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กลุ่มที่ยุบอยู่จะแสดงจำนวนพื้นที่ทำงานต่อจากชื่อ เมื่อปิด จะแสดงเฉพาะตัวบอกการโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daraltılmış bir grup, adından sonra kaç çalışma alanı içerdiğini gösterir. Kapalıyken yalnızca yükleme göstergesini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Згорнута група показує після назви, скільки в ній робочих просторів. Якщо вимкнено, показується лише індикатор завантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm thu gọn hiện số không gian làm việc sau tên. Khi tắt, chỉ hiện biểu tượng đang tải."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折叠的分组在名称后显示其包含的工作区数量。关闭时只显示加载指示器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收合的群組會在名稱後顯示其包含的工作區數量。關閉時只顯示載入指示器。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupHeader.unreadCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Group Unread Count"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار عدد غير المقروء في المجموعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži broj nepročitanih u grupi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis ulæste i gruppen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ungelesene der Gruppe anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar no leídos del grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les non-lus du groupe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra non letti del gruppo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループの未読数を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញចំនួនមិនទាន់អានរបស់ក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹 읽지 않음 수 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis uleste i gruppen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuj nieprzeczytane w grupie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar não lidas do grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать непрочитанные в группе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงจำนวนที่ยังไม่อ่านของกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grubun okunmamış sayısını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати непрочитані в групі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện số chưa đọc của nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示分组未读数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示群組未讀數"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupHeader.unreadCount.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض المجموعة المطوية عدد الإشعارات غير المقروءة في مساحات عملها. عند الإيقاف، تعرض مؤشر التحميل فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skupljena grupa prikazuje koliko nepročitanih obavještenja imaju njeni radni prostori. Isključeno: prikazuje samo indikator učitavanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sammenklappet gruppe viser, hvor mange ulæste notifikationer dens arbejdsområder har. Fra: Den viser kun sin indlæsningsindikator."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine eingeklappte Gruppe zeigt, wie viele ungelesene Mitteilungen ihre Arbeitsbereiche haben. Aus: Sie zeigt nur ihren Ladeindikator."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un grupo contraído muestra cuántas notificaciones sin leer tienen sus espacios de trabajo. Desactivado, solo muestra su indicador de carga."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un groupe replié affiche le nombre de notifications non lues de ses espaces de travail. Désactivé, il n’affiche que son indicateur de chargement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un gruppo compresso mostra quante notifiche non lette hanno i suoi spazi di lavoro. Disattivato, mostra solo l’indicatore di caricamento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折りたたんだグループに、ワークスペースの未読通知の数を表示します。オフの場合は読み込み中のスピナーのみを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមដែលបានបង្រួមបង្ហាញចំនួនការជូនដំណឹងមិនទាន់អានរបស់កន្លែងធ្វើការ។ ពេលបិទ វាបង្ហាញតែសញ្ញាកំពុងផ្ទុកប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "접힌 그룹은 워크스페이스의 읽지 않은 알림 수를 표시합니다. 끄면 로딩 표시기만 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sammenslått gruppe viser hvor mange uleste varsler arbeidsområdene har. Av: Den viser bare innlastingsindikatoren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwinięta grupa pokazuje, ile nieprzeczytanych powiadomień mają jej obszary robocze. Wyłączone: pokazuje tylko wskaźnik ładowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um grupo recolhido mostra quantas notificações não lidas seus espaços de trabalho têm. Desativado, mostra apenas o indicador de carregamento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Свёрнутая группа показывает число непрочитанных уведомлений её рабочих пространств. Если выключено, показывается только индикатор загрузки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กลุ่มที่ยุบอยู่จะแสดงจำนวนการแจ้งเตือนที่ยังไม่อ่านของพื้นที่ทำงาน เมื่อปิด จะแสดงเฉพาะตัวบอกการโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daraltılmış bir grup, çalışma alanlarındaki okunmamış bildirim sayısını gösterir. Kapalıyken yalnızca yükleme göstergesini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Згорнута група показує кількість непрочитаних сповіщень її робочих просторів. Якщо вимкнено, показується лише індикатор завантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm thu gọn hiện số thông báo chưa đọc của các không gian làm việc. Khi tắt, chỉ hiện biểu tượng đang tải."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折叠的分组显示其工作区的未读通知数。关闭时只显示加载指示器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收合的群組會顯示其工作區的未讀通知數。關閉時只顯示載入指示器。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

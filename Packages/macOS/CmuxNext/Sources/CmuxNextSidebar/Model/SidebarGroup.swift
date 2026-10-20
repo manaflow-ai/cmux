@@ -103,7 +103,21 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
         }
     }
 
-    /// Strongest activity among children, shown on a collapsed group header.
+    /// The members' loading, the one state a group header shows by default (Lawrence 2026-10-20:
+    /// "All we care about is the loading"): working or busy when any member is, else idle.
+    public var loadingActivity: StatusIndicatorState {
+        // A spinner: a command or page loading (busy) or an agent working; not paused, waiting or done.
+        let loading = workspaces.filter { member in
+            switch member.activity {
+            case .busy, .working: true
+            case .idle, .paused, .waiting, .error, .success: false
+            }
+        }
+        return StatusStack.resolve(loading.map { StatusReport(id: $0.id.rawValue, source: .explicit, state: $0.activity, style: $0.activityStyle) }).state
+    }
+
+    /// Strongest activity among children, shown on a collapsed group header
+    /// with `sidebar.detailedStatusIcons` on.
     public var aggregateActivity: StatusIndicatorState {
         StatusStack.resolve(workspaces.map { StatusReport(id: $0.id.rawValue, source: .explicit, state: $0.activity, style: $0.activityStyle) }).state
     }

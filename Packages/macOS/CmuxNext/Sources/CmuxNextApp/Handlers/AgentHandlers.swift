@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextOnboarding
 import CmuxNextSettings
 import Observation
@@ -40,9 +41,8 @@ enum AgentHandlers {
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
         AgentHarnessHandlers.bind(into: registry, context: context)
-        registry.bind("home.toggleChiefSettings", run: { _ in
-            NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: nil)
-        })
+        // Only the front window's Home answers (`HomeChiefSettingsPopover.toggleTarget`).
+        registry.bind("home.toggleChiefSettings", run: { _ in NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: HomeChiefSettingsPopover.frontToggleTarget) })
         registry.bind(HomeChiefControl.stopAction, run: { _ in
             NotificationCenter.default.post(name: HomeChiefControl.stopNotification, object: nil)
         })
