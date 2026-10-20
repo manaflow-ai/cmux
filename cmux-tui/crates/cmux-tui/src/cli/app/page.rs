@@ -246,7 +246,7 @@ const AGENT_METHODS: &[&str] = &[
 
 /// `--agent NAME` (or `--agent=NAME`) anywhere in `args`, taken out; None
 /// when the flag has no name.
-fn take_agent(args: &[String]) -> Option<(Vec<String>, Option<String>)> {
+pub(super) fn take_agent(args: &[String]) -> Option<(Vec<String>, Option<String>)> {
     let (mut kept, mut agent) = (Vec::with_capacity(args.len()), None);
     let mut index = 0;
     while index < args.len() {

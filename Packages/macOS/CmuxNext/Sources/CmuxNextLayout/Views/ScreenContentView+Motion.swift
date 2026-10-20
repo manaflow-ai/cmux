@@ -15,17 +15,29 @@ extension ScreenContentView {
         guard hasMotion || reportScrollOnSettle else { return false }
         var moving = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
+        // The panes and dividers are one motion: none settles on its own (an edge with a shorter
+        // travel would snap frames before the others and change the gap beside it); they all land
+        // in the frame the last one comes within a quarter point of rest.
         for key in Array(paneFrames.keys) {
             let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
-            if paneFrames[key]?.advance(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
-                                        alphaParameters: appear) == true { moving = true }
+            if paneFrames[key]?.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
+                                                 alphaParameters: appear) == true { moving = true }
         }
         for key in Array(dividerFrames.keys) {
-            if dividerFrames[key]?.advance(dt, parameters: frameSpring) == true { moving = true }
+            if dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) == true { moving = true }
+        }
+        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) {
+            for key in Array(paneFrames.keys) { paneFrames[key]?.snapGeometry() }
+            for key in Array(dividerFrames.keys) { dividerFrames[key]?.snapGeometry() }
+        } else {
+            moving = true
         }
         if stepRows(dt, policy: policy) { moving = true }
         if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
-        if scrollRidesFrames, !paneFrames.values.contains(where: { $0.rect != $0.targetRect }) { scrollRidesFrames = false }
+        let panesMoving = paneFrames.values.contains { $0.rect != $0.targetRect }
+        if scrollRidesFrames, !panesMoving { scrollRidesFrames = false }
+        // The panes landed: their terminals' grids go to the PTY once, now.
+        if closing, !panesMoving { closing = false }
         if !isUserScrolling {
             if scroll.advance(dt, parameters: scrollRidesFrames ? frameSpring : policy.spring(.scroll), epsilon: 0.25) {
                 moving = true

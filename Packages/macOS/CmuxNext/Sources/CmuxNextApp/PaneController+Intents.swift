@@ -184,6 +184,9 @@ extension PaneController {
         let transaction = store.intendClose(surfaces)
         BenchSpans.measure("pane.apply") { apply(snapshot()) }
         guard !runs.isEmpty else { return }
+        // Its last tab closes: the whole pane leaves now, its neighbours springing into its space
+        // (close-animation DESIGN.md); the strip has nothing left to animate.
+        let paneClose = stripModel.tabs.isEmpty ? showPaneClose() : nil
         let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
         services.registry.track(Task { [services] in
             let (failed, unknown, codes) = await daemon.runReportingOutcomes(runs)
@@ -206,6 +209,7 @@ extension PaneController {
                     store.noteSettledAtNextSnapshot(transaction)
                 }
             }
+            finishPaneClose(paneClose, failed: failed)
             for key in keys { services.cache.release(key) }
             if failed || unknown { resyncStrip() }
             return failed ? "close failed (see the app log)" : nil

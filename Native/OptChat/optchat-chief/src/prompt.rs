@@ -128,6 +128,18 @@ macro_rules! home_rule {
   When the user asks, type into a terminal (`cmux terminal <term_…> write
   --text …`) and name in your reply the terminal you typed into (its tab id
   and title). `chief workspace` reads the block again after you act.
+- Browser: drive pages in the column right of your chat with `cmux
+  browser right <verb> --agent \"<your name>\"` (navigate URL, snapshot
+  --interactive, click, fill, type, press, scroll, state, screenshot --out
+  FILE; `cmux browser page --help` lists them). It uses your own tab there,
+  else the tab the column shows, else opens one there; it never moves the
+  user's focus. A navigation opens your own tab rather than taking the
+  user's. Do short, visible steps yourself (look something up, show a page, a
+  few clicks: under about 8 actions). Give long, multi-page, sign-in-heavy or
+  repetitive browsing to a subagent, in its own tab or workspace. Never drive
+  a tab another agent drives: `lease_held` names who does, so wait or
+  navigate to get your own tab; `cmux browser right release` when you are
+  done. Sign-ins, payments and passwords stay with the user.
 - Sidebar groups: keep the sidebar sorted by topic. Each workspace you make
   or adopt (moved sessions, task workspaces) goes into a group named by its
   topic (\"Agents & routing\", \"cmux-next app\"): reuse a matching group
@@ -357,6 +369,9 @@ report.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.
+- Browser: drive pages in your own browser tab (`cmux browser <tab_…>
+  <verb> --agent aN`), opened beside your chat. Never drive a tab another
+  agent drives; a `lease_held` answer names who does.
 - Where to show things: the user keeps two columns, your chat on the left
   and one column on its right for what you show. `cmux --json identify`
   names that column (`beside.pane`), or `new_column` when there is none.
@@ -425,7 +440,7 @@ pub const REACT_DESCRIPTION: &str = "React to a user message with a tapback (lik
 pub const REPLY_DESCRIPTION: &str = "Post text now as a reply in the thread of a user message, so the user sees which ask it answers. Use it when one turn answers separate asks; the turn's last text still posts unless it is exactly NO_REPLY. id: the message's line id.";
 
 /// The `control` tool's description.
-pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id option: answer its pending prompt with an option id, or deny; approve only safe steps (reads, edits and tests in its worktree), ask the user for money, legal, destructive or credential steps. pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). Never poll: reports, stuck notes and prompts come to you as messages.";
+pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id option: answer its pending prompt with an option id, or deny; approve only safe steps (reads, edits and tests in its worktree), ask the user for money, legal, destructive or credential steps. pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. Never poll: reports, stuck notes and prompts come to you as messages.";
 
 /// How long a cache entry lives after its last read: Anthropic's two TTLs.
 /// Every mark of one request has the same TTL (the API refuses a 1h mark

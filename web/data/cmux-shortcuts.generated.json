@@ -2759,7 +2759,6 @@
             "key": "=",
             "modifiers": [
               "ctrl",
-              "shift",
               "cmd"
             ]
           },
@@ -8162,6 +8161,7 @@
             "key": "=",
             "modifiers": [
               "ctrl",
+              "shift",
               "cmd"
             ]
           },
@@ -8197,6 +8197,7 @@
             "key": "-",
             "modifiers": [
               "ctrl",
+              "shift",
               "cmd"
             ]
           },
@@ -8232,6 +8233,7 @@
             "key": "0",
             "modifiers": [
               "ctrl",
+              "shift",
               "cmd"
             ]
           },
