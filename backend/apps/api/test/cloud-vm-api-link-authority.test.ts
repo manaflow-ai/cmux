@@ -38,7 +38,8 @@ it.each(["iss", "team", "sub", "svc"] as const)("refuses an authentic token with
 
 it("does not spend a token on a failed authority match and refuses it after successful use", async () => {
   const token = await sign(claims), seen = new Set<string>(), expected = options()
-  expect(await verifyLinkToken(token, { ...expected, seen, native: { ...expected.native, binding: { ...binding, authority_version: "b".repeat(64) } } })).toMatchObject({ ok: false })
+  const stale = { ...expected, seen, native: { ...expected.native, binding: { ...binding, authority_version: "b".repeat(64) } } }
+  expect(await verifyLinkToken(token, stale)).toMatchObject({ ok: false })
   expect(seen.size).toBe(0)
   expect(await verifyLinkToken(token, { ...expected, seen })).toMatchObject({ ok: true })
   expect(await verifyLinkToken(token, { ...expected, seen })).toMatchObject({ ok: false, error: "replay" })
