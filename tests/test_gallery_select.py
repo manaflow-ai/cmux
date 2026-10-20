@@ -241,6 +241,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("gallery_select.py\" select", capture.replace('"$select"', 'gallery_select.py"'))
         self.assertIn("--visual-out", capture)
         self.assertNotIn(".[0:16]", capture)  # the old file-order sample
+        # A failed play check makes the runner exit 1 after writing every image; the receipt goes on.
+        runner = capture[capture.index("bun runner.ts"):]
+        self.assertIn("|| echo", runner[: runner.index("else")])
         self.assertNotIn("pull-requests", str(self.jobs["capture"].get("permissions", {})))
 
     def test_comment_job_runs_base_code_with_a_write_token(self):
