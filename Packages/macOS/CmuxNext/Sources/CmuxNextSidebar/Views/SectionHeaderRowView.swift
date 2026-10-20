@@ -44,6 +44,9 @@ final class SectionHeaderRowView: SidebarRowView {
         var iconSize: CGFloat
     }
 
+    /// The status text beside a machine header's dot. Stub until slice 5.
+    static func statusText(_ status: SidebarMachine.Status, hostGroup: Bool) -> String? { nil }
+
     func configure(_ section: SidebarSection, row: SidebarRow) {
         let content = Content(
             kind: section.kind, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed, isEmpty: section.nodes.isEmpty,

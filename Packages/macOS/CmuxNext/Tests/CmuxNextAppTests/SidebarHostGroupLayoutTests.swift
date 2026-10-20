@@ -40,3 +40,26 @@ import Testing
         #expect(records.sections["sec_m_vm"]?.hostGroup == false)
     }
 }
+
+/// The plan that marks or unmarks a host's section (remote-groups-DESIGN.md slices 4 and 5).
+struct SidebarDocHostGroupPlanTests {
+    private func records(hostGroup: Bool?) -> SidebarDocRecords {
+        guard let hostGroup else { return SidebarDocRecords() }
+        var section = SidebarDocSection(id: "sec_m_mini", kind: .machine(session: "mini"))
+        section.hostGroup = hostGroup
+        return SidebarDocRecords(revision: 1, sections: ["sec_m_mini": section])
+    }
+
+    @Test func removingAGroupClearsTheFlagAndNothingElse() throws {
+        let ops = SidebarDocHostGroupPlan(session: "mini", records: records(hostGroup: true), on: false).ops
+        let op = try #require(ops.first)
+        #expect(ops.count == 1)
+        #expect(op["op"] as? String == "section.update")
+        #expect((op["patch"] as? [String: Any])?["host_group"] as? Bool == false)
+    }
+
+    @Test func removingWhatIsNotAGroupDoesNothing() {
+        #expect(SidebarDocHostGroupPlan(session: "mini", records: records(hostGroup: false), on: false).ops.isEmpty)
+        #expect(SidebarDocHostGroupPlan(session: "mini", records: records(hostGroup: nil), on: false).ops.isEmpty)
+    }
+}

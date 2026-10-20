@@ -12,6 +12,9 @@ public nonisolated struct SidebarDocHostGroupPlan {
     /// - Parameters:
     ///   - session: the host daemon's session id (its `registryID`).
     ///   - records: the document as the mirror holds it.
+    /// Unmarking: not planned yet (slice 5).
+    public init(session: String, records: SidebarDocRecords, on: Bool) { ops = [] }
+
     public init(session: String, records: SidebarDocRecords) {
         let id = "sec_m_\(session)"
         if let section = records.sections[id] {
