@@ -61,6 +61,18 @@ pub trait Orchestrator: Send + Sync {
         let _ = key;
         self.tell(id, message)
     }
+    /// `tell_keyed` with `queue`: true waits for the running turn (a
+    /// low-priority FYI) instead of interrupting it.
+    fn tell_with(
+        &self,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+        queue: bool,
+    ) -> Result<String, String> {
+        let _ = queue;
+        self.tell_keyed(id, message, key)
+    }
     /// `control(action, ...)`: see, interrupt, answer, pause, resume,
     /// cancel, restart, reorder subagents and set the live cap.
     fn control(&self, request: ControlCall) -> Result<String, String> {
@@ -149,6 +161,10 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             Call::parse("control", &v)
         }
         ("control", [action]) => Call::parse("control", &serde_json::json!({"action": action})),
+        ("tell", ["--queue", id, message @ ..]) if !message.is_empty() => Call::parse(
+            "tell",
+            &serde_json::json!({"id": id, "message": message.join(" "), "queue": true}),
+        ),
         ("tell", [id, message @ ..]) if !message.is_empty() => Call::parse(
             "tell",
             &serde_json::json!({"id": id, "message": message.join(" ")}),
@@ -173,6 +189,7 @@ pub fn usage(tool: &str) -> String {
                 "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
             "control" =>
                 "status [ID] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N",
+            "tell" => "[--queue] ID \"message\"",
             _ => "ID \"message\"",
         }
     )
@@ -299,6 +316,9 @@ pub enum Call {
         message: String,
         /// Idempotency key: a repeat is not sent again.
         key: Option<String>,
+        /// Wait for the running turn instead of interrupting it (a
+        /// low-priority FYI); false: steer, else interrupt.
+        queue: bool,
     },
     /// `react` (brain/replies.rs): a tapback on the user message of view
     /// line `id`.
@@ -403,6 +423,7 @@ impl Call {
                     id: text("id")?,
                     message: text("message")?,
                     key: text("key").ok(),
+                    queue: args.get("queue").and_then(Value::as_bool).unwrap_or(false),
                 })
             }
             "react" => {
@@ -490,10 +511,18 @@ impl Call {
                 }
                 v
             }
-            Call::Tell { id, message, key } => {
+            Call::Tell {
+                id,
+                message,
+                key,
+                queue,
+            } => {
                 let mut v = json!({"tool": "tell", "id": id, "message": message});
                 if let Some(key) = key {
                     v["key"] = json!(key);
+                }
+                if *queue {
+                    v["queue"] = json!(true);
                 }
                 v
             }
@@ -784,8 +813,13 @@ fn connection(conn: UnixStream, served: &Served) {
                         Some(o) => o.spawn_with_effort(tasks, cwd, effort),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
-                    Ok(Call::Tell { id, message, key }) => match &served.orchestrator {
-                        Some(o) => o.tell_keyed(&id, &message, key.as_deref()),
+                    Ok(Call::Tell {
+                        id,
+                        message,
+                        key,
+                        queue,
+                    }) => match &served.orchestrator {
+                        Some(o) => o.tell_with(&id, &message, key.as_deref(), queue),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
                     Ok(Call::React { id, reaction }) => match &served.orchestrator {
