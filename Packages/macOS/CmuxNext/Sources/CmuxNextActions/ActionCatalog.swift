@@ -141,6 +141,7 @@ public nonisolated enum ActionCatalog {
         SidebarSectionActionCatalog.self,
         AppStoreActionCatalog.self,
         TasksActionCatalog.self,
+        PhoneActionCatalog.self,
         LinkActionCatalog.self,
         ShareActionCatalog.self,
         ServerActionCatalog.self,

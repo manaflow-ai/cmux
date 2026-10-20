@@ -8,11 +8,11 @@
         "key": "settings.group.sidebar",
         "text": "Sidebar"
       },
-      "note": "The Now Playing player (Austin's idea, Leo 2026-10-18): on by default, and the user can hide it.",
+      "note": "The Now Playing player (Austin's idea, Leo 2026-10-18): off by default since 2026-10-19 (Lawrence did not want the card in the sidebar); the user can turn it on.",
       "rows": [
         {
           "key": "sidebar.nowPlaying.enabled",
-          "note": "On by default. Off: no Now Playing card in the sidebar and no player on the new chat page.",
+          "note": "Off by default. Off: no Now Playing card in the sidebar and no player on the new chat page; a tab playing sound shows only its speaker in the tab strip.",
           "title": {
             "key": "settings.sidebar.nowPlaying.enabled",
             "text": "Show Now Playing"
@@ -22,7 +22,7 @@
             "text": "A player for what is playing, at the bottom of the sidebar and on the new chat page."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "music",
             "now playing",

@@ -44,11 +44,20 @@ enum WorkspaceVerbHandlers {
             context.services.windows.newWorkspace(in: context.activeWindow?.state, on: daemon)
         })
 
+        // Top or bottom of the row's container: its group, else the loose rows. A grouped row's
+        // menu says so ("Move to Top of Group", u2418); a multi-selection moves as one block.
         registry.bind("palette.moveWorkspaceToTop", run: { try place(context, $0) { .top(anchor: $0.id) } })
         registry.bind("workspace.moveToBottom", run: { try place(context, $0) { .bottom(anchor: $0.id) } })
+        ActionTargetTitles.set("palette.moveWorkspaceToTop", in: registry) { invocation in
+            isGrouped(invocation, context) ? WorkspaceVerbStrings.moveToTopOfGroup : nil
+        }
+        ActionTargetTitles.set("workspace.moveToBottom", in: registry) { invocation in
+            isGrouped(invocation, context) ? WorkspaceVerbStrings.moveToBottomOfGroup : nil
+        }
         registry.bind("workspace.moveToNewGroup", run: { invocation in
             let workspace = try context.workspace(invocation).model
-            try sidebar(showing: workspace, context).groupFlow.newGroup(of: [SidebarWorkspaceID(workspace.id)], name: invocation["name"]?.stringValue ?? "",
+            let ids = try WindowMembershipHandlers.workspaces(invocation, context).map(SidebarWorkspaceID.init)
+            try sidebar(showing: workspace, context).groupFlow.newGroup(of: ids, name: invocation["name"]?.stringValue ?? "",
                                                               byUser: invocation.origin == .user)
         })
 
@@ -62,8 +71,12 @@ enum WorkspaceVerbHandlers {
             context.services.windows.show(workspaceID: previous, in: window.state)
         })
         for key in WorkspaceSortKey.allCases {
-            let id = ActionID(rawValue: "workspace.sortBy" + key.rawValue.prefix(1).uppercased() + key.rawValue.dropFirst())
-            registry.bind(id, run: { _ in try sort(by: key, context) })
+            let suffix = key.rawValue.prefix(1).uppercased() + key.rawValue.dropFirst()
+            registry.bind(ActionID(rawValue: "workspace.sortBy" + suffix), run: { _ in try sort(by: key, context) })
+            // The same sort, on the targeted group's members only.
+            registry.bind(ActionID(rawValue: "workspaceGroup.sortBy" + suffix), run: { invocation in
+                try sort(by: key, only: GroupID(try context.group(invocation).id.rawValue), context)
+            })
         }
         registry.bind("workspaceGroup.collapseAll", run: { _ in try setAllCollapsed(true, context) })
         registry.bind("workspaceGroup.expandAll", run: { _ in try setAllCollapsed(false, context) })
@@ -128,11 +141,12 @@ enum WorkspaceVerbHandlers {
 
     // MARK: Place
 
-    /// Moves the target workspace to `slot` in its window's sidebar, with
-    /// the sidebar's optimistic update.
+    /// Moves the target workspace, or the multi-selection it belongs to, to
+    /// `slot` in its window's sidebar, with the sidebar's optimistic update.
     private static func place(_ context: AppActionContext, _ invocation: ActionInvocation, _ slot: (WorkspaceModel) -> WorkspaceSlot) throws {
         let workspace = try context.workspace(invocation).model
-        guard place(workspace, slot(workspace), in: try sidebar(showing: workspace, context), services: context.services)
+        let ids = try WindowMembershipHandlers.workspaces(invocation, context)
+        guard place(ids, anchor: workspace, slot(workspace), in: try sidebar(showing: workspace, context), services: context.services)
         else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
     }
 
@@ -140,11 +154,31 @@ enum WorkspaceVerbHandlers {
     /// Workspace verbs do; false when that sidebar does not list it.
     @discardableResult
     static func place(_ workspace: WorkspaceModel, _ slot: WorkspaceSlot, in bridge: SidebarBridge, services: AppServices) -> Bool {
-        guard let machine = services.machines.daemon(forWorkspace: workspace.id)?.machineID,
-              let position = slot.position(moving: [workspace.id], section: .machine(MachineID(machine)), in: bridge.model.sections)
+        place([workspace.id], anchor: workspace, slot, in: bridge, services: services)
+    }
+
+    /// Moves `ids` (rows of `anchor`'s machine section; others stay) to `slot`, which names
+    /// `anchor`'s container, as one block in sidebar order.
+    @discardableResult
+    static func place(_ ids: [String], anchor workspace: WorkspaceModel, _ slot: WorkspaceSlot, in bridge: SidebarBridge,
+                      services: AppServices) -> Bool {
+        let sections = bridge.model.sections, anchor = SidebarWorkspaceID(workspace.id)
+        guard let machine = services.machines.daemon(forWorkspace: workspace.id)?.machineID else { return false }
+        let home = SidebarEdits.locate(anchor, in: sections)?.section
+        var moving = SidebarEdits.treeOrder(ids.map(SidebarWorkspaceID.init), in: sections).filter {
+            home != nil && SidebarEdits.locate($0, in: sections)?.section == home
+        }
+        if moving.isEmpty { moving = [anchor] }
+        guard let position = slot.position(moving: Set(moving.map(\.rawValue)), section: .machine(MachineID(machine)), in: sections)
         else { return false }
-        bridge.handle(.reorder([SidebarWorkspaceID(workspace.id)], to: position))
+        bridge.handle(.reorder(moving, to: position))
         return true
+    }
+
+    /// Whether the targeted workspace sits in a group of its window's sidebar.
+    private static func isGrouped(_ invocation: ActionInvocation, _ context: AppActionContext) -> Bool {
+        guard let workspace = try? context.workspace(invocation).model else { return false }
+        return (try? group(of: workspace, context)) != nil
     }
 
     /// The sidebar of the window that lists `workspace`, else the active one.
@@ -184,8 +218,8 @@ enum WorkspaceVerbHandlers {
     }
 
     /// Sorts every container (the loose rows, each group) of the active
-    /// window's sidebar; groups keep their place and members.
-    private static func sort(by key: WorkspaceSortKey, _ context: AppActionContext) throws {
+    /// window's sidebar, or only group `only`; groups keep their place and members.
+    private static func sort(by key: WorkspaceSortKey, only: GroupID? = nil, _ context: AppActionContext) throws {
         guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
         let bridge = window.sidebar
         let before = bridge.model.sections
@@ -201,7 +235,7 @@ enum WorkspaceVerbHandlers {
                 return nil
             })]
             for case let .group(group) in section.nodes { containers.append((group.id, group.workspaces.map(\.id.rawValue))) }
-            for (group, ids) in containers where ids.count > 1 {
+            for (group, ids) in containers where ids.count > 1 && (only == nil || group == only) {
                 let sorted = key.sorted(ids, names: names, directories: directories, recency: window.state.workspaceRecency)
                 guard sorted != ids else { continue }
                 let moving = sorted.map(SidebarWorkspaceID.init)
