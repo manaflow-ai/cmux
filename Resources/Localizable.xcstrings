@@ -521969,68 +521969,123 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: CPU 1–32, Arbeitsspeicher 4–64 GiB in ganzen GiB und Festplatte 4–256 GiB in 4-GiB-Schritten angeben."
+            "value": "vm resize: Verwenden Sie positive ganze Einheiten für CPU, Arbeitsspeicher und Festplatte; der Server prüft die aktuellen Limits."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize : indiquez 1–32 CPU, 4–64 Gio de mémoire en Gio entiers et 4–256 Gio de disque par pas de 4 Gio."
+            "value": "vm resize : utilisez des unités entières positives pour le CPU, la mémoire et le disque ; le serveur valide les limites actuelles."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: استخدم 1–32 وحدة معالجة، وذاكرة 4–64 GiB بأعداد صحيحة، وقرصًا 4–256 GiB بخطوات 4 GiB."
+            "value": "vm resize: استخدم وحدات صحيحة موجبة لوحدة المعالجة والذاكرة والقرص؛ يتحقق الخادم من الحدود الحالية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: usa CPU 1–32, memoria 4–64 GiB en GiB enteros y disco 4–256 GiB en pasos de 4 GiB."
+            "value": "vm resize: usa unidades enteras positivas para CPU, memoria y disco; el servidor valida los límites actuales."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize：CPU 為 1–32，記憶體為 4–64 GiB（整數 GiB），磁碟為 4–256 GiB（以 4 GiB 為增量）。"
+            "value": "vm resize：CPU、記憶體與磁碟請使用正整數單位；伺服器會驗證目前限制。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize：CPU 为 1–32，内存为 4–64 GiB（整数 GiB），磁盘为 4–256 GiB（以 4 GiB 为增量）。"
+            "value": "vm resize：CPU、内存和磁盘请使用正整数单位；服务器会验证当前限制。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: CPU 1–32, 메모리 4–64GiB(정수 GiB), 디스크 4–256GiB(4GiB 단위)를 사용하세요."
+            "value": "vm resize: CPU, 메모리 및 디스크에는 양의 정수 단위를 사용하세요. 서버가 현재 한도를 검증합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: CPU は 1〜32、メモリは 4〜64 GiB（1 GiB 単位）、ディスクは 4〜256 GiB（4 GiB 単位）で指定してください。"
+            "value": "vm resize：CPU、メモリ、ディスクには正の整数単位を使用してください。サーバーが現在の上限を検証します。"
           }
         },
-        "bs": {"stringUnit": {"state": "translated", "value": "vm resize: koristite CPU 1–32, memoriju 4–64 GiB u cijelim GiB i disk 4–256 GiB u koracima od 4 GiB."}},
-        "da": {"stringUnit": {"state": "translated", "value": "vm resize: brug CPU 1–32, hukommelse 4–64 GiB i hele GiB og disk 4–256 GiB i trin på 4 GiB."}},
-        "it": {"stringUnit": {"state": "translated", "value": "vm resize: usa CPU 1–32, memoria 4–64 GiB in GiB interi e disco 4–256 GiB in incrementi di 4 GiB."}},
-        "km": {"stringUnit": {"state": "translated", "value": "vm resize: ប្រើ CPU 1–32 អង្គចងចាំ 4–64 GiB ជាចំនួនគត់ GiB និងថាស 4–256 GiB ដោយបង្កើនម្តង 4 GiB។"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "vm resize: bruk CPU 1–32, minne 4–64 GiB i hele GiB og disk 4–256 GiB i trinn på 4 GiB."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "vm resize: użyj CPU 1–32, pamięci 4–64 GiB w pełnych GiB i dysku 4–256 GiB w krokach co 4 GiB."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "vm resize: use CPU 1–32, memória 4–64 GiB em GiB inteiros e disco 4–256 GiB em incrementos de 4 GiB."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "vm resize: используйте CPU 1–32, память 4–64 GiB с шагом 1 GiB и диск 4–256 GiB с шагом 4 GiB."}},
-        "th": {"stringUnit": {"state": "translated", "value": "vm resize: ใช้ CPU 1–32 หน่วยความจำ 4–64 GiB โดยระบุ GiB เป็นจำนวนเต็ม และดิสก์ 4–256 GiB โดยเพิ่มทีละ 4 GiB"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "vm resize: CPU 1–32, bellek tam GiB olarak 4–64 GiB ve disk 4 GiB adımlarla 4–256 GiB olmalıdır."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "vm resize: використовуйте CPU 1–32, пам’ять 4–64 GiB із кроком 1 GiB і диск 4–256 GiB із кроком 4 GiB."}}
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
+          }
+        }
       }
     },
     "cli.vm.resize.success": {
@@ -522227,68 +522282,123 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again\nand returns the provider-confirmed resources.\nAdd --json for the structured result."
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again\nand returns the provider-confirmed resources.\nAdd --json for the structured result."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nErhöht die Ressourcen einer bestehenden Cloud-VM. Mindestens eine Ressource angeben:\nCPU: 1–32 vCPUs. Arbeitsspeicher: 4–64 GiB in ganzen GiB. Festplatte: 4–256 GiB in 4-GiB-Schritten.\nArbeitsspeicher und Festplatte akzeptieren G, GB oder GiB als Suffix. Verkleinern wird nicht unterstützt.\nDer Server prüft die Tarifgrenzen und gibt die vom Anbieter bestätigten Ressourcen zurück.\nMit --json wird das strukturierte Ergebnis ausgegeben.\n"
+            "value": "Verwendung:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nErhöht die Ressourcen einer bestehenden Cloud-VM. Mindestens eine Ressource angeben:\nCPU, Arbeitsspeicher und Festplatte verwenden ganze Einheiten. Der Server gibt\ndie aktuellen Ressourcen und Planlimits an und prüft die Anfrage erneut.\nArbeitsspeicher und Festplatte akzeptieren G, GB oder GiB als Suffix. Verkleinern wird nicht unterstützt.\nDer Server prüft die Tarifgrenzen und gibt die vom Anbieter bestätigten Ressourcen\nzurück.\nMit --json wird das strukturierte Ergebnis ausgegeben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation :\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAugmente les ressources d’une Cloud VM existante. Indiquez au moins une ressource :\nCPU : 1–32 vCPU. Mémoire : 4–64 Gio en Gio entiers. Disque : 4–256 Gio par pas de 4 Gio.\nLa mémoire et le disque acceptent les suffixes G, GB ou GiB. La réduction n’est pas prise en charge.\nLe serveur applique les limites de l’offre et renvoie les ressources confirmées par le fournisseur.\n\nAjoutez --json pour obtenir le résultat structuré."
+            "value": "Utilisation :\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAugmente les ressources d’une Cloud VM existante. Indiquez au moins une ressource :\nLe CPU, la mémoire et le disque utilisent des unités entières. Le serveur annonce\nles capacités et limites de forfait actuelles, puis valide à nouveau la demande.\nLa mémoire et le disque acceptent les suffixes G, GB ou GiB. La réduction n’est pas prise en charge.\nLe serveur applique les limites de l’offre et renvoie les ressources confirmées par le fournisseur.\n\nAjoutez --json pour obtenir le résultat structuré."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nزِد موارد Cloud VM موجودة دون استبدالها. حدّد موردًا واحدًا على الأقل:\nالمعالج: 1–32 وحدة افتراضية. الذاكرة: 4–64 GiB بأعداد صحيحة. القرص: 4–256 GiB بخطوات 4 GiB.\nتقبل الذاكرة والقرص اللواحق G أو GB أو GiB. تقليل الموارد غير مدعوم.\nيفرض الخادم حدود الخطة ويعيد الموارد التي أكدها المزوّد.\n\nأضف --json للحصول على النتيجة المنظّمة."
+            "value": "الاستخدام:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nزِد موارد Cloud VM موجودة دون استبدالها. حدّد موردًا واحدًا على الأقل:\nتستخدم وحدة المعالجة والذاكرة والقرص وحدات صحيحة. يعرض الخادم\nالقدرات وحدود الخطة الحالية ثم يتحقق من الطلب مرة أخرى.\nتقبل الذاكرة والقرص اللواحق G أو GB أو GiB. تقليل الموارد غير مدعوم.\nيفرض الخادم حدود الخطة ويعيد الموارد التي أكدها المزوّد.\n\nأضف --json للحصول على النتيجة المنظّمة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAumenta los recursos de una Cloud VM existente. Especifica al menos un recurso:\nCPU: 1–32 vCPU. Memoria: 4–64 GiB en GiB enteros. Disco: 4–256 GiB en pasos de 4 GiB.\nLa memoria y el disco aceptan los sufijos G, GB o GiB. No se admite reducir recursos.\nEl servidor aplica los límites del plan y devuelve los recursos confirmados por el proveedor.\n\nAñade --json para obtener el resultado estructurado."
+            "value": "Uso:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAumenta los recursos de una Cloud VM existente. Especifica al menos un recurso:\nLa CPU, la memoria y el disco usan unidades enteras. El servidor anuncia\nla capacidad y los límites del plan actuales, y vuelve a validar la solicitud.\nLa memoria y el disco aceptan los sufijos G, GB o GiB. No se admite reducir recursos.\nEl servidor aplica los límites del plan y devuelve los recursos confirmados por el proveedor.\n\nAñade --json para obtener el resultado estructurado."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加現有 Cloud VM 的資源。請指定至少一項資源：\nCPU：1–32 vCPU。記憶體：4–64 GiB，以整數 GiB 指定。磁碟：4–256 GiB，以 4 GiB 為增量。\n記憶體和磁碟接受 G、GB 或 GiB 後綴。不支援縮減資源。\n伺服器會執行方案限制，並回傳供應商確認的資源。\n\n加上 --json 以取得結構化結果。"
+            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加現有 Cloud VM 的資源。請指定至少一項資源：\nCPU、記憶體與磁碟使用整數單位。伺服器會公告目前的資源能力與\n方案限制，然後再次驗證要求。\n記憶體和磁碟接受 G、GB 或 GiB 後綴。不支援縮減資源。\n伺服器會執行方案限制，並回傳供應商確認的資源。\n\n加上 --json 以取得結構化結果。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加现有 Cloud VM 的资源。请指定至少一项资源：\nCPU：1–32 vCPU。内存：4–64 GiB，以整数 GiB 指定。磁盘：4–256 GiB，以 4 GiB 为增量。\n内存和磁盘接受 G、GB 或 GiB 后缀。不支持缩减资源。\n服务器会执行套餐限制，并返回提供商确认的资源。\n\n加上 --json 以获取结构化结果。"
+            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加现有 Cloud VM 的资源。请指定至少一项资源：\nCPU、内存和磁盘使用整数单位。服务器会公布当前资源能力和\n套餐限制，然后再次验证请求。\n内存和磁盘接受 G、GB 或 GiB 后缀。不支持缩减资源。\n服务器会执行套餐限制，并返回提供商确认的资源。\n\n加上 --json 以获取结构化结果。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n기존 Cloud VM의 리소스를 늘립니다. 리소스를 하나 이상 지정하세요:\nCPU: 1–32 vCPU. 메모리: 4–64GiB, 정수 GiB 단위. 디스크: 4–256GiB, 4GiB 단위.\n메모리와 디스크는 G, GB 또는 GiB 접미사를 허용합니다. 리소스 축소는 지원하지 않습니다.\n서버가 요금제 제한을 적용하고 공급자가 확인한 리소스를 반환합니다.\n\n구조화된 결과를 보려면 --json을 추가하세요."
+            "value": "사용법:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n기존 Cloud VM의 리소스를 늘립니다. 리소스를 하나 이상 지정하세요:\nCPU, 메모리 및 디스크는 정수 단위를 사용합니다. 서버가 현재 리소스\n능력과 요금제 한도를 제공한 후 요청을 다시 검증합니다.\n메모리와 디스크는 G, GB 또는 GiB 접미사를 허용합니다. 리소스 축소는 지원하지 않습니다.\n서버가 요금제 제한을 적용하고 공급자가 확인한 리소스를 반환합니다.\n\n구조화된 결과를 보려면 --json을 추가하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n既存の Cloud VM のリソースを増量します。少なくとも1つのリソースを指定してください：\nCPU：1〜32 vCPU。メモリ：4〜64 GiB、1 GiB 単位。ディスク：4〜256 GiB、4 GiB 単位。\nメモリとディスクには G、GB、GiB の接尾辞を使用できます。縮小には対応していません。\nサーバーがプランの制限を適用し、プロバイダーが確認したリソースを返します。\n\n構造化された結果には --json を追加してください。"
+            "value": "使用方法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n既存の Cloud VM のリソースを増量します。少なくとも1つのリソースを指定してください：\nCPU、メモリ、ディスクは整数単位を使用します。サーバーが現在のリソース\n能力とプラン上限を通知し、リクエストを再度検証します。\nメモリとディスクには G、GB、GiB の接尾辞を使用できます。縮小には対応していません。\nサーバーがプランの制限を適用し、プロバイダーが確認したリソースを返します。\n\n構造化された結果には --json を追加してください。"
           }
         },
-        "bs": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
-        "da": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
-        "it": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
-        "km": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
-        "nb": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
-        "th": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."}}
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU, memory, and disk use whole units. The server advertises the current\nresource capability and plan limits, then validates the request again.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe CLI checks your plan's limits before the request; the server enforces them again and returns the provider-confirmed resources.\n\nAdd --json for the structured result."
+          }
+        }
       }
     },
     "cli.vm.resize.helpDescription": {
@@ -629754,55 +629864,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "vCPUs follow --size: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."
+            "value": "vCPUs and disk follow the server-advertised size capability."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتبع عدد vCPU قيمة --size: 4g 2، 8g 4، 16g 8، 24g 12، 32g 16، 64g 32."
+            "value": "تتبع وحدات vCPU والقرص إمكانات الحجم التي يعلنها الخادم."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "vCPUs richten sich nach --size: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."
+            "value": "vCPUs und Festplatte folgen der vom Server angegebenen Größenfähigkeit."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las vCPU dependen de --size: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."
+            "value": "Las vCPU y el disco siguen la capacidad de tamaño anunciada por el servidor."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les vCPU dépendent de --size : 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."
+            "value": "Les vCPU et le disque suivent les capacités de taille annoncées par le serveur."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "vCPU 数は --size に従います: 4g 2、8g 4、16g 8、24g 12、32g 16、64g 32。"
+            "value": "vCPU とディスクはサーバーが通知するサイズ機能に従います。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "vCPU 수는 --size를 따릅니다: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."
+            "value": "vCPU와 디스크는 서버가 제공하는 크기 기능을 따릅니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "vCPU 数量随 --size 而定：4g 2、8g 4、16g 8、24g 12、32g 16、64g 32。"
+            "value": "vCPU 和磁盘遵循服务器公布的大小能力。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "vCPU 數量依 --size 而定：4g 2、8g 4、16g 8、24g 12、32g 16、64g 32。"
+            "value": "vCPU 與磁碟會依照伺服器公告的大小能力。"
           }
         }
       }
@@ -644351,68 +644461,123 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. Pro supports sizes through 16g; 24g, 32g, and 64g require Max.\nThe server enforces plan limits and shared CPU and memory pools.\n`--detach` creates the machine without opening its workspace."
+            "value": "Usage:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nThe server enforces plan limits and shared CPU and memory pools.\n`--detach` creates the machine without opening its workspace."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nErstellt eine Cloud-VM. Pro unterstützt Größen bis 16g; 24g, 32g und 64g erfordern Max.\nDer Server setzt Planlimits sowie gemeinsame CPU- und Speicherpools durch.\nMit `--detach` wird die Maschine erstellt, ohne ihren Workspace zu öffnen."
+            "value": "Verwendung:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nErstellt eine Cloud-VM. Der Server gibt die aktuellen Größen und Planlimits an.\nDer Server setzt Planlimits sowie gemeinsame CPU- und Speicherpools durch.\nMit `--detach` wird die Maschine erstellt, ohne ihren Workspace zu öffnen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation :\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCréer une VM Cloud. Pro prend en charge les tailles jusqu’à 16g ; 24g, 32g et 64g nécessitent Max.\nLe serveur applique les limites du forfait et les pools CPU et mémoire partagés.\n`--detach` crée la machine sans ouvrir son espace de travail."
+            "value": "Utilisation :\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCréer une VM Cloud. Le serveur annonce les tailles et limites de forfait actuelles.\nLe serveur applique les limites du forfait et les pools CPU et mémoire partagés.\n`--detach` crée la machine sans ouvrir son espace de travail."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nأنشئ Cloud VM. يدعم Pro أحجامًا حتى 16g؛ وتتطلب 24g و32g و64g خطة Max.\nيفرض الخادم حدود الخطة ومجمعات وحدة المعالجة والذاكرة المشتركة.\nينشئ `--detach` الجهاز دون فتح مساحة العمل الخاصة به."
+            "value": "الاستخدام:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nأنشئ Cloud VM. يعرض الخادم الأحجام وحدود الخطة الحالية.\nيفرض الخادم حدود الخطة ومجمعات وحدة المعالجة والذاكرة المشتركة.\nينشئ `--detach` الجهاز دون فتح مساحة العمل الخاصة به."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrea una VM de Cloud. Pro admite tamaños de hasta 16g; 24g, 32g y 64g requieren Max.\nEl servidor aplica los límites del plan y los grupos compartidos de CPU y memoria.\n`--detach` crea la máquina sin abrir su espacio de trabajo."
+            "value": "Uso:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrea una VM de Cloud. El servidor anuncia los tamaños y límites del plan actuales.\nEl servidor aplica los límites del plan y los grupos compartidos de CPU y memoria.\n`--detach` crea la máquina sin abrir su espacio de trabajo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n建立 Cloud VM。Pro 支援最高 16g 的大小；24g、32g 和 64g 需要 Max。\n伺服器會套用方案限制及共用的 CPU 與記憶體資源池。\n`--detach` 會建立機器但不開啟其工作區。"
+            "value": "用法：\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n建立 Cloud VM。伺服器會公告目前的大小與方案限制。\n伺服器會套用方案限制及共用的 CPU 與記憶體資源池。\n`--detach` 會建立機器但不開啟其工作區。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n创建 Cloud VM。Pro 支持最高 16g 的大小；24g、32g 和 64g 需要 Max。\n服务器会执行套餐限制以及共享 CPU 和内存资源池限制。\n`--detach` 创建机器但不打开其工作区。"
+            "value": "用法：\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\n创建 Cloud VM。服务器会公布当前大小和套餐限制。\n服务器会执行套餐限制以及共享 CPU 和内存资源池限制。\n`--detach` 创建机器但不打开其工作区。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM을 생성합니다. Pro는 최대 16g 크기를 지원하며 24g, 32g, 64g에는 Max가 필요합니다.\n서버가 요금제 한도와 공유 CPU 및 메모리 풀을 적용합니다.\n`--detach`는 작업 공간을 열지 않고 머신을 생성합니다."
+            "value": "사용법:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM을 생성합니다. 서버가 현재 크기와 요금제 한도를 제공합니다.\n서버가 요금제 한도와 공유 CPU 및 메모리 풀을 적용합니다.\n`--detach`는 작업 공간을 열지 않고 머신을 생성합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方：\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM を作成します。Pro は 16g まで対応し、24g、32g、64g には Max が必要です。\nサーバーはプランの上限と共有 CPU・メモリプールを適用します。\n`--detach` はワークスペースを開かずにマシンを作成します。"
+            "value": "使い方：\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCloud VM を作成します。サーバーが現在のサイズとプラン上限を通知します。\nサーバーはプランの上限と共有 CPU・メモリプールを適用します。\n`--detach` はワークスペースを開かずにマシンを作成します。"
           }
         },
-        "bs": {"stringUnit": {"state": "translated", "value": "Upotreba:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nKreirajte Cloud VM. Pro podržava veličine do 16g; za 24g, 32g i 64g potreban je Max.\nServer provodi ograničenja plana i zajedničkih CPU i memorijskih resursa.\n`--detach` kreira mašinu bez otvaranja njenog radnog prostora."}},
-        "da": {"stringUnit": {"state": "translated", "value": "Brug:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nOpret en Cloud-VM. Pro understøtter størrelser op til 16g; 24g, 32g og 64g kræver Max.\nServeren håndhæver abonnementsgrænser og fælles CPU- og hukommelsespuljer.\n`--detach` opretter maskinen uden at åbne dens arbejdsområde."}},
-        "it": {"stringUnit": {"state": "translated", "value": "Utilizzo:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrea una VM Cloud. Pro supporta dimensioni fino a 16g; 24g, 32g e 64g richiedono Max.\nIl server applica i limiti del piano e dei pool condivisi di CPU e memoria.\n`--detach` crea la macchina senza aprire il suo spazio di lavoro."}},
-        "km": {"stringUnit": {"state": "translated", "value": "របៀបប្រើ:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nបង្កើត Cloud VM។ Pro គាំទ្រទំហំរហូតដល់ 16g; ទំហំ 24g, 32g និង 64g ត្រូវការ Max។\nម៉ាស៊ីនមេអនុវត្តដែនកំណត់គម្រោង និងធនធាន CPU និងអង្គចងចាំរួម។\n`--detach` បង្កើតម៉ាស៊ីនដោយមិនបើកកន្លែងធ្វើការរបស់វា។"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "Bruk:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nOpprett en Cloud-VM. Pro støtter størrelser opptil 16g; 24g, 32g og 64g krever Max.\nServeren håndhever abonnementsgrenser og felles potter for CPU og minne.\n`--detach` oppretter maskinen uten å åpne arbeidsområdet."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Użycie:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nUtwórz maszynę wirtualną Cloud. Pro obsługuje rozmiary do 16g; 24g, 32g i 64g wymagają Max.\nSerwer egzekwuje limity planu oraz wspólnych pul CPU i pamięci.\n`--detach` tworzy maszynę bez otwierania jej obszaru roboczego."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "Uso:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCrie uma VM Cloud. O Pro permite tamanhos até 16g; 24g, 32g e 64g exigem o Max.\nO servidor aplica os limites do plano e dos pools compartilhados de CPU e memória.\n`--detach` cria a máquina sem abrir seu espaço de trabalho."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Использование:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nСоздайте виртуальную машину Cloud. Pro поддерживает размеры до 16g; для 24g, 32g и 64g нужен Max.\nСервер проверяет ограничения тарифа и общих пулов CPU и памяти.\n`--detach` создаёт машину, не открывая её рабочее пространство."}},
-        "th": {"stringUnit": {"state": "translated", "value": "วิธีใช้:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nสร้าง VM Cloud แผน Pro รองรับขนาดสูงสุด 16g ส่วน 24g, 32g และ 64g ต้องใช้ Max\nเซิร์ฟเวอร์บังคับใช้ขีดจำกัดของแผนและทรัพยากรรวมของ CPU และหน่วยความจำ\n`--detach` สร้างเครื่องโดยไม่เปิดพื้นที่ทำงานของเครื่อง"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Kullanım:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nBir Cloud VM oluşturun. Pro, 16g’ye kadar boyutları destekler; 24g, 32g ve 64g için Max gerekir.\nSunucu, plan sınırlarını ve ortak CPU ile bellek havuzlarını denetler.\n`--detach`, makineyi çalışma alanını açmadan oluşturur."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Використання:\n  cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nСтворіть віртуальну машину Cloud. Pro підтримує розміри до 16g; для 24g, 32g і 64g потрібен Max.\nСервер перевіряє обмеження тарифу та спільних пулів CPU і пам’яті.\n`--detach` створює машину, не відкриваючи її робочий простір."}}
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nServer provodi ograničenja plana i zajedničkih CPU i memorijskih resursa.\n`--detach` kreira mašinu bez otvaranja njenog radnog prostora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nServeren håndhæver abonnementsgrænser og fælles CPU- og hukommelsespuljer.\n`--detach` opretter maskinen uden at åbne dens arbejdsområde."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilizzo:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nIl server applica i limiti del piano e dei pool condivisi di CPU e memoria.\n`--detach` crea la macchina senza aprire il suo spazio di lavoro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបប្រើ:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nម៉ាស៊ីនមេអនុវត្តដែនកំណត់គម្រោង និងធនធាន CPU និងអង្គចងចាំរួម។\n`--detach` បង្កើតម៉ាស៊ីនដោយមិនបើកកន្លែងធ្វើការរបស់វា។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nServeren håndhever abonnementsgrenser og felles potter for CPU og minne.\n`--detach` oppretter maskinen uten å åpne arbeidsområdet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nSerwer egzekwuje limity planu oraz wspólnych pul CPU i pamięci.\n`--detach` tworzy maszynę bez otwierania jej obszaru roboczego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nO servidor aplica os limites do plano e dos pools compartilhados de CPU e memória.\n`--detach` cria a máquina sem abrir seu espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nСервер проверяет ограничения тарифа и общих пулов CPU и памяти.\n`--detach` создаёт машину, не открывая её рабочее пространство."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีใช้:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nเซิร์ฟเวอร์บังคับใช้ขีดจำกัดของแผนและทรัพยากรรวมของ CPU และหน่วยความจำ\n`--detach` สร้างเครื่องโดยไม่เปิดพื้นที่ทำงานของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nSunucu, plan sınırlarını ve ortak CPU ile bellek havuzlarını denetler.\n`--detach`, makineyi çalışma alanını açmadan oluşturur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання:\n  cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]\n              [--name <label>] [--provider <provider>] [--image <image-id>]\n              [--workspace <workspace-id>] [--network <full|allowlist|none>]\n              [--focus|--no-focus] [--detach|-d]\n\nCreate a Cloud VM. The server advertises current sizes and plan limits.\nСервер перевіряє обмеження тарифу та спільних пулів CPU і пам’яті.\n`--detach` створює машину, не відкриваючи її робочий простір."
+          }
+        }
       }
     },
     "cli.vm.ports.usage": {

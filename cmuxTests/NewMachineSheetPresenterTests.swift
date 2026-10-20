@@ -17,7 +17,10 @@ struct NewMachineSheetPresenterTests {
             maxActiveVms: 10,
             planId: "pro",
             freeAccessWindowDays: 0,
-            memoryOptionsMb: [4096, 8192]
+            memoryOptionsMb: [4096, 8192],
+            defaultMemoryMb: 4096,
+            vcpusByMemoryMb: ["4096": 2, "8192": 4],
+            diskByMemoryMb: ["4096": 16384, "8192": 32768]
         )
         let warm = NewMachineSheetData(
             hasPlan: true,
@@ -68,7 +71,10 @@ struct NewMachineSheetPresenterTests {
             limits: VMPlanLimits(
                 planId: "pro",
                 freeAccessWindowDays: 0,
-                memoryOptionsMb: [4096, 8192]
+                memoryOptionsMb: [4096, 8192],
+                defaultMemoryMb: 4096,
+                vcpusByMemoryMb: ["4096": 2, "8192": 4],
+                diskByMemoryMb: ["4096": 16384, "8192": 32768]
             ),
             activeCount: 0,
             catalog: nil,
@@ -94,7 +100,10 @@ struct NewMachineSheetPresenterTests {
             maxActiveVms: 1,
             planId: "pro",
             freeAccessWindowDays: 0,
-            memoryOptionsMb: [4096, 8192]
+            memoryOptionsMb: [4096, 8192],
+            defaultMemoryMb: 4096,
+            vcpusByMemoryMb: ["4096": 2, "8192": 4],
+            diskByMemoryMb: ["4096": 16384, "8192": 32768]
         ))
         #expect(!model.planIsLoading)
         #expect(model.planLoadError == nil)

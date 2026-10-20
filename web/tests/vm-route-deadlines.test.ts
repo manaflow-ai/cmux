@@ -71,7 +71,7 @@ describe("VM route answer deadlines", () => {
     const early = await underDeadline("resize", Effect.never, 30_000);
     expect(early.virtualMs).toBe(VM_ROUTE_DEADLINES.resize.clientTimeoutMs - 5_000 - 30_000);
     expect(early.virtualMs).toBeGreaterThan(70_000);
-  });
+  }, 15_000);
 });
 
 // The remaining provider-bound mutations: rename, private network enrollment

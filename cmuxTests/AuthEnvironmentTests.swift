@@ -765,12 +765,24 @@ struct CheckoutAttributionTests {
     }
 
     @Test
-    func vmMemoryRequiresPlanErrorTextNamesMaxAndLinksTheMaxCheckout() {
-        let text = defaultCloudVMAction(status: 402, errorCode: "vm_memory_requires_plan")
+    func vmMemoryRequiresPlanErrorTextUsesTheServerUpgradeTarget() {
+        let text = defaultCloudVMAction(
+            status: 402,
+            errorCode: "vm_memory_requires_plan",
+            response: ["upgradePlanId": "max"]
+        )
         #expect(text.contains("cmux Max"))
         #expect(text.contains(ProUpgradePresenter.checkoutURL(source: .vmMemoryRequiresPlanError, plan: .max).absoluteString))
         #expect(text.contains("cmux_source=\(ProUpgradeSource.vmMemoryRequiresPlanError.rawValue)"))
         #expect(text.contains("cmux_client=mac"))
+    }
+
+    @Test
+    func vmMemoryRequiresPlanErrorDoesNotGuessAnUpgradePlan() {
+        let text = defaultCloudVMAction(status: 402, errorCode: "vm_memory_requires_plan")
+        let smallerSize = String(localized: "cli.vm.resize.chooseSmaller", defaultValue: "Choose a smaller size.")
+        #expect(text.contains(smallerSize))
+        #expect(!text.contains("checkout"))
     }
 
     /// Pro is the server's default plan, so its checkout carries no `plan`;

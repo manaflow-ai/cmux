@@ -2752,6 +2752,7 @@ describe("Iroh trust broker database behavior", () => {
         select id
         from iroh_endpoint_bindings
         where user_id = ${userId}
+          and revoked_at is not null
           and revoked_at < ${NOW}
         order by revoked_at, id
       `;

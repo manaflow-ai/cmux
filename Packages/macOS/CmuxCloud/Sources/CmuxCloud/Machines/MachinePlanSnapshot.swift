@@ -8,6 +8,7 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         activeCount: Int,
         maxActiveVms: Int? = nil,
         planId: String,
+        isPaidPlan: Bool? = nil,
         freeAccessWindowDays: Int = 0,
         freeAccessExpiresAt: Date? = nil,
         freeAccessBanner: FreeAccessBanner = .none,
@@ -16,6 +17,7 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         self.activeCount = activeCount
         self.maxActiveVms = maxActiveVms
         self.planId = planId
+        self.serverIsPaidPlan = isPaidPlan
         self.freeAccessWindowDays = freeAccessWindowDays
         self.freeAccessExpiresAt = freeAccessExpiresAt
         self.freeAccessBanner = freeAccessBanner
@@ -26,6 +28,9 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     /// Active-machine ceiling; nil when the plan has no cap (every paid plan).
     public let maxActiveVms: Int?
     public let planId: String
+    /// Server-advertised entitlement classification. Nil preserves the
+    /// migration fallback for control planes that predate this field.
+    public let serverIsPaidPlan: Bool?
     /// Days the plan keeps a machine reachable after creation; 0 = no window.
     public var freeAccessWindowDays: Int = 0
     /// Earliest free-access expiry across the fleet (server value when present).
@@ -44,7 +49,7 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     /// Only plans the backend accepts for provisioning are paid. Unknown plan
     /// ids fail closed here too, so a stale metadata value cannot hide the
     /// upgrade affordance after the server returns `vm_requires_pro`.
-    public var isPaidPlan: Bool { Self.isPaidPlanID(planId) }
+    public var isPaidPlan: Bool { serverIsPaidPlan ?? Self.isPaidPlanID(planId) }
 
     /// Whether a plan with more machines exists to upgrade to. Every tier
     /// from Pro up (Pro, Team, Founders, Max) sells the same machine count, so

@@ -126,6 +126,81 @@ function createResourceFields(resourceReservation: { readonly vcpus: number; rea
   };
 }
 
+async function buildVmListLimits(input: {
+  entitlements: VmEntitlements | null;
+  activeVmCount: number;
+  usedVcpus: number;
+  usedMemoryMb: number;
+  freeAccessWindowDays: number;
+  freeAccessExpiresAt: number | null;
+  userId: string;
+}) {
+  const { entitlements } = input;
+  if (!entitlements) return undefined;
+
+  const memoryOptions = memoryOptionsMbForPlan(entitlements.planId, process.env);
+  const lockedMemory = lockedMemoryOptionsMbForPlan(entitlements.planId, process.env);
+  const allMemoryOptions = [...memoryOptions, ...lockedMemory.memoryOptionsMb];
+  const defaultMemoryMb = defaultMemoryMbForPlan(entitlements.planId, process.env);
+  const minimumMemoryMb = entitlements.resourcePool ? memoryOptions[0] ?? null : null;
+  const minimumVcpus = minimumMemoryMb === null
+    ? null
+    : vcpusByMemoryMb([minimumMemoryMb])[String(minimumMemoryMb)] ?? null;
+  const memoryUpgradePlansByMb = Object.fromEntries(lockedMemory.memoryOptionsMb
+    .flatMap((mb) => {
+      const plan = upgradePlanForMemory(mb, entitlements.planId);
+      return plan ? [[String(mb), plan]] : [];
+    }));
+  const goUsage = entitlements.planId === "go"
+    ? await getGoVmUsage(input.userId)
+      .then((usage) => usage ? Math.round(usage.usedSeconds / 360) / 10 : null)
+      .catch(() => null)
+    : undefined;
+
+  return {
+    maxActiveVms: entitlements.maxActiveVms,
+    activeVmCount: input.activeVmCount,
+    // The plan's shared pool (null when the plan has none) and what the
+    // active machines draw from it. Paused machines do not count.
+    poolVcpus: entitlements.resourcePool?.vcpus ?? null,
+    poolMemoryMb: entitlements.resourcePool?.memoryMb ?? null,
+    usedVcpus: input.usedVcpus,
+    usedMemoryMb: input.usedMemoryMb,
+    planId: entitlements.planId,
+    // Entitlement classification is server-owned; planId remains for
+    // display and billing compatibility only.
+    isPaidPlan: isPaidVmPlan(entitlements.planId),
+    freeAccessWindowDays: input.freeAccessWindowDays,
+    ...(goUsage !== undefined ? {
+      vmHoursIncluded: 40,
+      vmHoursUsed: goUsage,
+      savedVmLimit: GO_SAVED_VM_LIMIT,
+    } : {}),
+    // Pro and Max monthly allowance; absent when none applies.
+    ...(isBudgetPlanId(entitlements.planId)
+      ? await getPlanBudgetUsage(input.userId).then(planBudgetLimits).catch(() => ({}))
+      : {}),
+    freeAccessExpiresAt: input.freeAccessExpiresAt,
+    // The default and accepted sizes are part of the server-owned create
+    // contract. Clients must not infer them from a plan id or old ladder.
+    memoryOptionsMb: memoryOptions,
+    defaultMemoryMb,
+    maxDiskMb: maxDiskMbForPlan(entitlements.planId, process.env),
+    maxMemoryMb: maxMemoryMbForPlan(entitlements.planId, process.env),
+    maxVcpus: maxVcpusForPlan(entitlements.planId, process.env),
+    // The smallest shape is an informational server capability. Clients must
+    // not recreate the historical 2 vCPU / 4 GiB exhaustion rule.
+    minimumMemoryMb,
+    minimumVcpus,
+    lockedMemoryOptionsMb: lockedMemory.memoryOptionsMb,
+    memoryUpgradePlanId: lockedMemory.upgradePlanId,
+    memoryUpgradePlansByMb,
+    vcpusByMemoryMb: vcpusByMemoryMb(allMemoryOptions),
+    diskByMemoryMb: diskByMemoryMb(allMemoryOptions),
+    imageKinds: listVmImageKinds(defaultProviderId(), process.env, { memoryMb: defaultMemoryMb }),
+  };
+}
+
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
     request,
@@ -249,73 +324,23 @@ export async function GET(request: Request): Promise<Response> {
         ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
-      const limits = listEntitlements
-        ? {
-          maxActiveVms: listEntitlements.maxActiveVms,
-          activeVmCount: activeEntries.length,
-          // The plan's shared pool (null when the plan has none) and what the
-          // active machines draw from it. Paused machines do not count.
-          poolVcpus: listEntitlements.resourcePool?.vcpus ?? null,
-          poolMemoryMb: listEntitlements.resourcePool?.memoryMb ?? null,
-          usedVcpus: activeEntries.reduce((sum, entry) => sum + poolShare(entry).vcpus, 0),
-          usedMemoryMb: activeEntries.reduce((sum, entry) => sum + poolShare(entry).memoryMb, 0),
-          planId: listEntitlements.planId,
-          freeAccessWindowDays,
-          ...(listEntitlements.planId === "go" ? {
-            vmHoursIncluded: 40,
-            vmHoursUsed: await getGoVmUsage(user.id)
-              .then((usage) => usage ? Math.round(usage.usedSeconds / 360) / 10 : null)
-              .catch(() => null),
-            savedVmLimit: GO_SAVED_VM_LIMIT,
-          } : {}),
-          // Pro and Max monthly allowance; absent when none applies.
-          ...(isBudgetPlanId(listEntitlements.planId)
-            ? await getPlanBudgetUsage(user.id).then(planBudgetLimits).catch(() => ({}))
-            : {}),
-          // The earliest expiry across the caller's machines: what a fleet header
-          // counts down to. Null when nothing is on a window.
-          freeAccessExpiresAt: vms.reduce<number | null>(
-            (earliest, vm) => vm.freeAccessExpiresAt === null
-              ? earliest
-              : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
-            null,
-          ),
-          memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
-          // Resize ceilings are part of the same plan contract as the create
-          // ladder. Native clients use these values to avoid offering a
-          // provider-valid size that the caller's plan cannot use.
-          maxDiskMb: maxDiskMbForPlan(listEntitlements.planId, process.env),
-          maxMemoryMb: maxMemoryMbForPlan(listEntitlements.planId, process.env),
-          maxVcpus: maxVcpusForPlan(listEntitlements.planId, process.env),
-          // Ladder sizes the plan does not include, and the plan that sells
-          // them, so a "new machine" dialog shows them locked with an upgrade
-          // instead of hiding that larger machines exist.
-          lockedMemoryOptionsMb: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
-          memoryUpgradePlanId: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).upgradePlanId,
-          memoryUpgradePlansByMb: Object.fromEntries(lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb
-            .flatMap((mb) => {
-              const plan = upgradePlanForMemory(mb, listEntitlements.planId);
-              return plan ? [[String(mb), plan]] : [];
-            })),
-          // vCPUs for every size above, so a client labels a size without its own table.
-          vcpusByMemoryMb: vcpusByMemoryMb([
-            ...memoryOptionsMbForPlan(listEntitlements.planId, process.env),
-            ...lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
-          ]),
-          // Disk follows the server's image-size catalog, not a client-side
-          // memory ladder. Include locked sizes so upgrade rows can still be
-          // labeled before the caller changes plans.
-          diskByMemoryMb: diskByMemoryMb([
-            ...memoryOptionsMbForPlan(listEntitlements.planId, process.env),
-            ...lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
-          ]),
-          // Kinds a client may request (and the image each resolves to) for the
-          // default provider, so a "new machine" dialog offers only kinds that work.
-          imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
-            memoryMb: defaultMemoryMbForPlan(listEntitlements.planId, process.env),
-          }),
-        }
-        : undefined;
+      // The earliest expiry across the caller's machines: what a fleet header
+      // counts down to. Null when nothing is on a window.
+      const freeAccessExpiresAt = vms.reduce<number | null>(
+        (earliest, vm) => vm.freeAccessExpiresAt === null
+          ? earliest
+          : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
+        null,
+      );
+      const limits = await buildVmListLimits({
+        entitlements: listEntitlements,
+        activeVmCount: activeEntries.length,
+        usedVcpus: activeEntries.reduce((sum, entry) => sum + poolShare(entry).vcpus, 0),
+        usedMemoryMb: activeEntries.reduce((sum, entry) => sum + poolShare(entry).memoryMb, 0),
+        freeAccessWindowDays,
+        freeAccessExpiresAt,
+        userId: user.id,
+      });
       return jsonResponse({ vms, limits });
     },
   );

@@ -412,6 +412,8 @@ struct MachinesPanelView: View {
             memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
             memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
             diskByMemoryMb: viewModel.diskByMemoryMb,
+            defaultMemoryMb: viewModel.defaultMemoryMb,
+            maxVcpus: viewModel.maxVcpus,
             maxDiskMb: viewModel.maxDiskMb,
             preferredWindow: tabManager?.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
@@ -431,18 +433,21 @@ struct MachinesPanelView: View {
                 viewModel?.finishOptimisticRename()
             }
         )
-        // Keep the standard targets visible and gray out sizes above the
-        // server-advertised plan ceilings. Missing fields use the accepted
-        // ladder and plan ID, so an older response still gates each tier.
-        machineActions.resizeDiskMaximumGiB = viewModel.maxDiskMb.map { max(0, $0 / 1_024) } ?? viewModel.resizeFallbackMaxDiskGiB
-        // Older control planes may send maxMemoryMb before maxVcpus. Derive
-        // the same floor used by the server instead of exposing a Max-only
-        // CPU target while the vCPU field is absent.
-        machineActions.resizeCPUMaximum = viewModel.maxVcpus
-            ?? viewModel.maxMemoryMb.map { max(1, $0 / 2_048) }
-            ?? max(1, viewModel.resizeFallbackMaxMemoryMb / 2_048)
-        machineActions.resizeMemoryMaximumGiB = viewModel.maxMemoryMb.map { max(0, $0 / 1_024) }
-            ?? max(0, viewModel.resizeFallbackMaxMemoryMb / 1_024)
+        // Keep only server-advertised resize targets visible. Missing maps are
+        // an explicit compatibility boundary: the menu has no guessed ladder.
+        var resizeDiskOptionsGiB = Set((viewModel.diskByMemoryMb ?? [:]).values
+            .filter { $0 > 0 && $0 % 1_024 == 0 }.map { $0 / 1_024 })
+        if let maxDiskMb = viewModel.maxDiskMb, maxDiskMb > 0, maxDiskMb % 1_024 == 0 {
+            resizeDiskOptionsGiB.insert(maxDiskMb / 1_024)
+        }
+        machineActions.resizeDiskOptionsGiB = resizeDiskOptionsGiB.sorted()
+        machineActions.resizeDiskMaximumGiB = viewModel.maxDiskMb.map { max(0, $0 / 1_024) } ?? 0
+        machineActions.resizeCPUOptions = Array(Set((viewModel.vcpusByMemoryMb ?? [:]).values
+            .filter { $0 > 0 })).sorted()
+        machineActions.resizeCPUMaximum = viewModel.maxVcpus ?? 0
+        machineActions.resizeMemoryOptionsGiB = Array(Set((viewModel.vcpusByMemoryMb ?? [:]).keys.compactMap { Int($0) }
+            .filter { $0 > 0 && $0 % 1_024 == 0 }.map { $0 / 1_024 })).sorted()
+        machineActions.resizeMemoryMaximumGiB = viewModel.maxMemoryMb.map { max(0, $0 / 1_024) } ?? 0
         machineActions.resizeResourcePool = viewModel.resourcePool
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)

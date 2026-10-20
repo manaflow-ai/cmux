@@ -39,6 +39,9 @@ extension TerminalController {
         case "vm.file_transfer_failure":
             return socketWorkerFileTransferFailureResponse(id: id, params: params)
         case "vm.billing_checkout":
+            // These are the three native checkout products currently exposed
+            // by the billing URL contract. Cloud resource capabilities use
+            // server-advertised plan IDs and never flow through this allowlist.
             guard let plan = params["plan"] as? String, plan == "go" || plan == "max" || plan == "pro" else {
                 return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.cloudVM.billingCheckout.invalidPlan", defaultValue: "Choose Go, Pro, or Max: cmux billing checkout --plan <go|pro|max>"))
             }
@@ -46,17 +49,20 @@ extension TerminalController {
         case "vm.list":
             return v2CloudCall(id: id, method: method, params: params) {
                 let page = try await VMClient.shared.listPage()
-                var payload: [String: Any] = [
-                    "vms": page.vms.map(Self.socketWorkerVMSummaryPayload),
-                ]
+                let vmPayloads: [[String: Any]] = page.vms.map { vm in
+                    Self.socketWorkerVMSummaryPayload(vm)
+                }
+                var payload: [String: Any] = ["vms": vmPayloads]
                 if let limits = page.limits {
                     payload["limits"] = [
                         "maxActiveVms": limits.maxActiveVms.map { $0 as Any } ?? NSNull(),
                         "planId": limits.planId,
+                        "isPaidPlan": limits.isPaidPlan.map { $0 as Any } ?? NSNull(),
                         "freeAccessWindowDays": limits.freeAccessWindowDays,
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                         "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
                         "memoryOptionsMb": limits.memoryOptionsMb,
+                        "defaultMemoryMb": limits.defaultMemoryMb.map { $0 as Any } ?? NSNull(),
                         "maxDiskMb": limits.maxDiskMb.map { $0 as Any } ?? NSNull(),
                         "maxMemoryMb": limits.maxMemoryMb.map { $0 as Any } ?? NSNull(),
                         "maxVcpus": limits.maxVcpus.map { $0 as Any } ?? NSNull(),
@@ -69,6 +75,8 @@ extension TerminalController {
                         "poolMemoryMb": limits.resourcePool.map { $0.poolMemoryMb as Any } ?? NSNull(),
                         "usedVcpus": limits.resourcePool.map { $0.usedVcpus as Any } ?? NSNull(),
                         "usedMemoryMb": limits.resourcePool.map { $0.usedMemoryMb as Any } ?? NSNull(),
+                        "minimumVcpus": limits.resourcePool?.minimumVcpus.map { $0 as Any } ?? NSNull(),
+                        "minimumMemoryMb": limits.resourcePool?.minimumMemoryMb.map { $0 as Any } ?? NSNull(),
                     ]
                 }
                 return payload

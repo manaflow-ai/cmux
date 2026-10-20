@@ -4978,27 +4978,11 @@ struct CMUXCLI {
     // never pins an image id unless the person passes `--image`: a pinned id
     // that drifted from the web deploy's manifest failed every create with
     // `vm_image_config_error`.
-    /// `--size` spellings → memory in MB. The supported base-image ladder is
-    /// 4 GB, 8 GB, 16 GB, 24 GB, 32 GB, and 64 GB of RAM, with disk sizes
-    /// following each image. Disk is per machine; vCPUs and memory come from
-    /// shared vCPU and RAM pools, one per resource, that the plan's active
-    /// machines draw from (the server enforces both).
-    private static let cloudVMSizeAliases: [String: Int] = [
-        "4g": 4096, "4gb": 4096,
-        "8g": 8192, "8gb": 8192,
-        "16g": 16384, "16gb": 16384,
-        "24g": 24576, "24gb": 24576,
-        "32g": 32768, "32gb": 32768,
-        "64g": 65536, "64gb": 65536,
-        // Keep the prior preset parseable so scripts fail only at the server
-        // validation boundary, not in the client parser.
-        "20g": 20480, "20gb": 20480,
-    ]
+    /// Parse a memory size without copying the server's image ladder. `g`,
+    /// `gb`, and `gib` are stable unit aliases; bare numbers are MB. The
+    /// server validates whether the resulting capability is currently usable.
     static func parseCloudVMSize(_ raw: String) -> Int? {
-        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if let mb = cloudVMSizeAliases[key] { return mb }
-        if let mb = Int(key), mb >= 512 { return mb }
-        return nil
+        CloudVMSizeParser().parse(raw)
     }
     /// All create verbs provision the same devbox. Legacy kind flags remain
     /// accepted; contradictory flags still report the caller's mistake.
@@ -7493,8 +7477,8 @@ struct CMUXCLI {
                         throw CLIError(message: """
                             vm new: unknown size '\(sizeOpt)'.
 
-                            Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).
-                            Pro goes up to 16g; 24g, 32g, and 64g need cmux Max. Active machines draw from shared vCPU and RAM pools. `cmux vm ls` shows your plan.
+                            Sizes: whole GiB values with G, GB, or GiB (or memory in MB).
+                            The server validates current size, plan, and shared-pool limits. `cmux vm ls` shows the advertised capabilities.
                             """)
                     }
                     memoryMb = parsed
@@ -7509,7 +7493,7 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --size <4g|8g|16g|24g|32g|64g>  4g to 16g on Pro; 24g, 32g, and 64g need cmux Max
+                          --size <whole-GiB|MB>  the server advertises current sizes and plan limits
                           --network <full|allowlist|none>  outbound access (see `cmux vm network --help`)
                           --network-policy <json>  full network policy object
                           --agent-updates <latest|image>  \(String(localized: "cli.vm.new.agentUpdatesFlag", defaultValue: "latest keeps coding agents up to date; image (default) keeps the baked versions"))
@@ -21365,12 +21349,12 @@ struct CMUXCLI {
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
-              new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
+              new [--size <whole-GiB|MB>] [--agent-updates <latest|image>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
                                         \(String(localized: "cli.vm.help.newDevbox", defaultValue: "Create a new machine: the devbox with devtools,"))
                                         \(String(localized: "cli.vm.help.newDevboxScreen", defaultValue: "coding agents and a VNC screen. The server picks"))
                                         \(String(localized: "cli.vm.help.newDevboxImage", defaultValue: "the image for the size; --image <id> is an"))
                                         \(String(localized: "cli.vm.help.newDevboxOverride", defaultValue: "explicit override you normally omit."))
-                                        \(String(localized: "cli.vm.help.newSizesVcpu", defaultValue: "vCPUs follow --size: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."))
+                                        \(String(localized: "cli.vm.help.newSizesVcpu", defaultValue: "vCPUs and disk follow the server-advertised size capability."))
                                         --no-focus opens the machine without
                                         switching to its workspace (what the New
                                         Machine sheet does).

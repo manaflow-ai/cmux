@@ -89,18 +89,28 @@ struct NewMachineModelTests {
     private func makeModel(
         mode: NewMachineModel.Mode = .newMachine,
         plan: MachinePlanSnapshot? = nil,
-        memoryOptionsMb: [Int] = NewMachineModel.memoryOptionsMb,
+        memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536],
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
+        memoryUpgradePlansByMb: [String: String]? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil,
+        diskByMemoryMb: [String: Int]? = nil,
+        defaultMemoryMb: Int? = 8192,
         starts: Bool = true
     ) -> (NewMachineModel, Box<[MachineCreateRequest]>) {
         let recorder = Box<[MachineCreateRequest]>([])
+        let vcpus = vcpusByMemoryMb ?? Dictionary(uniqueKeysWithValues: memoryOptionsMb.map { (String($0), max(1, $0 / 2048)) })
+        let disks = diskByMemoryMb ?? Dictionary(uniqueKeysWithValues: memoryOptionsMb.map { (String($0), max(1, $0 * 4)) })
         let model = NewMachineModel(
             mode: mode,
             plan: plan,
             memoryOptionsMb: memoryOptionsMb,
             lockedMemoryOptionsMb: lockedMemoryOptionsMb,
-            memoryUpgradePlanId: memoryUpgradePlanId
+            memoryUpgradePlanId: memoryUpgradePlanId,
+            memoryUpgradePlansByMb: memoryUpgradePlansByMb,
+            vcpusByMemoryMb: vcpus,
+            diskByMemoryMb: disks,
+            defaultMemoryMb: defaultMemoryMb
         ) { request in
             recorder.value.append(request)
             return starts
@@ -151,35 +161,28 @@ struct NewMachineModelTests {
         #expect(model.sourceMachines.first?.displayName == "first")
     }
 
-    @Test func defaultSizeIsTheSmallestSupportedBaseImage() {
+    @Test func defaultSizeUsesTheServerAdvertisedDefault() {
         let (model, _) = makeModel(plan: Self.maxPlan)
         #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
         #expect(model.memoryMb == 8192)
-        #expect(model.selectedSize == MachineSizeOption(memoryMb: 8192))
+        #expect(model.selectedSize?.memoryMb == 8192)
     }
 
-    /// The client mirror of the server ladder: Pro, Team, and Founder's
-    /// Edition stop at 16 GB, and the larger rows are locked and sold by Max.
-    @Test func proPlanLocksTheMaxSizesWhenTheServerOmitsThem() {
-        let (model, _) = makeModel(plan: Self.proPlan)
+    @Test func serverLocksAndNamesOnlyAdvertisedUpgradePlans() {
+        let (model, _) = makeModel(
+            plan: Self.proPlan,
+            memoryOptionsMb: [4096, 8192, 16384, 24576, 32768, 65536],
+            lockedMemoryOptionsMb: [24576, 32768, 65536],
+            memoryUpgradePlanId: "enterprise"
+        )
         #expect(model.memoryOptions == [4096, 8192, 16384])
         #expect(model.lockedMemoryOptions == [24576, 32768, 65536])
-        #expect(model.memoryUpgradePlanId == "max")
-        #expect(model.memoryUpgradePlanName == "Max")
-        #expect(model.lockedSizesNoteText == "24 GB, 32 GB, and 64 GB machines need cmux Max.")
-        #expect(model.memoryUpgradeButtonTitle == "Upgrade to Max")
-        #expect(model.lockedSizeMenuTitle(MachineSizeOption(memoryMb: 65536)!) == "32 vCPU · 64 GB RAM · 128 GB disk · Requires Max")
-        #expect(NewMachineModel.maxMemoryMb(planId: "pro") == 16384)
-        #expect(NewMachineModel.maxMemoryMb(planId: "team") == 16384)
-        #expect(NewMachineModel.maxMemoryMb(planId: "founders") == 16384)
-        #expect(NewMachineModel.maxMemoryMb(planId: "go") == 4096)
-        #expect(NewMachineModel.maxMemoryMb(planId: "free") == 8192)
-        #expect(NewMachineModel.maxMemoryMb(planId: nil) == 8192)
-        #expect(NewMachineModel.maxMemoryMb(planId: "max") == 65536)
-        #expect(NewMachineModel.maxMemoryMb(planId: " Max\n") == 65536)
+        #expect(model.memoryUpgradePlanId == "enterprise")
+        #expect(model.memoryUpgradePlanName == "Enterprise")
+        #expect(model.upgradePlan(for: 24576) == "enterprise")
     }
 
-    @Test func maxPlanHasTheWholeLadderAndNothingLocked() {
+    @Test func unlockedServerOptionsHaveNoUpgradeTarget() {
         let (model, _) = makeModel(plan: Self.maxPlan)
         #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
         #expect(model.lockedMemoryOptions == [])
@@ -207,10 +210,9 @@ struct NewMachineModelTests {
         #expect(open.lockedMemoryOptions == [])
         #expect(open.memoryUpgradePlanId == nil)
 
-        // A locked list without an upgrade plan still names Max, the plan
-        // that sells the ladder, unless the plan already is Max.
+        // A locked list without an upgrade plan remains unnamed.
         let (unnamed, _) = makeModel(plan: Self.proPlan, lockedMemoryOptionsMb: [65536], memoryUpgradePlanId: nil)
-        #expect(unnamed.memoryUpgradePlanId == "max")
+        #expect(unnamed.memoryUpgradePlanId == nil)
         #expect(unnamed.memoryOptions == [4096, 8192, 16384, 24576, 32768])
     }
 
@@ -239,22 +241,15 @@ struct NewMachineModelTests {
     }
 
     @Test func sizeLabelsDescribeMemoryAndDisk() {
-        #expect(MachineSizeOption(memoryMb: 4096)?.title == "4 GB RAM")
-        #expect(MachineSizeOption(memoryMb: 4096)?.detail == "16 GB disk included")
-        #expect(MachineSizeOption(memoryMb: 4096)?.diskTitle == "16 GB")
-        #expect(MachineSizeOption(memoryMb: 8192)?.title == "8 GB RAM")
-        #expect(MachineSizeOption(memoryMb: 8192)?.detail == "32 GB disk included")
-        #expect(MachineSizeOption(memoryMb: 8192)?.menuTitle == "4 vCPU · 8 GB RAM · 32 GB disk")
-        #expect(MachineSizeOption(memoryMb: 24576)?.menuTitle == "12 vCPU · 24 GB RAM · 96 GB disk")
-        #expect(MachineSizeOption(memoryMb: 65536)?.menuTitle == "32 vCPU · 64 GB RAM · 128 GB disk")
-        #expect(MachineSizeOption(memoryMb: 16384)?.title == "16 GB RAM")
-        #expect(MachineSizeOption(memoryMb: 16384)?.detail == "64 GB disk included")
-        #expect(MachineSizeOption(memoryMb: 24576)?.title == "24 GB RAM")
-        #expect(MachineSizeOption(memoryMb: 24576)?.detail == "96 GB disk included")
-        #expect(MachineSizeOption(memoryMb: 32768)?.title == "32 GB RAM")
-        #expect(MachineSizeOption(memoryMb: 32768)?.detail == "128 GB disk included")
-        #expect(MachineSizeOption(memoryMb: 65536)?.title == "64 GB RAM")
-        #expect(MachineSizeOption(memoryMb: 65536)?.detail == "128 GB disk included")
+        let size = MachineSizeOption(memoryMb: 8192, servedVcpus: 4, servedDiskMb: 32768)
+        #expect(size?.title == "8 GB RAM")
+        #expect(size?.detail == "32 GB disk included")
+        #expect(size?.diskTitle == "32 GB")
+        #expect(size?.menuTitle == "4 vCPU · 8 GB RAM · 32 GB disk")
+        #expect(MachineSizeOption(memoryMb: 24576, servedVcpus: 12, servedDiskMb: 98304)?.menuTitle == "12 vCPU · 24 GB RAM · 96 GB disk")
+        #expect(MachineSizeOption(memoryMb: 65536, servedVcpus: 32, servedDiskMb: 131072)?.menuTitle == "32 vCPU · 64 GB RAM · 128 GB disk")
+        #expect(MachineSizeOption(memoryMb: 16384, servedVcpus: 8, servedDiskMb: 65536)?.title == "16 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 32768, servedVcpus: 16, servedDiskMb: 131072)?.detail == "128 GB disk included")
     }
 
     @Test func sizeLabelsUseTheServersVcpusWhenSent() {
@@ -269,7 +264,7 @@ struct NewMachineModelTests {
         #expect(served.sizeOption(memoryMb: 8192)?.menuTitle == "6 vCPU · 8 GB RAM · 32 GB disk")
         #expect(served.sizeOption(memoryMb: 16384)?.vcpus == 8)
         let legacy = NewMachineModel(mode: .newMachine, plan: Self.proPlan, memoryOptionsMb: [8192], submit: { _ in true })
-        #expect(legacy.selectedSize?.vcpus == 4)
+        #expect(legacy.selectedSize == nil)
     }
 
     @Test func serverMapsKeepUnknownMemoryWithoutLegacyLadderValues() {
@@ -285,12 +280,11 @@ struct NewMachineModelTests {
             maxDiskMb: 131_072,
             submit: { _ in true }
         )
-        #expect(model.memoryOptions == [8_192])
-        #expect(model.sizeOption(memoryMb: 8_192)?.vcpus == 0)
-        #expect(model.sizeOption(memoryMb: 8_192)?.diskMb == 131_072)
+        #expect(model.memoryOptions == [])
+        #expect(model.sizeOption(memoryMb: 8_192) == nil)
     }
 
-    @Test func advertisedMemoryWithoutDiskMetadataRemainsSelectable() {
+    @Test func advertisedMemoryWithoutDiskMetadataIsNotSelectable() {
         let model = NewMachineModel(
             mode: .newMachine,
             plan: Self.proPlan,
@@ -300,9 +294,8 @@ struct NewMachineModelTests {
             maxDiskMb: 131_072,
             submit: { _ in true }
         )
-        #expect(model.memoryOptions == [20_480])
-        #expect(model.sizeOption(memoryMb: 20_480)?.diskMb == 131_072)
-        #expect(model.sizeOption(memoryMb: 20_480)?.vcpus == 10)
+        #expect(model.memoryOptions == [])
+        #expect(model.sizeOption(memoryMb: 20_480) == nil)
     }
 
     @Test func explicitlyInvalidDiskMetadataRemovesOnlyThatSize() {
@@ -310,8 +303,8 @@ struct NewMachineModelTests {
             mode: .newMachine,
             plan: Self.proPlan,
             memoryOptionsMb: [8_192, 20_480],
-            diskByMemoryMb: ["8192": 0],
-            maxDiskMb: 131_072,
+            vcpusByMemoryMb: ["8192": 4, "20480": 10],
+            diskByMemoryMb: ["8192": 0, "20480": 131_072],
             submit: { _ in true }
         )
         #expect(model.memoryOptions == [20_480])
@@ -353,10 +346,10 @@ struct NewMachineModelTests {
         #expect(model.memoryMb == 8192)
     }
 
-    @Test func emptyServerOptionsPreserveLegacyDefaultWithoutSizeFlag() {
+    @Test func emptyServerOptionsOmitTheSizeFlagWithoutInventingADefault() {
         let (model, _) = makeModel(memoryOptionsMb: [])
         #expect(model.memoryOptions == [])
-        #expect(model.memoryMb == 20480)
+        #expect(model.memoryMb == 0)
         #expect(!model.supportsSize)
         #expect(model.cliArguments == ["vm", "new", "--desktop", "--agent-updates", "latest", "--focus", "false"])
     }
