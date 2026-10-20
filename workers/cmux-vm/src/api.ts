@@ -25,6 +25,7 @@ import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
 import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
 import { MeshDeviceGroupDefinition, MeshEnrollGroupDefinition, MeshGroupDefinition } from "./api/mesh.ts";
+import { OverlayServerDeviceGroupDefinition, OverlayServersGroupDefinition } from "./api/overlay-servers.ts";
 import { InitialVmNetwork, InitialVmNetworkReceipt } from "./api/initial-network.ts";
 import { ReplaceVmHttpsProxyRequest, VmHttpsProxyReceipt } from "./api/https-proxies.ts";
 import { VmImage, VmImageList, VmImageSelection } from "./api/images.ts";
@@ -535,6 +536,8 @@ export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(MeshEnrollGroupDefinition)
   // No credential: the device's install-key signature authorizes its own reads and rotation (mesh M3, cx-0op.5).
   .add(MeshDeviceGroupDefinition)
+  .add(OverlayServersGroupDefinition.middleware(Authentication))
+  .add(OverlayServerDeviceGroupDefinition)
   .annotateContext(
     OpenApi.annotations({
       title: "cmux VM API",

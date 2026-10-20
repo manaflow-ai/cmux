@@ -262,6 +262,16 @@ export interface ViewStatus {
   highlighted: boolean;
 }
 
+/** Set once the Shiki themes are Monaco's (Monaco's themes are global): stand-ins never replace them. */
+let shikiThemesDefined = false;
+
+/** Light and dark themes with no token colors, defined before Monaco is created (`MonacoView`). */
+function defineStandInThemes(chrome: Record<string, string>): void {
+  if (shikiThemesDefined) return;
+  monaco.editor.defineTheme(LIGHT_THEME, { base: "vs", inherit: true, rules: [], colors: chrome });
+  monaco.editor.defineTheme(DARK_THEME, { base: "vs-dark", inherit: true, rules: [], colors: chrome });
+}
+
 /** Monaco plus Shiki for one page. */
 export class MonacoView implements CodeView {
   private readonly editor: monaco.editor.IStandaloneCodeEditor;
@@ -297,6 +307,11 @@ export class MonacoView implements CodeView {
     this.themesKey = editorThemesKey(look);
     this.syntax.installLanguages(look.languages);
     this.defineChromeThemes();
+    // Monaco paints its first frame in the theme it is created with. An unknown name falls back to
+    // its light `vs` theme (white background), so both names exist before `create`: the Shiki
+    // themes load asynchronously, and until then a theme with the right base and the page's chrome
+    // colors stands in (user 2026-10-20, "for monaco editors there is flash of wrong theme").
+    defineStandInThemes(this.chrome);
     this.editor = monaco.editor.create(container, {
       ...this.editorOptions(),
       model: null,
@@ -338,6 +353,8 @@ export class MonacoView implements CodeView {
     );
     this.applyKeybindings();
     this.watchKeySequences(container);
+    // The Shiki themes replace the stand-ins as soon as the highlighter is up, also for plain text.
+    void this.applyTheme();
   }
 
   /** The `editor.keybindings` rules applied now (and their key), so a look change re-applies them once. */
@@ -385,8 +402,14 @@ export class MonacoView implements CodeView {
 
   private onSchemeChange = () => this.applyTheme();
 
+  /**
+   * The page's scheme: the host's theme sets `color-scheme` on the root (WebTheme.swift), which the
+   * page's `light-dark()` colors follow, so Monaco follows it too; the system's otherwise.
+   */
   private themeName(): string {
-    return this.scheme.matches ? DARK_THEME : LIGHT_THEME;
+    const scheme = getComputedStyle(document.documentElement).colorScheme.trim();
+    const dark = scheme === "dark" ? true : scheme === "light" ? false : this.scheme.matches;
+    return dark ? DARK_THEME : LIGHT_THEME;
   }
 
   private large(): boolean {
@@ -435,11 +458,16 @@ export class MonacoView implements CodeView {
 
   /** Re-applies the theme: the scheme, the chrome colors or the Shiki themes changed. */
   private async applyTheme(): Promise<void> {
+    // The scheme switches in this frame, with the page's colors; the Shiki colors follow.
+    const shown = this.themeName();
+    for (const binding of this.bound.values()) binding.editor.setTheme(shown);
+    monaco.editor.setTheme(shown);
     const highlighter = await this.syntax.getHighlighter();
     this.defineChromeThemes();
     for (const id of [LIGHT_THEME, DARK_THEME]) {
       monaco.editor.defineTheme(id, this.patch(textmateThemeToMonacoTheme(highlighter.getTheme(id)) as never));
     }
+    shikiThemesDefined = true;
     const name = this.themeName();
     for (const binding of this.bound.values()) binding.editor.setTheme(name);
     monaco.editor.setTheme(name);
