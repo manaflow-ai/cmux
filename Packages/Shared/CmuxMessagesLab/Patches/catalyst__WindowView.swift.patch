@@ -1,6 +1,23 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
-@@ -890,6 +890,18 @@
+@@ -529,6 +529,8 @@
+     private var ownWidthPasses = 0
+     /// Width passes run, and width changes that only recorded their width (bench evidence).
+     static var widthPasses = 0, widthPassesDeferred = 0
++    /// cmux: width passes that derived every loaded message again (no rows of an earlier width pass to re-measure).
++    static var widthRowsDerived = 0
+ 
+     override func layoutSubviews() {
+         super.layoutSubviews()
+@@ -672,6 +674,7 @@
+                                          width: bounds.width, exact: near, scale: renderScale) {
+             return rows
+         }
++        MessagesWindowView.widthRowsDerived += 1  // cmux
+         let rows = RowBuilder.rows(st, messages: msgs, now: now, width: bounds.width, exact: near, scale: renderScale)
+         widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, st.ui.notice, st.ui.streams, day, strings, rows)
+         return rows
+@@ -890,6 +893,18 @@
          if case let .status(id, st) = action, st != .sending, st != .sent, crispSends.values.contains(id) {
              releaseCrisp { $0 == id }
          }
@@ -19,7 +36,7 @@
          // this view's width (several Home tabs), not the process-wide `Metrics.current`.
          if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width, scale: renderScale) }
          // Rows configured in this transaction draw now (RowCell.transitionDepth).
-@@ -1147,6 +1159,7 @@
+@@ -1147,6 +1162,7 @@
          // A stream's rows follow the newest loaded message (which may lose its tail to it); a final message is new.
          case .streamBegin, .streamSet, .streamAppend, .streamEnd: idx.append(max(0, old.conversation.messages.count - 1))
          case let .status(id, _): if let i = index(id) { idx.append(i) }
@@ -27,3 +44,27 @@
          case let .react(ref, _, _):
              guard let i = index(ref.messageId) else { return nil }
              idx.append(i)
+@@ -1500,7 +1516,14 @@
+         for case let cell as RowCell in collection.visibleCells {
+             if let b = map[cell.key] { cell.renameRow(to: b) }
+         }
++        onRowsRenamed(map)
+     }
++
++    /// cmux: rows renamed in place (a stream's final message took its rows), old key -> new key; the
++    /// transcript selection follows (TranscriptSelection.renameRows).
++    var onRowsRenamed: ([String: String]) -> Void = { _ in }
++    /// cmux: a cell was configured for a row (decorate); the transcript selection draws its part in it.
++    var onCellDecorated: (RowCell) -> Void = { _ in }
+ 
+     /// Live container motions: (displacement, spring, begin, end, rows it covered). A row that
+     /// shows up while one runs (inserted later, or outside its band) gets the opposite motion,
+@@ -1873,7 +1896,7 @@
+             cell.setConnector(top: nil, bottom: 0, mirrored: false)
+         }
+         step(1)
+-        defer { CustomRows.host?.decorated(cell) }
++        defer { CustomRows.host?.decorated(cell); onCellDecorated(cell) }
+         for e in ledger.live(r.spec.key) where !cell.applied.contains(e.id) {
+             cell.applied.insert(e.id)
+             // The previous receipt text is drawn once, when its fade starts on this cell.

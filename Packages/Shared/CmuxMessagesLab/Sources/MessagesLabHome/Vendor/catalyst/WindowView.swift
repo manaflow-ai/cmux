@@ -529,6 +529,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private var ownWidthPasses = 0
     /// Width passes run, and width changes that only recorded their width (bench evidence).
     static var widthPasses = 0, widthPassesDeferred = 0
+    /// cmux: width passes that derived every loaded message again (no rows of an earlier width pass to re-measure).
+    static var widthRowsDerived = 0
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -672,6 +674,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                                          width: bounds.width, exact: near, scale: renderScale) {
             return rows
         }
+        MessagesWindowView.widthRowsDerived += 1  // cmux
         let rows = RowBuilder.rows(st, messages: msgs, now: now, width: bounds.width, exact: near, scale: renderScale)
         widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, st.ui.notice, st.ui.streams, day, strings, rows)
         return rows
