@@ -442,11 +442,7 @@ async fn dispatch_request(
                 provenance,
                 after_turn: None,
             };
-            // The person's own prompt (a connection that proved the person key, never a peer's)
-            // resumes any agent pair this chat is in (`hub/agent_pairs.rs`).
-            if opts.provenance.is_none() && conn.is_person() && !conn.origin.web_class() {
-                hub.agent_pair_person_prompt(&s);
-            }
+            super::agent_messages::person_prompt(hub, conn, &s, &opts);
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
         // ACP defines cancel as a notification; a client that sends it as a
@@ -907,23 +903,8 @@ async fn dispatch_request(
             let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
         }
-        method::MUX_AGENT_PAIR_RESUME => {
-            // The person's call only (`hub/person.rs`): an agent may not resume its own pair.
-            // `remote_guard.rs` refuses a Web or Peer connection first.
-            if !conn.is_person() || conn.origin.web_class() {
-                return Err(crate::hub::Hub::agent_pair_resume_refused());
-            }
-            let s = hub.resolve(session_key(&params)?)?;
-            let peer = str_param(&params, "peerSessionId");
-            Ok(hub.agent_pair_resume(&s.id, peer))
-        }
-        method::MUX_PROMPT_WITHDRAW => {
-            // The unix socket only; `remote_guard.rs` refuses every other origin first.
-            if conn.origin != Origin::Local {
-                return Err(crate::prompt_provenance::withdraw_origin_refused());
-            }
-            let s = hub.resolve(session_key(&params)?)?;
-            hub.prompt_withdraw(&s, &params).await
+        method::MUX_PROMPT_WITHDRAW | method::MUX_AGENT_PAIR_RESUME => {
+            super::agent_messages::handle(hub, conn, m, &params).await
         }
         method::MUX_PERMISSION_GROUPS => {
             let s = hub.resolve(session_key(&params)?)?;

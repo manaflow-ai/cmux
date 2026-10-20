@@ -698,11 +698,8 @@ impl Hub {
         .map_err(refuse)
     }
 
-    /// Sends `text` from `from` to `to` as a prompt with the family
-    /// provenance; answers once it is accepted (started or queued). With
-    /// `interrupt`, a prompt queued behind `to`'s running turn stops that
-    /// turn once it is accepted: one refused instead (the agent pair guard
-    /// holding it, `agent_pairs.rs`) stops nothing.
+    /// Sends `text` from `from` to `to` as a prompt with the family provenance; answers once it
+    /// is accepted (started or queued). `interrupt`: `Hub::interrupt_once_queued`.
     async fn send_family_prompt(
         self: &Arc<Self>,
         from: &Arc<Session>,
@@ -719,21 +716,11 @@ impl Hub {
             "to": to.id,
         });
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
-        let running = if interrupt { to.turn().map(|t| t.turn_id) } else { None };
-        let (hub, stop) = (self.clone(), to.clone());
+        let stop = self.interrupt_once_queued(to, interrupt);
         let opts = PromptOptions {
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
             on_accepted: Some(Box::new(move |v| {
-                // Queued behind the turn it interrupts: stop that turn, unless it ended meanwhile.
-                if let Some(turn_id) = running.filter(|_| v.get("queued") == Some(&json!(true))) {
-                    tokio::spawn(async move {
-                        if stop.turn().is_some_and(|t| t.turn_id == turn_id)
-                            && let Err(e) = hub.cancel(&stop).await
-                        {
-                            tracing::warn!(session = %stop.id, "interrupt: {}", e.message);
-                        }
-                    });
-                }
+                stop(&v);
                 let _ = tx.send(v);
             })),
             provenance: Some(provenance),
