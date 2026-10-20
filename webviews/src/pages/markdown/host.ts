@@ -24,6 +24,11 @@
 //     under the file's folder starting with `prefix` (directories end in "/"), for link completion;
 //   - `cmux.markdown.loadRemoteImages {path}` requires the click's user gesture, grants only the
 //     document still at `path`, and answers its unguessable `{remoteImageBase}`;
+//   - `cmux.markdown.setTableWidths {path, value}` keeps the file's table column widths
+//     (`SavedTableWidths` in tables.ts, null forgets them) with the file, never in its text: its
+//     extended attribute, then an app-side copy (MARKDOWN-TABLE-WIDTHS-DESIGN.md). The config sends
+//     them back as `tableWidths`. `cmux.markdown.contextTable {table}` says which table (its index,
+//     or null) a right-click was on, for the native menu's Reset Column Widths;
 //   - page commands (cmux.page.command) from the app's key dispatcher: `save` (Cmd-S), `back`
 //     (Cmd-[) and `forward` (Cmd-]) through the page's link history, `link` (Cmd-K) the link
 //     popover on the selection.
@@ -45,6 +50,8 @@ export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
 export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
 /** A user click approves guarded web-image loads for the document currently shown in this tab. */
 export const MARKDOWN_LOAD_REMOTE_IMAGES_OP = "cmux.markdown.loadRemoteImages";
+export const MARKDOWN_SET_TABLE_WIDTHS_OP = "cmux.markdown.setTableWidths";
+export const MARKDOWN_CONTEXT_TABLE_OP = "cmux.markdown.contextTable";
 /**
  * Page to host: `{key, value}` stores one `markdown.*` settings key (the Reading Settings popover;
  * value null resets it) through the settings write path; the host re-sends the look.
@@ -97,6 +104,8 @@ export interface MarkdownConfig {
   remoteImageBase?: string;
   /** The `markdown` section of cmux.json (settings.ts `MarkdownSettings`), unparsed. */
   settings?: unknown;
+  /** The file's saved table column widths (`SavedTableWidths`, tables.ts), when it has some. */
+  tableWidths?: unknown;
   /** `<cmux.json dir>/markdown/theme.css`, applied after the settings; absent when missing. */
   themeCSS?: string;
 }

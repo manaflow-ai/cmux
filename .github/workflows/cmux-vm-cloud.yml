@@ -4,9 +4,9 @@ name: cmux VM Cloud adapter
 on:
   push:
     branches: ["codex/vm-api-cloud-*"]
-    paths: ["backend/**", "libs/vm-instance-identity/**", "workers/cmux-vm/sdk/**", ".github/workflows/cmux-vm-cloud.yml"]
+    paths: ["backend/**", "libs/vm-instance-identity/**", "workers/cmux-vm/sdk/**", "workers/cmux-vm/src/**", ".github/workflows/cmux-vm-cloud.yml"]
   pull_request:
-    paths: ["libs/vm-instance-identity/**", "backend/apps/api/src/cloud-vm-api*", "backend/apps/api/src/team-vm-api*", "backend/apps/api/test/cloud-vm-api*", "backend/apps/api/test/team-vm-api*", ".github/workflows/cmux-vm-cloud.yml"]
+    paths: ["workers/cmux-vm/sdk/**", "workers/cmux-vm/src/**", "libs/vm-instance-identity/**", "backend/apps/api/src/cloud-vm-api*", "backend/apps/api/src/team-vm-api*", "backend/apps/api/test/cloud-vm-api*", "backend/apps/api/test/team-vm-api*", ".github/workflows/cmux-vm-cloud.yml"]
 permissions:
   contents: read
 concurrency:
