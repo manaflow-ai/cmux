@@ -19,6 +19,15 @@ public enum ReauthPlan: Sendable, Equatable {
         return argv.map(Self.quoted).joined(separator: " ")
     }
 
+    /// Types `.command` through `line` and opens `.page` through `page`; `.none` does nothing.
+    public func run(line: (String) -> Void, page: (URL) -> Void) {
+        switch self {
+        case .command: if let shellLine { line(shellLine) }
+        case .page(let url): page(url)
+        case .none: break
+        }
+    }
+
     static func quoted(_ word: String) -> String {
         let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./=:@"))
         if !word.isEmpty, word.unicodeScalars.allSatisfy(safe.contains) { return word }

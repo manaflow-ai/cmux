@@ -24,6 +24,16 @@ import Testing
         #expect(AIProvider.openAI.signOutPlan == .none)
     }
 
+    @Test func aPlanTypesItsLineOrOpensItsPage() throws {
+        var lines: [String] = [], pages: [URL] = []
+        let page = try #require(URL(string: "https://console.anthropic.com/settings/keys"))
+        for plan in [AIProvider.codex.signOutPlan, .page(page), .none] {
+            plan.run(line: { lines.append($0) }, page: { pages.append($0) })
+        }
+        #expect(lines == ["codex logout"])
+        #expect(pages == [page])
+    }
+
     @Test func aSavedSignInOffersSignOutAndRunsTheLogout() async {
         let services = MockAccountsServices()
         let model = await refreshed(services)

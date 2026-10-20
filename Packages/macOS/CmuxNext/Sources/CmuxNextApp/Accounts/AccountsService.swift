@@ -131,22 +131,14 @@ final class AccountsService: AccountsServices {
 
     func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) {
         if let showcaseMock { showcaseMock.reauthenticate(provider, plan: plan); return }
-        switch plan {
-        case .command:
-            guard let line = plan.shellLine else { return }
-            runInTerminal(line)
-        case .page(let url):
-            openConsole(url)
-        case .none:
-            break
-        }
+        plan.run(line: { runInTerminal($0) }, page: { openConsole($0) })
     }
 
     func runClaudeSetupToken() { if let showcaseMock { showcaseMock.runClaudeSetupToken() } else { runInTerminal("claude setup-token") } }
 
     func openConsole(_ url: URL) {
         if let showcaseMock { showcaseMock.openConsole(url); return }
-        if !services.openInFrontBrowserTab(url) { logger.info("no window for a browser tab") }
+        if !services.inFrontPane({ $0.newBrowserTab(url: url) }) { logger.info("no window for a browser tab") }
     }
 
     func saveKey(_ key: String, for provider: AIProvider) throws {
@@ -160,7 +152,7 @@ final class AccountsService: AccountsServices {
     /// Types `line` and Return into a new terminal tab of the focused pane,
     /// so the provider's own login runs where the user can see and answer it.
     private func runInTerminal(_ line: String) {
-        if !services.runInFrontTerminal(line) { logger.info("no window for a terminal tab") }
+        if !services.inFrontPane({ $0.newTerminalTab(typing: line + "\r") }) { logger.info("no window for a terminal tab") }
     }
 }
 
