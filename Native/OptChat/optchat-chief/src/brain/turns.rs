@@ -1180,7 +1180,9 @@ impl Brain {
             && answers
                 .iter()
                 .any(|id| self.state.open_answers.contains(id) && !pending.contains(id));
-        if !superseded {
+        // An owner-stopped turn posts no done marker, so the work it would
+        // close stays open for a later turn to close.
+        if !quiet {
             self.state
                 .open_answers
                 .retain(|id| !answers.contains(id) || pending.contains(id));
