@@ -121,13 +121,23 @@ extension SidebarListViewComponents {
         let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
         for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
+        // Without motion the rows that leave park first (as they would after the loop), so the rows that
+        // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
+        if !animate, !adopting {
+            for (key, view) in rowViews where layout.row(for: key) == nil {
+                rowViews[key] = nil
+                recycle(view)
+            }
+        }
         for row in layout.rows {
             let target = frame(for: row)
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
             keep.insert(row.key)
-            let view = existing ?? dequeue(row.key)
+            // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's
+            // does: a space's rows then make no new views once the pool holds some (space-switch-fast).
+            let view = existing ?? dequeue(row.key, rebinding: !animate && !adopting)
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))

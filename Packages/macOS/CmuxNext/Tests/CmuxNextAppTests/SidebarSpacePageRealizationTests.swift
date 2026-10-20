@@ -69,4 +69,22 @@ struct SidebarSpacePageRealizationTests {
         let firstShown = page.displayed.rows.first { page.rowViews[$0.key] != nil }
         #expect((firstShown?.y ?? 0) >= offset - 400, "the page starts at row y \(firstShown?.y ?? 0), the list was at \(offset)")
     }
+
+    /// The next switch reuses the last page and its row views: a warm page makes no row view.
+    @Test func theNextSwitchReusesThePageAndItsRowViews() throws {
+        let (model, sidebar) = Self.sidebar()
+        sidebar.spacePaging.prepareSlide(oldSections: model.sections)
+        sidebar.spacePaging.slide(direction: 1)
+        let first = try #require((sidebar.spacePaging.snapshotView as? SpacePageView)?.list)
+        let made = Set(first.rowViews.values.map(ObjectIdentifier.init))
+        try #require(!made.isEmpty)
+        // The next switch leaves another space: other rows, the same views.
+        sidebar.spacePaging.prepareSlide(oldSections: Self.sections("b"))
+        sidebar.spacePaging.slide(direction: -1)
+        let second = try #require((sidebar.spacePaging.snapshotView as? SpacePageView)?.list)
+        #expect(second === first)
+        let reused = second.rowViews.values.map(ObjectIdentifier.init)
+        #expect(reused.allSatisfy(made.contains), "\(reused.filter { !made.contains($0) }.count) of \(reused.count) row views were new")
+        #expect(second.displayed.rows.contains { $0.key == .workspace(WorkspaceID("b-0")) })
+    }
 }

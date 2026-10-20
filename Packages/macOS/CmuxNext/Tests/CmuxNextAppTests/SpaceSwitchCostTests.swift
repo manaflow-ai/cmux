@@ -8,7 +8,7 @@ import Testing
 /// holds. Each test drives the real switch (`WindowManager.switchProfile`) in a window whose
 /// spaces hold 5, 50 and 250 workspaces each (10, 100 and 500 in all) and prints one
 /// `SPACE-SWITCH-BENCH` line per size (BASELINE.md). The guard compares main-thread CPU per switch
-/// at 500 with 10 workspaces: the switch must not grow with the count of workspaces.
+/// at 500 with 100 workspaces: the switch must not grow with the count of workspaces.
 @MainActor @Suite(.serialized)
 struct SpaceSwitchCostTests {
     static func measure(_ total: Int, panes: Bool = false, parked: Int = 0, rounds: Int = 8) async throws -> [SpaceSwitchBench.Sample] {
@@ -34,15 +34,16 @@ struct SpaceSwitchCostTests {
         plain.close()
     }
 
-    /// 10 workspaces show fewer rows than the sidebar holds; from 60 on every space fills it, so
-    /// from there a switch must cost the same: what is on screen, not how many workspaces exist.
-    @Test func aSpaceSwitchCostsTheSameAt500WorkspacesAsAt60() async throws {
+    /// 10 and 60 workspaces (5 and 30 per space) show fewer rows than the sidebar and its overscan
+    /// hold; at 100 every space fills them, so from there a switch must cost the same: what is on
+    /// screen, not how many workspaces exist.
+    @Test func aSpaceSwitchCostsTheSameAt500WorkspacesAsAt100() async throws {
         var results: [Int: [SpaceSwitchBench.Sample]] = [:]
         for total in [10, 60, 100, 500] { results[total] = try await Self.measure(total) }
-        let small = try #require(results[60]), large = try #require(results[500])
-        #expect(Self.p50(large) <= Self.p50(small) * 1.5 + 4, "a space switch at 500 workspaces took \(Self.p50(large)) ms of main thread vs \(Self.p50(small)) ms at 60")
+        let small = try #require(results[100]), large = try #require(results[500])
+        #expect(Self.p50(large) <= Self.p50(small) * 1.5 + 4, "a space switch at 500 workspaces took \(Self.p50(large)) ms of main thread vs \(Self.p50(small)) ms at 100")
         let configures = { (samples: [SpaceSwitchBench.Sample]) in samples.map { $0.counters["row_configures"] ?? 0 }.max() ?? 0 }
-        #expect(configures(large) <= configures(small) + 4, "a switch at 500 configured \(configures(large)) rows vs \(configures(small)) at 60")
+        #expect(configures(large) <= configures(small) + 4, "a switch at 500 configured \(configures(large)) rows vs \(configures(small)) at 100")
     }
 
     /// Every workspace has a terminal and a browser tab and was shown once (mounted, parked): a
