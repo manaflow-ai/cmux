@@ -10,9 +10,11 @@ use std::sync::{Arc, Mutex};
 
 use cmux_conversation::{Change, Part, Participant, ParticipantKind, TextRun};
 use common::*;
+use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::brain::Input;
 use optchat_chief::daemon::DaemonEvent;
 use optchat_chief::state::{HostState, StateFile};
+use optchat_chief::tools::SleepCall;
 use optchat_host::FAULT_ENV;
 use serde_json::{Value, json};
 
@@ -376,5 +378,66 @@ fn security_a_shared_pending_turn_resumes_without_private_memory() {
         agents.specs[0].cwd,
         h.dir.path().join("session-shared"),
         "the resumed group turn used the private session pool"
+    );
+}
+
+#[test]
+fn security_a_wake_before_reconnect_uses_no_private_memory() {
+    const PRIVATE: &str = "PRIVATE-BEFORE-WAKE-RECONNECT-4c7e";
+
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", PRIVATE);
+    h.settle();
+    let (reply, answer) = std::sync::mpsc::channel();
+    h.brain.step(Input::Sleep {
+        call: SleepCall {
+            seconds: 60,
+            note: Some("check again".into()),
+            until: None,
+        },
+        reply,
+    });
+    assert!(answer.recv().unwrap().is_ok());
+
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+
+    let mut shared = summary();
+    shared.participants.push(Participant {
+        id: "user_teammate".into(),
+        kind: ParticipantKind::Human,
+        display_name: "Teammate".into(),
+        agent_class: None,
+        acp_session: None,
+        person: None,
+    });
+    owner.lock().unwrap().summary = Some(shared);
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    // acpmux is ready before the conversation owner reconnects. A due wake
+    // must fail closed even though `Brain::summary` is still absent.
+    h.brain.step(Input::from(AgentEvent::Up(Vec::new())));
+    h.brain.fire_wakes_at(u64::MAX);
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        h.step();
+    }
+
+    let prompt = Value::Array(h.agents.inner.lock().unwrap().prompts[0].clone()).to_string();
+    assert!(
+        !prompt.contains(PRIVATE),
+        "private memory reached pre-reconnect wake: {prompt}"
+    );
+    assert_eq!(
+        h.agents.inner.lock().unwrap().specs[0].cwd,
+        h.dir.path().join("session-shared"),
+        "an unknown conversation scope used the private session pool"
     );
 }

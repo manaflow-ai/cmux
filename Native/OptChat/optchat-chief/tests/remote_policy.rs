@@ -497,6 +497,61 @@ fn security_a_private_turn_loses_output_tools_when_membership_becomes_shared() {
 }
 
 #[test]
+fn security_a_private_subagent_report_is_withheld_after_membership_expands() {
+    const PRIVATE_REPORT: &str = "PRIVATE-SUBAGENT-REPORT-5c8a";
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "start private delegated work");
+    h.step();
+    h.agents.wait_prompts(1);
+
+    let (spawn_reply, spawned) = channel();
+    h.brain.step(Input::SpawnRegister {
+        tasks: vec!["work from the private Chief view".into()],
+        peer: None,
+        place: None,
+        reply: spawn_reply,
+    });
+    assert!(spawned.recv().unwrap().is_ok());
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle();
+
+    let mut shared = h.owner.lock().unwrap().summary.clone().unwrap();
+    shared.participants.push(Participant {
+        id: "user_teammate".into(),
+        kind: ParticipantKind::Human,
+        display_name: "Teammate".into(),
+        agent_class: None,
+        acp_session: None,
+        person: None,
+    });
+    h.owner.lock().unwrap().summary = Some(shared.clone());
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Conversation {
+            conversation: Box::new(shared),
+        },
+    }));
+    // A child that started from the private turn finishes only after the
+    // conversation has become shared.
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: PRIVATE_REPORT.into(),
+    });
+    h.settle();
+
+    let prompts = h.agents.inner.lock().unwrap().prompts.clone();
+    assert!(
+        prompts.iter().all(|blocks| !Value::Array(blocks.clone())
+            .to_string()
+            .contains(PRIVATE_REPORT)),
+        "a private-context child report reached the new shared turn: {prompts:?}"
+    );
+}
+
+#[test]
 fn ambient_home_terminal_text_makes_the_turn_ask() {
     use std::collections::BTreeMap;
     use std::os::unix::fs::PermissionsExt;
