@@ -11,6 +11,7 @@ import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
+import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -106,6 +107,8 @@ export type AcpmuxRow = {
   offers?: AcpmuxSessionOffer[];
   /// A prompt acpmux sent this chat with a suggested task's result (offer/SuggestedTasks.tsx).
   received?: AcpmuxOfferResult;
+  /// A started sessions row's chats, oldest first (started/StartedSessionCard.tsx).
+  started?: StartedSession[];
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -554,6 +557,12 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
+  // A turn's started chats (started/StartedSessionCard.tsx): one card, its 1px edges, a 34px row
+  // for each, 50px with its status line, 1px hairlines between, in 8px of row padding.
+  if (row.kind === STARTED_SESSIONS && row.started)
+    return (
+      8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 50 : 34), 0) + (row.started.length - 1)
+    );
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return row.agentPair?.resumed ? 37 : 37 + 24;
   // A session start: its facts line, and the compaction note under it until it is dismissed.

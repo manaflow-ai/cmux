@@ -9,7 +9,7 @@ import CmuxNextCompat
 /// as the user, so a key lives in this process's memory only: it is never written to a file, a
 /// log, the environment or argv, never handed to the page, and never inherited by a child process.
 ///
-/// One key per daemon instance: a new key for each daemon this app starts, and for each enroll of
+/// One key per daemon instance: a new key for each unsigned daemon this app starts, and for each enroll of
 /// a daemon whose pid this app has not seen with that key. A key reaches a daemon on one of two
 /// paths a Mac-side agent cannot take, and never otherwise crosses a socket:
 /// - a Team-signed daemon: `_acpmux/person_enroll` on the unix socket, which the daemon accepts

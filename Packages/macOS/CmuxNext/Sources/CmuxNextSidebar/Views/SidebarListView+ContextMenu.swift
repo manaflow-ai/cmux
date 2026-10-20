@@ -5,8 +5,9 @@ extension SidebarListViewComponents {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         guard let contextMenuProvider else { return nil }
+        let hit = clickHit(at: point)
         let target: SidebarContextTarget
-        switch displayed.row(at: point.y)?.key {
+        switch hit?.key {
         case let .workspace(id)?:
             if !model.selection.contains(id) {
                 model.click(id)

@@ -15,6 +15,7 @@ struct TerminalLinkResolverSecurityTests {
         "https://exa mple.com/",
         "https://example.com/\u{202E}txt",
         "https://example.com/%E2%80%AEtxt",
+        "example.com/%E2%80%AEtxt",
     ])
     func rejectsSchemesAndWebAddressesOutsideTheTerminalAllowlist(_ text: String) {
         #expect(TerminalLinkResolver.resolve(text, cwd: nil) == nil)
