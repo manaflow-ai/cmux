@@ -806,7 +806,10 @@ def tab_switch_rows(path: str | None) -> tuple[dict, list[str]]:
         kind, count = scenario["kind"], scenario["count"]
         cells, late = [], []
         for input_kind in ("ctrl_tab", "cmd_shift_bracket", "click"):
-            line = ((scenario.get(input_kind) or {}).get("table") or {}).get(kind) or {}
+            table = (scenario.get(input_kind) or {}).get("table") or {}
+            # Keyed by the switched-to surface's kind: Markdown and chat tabs are both `page`.
+            line = table.get(kind) or table.get("page") or next(
+                (v for k, v in table.items() if k != "terminal"), {})
             e2e = line.get("e2e") or line.get("commit") or {}
             if e2e.get("p50") is None:
                 cells.append("–")

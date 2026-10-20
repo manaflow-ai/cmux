@@ -33,7 +33,9 @@ export type PageCommandName =
   | "editorAction"
   // The markdown page's table column widths (pages/markdown/tables.ts).
   | "resetTableWidths"
-  | "resetContextTableWidths";
+  | "resetContextTableWidths"
+  // The markdown page's viewer comments changed: `text` is the new list (pages/markdown/comments.ts).
+  | "comments";
 
 export interface PageCommand {
   command: PageCommandName;

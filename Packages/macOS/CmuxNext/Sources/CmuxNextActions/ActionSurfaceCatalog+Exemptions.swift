@@ -24,7 +24,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.closeAll", "workspace.closeAllInAllWindows", "workspaceGroup.closeOthers", "workspaceGroup.duplicate",
         "window.closeOthers", "closeAllWindows",
         "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
-        "palette.workspaceColor", "palette.resetWorkspaceColor", "reconnectWorkspace", "disconnectWorkspace",
+        "palette.workspaceColor", "palette.resetWorkspaceColor", "reconnectWorkspace", "disconnectWorkspace", "disconnectRemoteTab",
         "clearWorkspaceNotifications", "workspaceGroup.newWorkspace", "workspaceGroup.rename",
         "workspaceGroup.togglePin", "workspaceGroup.markRead", "workspaceGroup.markUnread",
         "workspaceGroup.clearNotifications", "workspaceGroup.ungroup", "workspaceGroup.delete", "saveLayoutTemplate",
@@ -110,7 +110,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.shortcutKeymap", "palette.installCLI", "palette.uninstallCLI", "palette.restartSocketListener", "palette.restartServer",
         "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide", "palette.applyUpdateIfAvailable", "palette.switchAppChannel",
         "appearance.density.compact", "appearance.density.comfortable", "appearance.density.ultraCompact", "appearance.density.cozy", "appearance.density.spacious", "appearance.density.set", "appearance.density.create", "appearance.animationSpeed.fast",
-        "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "appearance.animations.newTab.toggle", "appearance.animations.newWorkspace.toggle", "appearance.animations.bounce.subtle", "appearance.animations.bounce.none",
+        "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "appearance.animations.newTab.toggle", "appearance.animations.newWorkspace.toggle", "appearance.animations.bounce.subtle", "appearance.animations.bounce.none", "appearance.animations.toggle", "appearance.animations.sidebar.toggle", "appearance.animations.tabs.toggle", "appearance.animations.panes.toggle", "appearance.animations.overlays.toggle", "appearance.animations.hoverCards.toggle", "appearance.animations.home.toggle", "appearance.animations.cursor.toggle", "appearance.animations.indicators.toggle", "appearance.animations.feedback.toggle", "appearance.animations.web.toggle",
             "browser.defaultEngine.chromium",
         "browser.defaultEngine.webkit", "appearance.paneBorder.toggle", "appearance.panePadding.toggle",
         "appearance.paneCorners.toggle", "layout.centerFocusedColumn.never", "layout.centerFocusedColumn.always",
@@ -154,7 +154,6 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
         .unimplemented: [
-            "disconnectRemoteTab",
             "agentChat.toggleNotificationMute",
             "palette.openFindPane",
             "palette.openFilesPane",
@@ -224,7 +223,7 @@ nonisolated extension ActionSurfaceCatalog {
         .focusMove: [
             "history.goTo",
             "home.show",
-            "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
+            "showHideAllWindows", "goToWorkspace", "search.chats", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
             // nextWorkspaceGroup/prevWorkspaceGroup: their cliName ("workspace-group next") is the action's
             // identifier ActionContractTests requires; the CLI verb is deliberately not offered (a focus move).
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",
