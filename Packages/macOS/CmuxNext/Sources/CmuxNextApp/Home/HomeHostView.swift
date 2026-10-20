@@ -56,7 +56,13 @@ final class HomeHostView: NSView {
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         sidebar.isHidden = true
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
-        transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
+        // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.
+        transcript.onNamePill = { [weak self, weak services] in
+            guard let self else { return }
+            if isChief || slide.isOpen { return toggleSidebar() }
+            _ = services?.registry.perform("home.conversationInfo",
+                                           invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
+        }
         loadAvatar()
         sidebar.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
