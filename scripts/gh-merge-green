@@ -150,8 +150,8 @@ print_summary() {
     "${gate_checked:-nothing reported}" $((waited_seconds / 60)) $((waited_seconds % 60)) "$took" >&2
 }
 trap print_summary EXIT
-trap 'outcome="stopped by SIGINT before merging"; exit 130' INT
-trap 'outcome="stopped by SIGTERM before merging"; exit 143' TERM
+trap 'outcome="stopped by SIGINT (check the PR)"; exit 130' INT
+trap 'outcome="stopped by SIGTERM (check the PR)"; exit 143' TERM
 
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.

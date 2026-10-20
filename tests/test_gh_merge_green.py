@@ -664,12 +664,12 @@ class InstalledHelperRegression(unittest.TestCase):
             marker = Path(directory) / "merged"
             result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=queued,
                                      cmux_next_runs=[("in_progress", None, 1)], extra_args=("--wait", "600"),
-                                     terminate_after=8)
+                                     terminate_after=2)
             self.assertNotEqual(result.returncode, 0, result.stderr)
             self.assertFalse(marker.exists())
             summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
             self.assertEqual(len(summary), 1, result.stderr)
-            self.assertIn("stopped by SIGTERM before merging", summary[0])
+            self.assertIn("stopped by SIGTERM (check the PR)", summary[0])
             self.assertIn("still waiting for the gate's lanes when stopped", summary[0])
             self.assertNotIn("nothing reported", summary[0])
 
