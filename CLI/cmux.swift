@@ -4931,6 +4931,10 @@ struct CMUXCLI {
     }
     #endif
 
+    /// Value-taking global options recognized before the command token, shared
+    /// with `CMUXTermMain.firstNonGlobalArgument` so the two option lists cannot drift.
+    static let valueTakingGlobalOptionNames: Set<String> = ["--socket", "--password", "--window", "--id-format"]
+
     private enum NotifyTargetResolution {
         case surface(
             rawSurface: String,
@@ -4940,6 +4944,16 @@ struct CMUXCLI {
         )
         case workspace(String)
         case caller([String: Any])
+    }
+
+    /// Splits `--name=value` into its parts for the value-taking global options.
+    /// Anything else, including the `--name value` form, comes back unchanged with
+    /// a nil inline value, meaning the value is the argument that follows.
+    static func splitGlobalOption(_ argument: String) -> (name: String, inlineValue: String?) {
+        guard let equalsIndex = argument.firstIndex(of: "=") else { return (argument, nil) }
+        let name = String(argument[argument.startIndex..<equalsIndex])
+        guard valueTakingGlobalOptionNames.contains(name) else { return (argument, nil) }
+        return (name, String(argument[argument.index(after: equalsIndex)...]))
     }
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
@@ -5600,7 +5614,7 @@ struct CMUXCLI {
         }
     }
 
-    func localizedCoderouterAliases() -> String {
+    static func localizedCoderouterAliases() -> String {
         let defaultValue = "coderouter|cr [coderouter-args...]                 (aliases for the CodeRouter CLI; offers to install it when missing)"
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let catalogValue = String(
@@ -6348,41 +6362,33 @@ struct CMUXCLI {
         var index = 1
         while index < args.count {
             let arg = args[index]
-            if arg == "--socket" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--socket requires a path")
+            // `--name=value` is accepted alongside `--name value`, matching
+            // `CMUXTermMain.firstNonGlobalArgument`. Without this, routing would
+            // skip `--window=w:1` while this loop treated it as the command name.
+            let (optionName, inlineValue) = Self.splitGlobalOption(arg)
+            if Self.valueTakingGlobalOptionNames.contains(optionName) {
+                let value: String
+                if let inlineValue, !inlineValue.isEmpty {
+                    value = inlineValue
+                } else if inlineValue == nil, index + 1 < args.count {
+                    value = args[index + 1]
+                } else {
+                    let requirement = optionName == "--id-format" ? "a value (refs|uuids|both)" : optionName == "--window" ? "a window id" : optionName == "--socket" ? "a path" : "a value"
+                    throw CLIError(message: "\(optionName) requires \(requirement)")
                 }
-                explicitSocketPath = args[index + 1]
-                index += 2
+                switch optionName {
+                case "--socket": explicitSocketPath = value
+                case "--id-format": idFormatArg = value
+                case "--window": windowId = value
+                case "--password": socketPasswordArg = value
+                default: break
+                }
+                index += inlineValue == nil ? 2 : 1
                 continue
             }
             if arg == "--json" {
                 jsonOutput = true
                 index += 1
-                continue
-            }
-            if arg == "--id-format" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--id-format requires a value (refs|uuids|both)")
-                }
-                idFormatArg = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "--window" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--window requires a window id")
-                }
-                windowId = args[index + 1]
-                index += 2
-                continue
-            }
-            if arg == "--password" {
-                guard index + 1 < args.count else {
-                    throw CLIError(message: "--password requires a value")
-                }
-                socketPasswordArg = args[index + 1]
-                index += 2
                 continue
             }
             if arg == "-v" || arg == "--version" {
@@ -7418,6 +7424,9 @@ struct CMUXCLI {
 
             case "agent-updates":
                 try runVMAgentUpdatesCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+            case "clean":
+                try runVMCleanCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "pause", "resume", "restart":
                 // Lifecycle, not sizing: pausing parks the machine (compute stops, the volume
@@ -8825,6 +8834,7 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let paneRaw = optionValue(commandArgs, name: "--pane")
             let url = optionValue(commandArgs, name: "--url")
+            let profile = try parseBrowserProfileOption(commandArgs).selector
             let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
             let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
             let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
@@ -8849,6 +8859,15 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let profile {
+                guard type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "browser" else {
+                    throw CLIError(message: String(
+                        localized: "browser.profile.automation.error.profileRequiresBrowserPane",
+                        defaultValue: "Browser profiles can only be used when creating a browser pane"
+                    ))
+                }
+                params["profile"] = profile
+            }
             if let placement { params["placement"] = placement }
             if let provider { params["provider_id"] = provider }
             if let renderer { params["renderer_kind"] = renderer }
@@ -12628,7 +12647,19 @@ struct CMUXCLI {
                 unknown
             ))
         }
-        let positional = rem1.first(where: { !$0.hasPrefix("--") })
+        let positionals = rem1.filter { !$0.hasPrefix("--") }
+        if positionals.count > 1 || (positionals.count == 1 && workspaceArg != nil) {
+            let extra = positionals.count > 1 ? positionals[1] : positionals[0]
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspace.env.error.extraPositional",
+                    defaultValue: "workspace env: unexpected argument '%@'. Expected at most one workspace handle (a positional or --workspace)"
+                ),
+                locale: .current,
+                extra
+            ))
+        }
+        let positional = positionals.first
         let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
         // Match reconnect/disconnect: default to the caller's workspace
         // ($CMUX_WORKSPACE_ID) before the selected one, but only when no explicit
@@ -12904,6 +12935,7 @@ struct CMUXCLI {
         let rest = Array(commandArgs.dropFirst())
         switch sub {
         case "displays":
+            try rejectUnexpectedArguments(rest, commandName: "window displays", valueOptions: [], maxPositionals: 0)
             try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
         case "display":
             try runWindowDisplayCommand(
@@ -12930,14 +12962,54 @@ struct CMUXCLI {
             throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview, zoom, set-viewport, new-pane")
         }
         let rest = Array(commandArgs.dropFirst())
-        // Split flags ("--name value") from bare positionals so a flag's
-        // value is never mistaken for a positional argument.
+        if let rules = canvasArgumentRules(sub: sub, args: rest) {
+            let valueOptions = rules.valueOptions.union(["--workspace"])
+            try rejectUnexpectedArguments(
+                rest,
+                commandName: "canvas \(sub)",
+                valueOptions: valueOptions,
+                maxPositionals: rules.maxPositionals
+            )
+            // A blank handle resolves to nothing and would fall back to the
+            // selected workspace or focused surface, so it counts as missing.
+            // Check every occurrence: a repeated option is read by its first
+            // value, and a blank later one must not pass unnoticed.
+            var scanIndex = 0
+            while scanIndex < rest.count, rest[scanIndex] != "--" {
+                let arg = rest[scanIndex]
+                var option = arg
+                var value: String?
+                if let equals = arg.firstIndex(of: "="), valueOptions.contains(String(arg[..<equals])) {
+                    option = String(arg[..<equals])
+                    value = String(arg[arg.index(after: equals)...])
+                    scanIndex += 1
+                } else if valueOptions.contains(arg) {
+                    value = rest[scanIndex + 1]
+                    scanIndex += 2
+                } else {
+                    scanIndex += 1
+                }
+                if let value, value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    throw missingOptionValueError(option, commandName: "canvas \(sub)")
+                }
+            }
+        }
+        // Split flags ("--name value" or "--name=value") from bare positionals
+        // so a flag's value is never mistaken for a positional argument.
+        // Every canvas flag takes a value; after `--` everything is positional.
         var positionals: [String] = []
         var index = 0
+        var pastTerminator = false
         while index < rest.count {
             let arg = rest[index]
-            if arg.hasPrefix("--") {
-                index += 2
+            if pastTerminator {
+                positionals.append(arg)
+                index += 1
+            } else if arg == "--" {
+                pastTerminator = true
+                index += 1
+            } else if arg.hasPrefix("--") {
+                index += arg.contains("=") ? 1 : 2
             } else {
                 positionals.append(arg)
                 index += 1
@@ -13046,6 +13118,36 @@ struct CMUXCLI {
         )
     }
 
+    /// The options a `canvas` subcommand reads a value for besides
+    /// `--workspace`, and how many positionals it takes once `--surface` or
+    /// `--target` fill their part. `nil` for an unknown subcommand.
+    private func canvasArgumentRules(
+        sub: String,
+        args: [String]
+    ) -> (valueOptions: Set<String>, maxPositionals: Int)? {
+        func given(_ name: String) -> Bool { optionValue(args, name: name) != nil }
+        let surfaceSlot = given("--surface") ? 0 : 1
+        switch sub {
+        case "info", "overview":
+            return ([], 0)
+        case "mode", "align", "zoom":
+            return ([], 1)
+        case "set-frame":
+            return (["--surface", "--x", "--y", "--width", "--height"], surfaceSlot)
+        case "reveal", "break", "select-tab":
+            return (["--surface"], surfaceSlot)
+        case "join":
+            // `join <surface> <target>`, `join <surface> --target <t>`, or both as options.
+            return (["--surface", "--target"], given("--surface") ? 0 : (given("--target") ? 1 : 2))
+        case "set-viewport":
+            return (["--x", "--y", "--zoom"], 0)
+        case "new-pane":
+            return (["--type"], 0)
+        default:
+            return nil
+        }
+    }
+
     /// `cmux window displays` — list connected displays (name + index).
     private func runWindowDisplaysCommand(client: SocketClient, jsonOutput: Bool) throws {
         let response = try client.sendV2(method: "window.displays")
@@ -13075,17 +13177,32 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
-        if commandArgs.contains("--list") || commandArgs.contains("-l") {
+        // Strip --window and its value first, so a value like `-l` isn't read as the list flag.
+        let (_, withoutWindow) = parseOption(commandArgs, name: "--window")
+        let optionTerminator = withoutWindow.firstIndex(of: "--") ?? withoutWindow.endIndex
+        let lists = withoutWindow[..<optionTerminator].contains { $0 == "--list" || $0 == "-l" }
+        // One display name (quote a name with spaces), or none when listing.
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: "window display",
+            valueOptions: ["--window"],
+            flags: ["--list", "-l"],
+            maxPositionals: lists ? 0 : 1
+        )
+        if lists {
             try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
             return
         }
-        let positional = commandArgs.filter { !$0.hasPrefix("-") }
-        guard let displayName = positional.first, !displayName.isEmpty else {
+        guard let displayName = firstPositionalArgument(withoutWindow, valueOptions: []), !displayName.isEmpty else {
             throw CLIError(message: "window display requires a display name. Usage: cmux window display \"LG HDR 4K\"  (list names with: cmux window displays)")
         }
         var params: [String: Any] = ["display": displayName]
-        if let windowOverride {
-            let normalized = try normalizeWindowHandle(windowOverride, client: client) ?? windowOverride
+        // --window works after the subcommand too; dropping it would move every main window.
+        if let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride) {
+            guard let normalized = try normalizeWindowHandle(windowRaw, client: client) else {
+                // An empty --window would otherwise be sent as an empty window id.
+                throw missingOptionValueError("--window", commandName: "window display")
+            }
             params["window_id"] = normalized
         }
         let response = try client.sendV2(method: "window.display", params: params)
@@ -13312,6 +13429,54 @@ struct CMUXCLI {
             throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
         }
         let rest = Array(commandArgs.dropFirst())
+        if let rules = workspaceGroupArgumentRules(sub: sub, args: rest) {
+            // `delete` keeps ignoring what follows `--`, which
+            // CLIWorkspaceGroupSafetyTests pins: a token there is not an option,
+            // so it cannot ask for the workspaces to be closed.
+            let terminator = rest.firstIndex(of: "--")
+            var checked = sub == "delete" ? Array(rest[..<(terminator ?? rest.endIndex)]) : rest
+            // `set-color --hex=` and `set-icon --symbol=` still clear, as they
+            // did before these checks: an attached empty value is allowed here.
+            if sub == "set-color" || sub == "set-icon" {
+                let clearTokens: Set<String> = ["--hex=", "--color=", "--symbol=", "--icon="]
+                let end = checked.firstIndex(of: "--") ?? checked.endIndex
+                checked = checked[..<end].filter { !clearTokens.contains($0) } + checked[end...]
+            }
+            try rejectUnexpectedArguments(
+                checked,
+                commandName: "workspace group \(sub)",
+                valueOptions: rules.valueOptions,
+                flags: rules.flags,
+                maxPositionals: rules.maxPositionals
+            )
+            // The handlers skip a bare `-` when they look for a positional, so
+            // it would be dropped without a word. After `--`, or as an option's
+            // value, it is literal.
+            var index = 0
+            while index < (terminator ?? rest.endIndex) {
+                if rules.valueOptions.contains(rest[index]) {
+                    index += 2
+                    continue
+                }
+                if rest[index] == "-" {
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(localized: "cli.arguments.error.unexpectedArgument", defaultValue: "%1$@: unexpected argument %2$@"),
+                        "workspace group \(sub)",
+                        rest[index]
+                    ))
+                }
+                index += 1
+            }
+            // An unset `--window "$VAR"` must fail instead of falling back to
+            // the caller's window.
+            if let windowRaw = optionValue(rest, name: "--window"),
+               windowRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw CLIError(message: String(
+                    localized: "cli.window.error.handleBlank",
+                    defaultValue: "Window handle is blank"
+                ))
+            }
+        }
         var params: [String: Any] = [:]
         try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
 
@@ -13319,10 +13484,11 @@ struct CMUXCLI {
             let (gidOpt, rem0) = parseOption(rest, name: "--group")
             if let gidOpt { return gidOpt }
             // Strip --window before scanning for a positional so a `--window
-            // <value>` pair never gets parsed as the group id.
+            // <value>` pair never gets parsed as the group id. After `--` the
+            // group id is taken literally.
             let (_, rem1) = parseOption(rem0, name: "--window")
-            for arg in rem1 where !arg.hasPrefix("--") {
-                return arg
+            if let positional = firstPositionalArgument(rem1, valueOptions: []) {
+                return positional
             }
             throw CLIError(message: "workspace-group \(sub) requires a group id or --group <id>")
         }
@@ -13357,7 +13523,7 @@ struct CMUXCLI {
             let (_, rem5) = parseOption(rem4, name: "--window")
             // Use the remainder AFTER every named option is stripped so the
             // positional name lookup can't pick up --from/--window values.
-            let resolvedName = nameOpt ?? rem5.first(where: { !$0.hasPrefix("--") }) ?? ""
+            let resolvedName = nameOpt ?? firstPositionalArgument(rem5, valueOptions: []) ?? ""
             params["name"] = resolvedName
             if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
             if let idempotencyOpt { params["idempotency_key"] = idempotencyOpt }
@@ -13403,10 +13569,23 @@ struct CMUXCLI {
 
         case "rename":
             let (nameOpt, rem0) = parseOption(rest, name: "--name")
-            let gid = try resolveGroupId(in: rem0)
+            let (groupOpt, rem1) = parseOption(rem0, name: "--group")
+            // Strip --window too, so its value is never read as the new name.
+            let (_, rem2) = parseOption(rem1, name: "--window")
+            var positionals: [String] = []
+            var pastTerminator = false
+            for argument in rem2 {
+                if !pastTerminator, argument == "--" {
+                    pastTerminator = true
+                } else if pastTerminator || !argument.hasPrefix("-") {
+                    positionals.append(argument)
+                }
+            }
+            guard let gid = groupOpt ?? positionals.first else {
+                throw CLIError(message: "workspace-group rename requires a group id or --group <id>")
+            }
             params["group_id"] = gid
-            let positional = rem0.filter { !$0.hasPrefix("--") && $0 != gid }
-            guard let newName = nameOpt ?? positional.first else {
+            guard let newName = nameOpt ?? positionals.dropFirst(groupOpt == nil ? 1 : 0).first else {
                 throw CLIError(message: "rename requires --name <name>")
             }
             params["name"] = newName
@@ -13439,7 +13618,7 @@ struct CMUXCLI {
             // Strip --window before scanning for a positional so a `--window
             // <value>` pair never gets parsed as the workspace id.
             let (_, rem1) = parseOption(rem0, name: "--window")
-            guard let wsId = wsOpt ?? rem1.first(where: { !$0.hasPrefix("--") }) else {
+            guard let wsId = wsOpt ?? firstPositionalArgument(rem1, valueOptions: []) else {
                 throw CLIError(message: "remove requires --workspace <id>")
             }
             params["workspace_id"] = wsId
@@ -13480,7 +13659,7 @@ struct CMUXCLI {
             // when both flags are passed; --hex wins.
             let (colorOpt, rem0) = parseOption(rem1, name: "--color")
             params["group_id"] = try resolveGroupId(in: rem0)
-            // Treat --hex/--color with no value (or `""`) as a clear.
+            // Leaving out --hex/--color, or passing `""`, clears the color.
             params["hex"] = hexOpt ?? colorOpt ?? ""
             let resp = try client.sendV2(method: "workspace.group.set_color", params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -13527,6 +13706,44 @@ struct CMUXCLI {
 
         default:
             throw CLIError(message: "Unknown workspace-group subcommand: \(sub)")
+        }
+    }
+
+    /// The options each `workspace group` subcommand reads a value for, the
+    /// flags it takes, and how many positionals are left once named options
+    /// fill their part (a `--group` replaces the positional group id).
+    /// `list` and unknown subcommands aren't checked here.
+    private func workspaceGroupArgumentRules(
+        sub: String,
+        args: [String]
+    ) -> (valueOptions: Set<String>, flags: Set<String>, maxPositionals: Int)? {
+        func given(_ name: String) -> Bool { optionValue(args, name: name) != nil }
+        let groupSlot = given("--group") ? 0 : 1
+        switch sub {
+        case "create":
+            return (["--name", "--cwd", "--from", "--idempotency-key", "--external-id", "--window"], [], given("--name") ? 0 : 1)
+        case "ungroup":
+            return (["--group", "--window"], ["--remove-generated-anchor"], groupSlot)
+        case "delete":
+            return (["--group", "--window"], ["--close-workspaces", "--remove-generated-anchor"], groupSlot)
+        case "rename":
+            return (["--name", "--group", "--window"], [], groupSlot + (given("--name") ? 0 : 1))
+        case "collapse", "expand", "pin", "unpin", "focus":
+            return (["--group", "--window"], [], groupSlot)
+        case "add", "set-anchor":
+            return (["--group", "--workspace", "--window"], [], 0)
+        case "remove":
+            return (["--workspace", "--window"], [], given("--workspace") ? 0 : 1)
+        case "new-workspace":
+            return (["--placement", "--group", "--window"], [], groupSlot)
+        case "set-color":
+            return (["--hex", "--color", "--group", "--window"], [], groupSlot)
+        case "set-icon":
+            return (["--symbol", "--icon", "--group", "--window"], [], groupSlot)
+        case "move":
+            return (["--to-index", "--before", "--after", "--group", "--window"], [], groupSlot)
+        default:
+            return nil
         }
     }
 
@@ -21066,7 +21283,7 @@ struct CMUXCLI {
                 defaultValue: "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|clean|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             `cmux vm <verb> --help` prints that verb's own usage.
 
@@ -21214,6 +21431,8 @@ struct CMUXCLI {
               pause <id>                Park the machine: compute stops (and stops billing);
                                         the volume, workspaces and history stay.
               resume <id>               Wake a paused machine; the daemon and terminals return.
+              clean <id> [--apply]      Show what disk cleanup would free; --apply removes it.
+                                        Never touches source; see `cmux vm clean --help`.
               rm <id>                   Destroy a VM.
               exec [--timeout <s>] <id> -- <command...>
                                         Run a shell command inside the VM and print stdout;
@@ -22347,6 +22566,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/pane refs and indexes
               --url <url>                 URL for browser surfaces
+              \(String(localized: "cli.newSurface.help.profileDescription", defaultValue: "--profile <name|uuid>       Browser profile name or UUID"))
               --provider <codex|claude|opencode>
                                            Provider for agent-session surfaces (default: codex)
               --renderer <react|solid>    Renderer for agent-session surfaces (default: react)
@@ -22357,6 +22577,7 @@ struct CMUXCLI {
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
+              cmux new-surface --type browser --pane pane:1 --url https://example.com --profile work
               cmux new-surface --type simulator --pane pane:1 --focus true
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
               cmux new-surface --type browser --placement dock --url https://example.com
@@ -22631,15 +22852,17 @@ struct CMUXCLI {
               --command <command>    Shell command to run (or pass as trailing text)
             """
         case "wait-for":
-            return """
-            Usage: cmux wait-for [-S|--signal] <name> [--timeout <seconds>]
+            return String(localized: "cli.help.wait-for", defaultValue: """
+            Usage: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]
 
-            Wait for or signal a named synchronization token.
+            Wait for or signal a named synchronization token, or lock/unlock it.
 
             Flags:
               -S, --signal           Signal the token instead of waiting
+              -L                     Take the token's lock, waiting up to the timeout
+              -U                     Release the token's lock
               --timeout <seconds>    Wait timeout (default: 30)
-            """
+            """)
         case "swap-pane":
             return """
             Usage: cmux swap-pane --pane <id|ref|index> --target-pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
@@ -30578,6 +30801,8 @@ struct CMUXCLI {
 
         case "wait-for":
             let signal = commandArgs.contains("-S") || commandArgs.contains("--signal")
+            let lock = commandArgs.contains("-L")
+            let unlock = commandArgs.contains("-U")
             let timeoutRaw = optionValue(commandArgs, name: "--timeout")
             let timeout = timeoutRaw.flatMap { Double($0) } ?? 30.0
             let name = commandArgs.first(where: { !$0.hasPrefix("-") }) ?? ""
@@ -30587,6 +30812,18 @@ struct CMUXCLI {
             let waitForSignal = TmuxWaitForSignal(name: name)
             if signal {
                 try waitForSignal.signal()
+                print("OK")
+                return
+            }
+            if unlock {
+                try waitForSignal.unlock()
+                print("OK")
+                return
+            }
+            if lock {
+                guard try waitForSignal.lock(timeout: timeout) else {
+                    throw CLIError(message: String(format: String(localized: "cli.waitFor.error.lockTimeout", defaultValue: "wait-for timed out waiting to lock '%@'"), name))
+                }
                 print("OK")
                 return
             }
@@ -46052,7 +46289,8 @@ export default {
         return URL(fileURLWithPath: expanded).standardizedFileURL
     }
 }
-private enum CMUXCLIOutput {
+
+enum CMUXCLIOutput {
     static func writeStandardError(_ message: String) {
         cliWriteStderr(message)
     }
@@ -46074,6 +46312,12 @@ struct CMUXTermMain {
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
+
+        if shouldUseFacade() {
+            await CmuxCommand.runFacade()
+            return
+        }
+
         let cli = CMUXCLI(
             args: CommandLine.arguments,
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
@@ -46090,5 +46334,60 @@ struct CMUXTermMain {
             let exitCode = (error as? CLIError)?.exitCode ?? 1
             exit(exitCode)
         }
+    }
+
+    /// ArgumentParser runs an invocation only when the first non-global argument
+    /// names a command the facade implements itself (completion and the tree
+    /// dump). Every other command, declared or not, stays on the hand-rolled
+    /// parser: its declaration exists for completion and typo suggestions, and
+    /// its `run()` would re-parse the raw argv anyway, so parsing it here first
+    /// could only reject shapes the legacy runner accepts. A command family
+    /// joins `facadeNativeCommandNames` when its runner moves into the facade.
+    private static func shouldUseFacade() -> Bool {
+        if ProcessInfo.processInfo.environment["CMUX_CLI_LEGACY_PARSER"] == "1" {
+            return false
+        }
+        // A shell's generated completion script invokes the binary as
+        // `cmux ---completion <command path...> -- <argument> <partial>` to
+        // resolve a `.custom` completion handler. That marker is always the
+        // literal first argument, is not a declared command name, and must
+        // always reach ArgumentParser or every dynamic completion silently
+        // breaks in real shell usage.
+        if CommandLine.arguments.dropFirst().first == "---completion" {
+            return true
+        }
+        guard let command = firstNonGlobalArgument(CommandLine.arguments.dropFirst()) else {
+            return false
+        }
+        return CmuxCommand.facadeNativeCommandNames.contains(command)
+    }
+
+    private static func firstNonGlobalArgument(_ arguments: ArraySlice<String>) -> String? {
+        let optionsWithValues = CMUXCLI.valueTakingGlobalOptionNames
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            index = arguments.index(after: index)
+            if argument == "--" {
+                // Everything after a bare `--` is payload, not a global option
+                // or a command name, so there is nothing left to route on.
+                return nil
+            }
+            if argument == "--json" {
+                continue
+            }
+            // An empty inline value (`--socket=`) is malformed; leave it as the
+            // routing token so the legacy path rejects it like `CMUXCLI.run()`.
+            if let inlineValue = CMUXCLI.splitGlobalOption(argument).inlineValue, !inlineValue.isEmpty {
+                continue
+            }
+            if optionsWithValues.contains(argument) {
+                guard index < arguments.endIndex else { return nil }
+                index = arguments.index(after: index)
+                continue
+            }
+            return argument
+        }
+        return nil
     }
 }

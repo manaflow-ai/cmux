@@ -123,6 +123,62 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
         ))
     }
 
+    func testClaudeSessionRootsIncludeSignedInSiblingAccountDirectories() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-sibling-home-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        func makeConfigDir(_ name: String, projects: Bool, state: String?) throws -> URL {
+            let dir = home.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            if projects {
+                try FileManager.default.createDirectory(
+                    at: dir.appendingPathComponent("projects", isDirectory: true),
+                    withIntermediateDirectories: true
+                )
+            }
+            if let state {
+                try Data(state.utf8).write(to: dir.appendingPathComponent(".claude.json", isDirectory: false))
+            }
+            return dir
+        }
+
+        let signedIn = #"{"oauthAccount":{"email":"user@example.com"}}"#
+        let primary = try makeConfigDir(".claude", projects: true, state: nil)
+        let work = try makeConfigDir(".claude-work", projects: true, state: signedIn)
+        _ = try makeConfigDir(".claude-signed-out", projects: true, state: #"{"oauthAccount":null}"#)
+        _ = try makeConfigDir(".claude-no-projects", projects: false, state: signedIn)
+        _ = try makeConfigDir("claude-not-hidden", projects: true, state: signedIn)
+
+        let roots = SessionIndexStore.claudeSessionRoots(
+            environment: [:],
+            homeDirectory: home.path
+        )
+
+        XCTAssertEqual(roots.map(\.configDir), [primary.path, work.path])
+        XCTAssertEqual(roots.last?.resumeConfigDirectory, work.path)
+    }
+
+    func testClaudeSessionRootsDoNotDuplicateSiblingSelectedByEnvironment() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-sibling-env-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let work = home.appendingPathComponent(".claude-work", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: work.appendingPathComponent("projects", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
+            .write(to: work.appendingPathComponent(".claude.json", isDirectory: false))
+
+        let roots = SessionIndexStore.claudeSessionRoots(
+            environment: ["CLAUDE_CONFIG_DIR": work.path],
+            homeDirectory: home.path
+        )
+
+        XCTAssertEqual(roots.map(\.configDir), [work.path])
+    }
+
     private func makeClaudeSessionEntry(
         fileURL: URL,
         configDirectoryForResume: String? = nil

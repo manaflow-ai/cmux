@@ -1692,6 +1692,8 @@ def is_macos_neutral(
     if path in {
         ".coderabbit.yaml",
         ".greptile/rules.md",
+        ".greptile/files.json",
+        ".cursor/BUGBOT.md",
         ".github/review-bot-rules/user-facing-errors.md",
     }:
         return True
@@ -1727,6 +1729,7 @@ def is_macos_neutral(
     # macOS-relevant.
     if path in {
         "STYLE.md",
+        "REVIEW.md",
         "CONTRIBUTING.md",
         ".github/pull_request_template.md",
     }:
