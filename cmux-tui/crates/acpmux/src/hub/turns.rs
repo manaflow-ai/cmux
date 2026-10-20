@@ -282,6 +282,12 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A family prompt that waited is checked again: the receiver may ask
+        // less than its sender now (`subsession_guard.rs`).
+        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+            drop(guard);
+            return Err(e);
+        }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
@@ -290,13 +296,20 @@ impl Hub {
         }
         {
             let mut m = session.meta.lock().unwrap();
-            m.last_prompt = Some(short_text(&text, 200));
+            m.last_prompt = Some(super::session::masked_preview(&text, 200));
             clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
-        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        // A family prompt (`subsessions.rs`) never clears the floor a Web
+        // turn left: only a local turn the person or a client starts does.
+        let family = run.provenance.as_ref().is_some_and(|p| {
+            p.get("kind").and_then(Value::as_str) == Some(super::subsessions::PROVENANCE_KIND)
+        });
+        if control == Control::Web || !family {
+            session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        }
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
@@ -335,6 +348,11 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            drop(guard);
+            return Err(e);
+        }
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000)
         {
@@ -349,7 +367,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str()}),
+                json!({"prompt": super::session::masked_preview(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str()}),
             )
             .seq;
         let control = {

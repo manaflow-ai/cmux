@@ -113,7 +113,7 @@ impl Hub {
                 // The person rewrote it: it is no longer the sender's message.
                 provenance: None,
             });
-            q.preview = short_text(&text, 200);
+            q.preview = super::session::masked_preview(&text, 200);
             (q.turn_id.clone(), q.run.clone())
         };
         self.append(
