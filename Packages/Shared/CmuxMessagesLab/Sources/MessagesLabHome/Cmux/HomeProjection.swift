@@ -80,6 +80,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var shownSummary: ConversationSummary? { core.summary }
     var aliases: [IdempotencyKey: ID] { core.aliases }
     private(set) var hasOlder = false
+    /// An older page was asked for and has not come yet (one ask per page).
     private var olderRequested = false
     private var reportedRead: Seq = 0
     private(set) var stopped = false
@@ -178,7 +179,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
         guard items != shown || summary != shownSummary || typingChanged || newHasOlder != hasOlder
                 || core.streamDiffers(draft) else { return }
         appliedUpdates += 1
-        if newHasOlder != hasOlder { olderRequested = false }
+        // A new oldest message is the page asked for, however it arrives: a
+        // `.prependPage`, or a whole-window rebuild (that one carries no
+        // prepend action, and the ask would stay open for good).
+        if newHasOlder != hasOlder || items.first?.key != shown.first?.key { olderRequested = false }
         hasOlder = newHasOlder
         let titleChanged = HomeMapping.title(summary, me: me) != HomeMapping.title(shownSummary, me: me)
         let summaryChanged = summary != shownSummary
@@ -671,8 +675,17 @@ final class HomeProjection: @preconcurrency ChatIntents {
         guard g.distanceToTop < g.viewport else { return }
         olderRequested = true
         let homeStore = self.homeStore, id = conversation
+        let oldest = homeStore.oldestLoadedSeq(in: id)
         // task-owner: one page read; ends with its reply
-        Task { await homeStore.loadOlder(id) }
+        Task { [weak self] in
+            await homeStore.loadOlder(id)
+            // A read that brought nothing (it failed, its page no longer joined the
+            // window, another read was running) ends the ask, so the next scroll asks
+            // again; otherwise the transcript stopped at its oldest loaded message
+            // (Lawrence 2026-10-20, "I can't scroll up further, it's stuck").
+            guard let self, !self.stopped, homeStore.oldestLoadedSeq(in: id) == oldest else { return }
+            self.olderRequested = false
+        }
     }
 
     /// Advances my read cursor to the newest committed message while the

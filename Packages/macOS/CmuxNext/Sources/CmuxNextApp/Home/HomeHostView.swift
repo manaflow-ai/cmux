@@ -104,6 +104,8 @@ final class HomeHostView: NSView {
         // A link chip's hover card: the app's one coordinator, the target's live facts.
         transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
         transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
+        // A link pressed and moved: dragged into the layout's drop zones, a split or a pane opens it (LinkDragSession).
+        transcript.onDragLink = { [weak services] url, point in services?.linkDrags.begin(url, screenPoint: point) ?? false }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
             Task { @MainActor in self?.stopIfFront() }
