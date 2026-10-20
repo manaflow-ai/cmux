@@ -1231,5 +1231,28 @@ fn move_to_window_new_is_move_to_new_window() {
     assert_eq!(new_window_spelling("workspace rename", &args(&["--new"])), None);
 }
 
+/// A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host) names the
+/// Home chat too, so the app opens its tabs beside Home's chat when it does not
+/// know the turn's agent session (a Cloud Chief turn on a VM, or a local turn).
+#[test]
+fn a_chief_turn_names_the_home_chat_as_its_caller() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    };
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "turn-1"), ("CMUX_CALLER_HOME_CHAT", "1")])),
+        Some(json!({ "agent_session": "turn-1", "home_chat": true }))
+    );
+    assert_eq!(
+        caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "1")])),
+        Some(json!({ "home_chat": true }))
+    );
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "turn-1")])),
+        Some(json!({ "agent_session": "turn-1" }))
+    );
+    assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
+}
+
 #[path = "right_tests.rs"]
 mod right;
