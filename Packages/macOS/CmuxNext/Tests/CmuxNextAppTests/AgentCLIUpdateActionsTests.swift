@@ -25,7 +25,7 @@ import Testing
         var observeError: DaemonError?
         /// The owner answers busy for this family (its key's original request still runs).
         var busy: Set<AgentCLIFamily> = []
-        /// The owner answers this family's key with a settled failure (`failCode`), the same on every replay.
+        /// The owner answers this family's start with a coded failure (`failCode`).
         var fail: Set<AgentCLIFamily> = []
         var failCode = "operation.failed"
         var claudeChannel = "native"
@@ -61,7 +61,7 @@ import Testing
                 }
                 if self.loseReply { throw DaemonError.notConnected }
                 if self.fail.contains(cli) {
-                    throw DaemonError.command(cmd: "agent-cli-update-job", message: "agent update installation changed after preparation",
+                    throw DaemonError.command(cmd: "agent-cli-update-job", message: "The update terminal could not be created",
                                               code: self.failCode)
                 }
                 return try self.receipt(cli)
@@ -372,11 +372,11 @@ import Testing
         #expect(updates.state.arrayValue?.first?["terminal"]?.stringValue != nil)
     }
 
-    /// The owner journals a failed creation under its key and answers every replay of that
-    /// key with the same failure, so such an answer settles the job: it neither stays
-    /// unknown nor blocks the CLI, and refresh does not replay it.
-    @Test(arguments: ["operation.failed", "mutation.indeterminate"])
-    func aStartTheOwnerAnswersWithASettledFailureLeavesNoBlockingJob(code: String) async throws {
+    /// A first start sends a fresh key, so an owner answer of any code means nothing runs for
+    /// it (a failed creation, or a request the owner turned away, such as during a handoff):
+    /// the job settles instead of staying unknown, blocking the CLI, and being replayed.
+    @Test(arguments: ["operation.failed", "daemon_shutdown_pending"])
+    func aFirstStartTheOwnerAnswersWithAFailureLeavesNoBlockingJob(code: String) async throws {
         let (owner, updates, registry) = make()
         owner.fail = [.codex]
         owner.failCode = code
@@ -392,21 +392,29 @@ import Testing
         #expect(owner.starts.count == 2 && owner.starts.last?.1 == "after-failed-start")
     }
 
-    @Test func aReplayedStartTheOwnerAnswersWithASettledFailureClearsTheLostJob() async throws {
+    /// A lost first reply may have created the terminal. A replay the owner answers with a code
+    /// other than an `agent_cli_job.*` refusal can come before the owner reads its journal
+    /// (a handoff, a registry error), so it proves nothing ran: the job keeps blocking its CLI
+    /// and the next refresh replays the same key, which then finds the running update.
+    @Test(arguments: ["operation.failed", "daemon_shutdown_pending"])
+    func aReplayedStartTheOwnerAnswersWithAnotherCodeKeepsTheLostJob(code: String) async throws {
         let (owner, updates, registry) = make()
         owner.loseReply = true
-        do { _ = try await updates.runSettings(id: "work-profile", context: page("lost-then-failed"), registry: registry) } catch {}
+        do { _ = try await updates.runSettings(id: "work-profile", context: page("lost-then-coded"), registry: registry) } catch {}
         #expect(updates.state.arrayValue?.first?["state"] == "unknown")
         owner.loseReply = false
         owner.fail = [.codex]
+        owner.failCode = code
         await updates.refresh()
-        #expect(updates.state.arrayValue?.isEmpty == true)
-        let replays = owner.starts.count
-        await updates.refresh()
-        #expect(owner.starts.count == replays)
+        #expect(updates.state.arrayValue?.first?["state"] == "unknown")
+        await #expect(throws: (any Error).self) {
+            _ = try await updates.runSettings(id: "work-profile", context: page("while-lost"), registry: registry)
+        }
         owner.fail = []
-        _ = try await updates.runSettings(id: "work-profile", context: page("after-failed-replay"), registry: registry)
-        #expect(owner.starts.last?.1 == "after-failed-replay")
+        await updates.refresh()
+        #expect(owner.starts.last?.1 == "lost-then-coded")
+        let job = try #require(updates.state.arrayValue?.first)
+        #expect(job["terminal"] == "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     }
 
     /// A job that already ended never blocks the next update of its CLI, even when
