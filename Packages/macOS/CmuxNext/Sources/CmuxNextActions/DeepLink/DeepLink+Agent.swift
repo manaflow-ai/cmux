@@ -30,7 +30,8 @@ nonisolated extension DeepLink {
     ///   - session: The link's harness session id.
     ///   - adopted: The agent chat tab resuming `harness:session`, if any.
     ///   - terminals: The terminal tabs of the connected machines, in order.
-    /// - Returns: The tab ids to try revealing, in order.
+    /// - Returns: The tab ids to try revealing, in order: a tab that fails to
+    ///   reveal falls through to the next one showing the session.
     public static func agentTabs(harness: String, session: String, adopted: String?, terminals: [AgentCandidate]) -> [String] {
         let running = terminals.filter { $0.session == session }
         let named = running.filter { knownHarness($0.harness) == harness }

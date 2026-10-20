@@ -56,9 +56,7 @@ struct DeepLinkNavigator {
             // hq#2555: only a tab already showing that session (the chat that adopted it, else the terminal running
             // it), never a new tab, resume or connection. A user's open raises it, so its composer or terminal has the keyboard.
             guard AgentPaneTunables.agentLinks.value else { throw ActionFailure(message: RefusalStrings.agentLinksOff) }
-            let tabs = DeepLink.agentTabs(harness: harness, session: session, adopted: services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session)), harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
-            // A tab that fails to reveal falls through to the next one that shows the session.
-            guard tabs.contains(where: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
+            guard DeepLink.agentTabs(harness: harness, session: session, adopted: services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session)), harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions)).contains(where: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
         case .legacyWorkspace(let key, let fallback):
             guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw Self.gone }
             try reveal(workspace: workspace.id, intent)
