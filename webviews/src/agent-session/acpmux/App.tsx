@@ -2531,20 +2531,30 @@ function PermissionAsk({
   permission,
   harness,
   focusComposer,
+  waiting = 0,
 }: {
   permission: AcpmuxPermission;
   harness?: string;
   focusComposer?: () => void;
+  /// More asks waiting behind this one (snapshot `permissionsWaiting`).
+  waiting?: number;
 }) {
-  return permission.question ? (
-    <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
-  ) : (
-    <PermissionCard
-      permission={permission}
-      harness={harness}
-      focusComposer={focusComposer}
-      onAnswer={answerPermission(permission)}
-    />
+  const t = useT();
+  if (!permission.question)
+    return (
+      <PermissionCard
+        permission={permission}
+        harness={harness}
+        focusComposer={focusComposer}
+        onAnswer={answerPermission(permission)}
+        waiting={waiting}
+      />
+    );
+  return (
+    <>
+      {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
+      <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
+    </>
   );
 }
 
@@ -5539,7 +5549,9 @@ function AcpmuxPane() {
           />
           {individualPermission && (
             <PermissionAsk
+              key={individualPermission.permissionId}
               permission={individualPermission}
+              waiting={snapshot.permissionsWaiting}
               harness={snapshot.summary?.harness}
               focusComposer={() => composerHandle.current?.focus()}
             />
