@@ -51,7 +51,7 @@ export const isSubagentGroup = (row: AcpmuxRow) => row.kind === SUBAGENTS;
 
 /// The latest turn's groups, nested views' included, with an agent still running: in a working
 /// turn they start open (App.tsx), after Codex and Claude Code. An earlier turn's group stays as
-/// it was, its agent still running in the background or left "running" by a cancel.
+/// it was, its agent still running in the background.
 export function runningGroups(rows: readonly AcpmuxRow[], views: Record<string, AcpmuxRow[]> = {}): string[] {
   // The turn starts after its prompt; a prompt still waiting to send starts none.
   let start = rows.length;
