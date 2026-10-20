@@ -45,7 +45,7 @@ struct NewTabJumpToTabTests {
 
             // The window's content may be rebuilt: read the pane by its key.
             let pane = b.paneKey
-            func shownB() -> PaneController? {
+            @MainActor func shownB() -> PaneController? {
                 guard controller.workspaceContent?.workspace.id == id else { return nil }
                 return controller.workspaceContent?.paneController(key: pane)
             }
