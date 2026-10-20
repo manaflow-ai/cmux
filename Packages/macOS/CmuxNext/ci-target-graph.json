@@ -112,6 +112,7 @@
         "CmuxNextDictation",
         "CmuxNextErrorJournal",
         "CmuxNextPages",
+        "CmuxNextRemoteFetch",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -130,6 +131,7 @@
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
+        "CmuxNextRemoteFetch",
         "CmuxNextSettings"
       ],
       "packages": [],
@@ -246,6 +248,7 @@
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
+        "CmuxNextRemoteFetch",
         "CmuxNextRemoteLocalhost",
         "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
@@ -406,6 +409,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextRemoteFetch",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -461,7 +465,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests",
       "targets": [
-        "CmuxNextBrowser"
+        "CmuxNextBrowser",
+        "CmuxNextRemoteFetch"
       ],
       "packages": [],
       "reads": [
@@ -1132,6 +1137,14 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextRemoteView"
+      ],
+      "packages": []
+    },
+    "CmuxNextRemoteFetch": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteFetch",
+      "targets": [
+        "CmuxNextCompat"
       ],
       "packages": []
     },

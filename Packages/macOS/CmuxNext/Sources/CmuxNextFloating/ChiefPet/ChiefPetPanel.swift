@@ -22,8 +22,15 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     let placement: ChiefPetPlacement
     let pet: ChiefPetView
     private var expandTool: ChiefPetTool?
+    /// The visible frame of the screen the pet is on (its menu bar and Dock left out); tests give their own.
+    var visibleFrame: () -> CGRect? = { nil }
+    /// The pet was pulled back on its screen after a screen change (the bubble and reply box take their side again).
+    var onKeptOnScreen: (() -> Void)?
+    /// The didChangeScreenParameters observer's token, kept for the panel's life.
+    private var screenObserver: (any NSObjectProtocol)?
 
-    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard) {
+    /// `notifications`: where screen-parameter changes are posted (AppKit posts to `.default`); tests give their own.
+    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, notifications: NotificationCenter = .default) {
         placement = ChiefPetPlacement(defaults: defaults)
         pet = ChiefPetView(image: mascot.image)
         super.init(
@@ -55,6 +62,13 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         pet.onDragEnded = { [weak self] in self?.saveOrigin() }
         contentView = pet
         delegate = self
+        visibleFrame = { [weak self] in self?.screen?.visibleFrame }
+        // A resolution change, or the Dock or menu bar resizing, keeps the screen, so AppKit sends no
+        // didChangeScreen; the visible frame still changes under the pet.
+        screenObserver = notifications.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                   object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.keepOnScreen() } // main-proof: observer on queue: .main
+        }
     }
 
     /// The chevron points down while the notices are unfolded.
@@ -79,18 +93,28 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         orderOut(nil)
     }
 
-    /// A screen change (resolution, a display unplugged) keeps it on its screen.
+    /// A screen change (a display unplugged, the pet dragged onto another) keeps it on its screen.
     public func windowDidChangeScreen(_ notification: Notification) {
-        guard let visible = screen?.visibleFrame else { return }
-        setFrameOrigin(ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible))
+        keepOnScreen()
+    }
+
+    /// Pulls the pet fully back on its screen. Not during a drag: AppKit reports the screen change as
+    /// the pet crosses onto the next display, and pulling it back then would jump it away from the
+    /// pointer until the next move (the drag's end pulls it back, `saveOrigin`).
+    func keepOnScreen() {
+        guard !pet.isDragging, let visible = visibleFrame() else { return }
+        let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible)
+        guard origin != frame.origin else { return }
+        setFrameOrigin(origin)
+        onKeptOnScreen?()
     }
 
     /// Keeps the spot the pet was dragged to, pulled fully back on its screen.
     func saveOrigin() {
-        guard let screen else { return }
-        let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: screen.visibleFrame)
+        guard let visible = visibleFrame() else { return }
+        let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible)
         if origin != frame.origin { setFrameOrigin(origin) }
-        placement.save(origin, onDisplay: ChiefPetPlacement.display(screen))
+        if let screen { placement.save(origin, onDisplay: ChiefPetPlacement.display(screen)) }
     }
 
     static func screenUnderPointer() -> NSScreen? {
@@ -114,6 +138,8 @@ final class ChiefPetView: NSView {
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
     private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
+    /// A press is moving the pet now.
+    var isDragging: Bool { dragging }
 
     init(image: NSImage?) {
         super.init(frame: .zero)
