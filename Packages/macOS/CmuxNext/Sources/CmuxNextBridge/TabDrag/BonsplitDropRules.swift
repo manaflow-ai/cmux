@@ -4,7 +4,7 @@ public import CmuxNextTabs
 
 // Tab drop rules taken from bonsplit, classic cmux's split view (#22287).
 
-nonisolated extension TabDragPayload {
+extension TabDragPayload {
     /// Where a drop on the body of a pane whose strip shows `tabs` (display
     /// order) leaves the dragged tabs when they are in it: their own slot
     /// and, for a single tab, its own tab group, so the drop changes nothing
