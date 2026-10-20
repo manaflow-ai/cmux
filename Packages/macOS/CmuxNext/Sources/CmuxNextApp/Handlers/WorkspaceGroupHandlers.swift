@@ -193,7 +193,7 @@ enum WorkspaceGroupHandlers {
             }.first
         }
         let activeGroupIndex = activeGroup.flatMap { current in
-            groups.firstIndex { $0.id.rawValue == current.id.rawValue }
+            groups.firstIndex { sidebarID($0) == current.id }
         }
         let start = activeGroupIndex ?? (offset > 0 ? -1 : groups.count)
         for step in 1...groups.count {

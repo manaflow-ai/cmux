@@ -26,7 +26,9 @@ enum WorkspaceGroupUndo {
         let id = WorkspaceGroupHandlers.sidebarID(group)
         let restore = SidebarGroupRestore.capture(id, in: sidebar.model.sections)
         sidebar.handle(.ungroup(id))
-        guard invocation.origin == .user, let restore, let window = context.activeWindow?.window else { return }
+        // On the sidebar document the ungroup is its own undo step (the daemon's inverse keeps the pin, icon and
+        // every member); a client restore beside it would run first and bring the group back without them.
+        guard invocation.origin == .user, SidebarDocStore.activeRecords == nil, let restore, let window = context.activeWindow?.window else { return }
         let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
         let services = context.services, groupID = group.id.rawValue
         let undo: @MainActor () -> Void = { [weak sidebar] in
