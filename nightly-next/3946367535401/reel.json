@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "3946367535401",
+  "notes": "notes/3946367535401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22135,
+      "title": "cmux-next: a project picked from the New Tab folder menu is a folder the pane may use",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22498,
+      "title": "test(cmux-next): scheduled DEV probe fails closed on a cold tree (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22501,
+      "title": "ci(cmux-next): stalled Blacksmith macOS gets no job; hosted macos-26 takes the overflow",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22540,
+      "title": "fix(home): list every host's Chief at once; Main tag says where it runs",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22529,
+      "title": "lint: give FindPillMetrics an instance surface (namespace-type)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22141,
+      "title": "fix(next): Swift base reds: ActionSurfaceParity, SidebarSpacePaging, VideoWallpaper",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
