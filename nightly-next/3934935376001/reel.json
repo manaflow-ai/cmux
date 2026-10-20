@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "build": "3934935376001",
+  "notes": "notes/3934935376001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22223,
+      "title": "cmux-next: the session hover card reads like Claude desktop's on the shared glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22211,
+      "title": "cmux NEXT New Tab: the first frame names the project and machine it keeps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22213,
+      "title": "docs(agents): one merge bar for feat-cmux-next; base reds, generated files and webview screenshots in a line each",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22218,
+      "title": "docs: feat-cmux-next lands on review and no red of its own; label ready-to-land",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20458,
+      "title": "fix: sidebar profile button is the avatar alone; one-row profile in its menu",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/20458/6cc7f377/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "6cc7f377",
+      "tour": "core"
+    },
+    {
+      "pr": 22208,
+      "title": "ci: the red-checks line tells a new red from a base red, step by step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22206,
+      "title": "ci(next-batch): land through GitHub's merge API at the validated head, not gh-merge-green",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21719,
+      "title": "Keep VM API response scopes extensible",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22205,
+      "title": "ci: feat-cmux-next pushes run the web checks and cmux-next checks again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21672,
+      "title": "cmux-next agent pane: fade the summary card's edge while rows are past it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21665,
+      "title": "cx-ncc.103: agent pane recap card when a turn ends on a question (Debug toggle)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21726,
+      "title": "Now Playing on the New Tab page: a large player under the create actions",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21726/f0daacfa/next-new-tab-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "f0daacfa",
+      "tour": "new-tab",
+      "note": "6 captures, head moved past every capture; picked f0daacfa by name, not by date"
+    }
+  ]
+}
