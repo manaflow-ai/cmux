@@ -83,7 +83,8 @@ fn after_input(global: &GlobalArgs, plan: &RequestPlan, reader: &mut Reader) -> 
             command.push_str(&format!(" {flag} {}", shell_word(value)));
         }
     }
-    command.push_str(&format!(" agent message {terminal} {text}"));
+    // `--` keeps text that starts with a dash (or is `-`) the message.
+    command.push_str(&format!(" agent message {terminal} -- {text}"));
     Some(
         crate::localization::catalog()
             .terminal_input
