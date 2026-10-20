@@ -586,6 +586,13 @@
     "browser"
    ]
   },
+  "ColumnMoveDirection": {
+   "kind": "enum",
+   "values": [
+    "left",
+    "right"
+   ]
+  },
   "PaneDirection": {
    "kind": "enum",
    "values": [
@@ -22230,6 +22237,42 @@
       "type": {
        "kind": "scalar",
        "name": "uint64"
+      }
+     }
+    },
+    "kind": "object"
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "since": 12,
+   "stream": null
+  },
+  "move-column": {
+   "authority": "control",
+   "capability": "column-move-v1",
+   "constraints": [
+    "pane names any pane of the column that moves; the whole column (every pane, split and row) trades places with its neighbor in direction.",
+    "A docked column never moves and is never crossed. See spec/commands.md for the result object and error codes."
+   ],
+   "request": {
+    "additional_properties": false,
+    "fields": {
+     "direction": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "ref",
+       "name": "ColumnMoveDirection"
+      }
+     },
+     "pane": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "ref",
+       "name": "Id"
       }
      }
     },

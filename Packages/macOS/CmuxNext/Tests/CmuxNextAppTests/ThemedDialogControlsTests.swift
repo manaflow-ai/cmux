@@ -4,24 +4,19 @@ import CmuxNextDesign
 @testable import CmuxNextHome
 import Testing
 
-/// Dialogs paint the theme, never macOS's blue (cx-wqn5): New Message's Return button and its
-/// selected person row take the theme's selection fill, as the sidebar and palette rows do,
-/// not the system accent, even while the sheet's window is key.
+/// Dialogs paint the theme, never macOS's blue (cx-wqn5): New Message's highlighted suggestion
+/// (the page's To: list, no sheet since 2026-10-19) takes the theme's selection fill, as the
+/// sidebar and palette rows do, not the system accent, even while the window is key.
 @MainActor
 struct ThemedDialogControlsTests {
     @Test func newMessageDrawsTheThemeNotTheAccent() throws {
-        let sheet = HomeComposeSheet(contacts: [HomeContact(id: ParticipantID("ada"), name: "Ada", source: .team)])
-        _ = sheet.view
-        sheet.table.reloadData()
-        #expect(sheet.table.numberOfRows > 0)
+        let list = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 380, height: 120))
+        list.show([.contact(HomeContact(id: ParticipantID("ada"), name: "Ada", source: .team))])
+        #expect(list.table.numberOfRows == 1)
+        #expect(list.highlighted == 0)
 
-        // The Return button takes a theme fill, not the accent a default button draws in.
-        let bezel = try #require(sheet.primaryButton.bezelColor)
-        #expect(Self.isNeutral(sheet.view.performWithTheme { bezel.usingColorSpace(.sRGB) }))
-
-        // A selected row in a key window (emphasized) still draws the theme's gray, not blue.
-        sheet.table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        let row = try #require(sheet.table.rowView(atRow: 0, makeIfNecessary: true))
+        // A highlighted row in a key window (emphasized) still draws the theme's gray, not blue.
+        let row = try #require(list.table.rowView(atRow: 0, makeIfNecessary: true))
         row.frame = NSRect(x: 0, y: 0, width: 380, height: 28)
         row.isSelected = true
         row.isEmphasized = true
