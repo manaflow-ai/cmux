@@ -145,7 +145,10 @@ concurrency:
   # A six-hour cache warmup must not wait behind a publishing nightly build or
   # hold one behind a saturated runner pool. Each lane has its own group, and
   # a newer run may replace only a pending run. An in-flight nightly must always
-  # finish so a 42-minute macOS build is not discarded by the next push.
+  # finish so its work is not discarded by the next push. Measured 2026-10-20
+  # on nightly-next: build-nightly-app takes 12-14 min on the warm worker
+  # (Release compile 4-6 min), and a run takes 43-63 min to publish, about
+  # 11 min of it Apple's notarization.
   # nightly-next has its own group. Sharing main's group (#18150) let every
   # main push replace the pending nightly-next run (run 37579667979, cancelled
   # by main push run 37580645859 before any job ran), so nightly-next starved.
@@ -2093,19 +2096,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
             "${notary_test_flags[@]}"
 
-      - name: Prove the password-import readers are compiled out (cx-f58x notary test)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.password_readers_out == 'true')
-        run: |
-          set -euo pipefail
-          app="build-universal/Build/Products/Release/cmux.app"
-          scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/cmux"
-
-      - name: Prove the browser-data import is compiled out (cx-f58x notary test)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')
-        run: |
-          set -euo pipefail
-          scripts/ci/check-browser-data-import-absent.sh "build-universal/Build/Products/Release/cmux.app"
-
       - name: Bound Xcode compilation cache size
         if: inputs.nightly_next_unsigned_run == ''
         id: compilation-cache-bound
@@ -2623,6 +2613,25 @@ jobs:
           products="build-universal/Build/Products/Release"
           mkdir -p "$products"
           tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
+
+      # cx-f58x proofs on the app exactly as build-nightly-app built it, before
+      # anything is injected and before signing. They ran inside
+      # build-nightly-app, whose one warm slot serializes every nightly-next
+      # build: the browser-data scan alone took 54-55 s of a 12-14 minute slot
+      # (runs 39371003711, 39373745957, 39374887542). Here they run on the
+      # per-run hosted lane, so the next promoted build starts that much sooner.
+      - name: Prove the password-import readers are compiled out (cx-f58x notary test)
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.password_readers_out == 'true')
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/cmux"
+
+      - name: Prove the browser-data import is compiled out (cx-f58x notary test)
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')
+        run: |
+          set -euo pipefail
+          scripts/ci/check-browser-data-import-absent.sh "build-universal/Build/Products/Release/cmux.app"
 
 
       - name: Inject universal Ghostty CLI helper
