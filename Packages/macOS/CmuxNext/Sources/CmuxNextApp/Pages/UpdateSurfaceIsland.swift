@@ -30,7 +30,7 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     private(set) var contentHeight: CGFloat = 0
     var onHeightChange: (() -> Void)?
     var onAction: (() -> Void)?
-    private let provider: UpdateSurfaceProvider
+    let provider: UpdateSurfaceProvider
 
     init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
         let provider = UpdateSurfaceProvider(kind: kind, services: services)
