@@ -111,7 +111,7 @@ extension SidebarListViewComponents {
         if let items = drag.docItems, let doc = model.docDrag {
             guard let target = drag.docTarget else { return cancelDrag() }
             // The list keeps the drop's look until the move lands; the card settles into the slot it shows.
-            settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
+            settling = SidebarSettlingDrop(drag: drag, revision: model.loudRevision, blocks: blocks)
             self.drag = nil
             // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
             // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).

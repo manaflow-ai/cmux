@@ -38,6 +38,8 @@ final class SidebarRows {
     /// attention change re-sorts in the turn it arrives (`patch`), so a later create or close moves only its own row.
     private var unsorted: [SidebarRowSection] = []
     private var shownOrder: [SidebarWorkspaceID] = []
+    /// Each shown row's attention bucket: only a patch that changes one re-sorts (a title or progress tick costs nothing).
+    private var buckets: [SidebarWorkspaceID: SidebarPriorityBucket] = [:]
 
     init(model: SidebarModel) {
         self.model = model
@@ -67,6 +69,9 @@ final class SidebarRows {
         unsorted = sections
         let shown = model.priorityOrdering ? SidebarPriority().reordered(sections) : sections
         shownOrder = shown.flatMap(\.workspaces).map(\.id)
+        buckets = model.priorityOrdering
+            ? Dictionary(shown.flatMap(\.workspaces).map { ($0.id, SidebarPriorityItem(workspace: $0).bucket) }, uniquingKeysWith: { first, _ in first })
+            : [:]
         model.setSections(shown, quiet: quietly)
     }
 
@@ -77,6 +82,13 @@ final class SidebarRows {
         live = SidebarSection.patching(changed, in: live)
         guard model.patchWorkspaces(changed) else { return show() }
         guard model.priorityOrdering else { return }
+        var moved = false
+        for row in changed {
+            guard let old = buckets[row.id] else { continue }
+            let bucket = SidebarPriorityItem(workspace: row).bucket
+            if bucket != old { buckets[row.id] = bucket; moved = true }
+        }
+        guard moved else { return }
         unsorted = SidebarSection.patching(changed, in: unsorted)
         if SidebarPriority().reordered(unsorted).flatMap(\.workspaces).map(\.id) != shownOrder { show(quietly: true) }
     }

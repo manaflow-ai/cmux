@@ -98,6 +98,10 @@ public final class SidebarModel {
     @ObservationIgnored var userIntentAt: ContinuousClock.Instant?
     /// `sectionsRevision` of the last quiet set (`setSections(_:quiet:)`): that change shows with no motion.
     @ObservationIgnored var quietRevision: UInt64?
+    /// How many quiet sets moved `sectionsRevision`.
+    @ObservationIgnored private var quietSets: UInt64 = 0
+    /// `sectionsRevision` without the quiet sets: a settling drop waits for its own move, not for an attention re-sort.
+    var loudRevision: UInt64 { sectionsRevision &- quietSets }
     /// The clock `noteUserIntent` reads; tests inject a fixed instant.
     @ObservationIgnored public var userIntentClock: @MainActor () -> ContinuousClock.Instant = { .now }
     /// True once: at the first structural set after the user's move.
@@ -381,7 +385,10 @@ public final class SidebarModel {
         }
         let revision = sectionsRevision
         sections = shown // the setter skips an unchanged list
-        if quiet, sectionsRevision != revision { quietRevision = sectionsRevision }
+        if quiet, sectionsRevision != revision {
+            quietRevision = sectionsRevision
+            quietSets &+= 1
+        }
     }
 
     /// Row content of workspaces already listed (status, title, unread,

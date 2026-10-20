@@ -10,6 +10,9 @@ extension SidebarListViewComponents {
     /// is a user's gesture here, so the model change that follows it may animate too.
     func reload(animated: Bool, adopt: Bool = false, fromModel: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
         SidebarPerfCounters.add(.listReloads, from: file, line: line)
+        // A change held under the pointer shows first, in one step: a user's create, close, fold or drag that
+        // follows must not slide the rows the held change moved (an attention re-sort rides no spring).
+        if animated, holdsModelChange { reload(animated: false, fromModel: true, file: file, line: line) }
         if animated, !fromModel { model.noteUserIntent() }
         holdsModelChange = false // this reload shows the model as it is now
         // No drag holds the rows: this reload shows every held patch (the model has them).

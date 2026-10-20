@@ -100,8 +100,7 @@ extension SidebarViewComponents {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
             } else if selectionChanged, rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A new selection shows now, wherever the pointer is (it is the user's, or asks to be seen).
-                list.reload(animated: Self.animatesReload(from: previous, to: model.sections) && model.structureFollowsUserIntent
-                    && !list.holdsModelChange, fromModel: true) // a held change shows in one step, not on this spring
+                list.reload(animated: Self.animatesReload(from: previous, to: model.sections) && model.structureFollowsUserIntent, fromModel: true)
                 if rowsChanged { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if rowsChanged {
                 // Only a change the user asked for moves rows; others show in place, after the pointer leaves (calm-sidebar-movement).
