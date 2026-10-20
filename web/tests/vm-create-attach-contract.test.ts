@@ -27,22 +27,9 @@ function entry(overrides: Partial<VmAttachEntry> = {}): VmAttachEntry {
 }
 
 describe("create attach contract", () => {
-  test("returns a trusted dial route with IPv4 preferred over IPv6", () => {
-    expect(createAttachBlock({ entry: entry(), manifestEntry })).toEqual({
-      transport: "cmux-remote",
-      route: "ws://10.0.0.42:1337/v1/link",
-      token: "",
-      session: "cloud",
-      trustedCarrier: true,
-      daemonBuild: { commit: "daemon-commit", remoteProtocol: null, version: null },
-      guestToolsBaked: true,
-      readiness: "dial",
-    });
-  });
-
-  test("uses IPv6 when the provider only allocated IPv6", () => {
-    expect(createAttachBlock({ entry: entry({ addressIpv4: null }), manifestEntry })?.route)
-      .toBe("ws://[fd00::42]:1337/v1/link");
+  test("requires the attach endpoint to mint a cryptographic client grant", () => {
+    expect(createAttachBlock({ entry: entry(), manifestEntry })).toBeNull();
+    expect(createAttachBlock({ entry: entry({ addressIpv4: null }), manifestEntry })).toBeNull();
   });
 
   test("feature detects old or public rows and falls back to attach endpoint", () => {
