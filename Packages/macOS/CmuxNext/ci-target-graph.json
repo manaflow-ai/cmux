@@ -861,9 +861,11 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextBrowser",
         "CmuxNextCompat",
+        "CmuxNextSettings",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
