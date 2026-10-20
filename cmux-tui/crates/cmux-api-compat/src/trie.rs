@@ -61,8 +61,10 @@ impl Node {
 
     /// Adds one operation (in chain order) to the trie.
     pub(crate) fn apply(&mut self, op: Op) {
-        if !self.slow.is_empty() {
-            // Once a node is materialized, later rules run on the value, in order.
+        // Once a node is materialized, a later rule that touches what a
+        // materializing rule touched runs on the value, in order. One that
+        // commutes with all of them stays in the trie (which runs first).
+        if self.slow.iter().any(|slow| !slow.commutes_with(&op)) {
             self.slow.push(op);
             return;
         }
@@ -127,23 +129,24 @@ impl Node {
     fn apply_local(&mut self, op: Op) {
         match op {
             Op::Rename { from, to, .. } => {
-                if let Some(index) = self.by_output.remove(&from) {
+                if from == to {
+                    return;
+                }
+                let source = if let Some(index) = self.by_output.remove(&from) {
+                    Some(index)
+                } else if !self.by_input.contains_key(&from) {
+                    Some(self.push_member(Member::new(Some(from), None, self.wild_clone())))
+                } else {
+                    None
+                };
+                // The rename replaces its target: what produced `to` so far is dropped.
+                self.drop_output(to.clone());
+                if let Some(index) = source {
                     self.members[index].output = Some(to.clone());
                     self.by_output.insert(to, index);
-                } else if !self.by_input.contains_key(&from) {
-                    self.push_member(Member::new(Some(from), Some(to), self.wild_clone()));
                 }
             }
-            Op::Delete { key, .. } => {
-                if let Some(index) = self.by_output.remove(&key) {
-                    let member = &mut self.members[index];
-                    member.output = None;
-                    member.default = None;
-                    member.node = Node::default();
-                } else if !self.by_input.contains_key(&key) {
-                    self.push_member(Member::new(Some(key), None, Node::default()));
-                }
-            }
+            Op::Delete { key, .. } => self.drop_output(key),
             Op::Insert { key, value, .. } => {
                 if let Some(&index) = self.by_output.get(&key) {
                     let member = &mut self.members[index];
@@ -162,6 +165,19 @@ impl Node {
                 }
             }
             Op::Convert { .. } | Op::Move { .. } => self.slow.push(op),
+        }
+    }
+
+    /// Removes output key `key`: the member producing it is dropped, or an
+    /// untouched input key of that name is deleted.
+    fn drop_output(&mut self, key: String) {
+        if let Some(index) = self.by_output.remove(&key) {
+            let member = &mut self.members[index];
+            member.output = None;
+            member.default = None;
+            member.node = Node::default();
+        } else if !self.by_input.contains_key(&key) {
+            self.push_member(Member::new(Some(key), None, Node::default()));
         }
     }
 
