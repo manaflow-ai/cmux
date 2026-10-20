@@ -380,8 +380,11 @@ impl Hub {
                 // forever on a harness that stays alive but never answers, holding `spawn_lock`.
                 Ok(child) => {
                     let budget = self.config.read().await.agent_start_timeout();
-                    return match tokio::time::timeout(budget, self.cap_full_access(session, &child))
-                        .await
+                    return match tokio::time::timeout(
+                        budget,
+                        self.cap_full_access(session, &child, profile),
+                    )
+                    .await
                     {
                         Ok(result) => result.map(|()| child),
                         Err(_) => {
@@ -508,8 +511,13 @@ impl Hub {
                 mode
             };
             // Nor does any chat saved in full access while sessions.allowFullAccess is off.
+            // A profile pinning --permission-mode keeps it (spawn_plan adds none), so its record does too.
             let saved_mode = mode.clone();
-            let mode = super::start_mode::resumable_mode(mode, "default");
+            let mode = if super::start_mode::profile_sets_mode(profile) {
+                mode
+            } else {
+                super::start_mode::resumable_mode(mode, "default")
+            };
             if mode != saved_mode {
                 tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
                 self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
@@ -740,7 +748,7 @@ impl Hub {
         if saved.agent_session_id.is_some() {
             self.replay_config(session, &child, &saved).await;
         }
-        self.cap_full_access(session, &child).await?;
+        self.cap_full_access(session, &child, profile).await?;
         self.set_status(session, SessionStatus::Ready);
         self.save_meta(session);
         let meta_now = session.meta();

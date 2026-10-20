@@ -430,12 +430,17 @@ impl Hub {
     }
 
     /// `leave_full_access_if_off` for a chat just started (cold or from the pool): when it would
-    /// run in full access, the agent stops and the chat stays open and idle.
+    /// run in full access, the agent stops and the chat stays open and idle. A profile that pins
+    /// its mode in its argv (`--yolo`) is left alone, as acpmux sets no mode over it anywhere else.
     pub(super) async fn cap_full_access(
         &self,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
+        profile: &HarnessProfile,
     ) -> Result<(), RpcError> {
+        if profile_sets_mode(profile) {
+            return Ok(());
+        }
         let Err(e) = self.leave_full_access_if_off(session, child).await else { return Ok(()) };
         if let Some(started) = session.child.lock().await.take() {
             started.terminate(super::shutdown::SHUTDOWN_GRACE).await;

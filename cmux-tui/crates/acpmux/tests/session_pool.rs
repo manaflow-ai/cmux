@@ -608,6 +608,28 @@ async fn a_pooled_chat_that_started_in_full_access_leaves_it_when_off() {
     assert_eq!(info["modes"]["currentModeId"], "normal", "{info}");
 }
 
+/// `sessions.allowFullAccess` off does not touch a profile that pins its mode in its argv
+/// (`--yolo`): acpmux sets no mode over such profiles, pooled or cold.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_chat_pinned_to_full_access_by_its_argv_keeps_it_when_off() {
+    let mut fakeb = profile("b");
+    fakeb["argv"].as_array_mut().unwrap().push(json!("--yolo"));
+    fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
+    fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
+    let off = json!({"sessions": {"allowFullAccess": false}});
+    let daemon = Daemon::with_settings("fapinned", 0, &fakeb, Some(off));
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let (claimed, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(taken(&daemon, &claimed), "the session came from the pool");
+    let info = rpc.call("_acpmux/info", json!({"sessionId": claimed})).await;
+    assert_eq!(info["modes"]["currentModeId"], "full-access", "{info}");
+}
+
 /// `sessions.allowFullAccess` off and a pooled chat in full access whose harness never answers
 /// the switch to a mode that asks: taking it is bounded by the start budget like a cold start,
 /// so `session/new` fails with a deadline and ends the host instead of hanging on `spawn_lock`.
