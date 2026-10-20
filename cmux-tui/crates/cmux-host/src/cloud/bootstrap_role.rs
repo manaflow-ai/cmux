@@ -52,9 +52,8 @@ impl WorkerBridge {
         self.host.wake_set().ok()
     }
     pub(super) fn drive(&self) {
-        if self.host.drive().is_err() {
-            // Optional transport failure never stops Cloud status/activity.
-            self.host.detach();
-        }
+        // The host retires failed endpoints. Optional transport failure
+        // never stops Cloud status/activity or its live enrollment intent.
+        let _ = self.host.drive();
     }
 }

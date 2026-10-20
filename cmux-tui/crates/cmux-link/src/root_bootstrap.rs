@@ -169,6 +169,21 @@ impl Host {
         self.notify();
     }
 
+    /// A reaped daemon loses every connection. The current Cloud-role intent
+    /// may be delivered only after its replacement passes fresh child checks.
+    pub fn daemon_exited(&self) {
+        self.disconnect();
+    }
+
+    fn disconnect(&self) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let ticket = state.ticket.clone();
+        let wanted = state.wanted;
+        *state = State { ticket, wanted, ..State::default() };
+        drop(state);
+        self.notify();
+    }
+
     pub fn wake_set(&self) -> io::Result<WakeSet> {
         let state = self.state.lock().map_err(|_| refused())?;
         let mut streams = Vec::new();
@@ -196,7 +211,10 @@ impl Host {
     pub fn drive(&self) -> io::Result<bool> {
         let result = self.drive_inner();
         if result.is_err() {
-            self.detach();
+            // EOF may precede the supervisor's reap. Keep only the live
+            // role's enrollment intent; no endpoint survives this failure.
+            // Delivery requires a newly spawned, freshly verified child.
+            self.disconnect();
         }
         result
     }

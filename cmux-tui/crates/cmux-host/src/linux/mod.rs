@@ -391,7 +391,7 @@ impl LinuxPlatform {
     fn daemon_gone(&mut self) -> Option<Exit> {
         let daemon = self.daemon.take()?;
         if let Some(bootstrap) = &self.bootstrap {
-            bootstrap.detach();
+            bootstrap.daemon_exited();
         }
         if let Some(fd) = &daemon.pidfd {
             self.epoll.remove(fd.raw());

@@ -17,7 +17,7 @@ mod linux {
     use super::*;
     use std::io::{Read, Write};
     use std::os::fd::OwnedFd;
-    use std::os::unix::process::CommandExt;
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
     use std::process::{Command, Stdio};
     use std::time::Duration;
 
@@ -310,8 +310,34 @@ mod linux {
             host.quiesce(std::time::Instant::now() + Duration::from_secs(2)).unwrap(),
             StopReceipt::Acknowledged
         );
+        let replacement_ticket = host.new_ticket().unwrap();
+        assert!(host.offer(&replacement_ticket));
+        // The worker can observe EOF before LinuxPlatform handles the exit.
+        // SAFETY: this is our still-owned, unreaped fixture child.
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        assert_eq!(child.wait().unwrap().signal(), Some(libc::SIGTERM));
+        assert!(host.drive().is_err());
+        assert_eq!(host.capability(), None);
+        host.daemon_exited();
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--ignored", "--exact", "linux::receiver_root_fixture"])
+            .env_clear()
+            .env(FIXTURE, "transport")
+            .uid(WORK_UID)
+            .gid(WORK_UID)
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit());
+        let replacement = host.spawn(&mut command, WORK_UID).unwrap();
+        drop(command);
+        drive_until(&host, |sent| sent);
+        assert_eq!(
+            host.quiesce(std::time::Instant::now() + Duration::from_secs(2)).unwrap(),
+            StopReceipt::Acknowledged
+        );
+        assert!(!host.offer(&replacement_ticket));
         host.detach();
-        assert!(child.wait().unwrap().success());
+        assert!(replacement.wait().unwrap().success());
         println!("ROOT_BOUNDARY_EXECUTED channel_lifetime");
     }
 }
