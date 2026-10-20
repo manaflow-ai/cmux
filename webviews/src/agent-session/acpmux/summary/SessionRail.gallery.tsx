@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample sessions and files), not shipped UI.
 // The session side rail (Debug Settings `agent.sessionRail`) as the real SessionRail renders it beside a chat: a
 // local chat with some context used and three files written, and a Cloud chat before its first
-// usage report and edit, and a chat whose harness reported MCP servers. Light and dark come from the gallery's theme switch.
+// usage report and edit, a chat whose harness reported MCP servers, and a chat that opened pull requests. Light and dark come from the gallery's theme switch.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -38,13 +38,37 @@ const toggleContext: Play = async (ctx) => {
   await ctx.waitFor(() => /tokens/.test(ctx.document.querySelector(".acpmux-rail")?.textContent ?? ""));
 };
 
+/// Pull requests the chat opened (oldest first, as sessionSummary reads them), and what the App
+/// read of them.
+const pullRequests: NonNullable<Props["pullRequests"]> = [
+  { n: 22217, title: "cmux NEXT: Cmd-W closes a pinned tab's split" },
+  { n: 22227, title: "New Tab Now Playing: right-click menu and a setting to hide it" },
+  { n: 22228, title: "cmux NEXT: the thread minimap feels like the Codex rail" },
+  { n: 22229, title: "cmux NEXT Home list: one-row sessions" },
+  { n: 22231, title: "cmux NEXT New Tab: paste an image into the composer" },
+  { n: 22240, title: "Session rail: a Changes card" },
+].map(({ n, title }) => ({
+  url: `https://github.com/manaflow-ai/cmux/pull/${n}`,
+  repo: "manaflow-ai/cmux",
+  number: n,
+  title,
+  state: n === 22229 ? ("merged" as const) : ("open" as const),
+}));
+const statuses: NonNullable<Props["statuses"]> = {
+  "https://github.com/manaflow-ai/cmux/pull/22240": { additions: 176, deletions: 52, checks: "pending" },
+  "https://github.com/manaflow-ai/cmux/pull/22231": { additions: 622, deletions: 304, checks: "failing" },
+  "https://github.com/manaflow-ai/cmux/pull/22229": { additions: 823, deletions: 127 },
+  "https://github.com/manaflow-ai/cmux/pull/22228": { checks: "failing" },
+  "https://github.com/manaflow-ai/cmux/pull/22227": { additions: 2161, deletions: 197, checks: "passing" },
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.session-rail",
   title: "Session side rail",
   area: "Agent pane",
   pane: true,
   experimental: true,
-  height: 420,
+  height: 560,
   widths: { narrow: 300, normal: 360 },
   covers: ["agent-session/acpmux/summary/SessionRail.tsx"],
   load: async () => GallerySessionRail,
@@ -76,6 +100,16 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /Connectors/ });
         await ctx.waitFor(() => /sentry/.test(ctx.document.querySelector(".acpmux-rail")?.textContent ?? ""));
+      },
+    },
+    changes: {
+      note: "A chat that opened six pull requests: newest first, line counts and checks where the App read them, a merged one, the sixth behind Show more.",
+      props: {
+        summary: { ...local.summary!, usage: { used: 94_000, size: 200_000 }, branch: "feat/rail-changes" },
+        machineName: "Studio",
+        outputs: sessionSummary(local.rows).outputs,
+        pullRequests,
+        statuses,
       },
     },
     "cloud-empty": {

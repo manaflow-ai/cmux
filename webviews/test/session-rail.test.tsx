@@ -265,10 +265,7 @@ test("a Changes card appears with the first pull request the session opened, new
   });
   await render(
     container,
-    chat([
-      activity([opened(12, "Retry the fetch helper")], 5),
-      activity([opened(14, "Back off on 429")], 2),
-    ]),
+    chat([activity([opened(12, "Retry the fetch helper")], 5), activity([opened(14, "Back off on 429")], 2)]),
   );
   expect([...container.querySelectorAll(".acpmux-rail-card__title")].map((element) => element.textContent)).toEqual([
     "Environment",
@@ -299,8 +296,9 @@ test("a Changes card appears with the first pull request the session opened, new
   });
   await render(container, chat([activity([opened(12, "Retry the fetch helper")], 5)]));
   const checks = card(container, "Changes")!.querySelector(".acpmux-rail-pr__checks");
-  expect(checks?.textContent).toBe("");
-  expect(checks?.getAttribute("aria-label")).toBe("Checks passed");
+  expect(checks?.getAttribute("data-checks")).toBe("passing");
+  // The word is for screen readers only.
+  expect(checks?.querySelector(".acpmux-rail-sr")?.textContent).toBe("Checks passed");
   setHeaderState({ pullRequest: null });
 });
 
@@ -308,7 +306,12 @@ test("Changes shows five pull requests and folds the rest behind Show more", asy
   const container = installDom(true);
   await render(
     container,
-    chat([activity([1, 2, 3, 4, 5, 6, 7].map((number) => opened(number, `Change ${number}`)), 2)]),
+    chat([
+      activity(
+        [1, 2, 3, 4, 5, 6, 7].map((number) => opened(number, `Change ${number}`)),
+        2,
+      ),
+    ]),
   );
   await click(toggle(container)!);
   const changes = () => card(container, "Changes")!;

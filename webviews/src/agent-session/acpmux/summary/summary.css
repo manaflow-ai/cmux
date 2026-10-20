@@ -192,3 +192,23 @@
 .acpmux-rail-output:hover{background:var(--acpmux-menu-hover)}
 .acpmux-rail-output:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-rail-note{margin:0;padding:4px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-rail-pr{display:flex;align-items:flex-start;gap:8px;padding:5px 8px;border-radius:7px;color:inherit;text-decoration:none;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-rail-pr:hover{background:var(--acpmux-menu-hover)}
+.acpmux-rail-pr:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-rail-pr>svg{flex:none;margin-top:3px;color:var(--agent-muted)}
+.acpmux-rail-pr[data-state="open"]>svg{color:var(--agent-success,var(--acpmux-add))}
+.acpmux-rail-pr[data-state="merged"]>svg{color:var(--agent-ansi-5,var(--agent-accent))}
+.acpmux-rail-pr[data-state="closed"]>svg{color:var(--agent-danger)}
+.acpmux-rail-pr__text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.acpmux-rail-pr__title{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.acpmux-rail-pr__line{display:flex;align-items:center;gap:6px;min-width:0;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;font-variant-numeric:tabular-nums}
+.acpmux-rail-pr__ref{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.acpmux-rail-pr__line .acpmux-diff-counts{flex:none}
+.acpmux-rail-pr__state,.acpmux-rail-pr__checks{flex:none;margin-left:auto}
+.acpmux-rail-pr__checks[data-checks="failing"]{color:var(--agent-danger)}
+.acpmux-rail-pr__checks[data-checks="passing"],.acpmux-rail-pr__checks[data-checks="pending"]{width:7px;height:7px;margin-right:2px;border-radius:50%;background:var(--agent-success,var(--acpmux-add))}
+.acpmux-rail-pr__checks[data-checks="pending"]{background:var(--agent-warning,var(--agent-muted))}
+.acpmux-rail-more{display:block;height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
+.acpmux-rail-more:hover{color:var(--agent-text)}
+.acpmux-rail-more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-rail-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
