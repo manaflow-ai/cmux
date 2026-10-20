@@ -70,6 +70,20 @@ class NightlyBuildState(unittest.TestCase):
         self.assertFalse((self.workspace / 'build-universal').exists())
         self.assertFalse((self.workspace / '.spm-cache').exists())
 
+    def test_cache_dir_outlives_the_job_only_on_a_trusted_worker(self):
+        path = state.cache_dir(self.home, 'cmux15-glaeda-1', 'notices-sources')
+        self.assertEqual(path, self.retained('cmux15-glaeda-1') / 'caches/notices-sources')
+        # prepare deletes kept DerivedData, never a source cache beside it.
+        crate = path / 'registry/src/index.crates.io-notices/serde-1.0.0/Cargo.toml'
+        crate.parent.mkdir(parents=True)
+        crate.write_text('kept')
+        self.assertTrue(self.prepare(runner='cmux15-glaeda-1'))
+        self.assertEqual(crate.read_text(), 'kept')
+        self.assertIsNone(state.cache_dir(self.home, 'blacksmith-12vcpu-macos-26-1', 'notices-sources'))
+        self.assertIsNone(state.cache_dir(self.home, 'GitHub Actions 1000001', 'notices-sources'))
+        for bad in ('', '../x', 'a/b', 'Notices'):
+            self.assertIsNone(state.cache_dir(self.home, 'cmux15-glaeda', bad))
+
 
 if __name__ == '__main__':
     unittest.main()
