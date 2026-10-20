@@ -82,8 +82,10 @@ describe("Run worker Cloud origin", () => {
   });
 
   test("an unknown project never takes its origin from the production domain", () => {
-    process.env.VERCEL_PROJECT_ID = "prj_unknown";
     process.env.VERCEL_PROJECT_PRODUCTION_URL = "cmux-staging.vercel.app";
-    expect(() => runCloudOrigin()).toThrow();
+    for (const project of ["prj_unknown", "constructor", "__proto__", "toString"]) {
+      process.env.VERCEL_PROJECT_ID = project;
+      expect(() => runCloudOrigin()).toThrow();
+    }
   });
 });
