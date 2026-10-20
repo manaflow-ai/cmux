@@ -94,11 +94,12 @@ end reason, the decision, or `old->new` for a permission change).
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. |
 | `PUT /v1/devices/:id/mac-screen` | `{shared}` | `{device}` | Only device `:id` itself may change its own sharing. |
+| `POST /v1/devices/:id/sign-out` | | `{}` | Only device `:id` itself (403 `not_host` otherwise). Ends its sessions at once with reason `signed_out` and closes its User DO socket (code 4003). The device stays registered. Call it before dropping the account session. |
 | `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `ask`. |
-| `PUT /v1/permissions/:hostId/:viewerId` | `{scope}` | `{permission:{hostId, viewerId, scope, previous, updatedAt}}` | Any of the user's devices may set it in v1. Lowering a scope revokes sessions that exceed it: `none` ends every open session of the pair, `view` ends `full` ones; `ask` and `full` end none. |
+| `PUT /v1/permissions/:hostId/:viewerId` | `{scope}` | `{permission:{hostId, viewerId, scope, previous, updatedAt}}` | Only device `:hostId` itself (403 `not_host` otherwise). A viewer raises its access only by requesting a session; the host's `always` decision stores the permission. Lowering a scope revokes sessions that exceed it: `none` ends every open session of the pair, `view` ends `full` ones; `ask` and `full` end none. |
 | `POST /v1/sessions` | `{hostId, scope}` | `{session:{id, state, scope}}` | From the viewer. See flow. |
 | `POST /v1/sessions/:id/decision` | `{decision:'deny'\|'once'\|'always', scope}` | `{session}` | From the host device only. `scope` defaults to the requested one and may lower `full` to `view`, never raise it (400). `always` stores the permission. Requests expire after 5 min. |
-| `POST /v1/sessions/:id/end` | `{reason}` | `{}` | Either side; idempotent. Pushes `session.revoked`. |
+| `POST /v1/sessions/:id/end` | `{reason}` | `{}` | Either side; idempotent. Pushes `session.revoked`. Without `reason`: `host_stopped` from the host, `viewer_disconnected` from the viewer. |
 | `POST /v1/sessions/:id/ice` | | `{ice:[…]}` | Fresh cmux relay credentials while `approved`/`live` (paid only; else `[]`); otherwise 409 `session_not_active`. |
 | `GET /v1/relays` | | `{relays:[…]}` | Each relay carries `sealed: {<this device id>: blob}` or `{}`. |
 | `PUT /v1/relays/:id` | `{name, urls, authMode, sealed, enabled, priority}` | `{relay}` | `sealed`: `{deviceId: base64}` for every device. |
@@ -117,8 +118,10 @@ v1 does not rate-limit yet), `internal` (500).
 
 `GET /v1/user/ws` (upgrade), with the account and device headers. One socket per
 device (a new one replaces the old, which is closed with code 4000; a removed
-device's socket is closed with 4001). Connecting and disconnecting push
-`devices.changed` to the other devices. Server → device messages:
+device's socket is closed with 4001, a signed-out one's with 4003).
+Connecting pushes `devices.changed` to every device, the connecting one
+included (its own entry is now `online`); disconnecting pushes it to the
+others. Server → device messages:
 
 ```
 {type:'devices.changed'}                       // refetch GET /v1/devices
@@ -177,12 +180,14 @@ device refetches state after it reconnects.
    sdpMLineIndex}`.
 6. When both are connected the Session DO marks the session `live` (audit
    `started`). When either sends `bye`, closes, or the server revokes, it
-   marks `ended` (audit `ended` with duration and reason `bye`/`closed`, push
-   `session.ended` to both), closes both sockets and deletes its storage.
+   closes both sockets and deletes its storage. A `bye` or socket close is a
+   provisional end: if no authoritative end (below) arrives within 3 s, the
+   session ends with reason `bye`/`closed` (audit `ended` with duration, push
+   `session.ended` to both).
 7. Revocation: removing a device, lowering a permission, turning sharing off,
-   or ending from either side pushes `session.revoked` to both devices (reason
-   `device_removed`, `permission_changed`, `sharing_off`, or the `/end`
-   reason), closes the signaling sockets with code 4002 and audits `ended`; the
+   signing out, or ending from either side pushes `session.revoked` to both
+   devices, closes the signaling sockets with code 4002 and audits `ended`
+   with the same reason; the
    host closes the peer connection at once; `/ice` stops renewing. Pending
    requests are ended the same way.
 8. Offline devices: when a device's last User DO socket closes or errors while
@@ -191,6 +196,27 @@ device refetches state after it reconnects.
    reason `peer_offline`, push `session.ended` (reason `peer_offline`) to both
    devices, and the Session DO closes its sockets. A socket replaced by a new
    one from the same device does not count as offline.
+
+**End reasons.** The first authoritative reason wins; a socket close that
+arrives before it (a client often closes its sockets right after acting) does
+not replace it. The same string is pushed in `session.revoked` /
+`session.ended` and stored as the audit `ended` entry's `detail`:
+
+| Reason | Cause | Push |
+|---|---|---|
+| `permission_revoked` | the host lowered the viewer's permission | `session.revoked` |
+| `device_removed:viewer` | the viewer device was removed | `session.revoked` |
+| `device_removed:host` | the host device was removed | `session.revoked` |
+| `sharing_off` | the host turned Mac Screen sharing off | `session.revoked` |
+| `signed_out` | a device called `/v1/devices/:id/sign-out` | `session.revoked` |
+| `host_stopped` | the host called `/end` without a reason | `session.revoked` |
+| `viewer_disconnected` | the viewer called `/end` without a reason | `session.revoked` |
+| any other string | the `reason` given to `/end` (≤100 chars) | `session.revoked` |
+| `expired` | a pending request was decided after 5 min | `session.revoked` |
+| `peer_offline` | a device stayed disconnected for 30 s | `session.ended` |
+| `bye` / `closed` / `error` | the signaling socket sent `bye`, closed or failed, and no authoritative reason followed within 3 s | `session.ended` |
+
+A denied request ends with `session.denied`, not a reason.
 
 The host enforces the scope: in a `view` session it ignores all input.
 

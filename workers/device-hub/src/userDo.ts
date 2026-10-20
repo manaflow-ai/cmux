@@ -50,6 +50,12 @@ interface RelayRow {
 export const PENDING_TTL_MS = 5 * 60 * 1000;
 /** How long a device may stay disconnected before its sessions end (reason peer_offline). */
 export const OFFLINE_GRACE_MS = 30_000;
+/**
+ * A socket close reported by the Session DO is provisional for this long: an
+ * authoritative end (/end, revoke, removal, sharing off, sign-out) that arrives
+ * in the window wins. Env CLOSE_GRACE_MS overrides it.
+ */
+export const CLOSE_GRACE_MS = 3_000;
 const PERMISSION_SCOPES: PermissionScope[] = ["none", "ask", "view", "full"];
 const RELAY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -80,6 +86,7 @@ CREATE TABLE IF NOT EXISTS audit(
   duration_s INTEGER);
 CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts);
 CREATE TABLE IF NOT EXISTS offline(device_id TEXT PRIMARY KEY, since INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS closing(session_id TEXT PRIMARY KEY, reason TEXT NOT NULL, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS replay(
   device_id TEXT NOT NULL, ts TEXT NOT NULL, sig TEXT NOT NULL,
   expires_at INTEGER NOT NULL, PRIMARY KEY(device_id, ts, sig));
@@ -296,10 +303,11 @@ export class UserDO extends DurableObject<Env> {
       if (n === 2 && m === "PATCH") return this.renameDevice(b!, this.parse(raw));
       if (n === 2 && m === "DELETE") return this.removeDevice(b!);
       if (n === 3 && d === "mac-screen" && m === "PUT") return this.setSharing(me, b!, this.parse(raw));
+      if (n === 3 && d === "sign-out" && m === "POST") return this.signOut(me, b!);
     }
     if (a === "permissions") {
       if (n === 1 && m === "GET") return this.listPermissions(url.searchParams.get("host"));
-      if (n === 3 && m === "PUT") return this.setPermission(b!, d!, this.parse(raw));
+      if (n === 3 && m === "PUT") return this.setPermission(me, b!, d!, this.parse(raw));
     }
     if (a === "sessions") {
       if (n === 1 && m === "POST") return this.requestSession(me, this.parse(raw), c);
@@ -333,7 +341,8 @@ export class UserDO extends DurableObject<Env> {
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [me.id]);
     this.sql.exec("DELETE FROM offline WHERE device_id = ?", me.id);
-    this.broadcast({ type: "devices.changed" }, me.id);
+    // Everyone refetches, including this device: its cached list may say it is offline.
+    this.broadcast({ type: "devices.changed" });
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
@@ -366,13 +375,21 @@ export class UserDO extends DurableObject<Env> {
     const open = this.sql.exec("SELECT 1 FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?) LIMIT 1", deviceId, deviceId).toArray();
     if (open.length === 0) return;
     this.sql.exec("INSERT INTO offline(device_id, since) VALUES (?, ?) ON CONFLICT(device_id) DO NOTHING", deviceId, Date.now());
-    await this.scheduleOfflineAlarm();
+    await this.scheduleAlarm();
   }
 
-  private async scheduleOfflineAlarm() {
-    const row = this.sql.exec("SELECT MIN(since) AS since FROM offline").one();
-    if (row.since === null) return;
-    const at = (row.since as number) + OFFLINE_GRACE_MS;
+  private closeGraceMs(): number {
+    const v = Number(this.env.CLOSE_GRACE_MS);
+    return Number.isFinite(v) && v >= 0 && this.env.CLOSE_GRACE_MS ? v : CLOSE_GRACE_MS;
+  }
+
+  /** One alarm serves both offline grace periods and provisional socket-close ends. */
+  private async scheduleAlarm() {
+    const off = this.sql.exec("SELECT MIN(since) AS t FROM offline").one().t as number | null;
+    const close = this.sql.exec("SELECT MIN(at) AS t FROM closing").one().t as number | null;
+    const times = [off === null ? null : off + OFFLINE_GRACE_MS, close === null ? null : close + this.closeGraceMs()].filter((t): t is number => t !== null);
+    if (times.length === 0) return;
+    const at = Math.min(...times);
     const current = await this.ctx.storage.getAlarm();
     if (current === null || current > at) await this.ctx.storage.setAlarm(at);
   }
@@ -380,6 +397,12 @@ export class UserDO extends DurableObject<Env> {
   /** Ends the sessions of devices that stayed offline past the grace period. */
   async alarm(): Promise<void> {
     const now = Date.now();
+    const closed = this.sql.exec("SELECT session_id, reason FROM closing WHERE at + ? <= ?", this.closeGraceMs(), now).toArray();
+    for (const c of closed) {
+      const s = this.session(c.session_id as string);
+      this.sql.exec("DELETE FROM closing WHERE session_id = ?", c.session_id);
+      if (s) await this.endSession(s, c.reason as string, "ended", false);
+    }
     const due = this.sql.exec("SELECT device_id FROM offline WHERE since + ? <= ?", OFFLINE_GRACE_MS, now).toArray();
     for (const r of due) {
       const deviceId = r.device_id as string;
@@ -390,7 +413,7 @@ export class UserDO extends DurableObject<Env> {
         .toArray() as unknown as SessionRow[];
       for (const s of open) await this.endSession(s, "peer_offline", "ended", true);
     }
-    await this.scheduleOfflineAlarm();
+    await this.scheduleAlarm();
   }
 
   private renameDevice(id: string, body: Record<string, unknown>): Response {
@@ -405,12 +428,31 @@ export class UserDO extends DurableObject<Env> {
     const target = this.liveDevice(id);
     this.sql.exec("UPDATE devices SET removed_at = ?, mac_screen_shared = 0 WHERE id = ?", Date.now(), id);
     const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
-    for (const s of open) await this.endSession(s, "device_removed", "revoked", true);
+    for (const s of open) await this.endSession(s, `device_removed:${s.viewer_id === id ? "viewer" : "host"}`, "revoked", true);
     this.audit("device_removed", { detail: `${id} ${target.name}` });
     this.broadcast({ type: "devices.changed" });
     for (const ws of this.ctx.getWebSockets(id)) {
       try {
         ws.close(4001, "device removed");
+      } catch {
+        // already closed
+      }
+    }
+    return json({});
+  }
+
+  /** Ends this device's sessions now (reason signed_out) and closes its socket; the device stays registered. */
+  private async signOut(me: DeviceRow, id: string): Promise<Response> {
+    if (id !== me.id) {
+      this.liveDevice(id);
+      throw new ApiError(403, "not_host", "only the device itself can sign out");
+    }
+    const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
+    for (const s of open) await this.endSession(s, "signed_out", "revoked", true);
+    this.sql.exec("DELETE FROM offline WHERE device_id = ?", id);
+    for (const ws of this.ctx.getWebSockets(id)) {
+      try {
+        ws.close(4003, "signed out");
       } catch {
         // already closed
       }
@@ -446,8 +488,10 @@ export class UserDO extends DurableObject<Env> {
     return json({ permissions: viewers.map((v) => ({ viewerId: v.id as string, scope: this.permission(hostId, v.id as string) })) });
   }
 
-  private async setPermission(hostId: string, viewerId: string, body: Record<string, unknown>): Promise<Response> {
+  private async setPermission(me: DeviceRow, hostId: string, viewerId: string, body: Record<string, unknown>): Promise<Response> {
     this.liveDevice(hostId);
+    // A viewer raises its access only by asking; the host's `always` decision stores it.
+    if (me.id !== hostId) throw new ApiError(403, "not_host", "only the host sets who may view it");
     this.liveDevice(viewerId);
     if (hostId === viewerId) throw badRequest("host and viewer must differ");
     const scope = body.scope as PermissionScope;
@@ -475,7 +519,7 @@ export class UserDO extends DurableObject<Env> {
           .exec("SELECT * FROM sessions WHERE state != 'ended' AND host_id = ? AND viewer_id = ?", hostId, viewerId)
           .toArray() as unknown as SessionRow[];
         for (const s of open) {
-          if (scope === "none" || rank(s.scope) > rank(scope)) await this.endSession(s, "permission_changed", "revoked", true);
+          if (scope === "none" || rank(s.scope) > rank(scope)) await this.endSession(s, "permission_revoked", "revoked", true);
         }
       }
     }
@@ -588,7 +632,8 @@ export class UserDO extends DurableObject<Env> {
   private async endFromDevice(me: DeviceRow, id: string, body: Record<string, unknown>): Promise<Response> {
     const s = this.session(id);
     if (!s || (s.viewer_id !== me.id && s.host_id !== me.id)) throw notFound("session not found");
-    const reason = typeof body.reason === "string" && body.reason ? body.reason.slice(0, 100) : "ended";
+    const fallback = s.host_id === me.id ? "host_stopped" : "viewer_disconnected";
+    const reason = typeof body.reason === "string" && body.reason ? body.reason.slice(0, 100) : fallback;
     await this.endSession(s, reason, "revoked", true);
     return json({});
   }
@@ -601,6 +646,7 @@ export class UserDO extends DurableObject<Env> {
   private async endSession(s: SessionRow, reason: string, push: "revoked" | "ended", closeSignal: boolean) {
     const current = this.session(s.id);
     if (!current || current.state === "ended") return;
+    this.sql.exec("DELETE FROM closing WHERE session_id = ?", s.id);
     const now = Date.now();
     this.sql.exec("UPDATE sessions SET state = 'ended', ended_at = ?, end_reason = ? WHERE id = ?", now, reason, s.id);
     const durationS = current.started_at ? Math.round((now - current.started_at) / 1000) : null;
@@ -745,7 +791,13 @@ export class UserDO extends DurableObject<Env> {
       return json({ ok: true });
     }
     if (path === "/internal/session-ended") {
-      await this.endSession(s, (body.reason ?? "ended").slice(0, 100), "ended", false);
+      const reason = (body.reason ?? "closed").slice(0, 100);
+      if (s.state !== "ended") {
+        // Provisional: a client often closes its sockets just before its /end or
+        // revoke reaches us. The alarm ends it with this reason if nothing else does.
+        this.sql.exec("INSERT INTO closing(session_id, reason, at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO NOTHING", s.id, reason, Date.now());
+        await this.scheduleAlarm();
+      }
       return json({ ok: true });
     }
     return json({ ok: false }, 404);
