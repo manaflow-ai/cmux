@@ -247,6 +247,25 @@ impl PreviewPort for FakeUploader {
         ));
         Ok(image)
     }
+
+    fn upload_attachment(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<DerivedImage, OpError> {
+        self.upload_image(
+            conversation,
+            bytes,
+            mime_type,
+            name,
+            width.unwrap_or(0),
+            height.unwrap_or(0),
+        )
+    }
 }
 
 impl ConversationPort for FakeDaemon {

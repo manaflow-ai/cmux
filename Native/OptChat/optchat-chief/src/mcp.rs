@@ -43,7 +43,7 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
     ];
     if !subagent && grant.allows("spawn") {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": crate::tools::EFFORTS, "description": "How hard they think; by default, as hard as you."}}, "required": ["tasks"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": crate::tools::EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": crate::tools::PLACES, "description": "cloud: on the cloud VM peer (code, tests through the fleet); local: on this Mac (its app, UI, computer use). By default: the `control cloud` setting."}}, "required": ["tasks"], "additionalProperties": false}}));
     }
     if !subagent && grant.allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
@@ -54,7 +54,8 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
             "id": {"type": "string", "minLength": 1, "description": "The subagent (a<N>); status without it shows all."},
             "message": {"type": "string", "minLength": 1, "description": "interrupt/restart/resume: the prompt sent once it has stopped."},
             "option": {"type": "string", "minLength": 1, "description": "answer: the option id of its pending prompt, or deny."},
-            "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."}},
+            "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."},
+            "peer": {"type": "string", "minLength": 1, "description": "cloud: the acpmux peers (acpmux host ls, comma-separated) new subagents run on by default, each on the least busy, or off; without it, shows the setting."}},
           "required": ["action"], "additionalProperties": false}}));
     }
     if !subagent && grant.allows("profile") {
@@ -66,7 +67,7 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
     // The Chief's own words in its conversation: never a grant to withhold.
     if !subagent {
         list.push(json!({"name": "react", "description": REACT_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "enum": crate::brain::REACTIONS}}, "required": ["id", "reaction"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "description": crate::prompt::REACT_REACTION_DESCRIPTION}}, "required": ["id", "reaction"], "additionalProperties": false}}));
         list.push(json!({"name": "reply", "description": REPLY_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int, "text": text}, "required": ["id", "text"], "additionalProperties": false}}));
     }

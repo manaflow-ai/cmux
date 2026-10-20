@@ -20,7 +20,6 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .unimplemented: [
             "palette.browserToggleOmnibar",
-            "palette.openVaultPane",
             "palette.openFindPane",
             "palette.openFilesPane",
         ],
@@ -63,6 +62,7 @@ nonisolated extension ActionSurfaceCatalog {
             "music.open", "music.stop",
             "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
             "layout.undo", "bookmark.add", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export", "agentActivity.open",
+            "palette.openVaultPane",
         ],
         .noTargetSurface: [
             "browserProfile.openLink", "file.open",
@@ -74,7 +74,7 @@ nonisolated extension ActionSurfaceCatalog {
             "simulatorRotateLeft", "simulatorRotateRight", "simulatorToggleAppearance",
             "simulatorToggleSoftwareKeyboard", "agentPane.searchChats", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
             "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview", "markdownSave",
-            "markdownLink", "markdownBack", "markdownForward",
+            "markdownLink", "markdownBack", "markdownForward", "markdownResetTableWidths",
             "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",
             "filePreviewRevealInFinder", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",
             "diffViewerHalfPageUp", "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom",
