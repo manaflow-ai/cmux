@@ -41,6 +41,12 @@
 //!   sets `ACPMUX_AGENT_TOOLS=0` (isolated sessions such as the Chief's
 //!   compactor), and Claude args with `--strict-mcp-config`.
 //!   `ACPMUX_AGENT_TOOLS=0` on the daemon turns all of it off.
+//! - Agent memory (`cmux-agent-memory`, cmux#21611): `optchat-chief
+//!   agent-memory mcp`, long-term memory the user's Codex and Claude Code
+//!   sessions share, only when cmux.json sets `agents.memory.enabled` to
+//!   `true` (default off; the server reads its other `agents.memory.*` keys
+//!   itself). It gets the session as [`AGENT_SESSION_ENV`], the provenance
+//!   of the notes it saves.
 //! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
@@ -61,6 +67,9 @@ pub const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
 /// (a daemon an agent started carries that agent's session too).
 pub const INHERITED_CALLER_ENV: [&str; 4] =
     ["CMUX_TUI_TERMINAL_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID", AGENT_SESSION_ENV];
+
+/// The agent memory server's name (`optchat-chief agent-memory mcp`).
+pub const MEMORY_SERVER_NAME: &str = "cmux-agent-memory";
 
 /// A session env key passed to `cmux-cua mcp`: exact bundle ids the
 /// session's computer use may target although the guard refuses them.
@@ -438,6 +447,16 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
+    if let Some(chief) = executable("optchat-chief")
+        && inputs.cmux_json.as_deref().is_some_and(memory_enabled)
+    {
+        servers.push(McpServer {
+            name: MEMORY_SERVER_NAME.into(),
+            command: chief,
+            args: vec!["agent-memory".into(), "mcp".into()],
+            env: vec![],
+        });
+    }
     let plugin_dir = match materialize(&inputs.state_dir) {
         Ok(dir) => Some(dir),
         Err(e) => {
@@ -519,7 +538,7 @@ impl AgentTools {
     pub fn for_session(mut self, session_id: &str) -> Self {
         for server in &mut self.servers {
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
-            if server.name == "cmux" {
+            if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
             }
             let session_env = match server.name.as_str() {
@@ -694,6 +713,15 @@ fn mcp_disabled(text: &str) -> bool {
     crate::user_settings::document(text)
         .and_then(|doc| doc.pointer("/mcp/enabled").cloned())
         .is_some_and(|v| !v.is_null() && v != Value::Bool(true))
+}
+
+/// Agent memory is on only when the settings file says
+/// `agents.memory.enabled` is `true`: it reads the user's memory files, so
+/// a missing key, another value or an unreadable file leaves it off.
+fn memory_enabled(text: &str) -> bool {
+    crate::user_settings::document(text)
+        .and_then(|doc| crate::user_settings::value(&doc, "agents.memory.enabled"))
+        == Some(Value::Bool(true))
 }
 
 /// The plugin folder for the compiled-in skills, written once per content
