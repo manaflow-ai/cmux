@@ -54,7 +54,7 @@ extension HomeService {
     }
 
     /// The Chief record behind a conversation row, when the row is a DM
-    /// with one of my cloud Chiefs (the local Chief is never archived).
+    /// with one of my cloud Chiefs (this Mac's Chiefs are not archived here).
     func chief(of row: InboxRow) -> HomeChiefRecord? {
         guard row.kind == .chief, let me = homeStore.me?.id,
               let agent = row.summary.participants.first(where: { $0.id != me && $0.isChief }) else { return nil }
