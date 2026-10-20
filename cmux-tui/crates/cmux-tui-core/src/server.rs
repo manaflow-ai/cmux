@@ -222,6 +222,7 @@ mod session_stream;
 mod split_kind;
 mod split_respawn;
 mod tab_column;
+mod tab_park;
 mod tab_restart;
 mod websocket_listener;
 #[cfg(test)]
@@ -1119,6 +1120,7 @@ enum Command {
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     RestartTab(tab_restart::Params),
+    ParkTabs(tab_park::Params),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
