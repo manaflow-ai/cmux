@@ -28,7 +28,7 @@ import { armIds, validateExperiments, type Experiment } from "../experiments/exp
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
-import type { AccountsState, AgentsState, HarnessesState, HostLists } from "../pages/settings/ops";
+import type { AccountsState, AgentsState, HarnessesState, HostLists, IntegrationsState } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
@@ -49,6 +49,8 @@ export type SettingsPageVariant = VariantBase & {
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
   harnesses?: HarnessesState;
+  /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
+  integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
   backdropImages?: Record<string, string>;
   loading?: boolean;
