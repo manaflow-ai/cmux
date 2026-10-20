@@ -345,6 +345,7 @@ export class MockSettingsProvider {
         outdated: true,
         auth: "signedOut",
         update: { command: "npm install -g @openai/codex@latest", elevated: false },
+        ownerUpdate: true,
       },
       { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
       { id: "aider", name: "Aider", kind: "terminal", source: "user-file", problem: null },
