@@ -14,6 +14,7 @@ export function useChatViewer(sessionId: string | undefined, cwd: string | undef
   const restore = useRef<HTMLElement | undefined>(undefined);
   const session = useRef(sessionId);
   const generation = useRef(0);
+  const fileRequest = useRef(0);
   if (session.current !== sessionId) {
     session.current = sessionId;
     fileOpener.current = undefined;
@@ -30,12 +31,18 @@ export function useChatViewer(sessionId: string | undefined, cwd: string | undef
   const viewFile = useCallback((path: string, opener?: HTMLElement): Promise<void> => {
     const clicked = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
     const initiatingSession = session.current;
-    const request = ++generation.current;
+    const started = generation.current;
+    const request = ++fileRequest.current;
+    const current = () =>
+      session.current === initiatingSession && generation.current === started && fileRequest.current === request;
     return readPathChip(path)
       .then((reply) => {
-        if (session.current !== initiatingSession || generation.current !== request) return;
+        if (!current()) return;
         const value = reply as (ViewedFile & { kind?: string }) | undefined;
         if (value?.kind !== "text" || typeof value.path !== "string" || typeof value.text !== "string") return;
+        // Files stays current while a read is pending or opens outside the viewer. Only a
+        // successful text read replaces it and invalidates its pending listing/search.
+        generation.current += 1;
         fileOpener.current = clicked;
         opened.current();
         setFileView({
@@ -47,7 +54,7 @@ export function useChatViewer(sessionId: string | undefined, cwd: string | undef
         });
       })
       .catch((error: unknown) => {
-        if (session.current === initiatingSession && generation.current === request) throw error;
+        if (current()) throw error;
       });
   }, []);
   const fileOpen = fileView !== undefined && fileView.sessionId === sessionId;
