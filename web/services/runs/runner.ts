@@ -69,7 +69,8 @@ async function executeClaim(attempt: ClaimedRunAttempt, client: RunCloudClient) 
   const response = await labelRunStage("guest-command", () => client("POST", `/api/vm/${encodeURIComponent(providerVmId)}/exec`, { command, timeoutMs: spec.resources.wallTimeoutMs }));
   if (response.exitCode === 75) throw new RunPending("Guest command remains active");
   if (response.exitCode !== 0 || typeof response.stdout !== "string") {
-    throw Object.assign(new Error("Guest source/setup or recipe failed"), { runStage: "guest-command", exitCode: response.exitCode });
+    // Exit 0 without stdout is still a failure; only a nonzero code is named.
+    throw Object.assign(new Error("Guest source/setup or recipe failed"), { runStage: "guest-command", ...(response.exitCode !== 0 ? { exitCode: response.exitCode } : {}) });
   }
   const stdout = response.stdout;
   const sourceReceipt = await labelRunStage("source-receipt", async () => parseSourceVerificationReceipt(stdout, spec));

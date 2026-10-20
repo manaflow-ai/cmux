@@ -9,7 +9,7 @@ export async function labelRunStage<T>(stage: string, work: () => Promise<T>): P
   try {
     return await work();
   } catch (error) {
-    if (error instanceof Error && (error as { runStage?: unknown }).runStage === undefined) Object.assign(error, { runStage: stage });
+    if (error instanceof Error && Object.isExtensible(error) && (error as { runStage?: unknown }).runStage === undefined) Object.assign(error, { runStage: stage });
     throw error;
   }
 }
