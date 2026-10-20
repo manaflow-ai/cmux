@@ -680,7 +680,9 @@ class Run:
                 "cores": int(sysctl("hw.ncpu") or 0), "ram_gb": int(sysctl("hw.memsize") or 0) // 2**30,
                 "macos": platform.mac_ver()[0], "build": subprocess.run(["sw_vers", "-buildVersion"],
                                                                        capture_output=True, text=True).stdout.strip(),
-                "load_start": round(procs.load_average(), 2), "displays": self.helper.displays()}
+                "load_start": round(procs.load_average(), 2), "displays": self.helper.displays(),
+                "session": subprocess.run(["launchctl", "managername"], capture_output=True,
+                                          text=True).stdout.strip()}
 
     def main(self):
         a = self.args
@@ -700,6 +702,12 @@ class Run:
         with open(meta_path, "w") as handle:
             json.dump(meta, handle, indent=1)
         log(f"machine {json.dumps(meta['machine'])}")
+        if meta["machine"]["session"] != "Aqua":
+            # LaunchServices refuses to start apps outside a logged-in GUI session
+            # (RBSRequestErrorDomain Code=5 "Launch failed"): no row can be measured.
+            print(f"PERF-BENCH-NO-GUI launchd domain {meta['machine']['session']!r}, not Aqua: this host cannot "
+                  "launch browsers (needs a worker in a logged-in GUI session)", flush=True)
+            sys.exit(3)
         if not meta["machine"]["displays"].get("count"):
             log("WARNING: no active display: paint, switch and video rows may not be meaningful")
         caffeinate = subprocess.Popen(["caffeinate", "-dimsu"])
@@ -760,7 +768,8 @@ def ratio(cmux_value, other) -> str:
 
 
 def report(out: str, md_path: str | None, json_path: str | None):
-    samples = [json.loads(line) for line in open(os.path.join(out, "samples.jsonl")) if line.strip()]
+    path = os.path.join(out, "samples.jsonl")
+    samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
     rows = aggregate(samples)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
@@ -781,7 +790,8 @@ def report(out: str, md_path: str | None, json_path: str | None):
              "results.json, min-max there too). Lower is better.", ""]
     versions = ", ".join(f"{meta['browsers'][b]['name']} {meta['browsers'][b]['version']}" for b in present)
     lines += [f"Versions: {versions}.", ""]
-    head = ["Metric"] + [LABELS[b] for b in present] + ["best other", "cmux vs best other", "Ardia (published, M5 Pro)"]
+    head = ["Metric"] + [LABELS[b] for b in present] + ["best other", "cmux vs best other", "Ardia (published, M5 Pro)",
+                                                   "Helium (published)"]
     lines += ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for row, label, unit, main in ROWS:
         per = rows.get(row, {})
@@ -793,7 +803,7 @@ def report(out: str, md_path: str | None, json_path: str | None):
         lines.append("| " + " | ".join([label + ("" if main else " *")] + cells + [
             f"{fmt(best[0], unit)} ({LABELS[best[1]]})" if best else "–",
             ratio(cmux_best, best[0] if best else None),
-            fmt(PUBLISHED["ardia"].get(row), unit)]) + " |")
+            fmt(PUBLISHED["ardia"].get(row), unit), fmt(PUBLISHED["helium"].get(row), unit)]) + " |")
     lines += ["", "\\* not in Ardia's tweet. \"cmux vs best other\" uses the best cmux variant of the row. "
               "Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. "
               "The 10x goal: every cmux cell at a tenth of the best other.", ""]
@@ -857,7 +867,7 @@ def main():
     run.add_argument("--settle", type=float, default=30)
     run.add_argument("--template-settle", type=float, default=45)
     run.add_argument("--max-load", type=float, default=4)
-    run.add_argument("--quiet-wait", type=float, default=300)
+    run.add_argument("--quiet-wait", type=float, default=120)
     run.add_argument("--cmux-ref", default="")
     run.add_argument("--work", default="/private/tmp/xbench")
     run.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"))
