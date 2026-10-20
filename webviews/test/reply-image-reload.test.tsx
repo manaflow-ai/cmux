@@ -56,7 +56,10 @@ test("a clicked image survives the automatic cache filling up; an evicted automa
       );
     });
   const clicked = "https://images.example.com/clicked.png";
-  const autos = Array.from({ length: IMAGE_CACHE_MAX_ENTRIES + 2 }, (_, i) => `https://images.example.com/auto-${i}.png`);
+  const autos = Array.from(
+    { length: IMAGE_CACHE_MAX_ENTRIES + 2 },
+    (_, i) => `https://images.example.com/auto-${i}.png`,
+  );
 
   resetLinkStore();
   seedLinkStore({ policy: { remoteImages: "click" } });
