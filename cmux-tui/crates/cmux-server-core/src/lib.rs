@@ -44,6 +44,7 @@ pub mod health;
 pub mod install_key;
 pub mod layout;
 pub mod manifest;
+pub mod network_policy;
 pub mod pairing;
 pub mod pg;
 pub mod platform;

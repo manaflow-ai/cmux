@@ -34,7 +34,7 @@ export const liveHost = (d: PeerDeps, host: NetworkHost): boolean => {
     && (host.kind !== "server" || serverPlacementActive(state, d.rows, host.id, host.enrolled_by))
 }
 export const ownHost = (d: PeerDeps, p: Principal, id: string): NetworkHost | null => {
-  if (p.kind !== "install" || p.agent || !p.install || !p.user || !p.grant || p.team !== d.team) return null
+  if (p.kind !== "install" || p.agent !== undefined || !p.install || !p.user || !p.grant || p.team !== d.team) return null
   const host = hostOf(d.state(), d.rows, id)
   return host && liveHost(d, host) && host.enrolled_by === p.install && host.owner_user === p.user
     && host.network?.state === "confirmed" && host.network.install_grant === p.grant

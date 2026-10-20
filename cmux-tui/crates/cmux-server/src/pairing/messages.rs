@@ -2,6 +2,7 @@
 
 pub(crate) struct Messages {
     pub pair_help: &'static str,
+    pub policy_help: &'static str,
     pub status_help: &'static str,
     pub code: &'static str,
     pub words: &'static str,
@@ -29,6 +30,7 @@ pub(crate) fn for_locale(locale: &str) -> Messages {
         "ja" => Messages {
             pair_help: "cmux アプリでこのサーバーをペアリング",
             status_help: "このサーバーのペアリング状態を表示",
+            policy_help: "このサーバーの現在のネットワークポリシーを表示",
             code: "ペアリングコード:",
             words: "確認用の単語:",
             approve: "cmux アプリの「サーバーを追加」でコードを入力し、単語が一致することを確認して承認してください。",
@@ -42,6 +44,7 @@ pub(crate) fn for_locale(locale: &str) -> Messages {
         "de" => Messages {
             pair_help: "Diesen Server in der cmux-App koppeln",
             status_help: "Kopplungsstatus dieses Servers anzeigen",
+            policy_help: "Aktuelle Netzwerkrichtlinie dieses Servers anzeigen",
             code: "Kopplungscode:",
             words: "Prüfwörter:",
             approve: "In der cmux-App „Server hinzufügen“ wählen, den Code eingeben, die Wörter vergleichen und bestätigen.",
@@ -55,6 +58,7 @@ pub(crate) fn for_locale(locale: &str) -> Messages {
         "fr" => Messages {
             pair_help: "Associer ce serveur dans l’app cmux",
             status_help: "Afficher l’état d’association de ce serveur",
+            policy_help: "Afficher la politique réseau actuelle de ce serveur",
             code: "Code d’association :",
             words: "Mots de vérification :",
             approve: "Dans l’app cmux, choisissez « Ajouter un serveur », saisissez le code, comparez les mots et approuvez.",
@@ -68,6 +72,7 @@ pub(crate) fn for_locale(locale: &str) -> Messages {
         "es" => Messages {
             pair_help: "Vincular este servidor en la app cmux",
             status_help: "Mostrar el estado de vinculación de este servidor",
+            policy_help: "Mostrar la política de red actual de este servidor",
             code: "Código de vinculación:",
             words: "Palabras de verificación:",
             approve: "En la app cmux, elige «Añadir servidor», introduce el código, comprueba las palabras y aprueba.",
@@ -81,6 +86,7 @@ pub(crate) fn for_locale(locale: &str) -> Messages {
         "ar" => Messages {
             pair_help: "إقران هذا الخادم في تطبيق cmux",
             status_help: "عرض حالة إقران هذا الخادم",
+            policy_help: "عرض سياسة الشبكة الحالية لهذا الخادم",
             code: "رمز الإقران:",
             words: "كلمات التحقق:",
             approve: "في تطبيق cmux، اختر «إضافة خادم»، وأدخل الرمز، وتحقق من تطابق الكلمات، ثم وافق.",
@@ -94,6 +100,7 @@ pub(crate) fn for_locale(locale: &str) -> Messages {
         "ko" => Messages {
             pair_help: "cmux 앱에서 이 서버 페어링",
             status_help: "이 서버의 페어링 상태 표시",
+            policy_help: "이 서버의 현재 네트워크 정책 표시",
             code: "페어링 코드:",
             words: "확인 단어:",
             approve: "cmux 앱에서 ‘서버 추가’를 선택하고 코드를 입력한 다음 단어가 일치하는지 확인하고 승인하세요.",
@@ -111,6 +118,7 @@ pub(crate) fn for_locale(locale: &str) -> Messages {
             Messages {
                 pair_help: "在 cmux App 中配對此伺服器",
                 status_help: "顯示此伺服器的配對狀態",
+                policy_help: "顯示此伺服器目前的網路原則",
                 code: "配對碼：",
                 words: "驗證詞語：",
                 approve: "在 cmux App 中選擇「新增伺服器」，輸入配對碼，確認詞語相符後批准。",
@@ -125,6 +133,7 @@ pub(crate) fn for_locale(locale: &str) -> Messages {
         "zh" => Messages {
             pair_help: "在 cmux 应用中配对此服务器",
             status_help: "显示此服务器的配对状态",
+            policy_help: "显示此服务器当前的网络策略",
             code: "配对码：",
             words: "验证词语：",
             approve: "在 cmux 应用中选择“添加服务器”，输入配对码，确认词语一致后批准。",
@@ -138,6 +147,7 @@ pub(crate) fn for_locale(locale: &str) -> Messages {
         _ => Messages {
             pair_help: "Pair this server in the cmux app",
             status_help: "Show this server’s pairing status",
+            policy_help: "Show this server’s current network peer policy",
             code: "Pairing code:",
             words: "Check words:",
             approve: "In the cmux app, choose Add Server, enter the code, check that the words match and approve.",

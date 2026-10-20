@@ -5,7 +5,7 @@ import { NativeDeviceId, NativeMeshId, NativeTenantId, ServerNetworkProof } from
 
 const Version = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
 const Point = Schema.String.check(Schema.isPattern(/^B[A-Za-z0-9+/]{86}=$/))
-const Port = Schema.Int.check(Schema.isBetween(1, 65535))
+const Port = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))
 export const NetworkAllow = Schema.Union([
   Schema.Struct({ protocol: Schema.Literals(["tcp", "udp"]), port: Schema.optionalKey(Port) }),
   Schema.Struct({ protocol: Schema.Literals(["any", "icmp"]) })
@@ -15,8 +15,8 @@ export const HostNetworkPeer = Schema.Struct({
   authority_version: Version, inbound: Schema.Array(NetworkAllow).check(Schema.isMaxLength(4096)), outbound: Schema.Array(NetworkAllow).check(Schema.isMaxLength(4096))
 }).annotate({ identifier: "HostNetworkPeer" })
 export const HostNetworkPolicyView = Schema.Struct({
-  host: HostId, team: TeamId, tenant: NativeTenantId, mesh: NativeMeshId, device: NativeDeviceId,
-  wg_public_key: WgPublicKey, install_public_key: Point, authority_version: Version, expires_at: Schema.Int,
+  schema_version: Schema.Literal(1), host: HostId, user: UserId, install: InstallId, team: TeamId, origin: Schema.String, tenant: NativeTenantId, mesh: NativeMeshId, device: NativeDeviceId,
+  wg_public_key: WgPublicKey, install_public_key: Point, authority_version: Version, checked_at: Schema.Int, expires_at: Schema.Int,
   acl_version: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)), policy_digest: Version,
   peers: Schema.Array(HostNetworkPeer).check(Schema.isMaxLength(128))
 }).annotate({ identifier: "HostNetworkPolicyView" })

@@ -53,6 +53,7 @@ const pointUnique = (d: Deps, hosts: NetworkHost[], identities: Map<string, Netw
 
 /** A fresh identity projection, not a dial token or permission to activate a listener. */
 export const hostNetworkPolicy = async (d: Deps, p: Principal, params: unknown): Promise<ReadResult> => {
+  const checkedAt = d.now()
   const fail = (code: string, message: string): ReadResult => ({ ok: false, code, message })
   const forbidden = () => fail("auth.forbidden", "the current host network identity could not be verified")
   const unavailable = () => fail("owner.unreachable", "the current host network policy is unavailable")
@@ -61,7 +62,8 @@ export const hostNetworkPolicy = async (d: Deps, p: Principal, params: unknown):
   const decoded = decodeParams<typeof HostNetworkPolicy.params.Type>(HostNetworkPolicy, params)
   if (!decoded.ok) return fail("validation.invalid", "invalid host network policy request")
   const host = ownHost(d, p, decoded.value.host), origin = networkOrigin(d.origin())
-  if (!host?.network || !origin) return forbidden()
+  if (!host?.network) return forbidden()
+  if (!origin) return unavailable()
   try {
     const [tenant, own] = await Promise.all([d.tenant(), d.identity(p.user!, p.install!, p.grant!)])
     if (tenant?.team !== d.team || tenant.project !== d.project || tenant.tenant !== host.network.tenant || !identityMatches(host, own, d.now())) return forbidden()
@@ -93,7 +95,7 @@ export const hostNetworkPolicy = async (d: Deps, p: Principal, params: unknown):
     const liveCandidates = currentAll.filter((h) => sameNetwork(current, h) && liveHost(d, h))
     if (digest(liveCandidates.map((h) => hostStamp(d, h))) !== graph || !pointUnique(d, liveCandidates, second, point)) return forbidden()
     const now = d.now()
-    let expires = Math.min(now + 30_000, currentOwn.expires_at ?? Infinity, p.expires_at ?? Infinity)
+    let expires = Math.min(checkedAt + 30_000, currentOwn.expires_at ?? Infinity, p.expires_at ?? Infinity)
     const peers = initial.flatMap(({ native, host: old, stamp }) => {
       const identity = second.get(old.id) ?? null, live = currentAll.find((h) => h.id === old.id)
       if (!live || !liveHost(d, live) || hostStamp(d, live) !== stamp || currentAll.filter((h) => sameNetwork(current, h) && liveHost(d, h) && sameCandidate(live, h)).length !== 1
@@ -103,7 +105,7 @@ export const hostNetworkPolicy = async (d: Deps, p: Principal, params: unknown):
         authority_version: digest(["cmux-network-peer-v1", stamp, identity.authority_version]), inbound: native.inbound.map(({ protocol, port }) => ({ protocol, ...(port === undefined ? {} : { port }) })), outbound: native.outbound.map(({ protocol, port }) => ({ protocol, ...(port === undefined ? {} : { port }) })) }]
     })
     if (expires <= now) return forbidden()
-    const value = { host: current.id, team: d.team, tenant: tenant.tenant, mesh: current.network!.mesh, device: current.network!.device,
+    const value = { schema_version: 1, host: current.id, user: current.owner_user!, install: current.enrolled_by, origin, checked_at: checkedAt, team: d.team, tenant: tenant.tenant, mesh: current.network!.mesh, device: current.network!.device,
       wg_public_key: current.wg_public_key!, install_public_key: point, expires_at: expires, acl_version: Number(read.policy.aclVersion), policy_digest: read.policy.policyDigest,
       authority_version: digest(["cmux-host-network-v1", original, currentOwn.authority_version, read.policy.aclVersion, read.policy.policyDigest, peers]), peers }
     return Schema.is(HostNetworkPolicyView)(value) ? { ok: true, value, revision: d.revision() } : unavailable()

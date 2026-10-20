@@ -79,6 +79,12 @@ it("refuses an owner whose original install is revoked during the signed Native 
   expect((await f.read()).json.ok).toBe(false)
 })
 
+it("does not renew freshness after a slow Native read", async () => {
+  const f = await policyWorld(), start = Date.now()
+  f.onRead(async () => { vi.spyOn(Date, "now").mockReturnValue(start + 31_000) })
+  expect((await f.read()).json.ok).toBe(false)
+})
+
 it("bounds the projection to the original grants and never persists the signed read or arbitrary Native fields", async () => {
   const f = await policyWorld()
   f.policies.get(f.server.device)!.peers = [f.nativePeer(f.client, [{ protocol: "tcp", port: 22 }], [])]

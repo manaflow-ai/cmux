@@ -1,6 +1,7 @@
 # Lane: server
 
 ## Active streams
+- 2026-10-20: `host.network.policy` joins a fresh signed network policy to current backend hosts and original install grants; `cmux server pair policy --json` checks that projection against the protected enrollment. CLI-only inspection is deliberate: it grants no serving role or service credential. See [cloud-client-contract.md](../cloud-client-contract.md#current-host-peer-identity). Receiving authentication and live authority delivery remain in progress.
 - lane 10 next (after relaygate round 3): bundle the server LaunchAgent plist (`Contents/Library/LaunchAgents/com.cmux.server.plist`) and its `cmux host run` binary into the app bundle, and the privileged helper (`bundle-server-helper.sh`) Team-ID signed, in the build scripts; precondition for the live check in plans/cmux-next/server-live-check.md. ConversationGate connection follows with the pairing-record and recheck drivers (entry serves DenyAllGate until then: UNVERIFIED in production).
 
 ## Landed

@@ -31,6 +31,12 @@ pub static VERBS: &[VerbSpec] = &[
         help: "server.pair.status",
     },
     VerbSpec {
+        path: &["pair", "policy"],
+        positionals: &[],
+        flags: &[],
+        help: "server.pair.policy",
+    },
+    VerbSpec {
         path: &["install"],
         positionals: &[],
         flags: &[("version", true), ("system", false), ("channel", true), ("channel-url", true)],
@@ -257,6 +263,7 @@ pub fn help() -> String {
         let help = match v.help {
             "server.pair.begin" => pairing.pair_help,
             "server.pair.status" => pairing.status_help,
+            "server.pair.policy" => pairing.policy_help,
             other => other,
         };
         out.push_str(&format!("  {line:28} {help}\n"));
