@@ -92,15 +92,20 @@ the fetches and entrances (Web Animations and elements that gained `.cv-enter`,
 
 ## 5. Guard
 
-`scripts/cmux-next/check-switch-fetches.py` (in `bun run check`) reads the views listed in it (New
-Tab, composer, agent pane, transcript) and fails on:
+`scripts/cmux-next/check-switch-fetches.py` reads the views listed in it (New Tab, composer, agent
+pane, transcript) and fails on:
 
-- a `visibilitychange` or `focus` listener in a file that is not on its allowlist;
-- a `useEffect` with no dependencies or only stable ones whose body reads data (`callNative(`,
-  `.request(`, `fetch(`, `load(`), unless the line before it carries
-  `// mount-read: <reason>`.
+- a `visibilitychange`, `focus` or `pageshow` listener whose file and event `ALLOWED_LISTENERS` does
+  not list;
+- a `useEffect` or `useLayoutEffect` with no dependencies, or only stable read functions
+  (`callNative`, `fetchPage`, `load...`), whose body reads data (`callNative(`, `.request(`,
+  `fetch(`, `fetchPage(`, `load...(`), unless the line above it carries `// mount-read: <reason>`
+  or `ALLOWED_MOUNT_READS` lists the file.
 
-Each allowlist entry names its reason. Adding one is a review question.
+Each allowlist entry names its reason and the change that removes it; adding one is a review
+question. `scripts/cmux-next/tests/check-switch-fetches.test.sh` runs it on fixtures and on the
+tree, from `bun run check:switch-fetches` (part of `bun run check`) and the cmux-next workflow's
+script tests.
 
 ## 6. Exceptions and follow-ups
 
