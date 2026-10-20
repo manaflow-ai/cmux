@@ -185,8 +185,10 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 - On either branch, a PR merges when an independent review subagent passes it and it causes no
   red of its own; base reds, flakes and pending checks don't hold it. Don't wait for a person.
   Ship risky user-visible behavior behind a setting or Debug toggle and fix a bad default in the
-  next nightly. Only the `risk:high` tier above and merge freezes hold a reviewed PR. Into
-  `feat-cmux-next`, the `ready-to-land` label after your review is the hand-off (below). Follow
+  next nightly. Only the `risk:high` tier, the take-back hold (above) and merge freezes hold a
+  reviewed PR. On `main`, `gh-merge-green` still waits for the checks it requires; never get around it
+  with `--override` or the API merge path. Into `feat-cmux-next`, the `ready-to-land`
+  label after your review is the hand-off (below). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
 - A red base (it doesn't compile, or CI is red on every PR) is priority zero: fix it directly in
