@@ -200,6 +200,14 @@ import Testing
         ))
     }
 
+    @Test func preservesInvalidDiskMapEntriesAsUnavailableSizes() throws {
+        let catalog = try decoding.catalog(from: Data("""
+        {"vms":[],"limits":{"memoryOptionsMb":[4096,8192],"diskByMemoryMb":{"4096":24576,"8192":0}}}
+        """.utf8))
+
+        #expect(catalog.limits?.diskByMemoryMb == ["4096": 24576, "8192": 0])
+    }
+
     @Test func decodesTheSharedResourcePoolAndMachineShapes() throws {
         let catalog = try decoding.catalog(from: Data("""
         {

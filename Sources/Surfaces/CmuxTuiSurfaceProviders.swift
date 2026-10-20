@@ -282,6 +282,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if !supportsPortPreviews {
             portsCache = nil
         }
+        let desktopPortChanged = previousDesktopPort != summary.runtime?.desktopPort
         let shouldMarkStale = summary.status != "running" && cloudState != nil
         let linkState: SurfaceLinkState = shouldMarkStale ? .asleep : info.linkState
         let linkError: String? = shouldMarkStale ? nil : info.linkError
@@ -298,7 +299,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } else {
             catalog.updateMachine(info, from: self)
         }
-        if previousPrivateAddress != info.privateAddress {
+        if desktopPortChanged, summary.resolvedKind.hasDesktop {
+            // The accepted VM summary owns the desktop listener identity. Rebuild
+            // display rows first so active browser panes can validate and adopt
+            // the new port through the catalog's current resource.
+            publishDisplays()
+        }
+        if desktopPortChanged || previousPrivateAddress != info.privateAddress {
             refreshCloudBrowserRoutes()
         }
     }
