@@ -2033,29 +2033,35 @@ pre.cv-math-source {
   white-space: nowrap;
 }
 
-/* The preview card before the reader loads its frame (PreviewCard.tsx): the same height as the
-   frame, so loading it does not move the transcript. */
-.acpmux-turn-preview-unloaded {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 180px;
-  background: var(--agent-page-bg);
+/* The preview card before the reader loads its frame (PreviewCard.tsx): one compact row
+   (previewUrl.ts PREVIEW_COMPACT_HEIGHT), the page's icon unboxed, no thumbnail box. "Load preview"
+   is a quiet text button among the row's actions; the frame appears only after the click. */
+.acpmux-turn-preview[data-compact] .acpmux-turn-preview-head {
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 8px 6px 12px;
+  box-shadow: none;
 }
-/* A gallery stage's placeholder takes its live frame's height (previewUrl.ts GALLERY_FRAME_HEIGHT). */
-.acpmux-turn-preview-unloaded--live {
-  height: 360px;
+.acpmux-turn-preview[data-compact] .acpmux-turn-preview-icon {
+  width: 16px;
+  height: 16px;
+  background: none;
 }
 .acpmux-turn-preview-load {
-  height: 28px;
-  padding: 0 10px;
+  flex: none;
+  height: 22px;
+  padding: 0 6px;
   border: 0;
-  border-radius: 8px;
-  background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, var(--agent-page-bg)));
-  box-shadow: inset 0 0 0 1px var(--agent-border);
-  color: var(--agent-text);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--agent-muted);
   font: inherit;
+  font-size: var(--text-detail);
   cursor: pointer;
+}
+.acpmux-turn-preview-load:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
 }
 .acpmux-turn-preview-load:focus-visible {
   outline: 1.5px solid var(--agent-muted);
