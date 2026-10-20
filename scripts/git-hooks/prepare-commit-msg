@@ -5,7 +5,7 @@
 # Never blocks a commit. CMUX_GLOBAL_HOOK_ACTIVE stops the loop when that
 # global hook in turn runs this clone's hooks.
 [ -z "${CMUX_GLOBAL_HOOK_ACTIVE:-}" ] || exit 0
-dir=$(git config --global --get core.hooksPath 2>/dev/null) || exit 0
+dir=$(git config --global --includes --get core.hooksPath 2>/dev/null) || exit 0
 case $dir in "~/"*) dir="$HOME/${dir#\~/}" ;; esac
 hook="$dir/prepare-commit-msg"
 [ -f "$hook" ] && [ -x "$hook" ] || exit 0
