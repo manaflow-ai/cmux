@@ -119,10 +119,15 @@ What the team still scopes (a view, not a trust boundary):
 Migration from team hubs (0.10.0): the URL and frames are unchanged, so old
 phone and Mac builds need no update. Hibernated sockets survive a deploy
 (seen live: a Mac stayed connected to its team hub across it), so the
-Worker retires a team's old hub the first time an isolate serves that team
-after a membership check (`GET /v1/teams/:teamId/macs`, the signal socket,
-and each team of `GET /v1/me/macs`): the old hub closes its sockets with
-1012 `moved to the user hub` and deletes its rows. Clients reconnect as
+Worker retires the old team hubs, which close their sockets with 1012
+`moved to the user hub` and delete their rows: a cron every minute walks
+every team id in the database (devices and team prefs, named as each
+project named its hubs), and requests retire lazily too, the first time an
+isolate serves a team after a membership check (`GET /v1/teams/:teamId/macs`,
+the signal socket, each team of `GET /v1/me/macs`). A retire that fails is
+retried (around a deploy the RPC can reach a hub still on the previous
+class, which answers "does not implement the method"); a retired hub
+remembers it, so later sweeps cost one wake per team. Clients reconnect as
 after any drop (hostd in under a second) and land in their user's hub.
 A user hub is never retired. A new hub is seeded once from the database
 with the user's Macs (offline until they connect), so `hello` lists a

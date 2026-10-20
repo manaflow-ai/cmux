@@ -271,6 +271,9 @@ export class TeamHub extends DurableObject<Env> {
   async retireTeamHub(): Promise<{ closed: number }> {
     const owner = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value
     if (owner !== undefined && this.isUserHubOf(owner)) return { closed: 0 }
+    const open = this.ctx.getWebSockets().filter((ws) => !this.attach(ws)?.replaced)
+    // Already retired and nothing parked since (the sweep's common case): no writes.
+    if (open.length === 0 && this.sql.exec(`SELECT 1 FROM meta WHERE key = 'retired'`).toArray().length > 0) return { closed: 0 }
     let closed = 0
     for (const ws of this.ctx.getWebSockets()) {
       if (this.attach(ws)?.replaced) continue
@@ -285,6 +288,7 @@ export class TeamHub extends DurableObject<Env> {
     this.ownerKey = undefined
     await this.ctx.storage.deleteAll()
     this.schema()
+    this.sql.exec(`INSERT INTO meta (key, value) VALUES ('retired', '1')`)
     return { closed }
   }
 

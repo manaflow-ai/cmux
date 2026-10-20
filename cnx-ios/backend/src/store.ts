@@ -66,6 +66,11 @@ export interface Store {
   getPrefs(userId: string, teamId: string): Promise<Prefs>
   /** Only the given fields change; `undefined` keeps the stored value. */
   putPrefs(userId: string, teamId: string, patch: Partial<Prefs>): Promise<Prefs>
+  /**
+   * Every team id the database knows (devices and team prefs), with the Stack project of its rows: null for the
+   * primary project (bare owner keys), else the project id (`<projectId>:<sub>` keys). Names the old team hubs.
+   */
+  listTeamScopes(): Promise<Array<{ project: string | null; teamId: string }>>
   close(): Promise<void>
 }
 
@@ -179,6 +184,13 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
         .returning()
       return { color: r?.color ?? null, emoji: r?.emoji ?? null }
     },
+    async listTeamScopes() {
+      const r = await client.query<{ project: string | null; team_id: string }>(
+        `SELECT DISTINCT NULLIF(split_part(owner_user_id, ':', 1), owner_user_id) AS project, team_id FROM devices
+         UNION SELECT DISTINCT NULLIF(split_part(user_id, ':', 1), user_id) AS project, team_id FROM team_prefs`
+      )
+      return r.rows.map((x) => ({ project: x.project, teamId: x.team_id }))
+    },
     close: () => client.end()
   }
 }
@@ -245,6 +257,11 @@ export const memoryStore = (): Store => ({
     const next = { color: patch.color !== undefined ? patch.color : cur.color, emoji: patch.emoji !== undefined ? patch.emoji : cur.emoji }
     mem.prefs.set(k, next)
     return { ...next }
+  },
+  async listTeamScopes() {
+    const scope = (owner: string) => (owner.includes(":") ? owner.slice(0, owner.indexOf(":")) : null)
+    const all = [...[...mem.devices.values()].map((d) => ({ project: scope(d.ownerUserId), teamId: d.teamId })), ...[...mem.prefs.keys()].map((k) => ({ project: scope(k.split("\u0000")[0]!), teamId: k.split("\u0000")[1]! }))]
+    return [...new Map(all.map((x) => [`${x.project}\u0000${x.teamId}`, x])).values()]
   },
   close: async () => {}
 })

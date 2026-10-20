@@ -14,6 +14,7 @@ export default defineConfig({
       miniflare: {
         bindings: {
           ENVIRONMENT: "test",
+          TEAM_HUB_RETIRE_RETRY_MS: "0",
           STACK_TEST_JWKS: JSON.stringify({ keys: [stackPublic] }),
           STACK_TEST_PRIVATE_JWK: JSON.stringify(stackPrivate),
           // userId -> teams (dev project); alice and bob share team-a, mallory is only in team-m.

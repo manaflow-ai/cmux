@@ -102,24 +102,62 @@ type Ctx = Caller & { readonly hint?: DurableObjectLocationHint; readonly t: Tim
 const userHub = (env: Env, caller: Ctx) =>
   env.TEAM_HUB.get(env.TEAM_HUB.idFromName(userHubName(ownerKey(env, caller))), caller.hint ? { locationHint: caller.hint } : undefined)
 /**
- * Migration from team hubs (PROTOCOL.md 0.10.0): the first time this isolate serves a team (after the caller's
- * membership is checked), its old team hub is retired, so a socket still parked there since before the deploy
- * reconnects into its user hub. Retiring is idempotent and cheap; remove this once no team hub holds sockets.
+ * Migration from team hubs (PROTOCOL.md 0.10.0). Hibernated sockets survive a deploy, so a socket can stay
+ * parked in its old team hub (named by the team, `scoped(teamId)`) while its peers are in the user hub. Two
+ * paths retire team hubs: the minute cron (`retireAllTeamHubs`, every team in the database), and lazily, the
+ * first time an isolate serves a team after a membership check. A retire that failed (around a deploy the RPC
+ * can reach a hub still on the previous class) is retried: only a success is remembered. Remove both once no
+ * team hub holds sockets.
  */
-const retired = new Set<string>()
+const retireMemo = new Map<string, { done: boolean; at: number }>()
+const retireOnce = async (env: Env, name: string, via: string): Promise<number> => {
+  const hit = retireMemo.get(name)
+  const retryMs = Number(env.TEAM_HUB_RETIRE_RETRY_MS ?? 10_000)
+  if (hit && (hit.done || Date.now() - hit.at < retryMs)) return 0
+  retireMemo.set(name, { done: false, at: Date.now() })
+  try {
+    const { closed } = await env.TEAM_HUB.get(env.TEAM_HUB.idFromName(name)).retireTeamHub()
+    retireMemo.set(name, { done: true, at: Date.now() })
+    if (closed) console.log(JSON.stringify({ msg: "team hub retired", via, closed }))
+    return closed
+  } catch (e) {
+    console.log(JSON.stringify({ msg: "team hub retire failed", via, error: String(e) }))
+    throw e
+  }
+}
 const retireTeamHub = (env: Env, ctx: ExecutionContext, caller: Ctx, teamId: string) => {
   const name = scoped(env, caller, teamId)
-  if (retired.has(name)) return
-  retired.add(name)
-  ctx.waitUntil(
-    env.TEAM_HUB.get(env.TEAM_HUB.idFromName(name))
-      .retireTeamHub()
-      .then(({ closed }) => {
-        if (closed) console.log(JSON.stringify({ msg: "team hub retired", closed }))
-      })
-      // Logged, not retried on every request (another isolate tries again on its first use of the team).
-      .catch((e) => console.log(JSON.stringify({ msg: "team hub retire failed", error: String(e) })))
-  )
+  const hit = retireMemo.get(name)
+  if (hit?.done) return
+  ctx.waitUntil(retireOnce(env, name, "request").catch(() => {}))
+}
+
+/**
+ * Retires the old hub of every team the database knows (devices and team prefs, both projects' naming), a few
+ * at a time. Run by the minute cron; each hub remembers its retirement, so later sweeps cost one wake per team.
+ */
+export const retireAllTeamHubs = async (env: Env): Promise<{ teams: number; closed: number; failed: number }> => {
+  const store = await openStore(env)
+  let scopes: Array<{ project: string | null; teamId: string }>
+  try {
+    scopes = await store.listTeamScopes()
+  } finally {
+    await store.close().catch(() => {})
+  }
+  const names = [...new Set(scopes.map((s) => (s.project ? `${s.project}:${s.teamId}` : s.teamId)))]
+  let closed = 0
+  let failed = 0
+  for (let i = 0; i < names.length; i += 16)
+    await Promise.all(
+      names.slice(i, i + 16).map((n) =>
+        retireOnce(env, n, "sweep").then(
+          (c) => void (closed += c),
+          () => void failed++
+        )
+      )
+    )
+  if (closed || failed) console.log(JSON.stringify({ msg: "team hub sweep", teams: names.length, closed, failed }))
+  return { teams: names.length, closed, failed }
 }
 /**
  * The caller's identity in stored rows (devices.owner_user_id, team_prefs.user_id): the bare sub for the
@@ -498,6 +536,9 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 }
 
 export default {
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(retireAllTeamHubs(env).then(() => {}))
+  },
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const t = timingFor(ctx)
     let res: Response

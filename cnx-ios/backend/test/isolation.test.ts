@@ -1,9 +1,10 @@
 import { runInDurableObject } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
+import { retireAllTeamHubs } from "../src/index.ts"
 import { memoryStore } from "../src/store.ts"
 import { userHubName, uuidToBytes, type TeamHub } from "../src/team-hub.ts"
-import { call, connect, DEV_PROJECT, register, token, worker, type Sock } from "./helpers.ts"
+import { call, connect, DEV_PROJECT, PROD_PROJECT, register, token, worker, type Sock } from "./helpers.ts"
 
 /**
  * The hub is per user (PROTOCOL.md "Signaling WebSocket"): uma and vic are both members of team-u, and
@@ -346,14 +347,18 @@ describe("migration from team hubs", () => {
       const pair = new WebSocketPair()
       state.acceptWebSocket(pair[1], [parked])
       pair[1].serializeAttachment({ userId: "vic", projectId: DEV_PROJECT, deviceId: parked, kind: "mac", name: "Vic parked" })
-      // The first retire RPC fails, as one does against a hub still running the previous deploy's class.
-      const real = hub.retireTeamHub.bind(hub)
-      let calls = 0
-      ;(hub as unknown as { retireTeamHub: () => Promise<{ closed: number }> }).retireTeamHub = () => (++calls === 1 ? Promise.reject(new Error("old class")) : real())
+      // Shadowing the method makes the RPC fail with "The RPC receiver does not implement the method", what a
+      // hub still running the previous deploy's class answers (seen on dev after the 0.10.0 deploy).
+      ;(hub as unknown as { retireTeamHub: unknown }).retireTeamHub = undefined
     })
     const uma = await token("uma")
     const open = () => runInDurableObject(legacy, (_hub, state) => state.getWebSockets().filter((w) => !(w.deserializeAttachment() as { replaced?: boolean }).replaced).length)
     expect((await call("GET", "/v1/teams/team-legacy-3/macs", uma)).status).toBe(200)
+    // Let that retire fail, then the hub "finishes restarting" onto the new class.
+    await new Promise((r) => setTimeout(r, 200))
+    await runInDurableObject(legacy, (hub) => {
+      delete (hub as unknown as { retireTeamHub?: unknown }).retireTeamHub
+    })
     const deadline = Date.now() + 3000
     while ((await open()) > 0 && Date.now() < deadline) {
       // The phone keeps polling, as the app does every 4 s while its Mac looks offline.
@@ -361,6 +366,32 @@ describe("migration from team hubs", () => {
       await new Promise((r) => setTimeout(r, 50))
     }
     expect(await open()).toBe(0)
+  })
+
+  it("the cron sweep retires every team's old hub without any request, in both projects' naming", async () => {
+    const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
+    const parkIn = async (name: string, device: string) => {
+      const stub = ns.get(ns.idFromName(name))
+      await runInDurableObject(stub, (_hub, state) => {
+        const pair = new WebSocketPair()
+        state.acceptWebSocket(pair[1], [device])
+        pair[1].serializeAttachment({ userId: "zed", projectId: DEV_PROJECT, deviceId: device, kind: "mac", name: "parked" })
+      })
+      return () => runInDurableObject(stub, (_hub, state) => state.getWebSockets().filter((w) => !(w.deserializeAttachment() as { replaced?: boolean }).replaced).length)
+    }
+    // A primary-project Mac in a Stack team and a non-primary one in a personal space, as the database has them.
+    const dev = crypto.randomUUID()
+    const prod = crypto.randomUUID()
+    await memoryStore().upsertDevice({ deviceId: dev, ownerUserId: "zed", teamId: "team-sweep", kind: "mac", name: "Zed", wgPublicKey: null })
+    await memoryStore().upsertDevice({ deviceId: prod, ownerUserId: `${PROD_PROJECT}:zed`, teamId: "personal-zed", kind: "mac", name: "Zed prod", wgPublicKey: null })
+    const openDev = await parkIn("team-sweep", dev)
+    const openProd = await parkIn(`${PROD_PROJECT}:personal-zed`, prod)
+    const r = await retireAllTeamHubs(env as never)
+    expect(r.failed).toBe(0)
+    expect(r.closed).toBeGreaterThanOrEqual(2)
+    expect([await openDev(), await openProd()]).toEqual([0, 0])
+    // A second sweep finds nothing to do.
+    expect((await retireAllTeamHubs(env as never)).closed).toBe(0)
   })
 
   it("never retires a user hub", async () => {

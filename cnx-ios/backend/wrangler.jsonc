@@ -36,6 +36,8 @@
       },
       "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }] },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }],
+      // Retires the old per-team hubs every minute (src/index.ts retireAllTeamHubs, the 0.10.0 migration).
+      "triggers": { "crons": ["* * * * *"] },
       // PlanetScale Postgres cnx-ios (org cmux), branch main, role cnx-ios-dev. The Hyperdrive config has
       // query caching disabled (`wrangler hyperdrive update <id> --caching-disabled true`): with the default
       // 60 s cache a newly registered Mac stayed missing from /macs and /me/macs. Do the same for prod.
@@ -63,6 +65,8 @@
       },
       "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }] },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }],
+      // Retires the old per-team hubs every minute (src/index.ts retireAllTeamHubs, the 0.10.0 migration).
+      "triggers": { "crons": ["* * * * *"] },
       "ratelimits": [
         { "name": "USER_LIMIT", "namespace_id": "4201", "simple": { "limit": 300, "period": 60 } },
         { "name": "ICE_LIMIT", "namespace_id": "4202", "simple": { "limit": 30, "period": 60 } },
