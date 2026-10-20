@@ -29,6 +29,12 @@ final class GroupHeaderRowView: SidebarRowView {
     private let count = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = DecorativeImageView()
     private let activity = StatusIndicatorView()
+    /// The spinner's slot: it fades and collapses its width as loading starts and stops (u-group-header-detail).
+    private lazy var activitySlot = SidebarRevealSlotView(activity) { [weak activity] in activity?.showsGlyph ?? false }
+    /// Loading stopped: the spinner keeps drawing while its slot fades and collapses, then goes idle.
+    private var activityEnding = false
+    /// The next layout came from a status change, not a reload: the spinner's slot animates.
+    private var fadesNextActivity = false
     private let badge = UnreadBadgeView()
     private let pin = DecorativeImageView()
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
@@ -75,7 +81,7 @@ final class GroupHeaderRowView: SidebarRowView {
         layer?.addSublayer(dot)
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
-        [glyph, name, count, pin, chevron, activity, badge, addButton, moreButton].forEach(addSubview)
+        [glyph, name, count, pin, chevron, activitySlot, badge, addButton, moreButton].forEach(addSubview)
         // The header's label says the name, the count and (through AXExpanded) the chevron.
         moreButton.onPress = { [weak self] in self?.onEdit?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
@@ -103,6 +109,8 @@ final class GroupHeaderRowView: SidebarRowView {
         isKeyboardFocused = false
         isEditing = false
         collapsed = false
+        activityEnding = false
+        activity.configure(.idle)
         onMore = nil
         onEdit = nil
         onAdd = nil
@@ -113,10 +121,14 @@ final class GroupHeaderRowView: SidebarRowView {
         var childCount: Int
         var collapsed: Bool
         var fontSize: CGFloat
+        var details: GroupHeaderDetails
     }
 
-    func configure(_ group: SidebarGroup, row: SidebarRow, animated: Bool) {
-        let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed, fontSize: SidebarStyle.headerFont.pointSize)
+    /// Shows `group`. A collapsed header shows its loading spinner on the right; `details` turns
+    /// on its member count, unread total and other states (all off by default).
+    func configure(_ group: SidebarGroup, row: SidebarRow, details: GroupHeaderDetails = GroupHeaderDetails(), animated: Bool) {
+        let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed,
+                              fontSize: SidebarStyle.headerFont.pointSize, details: details)
         guard needsConfigure(content) else { return }
         tint = group.tint
         isEmpty = group.workspaces.isEmpty && group.items.isEmpty
@@ -126,12 +138,20 @@ final class GroupHeaderRowView: SidebarRowView {
         glyph.configure(icon: group.icon)
         pin.image = pinned ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         collapsed = row.isCollapsed
-        count.stringValue = collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
+        count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
         chevron.image = NSImage.icon(chevronIcon, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
-        activity.configure(collapsed ? group.aggregateActivity : .idle)
+        // Lawrence 2026-10-20: "All we care about is the loading."
+        let status = collapsed ? (details.otherStates ? group.aggregateActivity : group.loadingActivity) : .idle
+        if status.isVisible {
+            activityEnding = false
+            activity.configure(status)
+        } else if activity.state.isVisible {
+            activityEnding = true
+        }
+        fadesNextActivity = animated
         let unread = group.unreadTotal
-        badge.configure(collapsed && unread > 0 ? .count(unread) : .none)
+        badge.configure(details.unreadCount && collapsed && unread > 0 ? .count(unread) : .none)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityLabel("\(group.name), \(Strings.groupCount(row.childCount))")
@@ -229,7 +249,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let b = layoutBounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        defer { fadesNextHover = false; CATransaction.commit() }
+        defer { (fadesNextHover, fadesNextActivity) = (false, false); CATransaction.commit() }
 
         // One full-width rounded bar (the Chrome tab group header) whose
         // radius, padding, type and glyphs scale with the row height
@@ -249,13 +269,14 @@ final class GroupHeaderRowView: SidebarRowView {
         chevronFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: chevronSide)
         chevron.frame = chevronFrame
         let control = barHeight - Metrics.space1
-        // The more button keeps a stable slot left of the chevron.
+        // The more button sits left of the chevron.
         moreButton.frame = NSRect(x: max(pad, chevronFrame.minX - Metrics.space1 - control), y: (b.height - control) / 2, width: control, height: control)
         // Lawrence 2026-10-11: the + and more show only on hover, keyboard
-        // focus or while the editor is open. Their slots are always reserved,
-        // so the name, badge and chevron never move. Hidden (not only clear):
-        // a click there collapses the group, and VoiceOver uses the header's
-        // custom actions.
+        // focus or while the editor is open. Hidden (not only clear): a click
+        // there collapses the group, and VoiceOver uses the header's custom
+        // actions. Lawrence 2026-10-20: no empty slots; the trailing items close
+        // up, so the spinner sits by the chevron at rest and moves aside for
+        // the buttons.
         let showsActions = (isHovered || isKeyboardFocused || isEditing) && !renaming
         // Lawrence 2026-10-19 (u2397): a hover fades them in and out (opacity
         // only); focus, the editor and Reduce Motion show them at once.
@@ -267,8 +288,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let offersAdd = onAdd != nil && !isEmpty
         setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
-        // The badge and activity keep their place whether or not the buttons show.
-        var trailing = (offersAdd ? addButton.frame.minX : moreButton.frame.minX) - Metrics.space2
+        var trailing = (showsActions ? (offersAdd ? addButton.frame.minX : moreButton.frame.minX) : chevronFrame.minX) - Metrics.space2
         if badge.state.isUnread {
             badge.isHidden = false
             let w = badge.preferredWidth, h = SidebarStyle.badgeHeight
@@ -277,11 +297,17 @@ final class GroupHeaderRowView: SidebarRowView {
         } else {
             badge.isHidden = true
         }
-        if activity.showsGlyph {
-            let ind = SidebarStyle.indicatorSize
-            activity.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
-            trailing -= ind + Metrics.space2
+        // The spinner fades and its slot collapses as loading stops (grows as it starts): the
+        // items around it close up with no hole (`setHoverSlotShown`, instant under Reduce Motion).
+        let loading = activity.showsGlyph && !activityEnding && !renaming
+        let ind = SidebarStyle.indicatorSize
+        let slotFrame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
+        setHoverSlotShown(activitySlot, loading, frame: slotFrame, fades: fadesNextActivity || fades) { [weak self] in
+            guard let self, self.activityEnding else { return }
+            self.activityEnding = false
+            self.activity.configure(.idle)
         }
+        if loading { trailing -= ind + Metrics.space2 }
         let glyphSide = min(SidebarStyle.iconBox, barHeight)
         glyph.isHidden = !hasIcon
         glyph.frame = NSRect(x: lead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
