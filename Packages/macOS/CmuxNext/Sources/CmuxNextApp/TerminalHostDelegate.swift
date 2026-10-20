@@ -41,9 +41,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// hovered link (`debug.terminal.links menu`).
     func linkMenu(_ session: TerminalSession, text: String? = nil, services: AppServices) -> (rows: [LinkMenuRow], items: [NSMenuItem]) {
         let target = target(of: session, in: services)
-        let allowsLocalFiles = allowsLocalFiles(session, services: services)
+        let canOpenLocalFiles = allowsLocalFiles(session, services: services)
         // main-actor-ok: a right-click resolves one path (a few stat calls), as the click does.
-        switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver.resolve($0, cwd: cwd(of: session), allowsLocalFiles: allowsLocalFiles) }) {
+        switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver.resolve($0, cwd: cwd(of: session), allowsLocalFiles: canOpenLocalFiles) }) {
         case .url(let link)?:
             let menu = LinkMenu { [weak services] url in
                 services?.registry.perform("browser.link.openInNewTab", invocation: ActionInvocation(target: target, arguments: ["url": .string(url.absoluteString)]))
@@ -75,10 +75,10 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// files the code editor page and a folder Finder; a path that exists nowhere opens nothing.
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
         let request = linkRequest(session), cwd = cwd(of: session)
-        let allowsLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
+        let canOpenLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
         Task { @MainActor [weak self] in
             let target = await Task.detached(priority: .userInitiated) {
-                TerminalLinkResolver.resolve(text, cwd: cwd, allowsLocalFiles: allowsLocalFiles)
+                TerminalLinkResolver.resolve(text, cwd: cwd, allowsLocalFiles: canOpenLocalFiles)
             }.value
             switch target {
             case .url(let url)?: self?.openWeb(url, request)
@@ -102,8 +102,8 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// or a path that names a file or folder (``TerminalLinkResolver``, the click's own rule).
     func terminalSessionLinkCheck(_ session: TerminalSession) -> TerminalLinkCheck? {
         let start = services.flatMap { services in target(of: session, in: services).flatMap { services.cache.tabModel($0.id)?.cwd } }
-        let allowsLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
-        return { text, cwd in TerminalLinkResolver.resolve(text, cwd: cwd ?? start, allowsLocalFiles: allowsLocalFiles) != nil }
+        let canOpenLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
+        return { text, cwd in TerminalLinkResolver.resolve(text, cwd: cwd ?? start, allowsLocalFiles: canOpenLocalFiles) != nil }
     }
 
     /// Clipboard writes stay silent only for the focused local PTY when its
