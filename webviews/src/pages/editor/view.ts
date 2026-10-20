@@ -359,6 +359,7 @@ export class MonacoView implements CodeView {
     };
     // After Monaco's own keydown handler (on the editor's node) has run.
     const onKeyDown = () => setTimeout(check, 0);
+    // ui-allow: reads Monaco's chord state after its keydown; Monaco owns the keys.
     container.addEventListener("keydown", onKeyDown);
     const onBlur = () => setTimeout(check, 0);
     container.addEventListener("focusout", onBlur);
