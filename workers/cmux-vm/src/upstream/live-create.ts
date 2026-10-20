@@ -16,6 +16,9 @@ const digest = (text: string) => Effect.promise(async () => {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
 });
 
+/** 4xx answers that prove the provider made nothing; 408 (timeout), 409 (slug may exist), 5xx and transport errors do not. */
+const definitelyRejected = (status: number | null) => status !== null && status >= 400 && status < 500 && status !== 408 && status !== 409;
+
 export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: SizeRequest | undefined) => string | null): UpstreamClientService["createVm"] => {
   const http = makeUpstreamHttp(config);
   const decode = (body: unknown) => Schema.decodeUnknown(Receipt)(body).pipe(Effect.mapError(() => new UpstreamError({ operation: "createVm", status: null })));
@@ -67,9 +70,10 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       }
       const token = yield* journal.beginSend();
       return yield* http.json("createVm", "POST", "/v5/vms", body, { timeoutMs: 120_000 }).pipe(
-        Effect.tapError((error) => error.status === 400 || error.status === 409 || error.status === 429 ? journal.rejected(token) : Effect.void),
         Effect.flatMap(decode), Effect.flatMap(checked),
-        Effect.catchAll((error) => recover.pipe(Effect.flatMap((found) => Option.isSome(found) ? Effect.succeed(found.value) : Effect.fail(error)))),
+        // A rejection counts only once the exact slug also answers 404: a 409 may mean the slug already exists.
+        Effect.catchAll((error) => recover.pipe(Effect.flatMap((found) => Option.isSome(found) ? Effect.succeed(found.value)
+          : definitelyRejected(error.status) ? journal.rejected(token).pipe(Effect.zipRight(Effect.fail(error))) : Effect.fail(error)))),
       );
     });
     const path = `/v5/vms/${encodeURIComponent(created.id)}`;

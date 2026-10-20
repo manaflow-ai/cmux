@@ -88,6 +88,11 @@ and source snapshot; it never adopts by display name or account-wide listing.
 A provider or ownership-write failure retains the intent and quota slot. A
 confirmed ownership row repairs an uncertain completion, including a tombstone:
 retrying a deleted allocation cannot create another VM.
+A provider 4xx create answer other than 408 or 409, confirmed by a 404 at the
+exact slug, frees the slot at once; the same key may retry under quota. A send
+whose outcome is unknown (5xx, timeout, transport) is resent, or its
+cancellation settles, only after a 10-minute grace window and another empty
+exact-slug lookup.
 
 Unresolved allocation intents do not expire at the ordinary 24-hour key or
 five-minute quota-reservation deadlines. They continue to occupy their slot
