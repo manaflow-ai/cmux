@@ -40,6 +40,7 @@ CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.env
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
            "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
+TIMINGS = {}  # (phase, engine) -> debug.timings omnibar_clicks
 app = None
 
 
@@ -102,7 +103,7 @@ def open_page(engine):
     open(path, "w").write("<!doctype html><title>omnibar bench</title><body style='font:20px -apple-system'>"
                           + "<p>omnibar bench row</p>" * 60)
     url = "file://" + path + "?q=" + "omnibar-latency-" * 6
-    reply = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": url}, "focus": True, "origin": "user"}, timeout=120)
+    reply = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
     print(f"open {engine}:", json.dumps(reply)[:300], flush=True)
     ok = wait(lambda: "error" not in (rpc("debug.omnibar") or {"error": 1}), 60)
     time.sleep(1.5)  # test harness: let the page finish its first paint
@@ -119,6 +120,7 @@ def spans(row):
 
 def bench(phase, engine):
     rows = []
+    rpc("debug.timings", {"clear": True})
     for index in range(opts.runs):
         result = rpc("debug.omnibar_bench", {}, timeout=20) or {}
         result.update({"phase": phase, "engine_asked": engine, "run": index})
@@ -127,6 +129,9 @@ def bench(phase, engine):
               f"focused={result.get('focused_ms')} frames={result.get('frames_to_focused')} "
               f"spans={spans(result)} marks={marks(result)} err={result.get('error')}", flush=True)
         time.sleep(0.25)  # test harness: space the clicks apart (not a double-click)
+    clicks = (rpc("debug.timings", {"clear": True}) or {}).get("omnibar_clicks") or []
+    print(f"{phase} {engine} debug.timings omnibar_clicks: {json.dumps(clicks)}", flush=True)
+    TIMINGS[(phase, engine)] = clicks
     return rows
 
 
@@ -146,6 +151,11 @@ def summary(rows):
                 "focused_max": pct([r.get("focused_ms") for r in sel], 1),
                 "mouse_down_dispatch_p50": pct(down, .5), "mouse_down_dispatch_max": pct(down, 1),
             }
+            clicks = TIMINGS.get((phase, engine)) or []
+            for key in ("input_ms", "key_to_frame_ms"):
+                values = [c.get(key) for c in clicks]
+                out[f"{phase}/{engine}"].update({f"{key}_n": len(clicks), f"{key}_p50": pct(values, .5),
+                                                 f"{key}_p95": pct(values, .95), f"{key}_max": pct(values, 1)})
     return out
 
 

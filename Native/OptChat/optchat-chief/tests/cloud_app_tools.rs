@@ -127,6 +127,19 @@ fn a_failed_tool_list_says_why() {
 }
 
 #[test]
+fn a_failed_first_tool_list_denies_the_whole_cmux_server() {
+    let cli = FakeCli::new();
+    let session = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(session.path().join(".claude")).unwrap();
+    cli.fail("cmux mcp: cannot reach the app");
+    let denied = cmux_tool_denials(session.path(), &cli.env());
+    assert!(
+        denied.contains(&"mcp__cmux".to_owned()),
+        "an unknown catalog must fail closed: {denied:?}"
+    );
+}
+
+#[test]
 fn a_list_without_the_app_says_why() {
     let cli = FakeCli::new();
     cli.answer(

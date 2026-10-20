@@ -66,13 +66,15 @@ extension PaneController {
     func applySelection(_ id: StripTabID) {
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
         DebugTabSwitch.mark(self, "focus")
-        state.selection.select(id.rawValue, in: paneKey)
-        setStripSelection(id)
+        BenchSpans.measure("switch.select") {
+            state.selection.select(id.rawValue, in: paneKey)
+            setStripSelection(id)
+        }
         DebugTabSwitch.mark(self, "strip")
-        presentSelection()
+        BenchSpans.measure("switch.showSelected") { presentSelection() }
         DebugTabSwitch.mark(self, "present")
-        remapViewedTab()
-        services.windows.recordSaver.stateDidChange(state)
+        BenchSpans.measure("switch.remap") { remapViewedTab() }
+        BenchSpans.measure("switch.record") { services.windows.recordSaver.stateDidChange(state) }
         DebugTabSwitch.mark(self, "record")
         DebugTabSwitch.shown(self, in: view.window)
     }

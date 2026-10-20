@@ -19,8 +19,8 @@ extension ChatController {
         // the press; back when the menu closes).
         // The drawn balloon with its frame's corners (MessagesLab 2281879 RowDraw.balloon).
         // MessagesLab 267d218: a 1-line text ends in half circles; 7924f00: my text balloon's soft edge (soft-copies).
-        let hl = MenuHighlight(host: host, body: hit.outline, cornersOf: hit.body.size, outgoing: hit.row.outgoing, tail: hit.row.tail,
-                               circularEnds: RowDraw.circularEnds(hit.row), soft: demo?.softMask(hit),
+        let hl = MenuHighlight(host: host, shape: BubblePath.balloon(drawn: hit.outline, frameSize: hit.body.size, row: hit.row).cgPath,
+                               outgoing: hit.row.outgoing, soft: demo?.softMask(hit),
                                scale: demo?.renderScale ?? Fixture.renderScale, softOwner: demo?.softMaskOwner(hit))
         menu.delegate = hl
         menuHighlight = hl
@@ -134,26 +134,12 @@ extension ChatController {
 
     // MARK: Picker chrome
 
-    /// The pressed bubble stays bright above the dim (real Messages lifts it).
-    func pickerLift(for hit: MessagesWindowView.Hit) -> NSView? {
-        guard let demo, let window,
-              let cell = demo.collection.visibleCells.compactMap({ $0 as? RowCell }).first(where: { $0.spec?.key == hit.key }) else { return nil }
-        // The row's content rests on the window's device pixels (RowCell.snapRow, MessagesLab c1457e5): the bitmap
-        // starts at the content's place, so the lifted bubble keeps whole pixels and is not resampled.
-        let d = cell.rowSnap
-        let f = cell.convert(cell.bounds, to: demo).offsetBy(dx: d.x, dy: d.y)
-        let scale = window.backingScaleFactor
-        guard let ctx = CGContext(data: nil, width: CrashGuard.int(f.width * scale, in: 1...16_384), height: CrashGuard.int(f.height * scale, in: 1...16_384), /* crash program: no trap on NaN */ bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: DisplayScale.colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue) else { return nil }
-        ctx.scaleBy(x: scale, y: scale)
-        ctx.translateBy(x: -d.x, y: -d.y)
-        cell.layer.render(in: ctx)
-        let lift = NSView(frame: f)
-        lift.wantsLayer = true
-        lift.layer?.contents = ctx.makeImage()
-        lift.layer?.contentsScale = scale
-        lift.layer?.isGeometryFlipped = true
-        return lift
+    /// The pressed bubble's outline in the host's coordinates: the picker's dim leaves it out, so the
+    /// real bubble stays bright (real Messages lifts it). The drawn balloon with its frame's corners, as
+    /// the menu highlight's shape. No bitmap copy of the row: a copy over the dim took its orientation
+    /// from the flips of the views above it and drew upside down in a cmux-next pane (Lawrence 2026-10-20).
+    func pickerHole(for hit: MessagesWindowView.Hit) -> CGPath {
+        BubblePath.balloon(drawn: hit.outline, frameSize: hit.body.size, row: hit.row).cgPath
     }
 
     /// The emoji button: a glass circle 34 pt under the strip (center 95 pt in, 12 pt
@@ -204,7 +190,8 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
     /// MessagesLab 7924f00 (cx-3cb soft-copies): `soft`, my text balloon's soft mask in the host's coordinates
     /// (MessagesWindowView.softMask): the highlight has the balloon's soft edge, not the crisp shape over it.
     /// `scale`: the view's renderScale.
-    init(host: NSView, body: CGRect, cornersOf frame: CGSize? = nil, outgoing: Bool, tail: Bool, circularEnds: Bool = false,
+    /// `shape`: the bubble's shared outline (`BubblePath.balloon`) in the host's coordinates.
+    init(host: NSView, shape: CGPath, outgoing: Bool,
          soft: SoftBalloon.Mask? = nil, scale: CGFloat = Fixture.renderScale, softOwner: CALayer? = nil) {
         self.host = host
         self.softOwner = softOwner
@@ -222,7 +209,7 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
             layer = l
         } else {
             let l = CAShapeLayer()
-            l.path = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame, circularEnds: circularEnds).cgPath
+            l.path = shape
             l.fillColor = tint
             layer = l
         }

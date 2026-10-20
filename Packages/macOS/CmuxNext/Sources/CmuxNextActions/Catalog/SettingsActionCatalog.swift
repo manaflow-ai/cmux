@@ -111,6 +111,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], cliName: "settings restart-cli-listener"
             ),
             ActionDescriptor(
+                id: "palette.restartServer",
+                title: String(localized: "action.palette.restartServer", defaultValue: "Restart cmux-tui…", bundle: .module),
+                keywords: ["server", "daemon", "cmux-tui", "restart", "update", "new features", "protocol"],
+                category: .settings, symbol: "arrow.clockwise.circle",
+                surfaces: [.palette], cliName: "settings restart-server"
+            ),
+            ActionDescriptor(
                 id: "palette.checkForUpdates",
                 title: String(localized: "action.palette.checkForUpdates", defaultValue: "Check for Updates…", bundle: .module),
                 keywords: ["update", "version", "sparkle"], category: .settings, symbol: "arrow.down.circle",
@@ -186,18 +193,6 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.help.documentation", defaultValue: "cmux Documentation…", bundle: .module),
                 keywords: ["docs", "help", "manual"], category: .settings, symbol: "book", surfaces: [.menu],
                 arguments: [CatalogArgument.topicString], cliName: "settings documentation", mainMenu: .help
-            ),
-            ActionDescriptor(
-                id: "appearance.density.compact",
-                title: String(localized: "action.appearance.density.compact", defaultValue: "Use Compact Density", bundle: .module),
-                keywords: ["density", "compact", "dense", "appearance", "size"], category: .settings,
-                symbol: "rectangle.compress.vertical", surfaces: [.palette], cliName: "settings use-compact-density"
-            ),
-            ActionDescriptor(
-                id: "appearance.density.comfortable",
-                title: String(localized: "action.appearance.density.comfortable", defaultValue: "Use Comfortable Density", bundle: .module),
-                keywords: ["density", "comfortable", "spacious", "appearance", "size"], category: .settings,
-                symbol: "rectangle.expand.vertical", surfaces: [.palette], cliName: "settings use-comfortable-density"
             ),
             ActionDescriptor(
                 id: "appearance.animationSpeed.fast",
