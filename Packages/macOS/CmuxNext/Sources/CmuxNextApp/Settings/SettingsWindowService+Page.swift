@@ -46,26 +46,18 @@ extension SettingsWindowService {
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),
-            "derived_min": .object(pageDerivedMinimums()),
+            "derived_min": .object(pageDerivedNumbers(floor: true)),
         ]
     }
 
-    /// Where a slider's travel starts to change anything, by schema key: over a picture the window
-    /// opacity never goes below the legibility floor (`ThemeScope.shownWindowOpacityFloor`).
-    func pageDerivedMinimums() -> [String: JSONValue] {
-        guard let id = SettingsSchema.descriptor(for: WindowBackgroundSetting.opacityPath)?.id,
-              let floor = (services.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacityFloor else { return [:] }
-        return [id: .number(floor)]
-    }
-
-    /// Where unset number rows' sliders sit, by schema key: the window opacity the theme resolved.
-    func pageDerivedNumbers() -> [String: JSONValue] {
-        var derived: [String: JSONValue] = [:]
-        for path in [WindowBackgroundSetting.opacityPath] {
-            guard let id = SettingsSchema.descriptor(for: path)?.id, let value = derivedNumber(at: path) else { continue }
-            derived[id] = .number(value)
-        }
-        return derived
+    /// Where unset number rows' sliders sit, by schema key: the window opacity the window shows.
+    /// `floor`: where the Opacity slider's travel starts over a picture instead, the legibility
+    /// floor the window never paints below (`ThemeScope.shownWindowOpacityFloor`).
+    func pageDerivedNumbers(floor: Bool = false) -> [String: JSONValue] {
+        let path = WindowBackgroundSetting.opacityPath
+        let value = floor ? (services.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacityFloor : derivedNumber(at: path)
+        guard let id = SettingsSchema.descriptor(for: path)?.id, let value else { return [:] }
+        return [id: .number(value)]
     }
 
     /// The wallpaper grid's choices, read each time so an image the person just added, or a

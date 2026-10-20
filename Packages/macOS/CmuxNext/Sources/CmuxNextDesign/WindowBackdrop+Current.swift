@@ -13,19 +13,23 @@ public extension ThemeScope {
     /// the theme's opacity, or over a background picture the tint the picture and the legibility
     /// floor resolve (an unset slider sat at Ghostty's 100% while the window showed the work's 35%).
     var shownWindowOpacity: Double {
-        guard backdropSelection != nil else { return input.backgroundOpacity }
-        let backdrop = WindowBackdrop(tokens, art: backdropArt, selection: backdropSelection,
-                                      tuning: appearanceTuning, tintOpacity: backdropTintOpacity)
-        return backdrop.isOpaque ? input.backgroundOpacity : backdrop.tintOpacity
+        guard let backdrop = shownArtBackdrop, !backdrop.isOpaque else { return input.backgroundOpacity }
+        return backdrop.tintOpacity
     }
 
     /// The least window opacity this scope's window paints over its background picture (the
     /// legibility floor, ``WindowBackdrop/legibleTintOpacity``), where Settings' Opacity slider
     /// starts: below it the slider moved nothing. Nil without a picture or in an opaque window.
     var shownWindowOpacityFloor: Double? {
+        guard let backdrop = shownArtBackdrop, !backdrop.isOpaque else { return nil }
+        return backdrop.legibleTintOpacity
+    }
+
+    /// The backdrop this scope's window paints over its background picture; nil without one. One
+    /// place, so the resting value and the floor always come from the same backdrop.
+    private var shownArtBackdrop: WindowBackdrop? {
         guard backdropSelection != nil else { return nil }
-        let backdrop = WindowBackdrop(tokens, art: backdropArt, selection: backdropSelection,
-                                      tuning: appearanceTuning, tintOpacity: backdropTintOpacity)
-        return backdrop.isOpaque ? nil : backdrop.legibleTintOpacity
+        return WindowBackdrop(tokens, art: backdropArt, selection: backdropSelection,
+                              tuning: appearanceTuning, tintOpacity: backdropTintOpacity)
     }
 }
