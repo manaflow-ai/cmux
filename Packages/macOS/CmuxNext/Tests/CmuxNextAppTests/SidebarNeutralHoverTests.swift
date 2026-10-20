@@ -8,8 +8,8 @@ import Testing
 /// hovers in the translucent neutral fill (the text ink at a few percent), but two hovers over a
 /// resting fill took the selection fill instead, which is the theme's accent: an icon tile in the
 /// sidebar's items and the update card's quiet and bordered buttons. Hovered, they now take the
-/// neutral fill one step stronger, still translucent and never the accent (a hover is not a
-/// selection).
+/// neutral fill one step stronger (midway to the pressed fill), still translucent and never the
+/// accent (a hover is not a selection).
 @MainActor @Suite(.serialized) struct SidebarNeutralHoverTests {
     /// A dark theme with a blue accent, so the selection fill is visibly the accent.
     private static func accentScope() throws -> ThemeScope {
@@ -32,7 +32,7 @@ import Testing
     private static func expectNeutralRaisedHover(_ fill: NSColor?, in scope: ThemeScope, _ what: String) throws {
         let fill = try #require(fill, "\(what): no fill")
         let (hover, pressed, selection) = scope.perform { (Palette.hoverFill, Palette.pressedFill, Palette.selectionFill) }
-        #expect(!sameInk(selection, hover), "the test theme's selection is not its accent")
+        #expect(!sameInk(selection, hover), "the test theme's selection must be its accent")
         #expect(sameInk(fill, hover), "\(what) hovers in \(fill), not the neutral hover ink")
         #expect(fill.alphaComponent > hover.alphaComponent, "\(what)'s hover is no stronger than its resting fill")
         #expect(fill.alphaComponent < pressed.alphaComponent, "\(what)'s hover is as strong as a press")
@@ -46,6 +46,26 @@ import Testing
             ChromeHover.fillColor(ChromeHover.State(hovering: true), rest: Palette.hoverFill)
         }
         try Self.expectNeutralRaisedHover(fill, in: scope, "a tile")
+    }
+
+    /// The same on a real tile in the sidebar's items, hovered by the pointer.
+    @Test func aHoveredSidebarTileIsTheNeutralStep() throws {
+        let scope = try Self.accentScope()
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 200, height: 60), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        scope.adopt(window)
+        let row = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 44, height: 44))
+        row.configure(SidebarItemInfo(title: "Home", symbol: "house"), style: .tile)
+        window.contentView?.addSubview(row)
+        window.orderFrontRegardless()
+        defer {
+            PointerHover.setDebugPointer(nil, in: window)
+            window.close()
+        }
+        PointerHover.setDebugPointer(row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil), in: window)
+        #expect(row.isHovered, "the debug pointer did not hover the tile")
+        try Self.expectNeutralRaisedHover(row.fill, in: scope, "a sidebar tile")
     }
 
     /// The update card's quiet button rests on the hover fill; hovered, the neutral step.
