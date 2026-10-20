@@ -240,7 +240,7 @@ extension SessionPersistencePolicy {
               lhsTitles.sorted() == rhsTitles.sorted() else {
             return false
         }
-        let overlapRatio = Double(overlap.count) / Double(max(lhsAgents.count, rhsAgents.count))
+        let overlapRatio = Double(overlap.count) / Double(min(lhsAgents.count, rhsAgents.count))
         // Keep the threshold high enough to reject a one-checkpoint coincidence
         // while allowing one newly-added checkpoint in a reordered four-panel
         // crash generation.
