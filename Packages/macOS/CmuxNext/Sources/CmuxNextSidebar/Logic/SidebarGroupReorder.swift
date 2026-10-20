@@ -34,7 +34,24 @@ nonisolated struct SidebarGroupReorder: Sendable {
     /// The gap index for a card whose top and bottom edges are at `top` and
     /// `bottom` (displayed coordinates), the gap open at `current` now.
     func index(top: CGFloat, bottom: CGFloat, current: Int) -> Int {
-        current
+        let start = min(max(0, current), blocks.count)
+        var index = start
+        // Down: the block after the gap is drawn pushed down by the gap.
+        while index < blocks.count {
+            let block = blocks[index]
+            let height = block.upperBound - block.lowerBound
+            guard bottom > (block.lowerBound + block.upperBound) / 2 + shift + Self.hysteresis(for: height) else { break }
+            index += 1
+        }
+        if index != start { return index }
+        // Up: the block before the gap is drawn where it is.
+        while index > 0 {
+            let block = blocks[index - 1]
+            let height = block.upperBound - block.lowerBound
+            guard top < (block.lowerBound + block.upperBound) / 2 - Self.hysteresis(for: height) else { break }
+            index -= 1
+        }
+        return index
     }
 
     /// The gap index of an open gap starting at `gapY` (the blocks above it).
