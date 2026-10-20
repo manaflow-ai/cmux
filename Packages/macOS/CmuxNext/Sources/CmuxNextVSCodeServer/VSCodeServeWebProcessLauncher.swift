@@ -1,3 +1,4 @@
+import CmuxNextHelperSecurity
 import CmuxNextWakeups
 import Foundation
 
@@ -17,10 +18,14 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
 
     /// Starts `launch`; see ``VSCodeServeWebLaunching/start(_:)``.
     public func start(_ launch: VSCodeServeWebLaunch) async throws -> VSCodeServeWebStarted {
+        guard HelperExecutableTrust(reference: .teamIdentifier(VSCodeServeWebLaunchPlanner.vscodeTeamIdentifier))
+            .accepts(launch.executableURL) else {
+            throw VSCodeServeWebError.serverMissing
+        }
         let process = Process()
         process.executableURL = launch.executableURL
         process.arguments = launch.arguments
-        process.environment = launch.environment
+        process.environment = VSCodeServeWebLaunch.minimalEnvironment(launch.environment)
         process.standardInput = FileHandle.nullDevice
         let pipe = Pipe()
         process.standardOutput = pipe

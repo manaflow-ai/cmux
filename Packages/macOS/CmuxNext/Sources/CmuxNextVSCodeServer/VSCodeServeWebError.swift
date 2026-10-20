@@ -1,6 +1,6 @@
 /// Why the inline VS Code server could not serve a request.
 public enum VSCodeServeWebError: Error, Equatable, Sendable {
-    /// The VS Code install has no CLI that runs `serve-web` (no `code-tunnel`, no cached `code-server`).
+    /// The VS Code install has no directly trusted cached `code-server`.
     case serverMissing
     /// The private connection token file could not be written.
     case tokenFileFailed

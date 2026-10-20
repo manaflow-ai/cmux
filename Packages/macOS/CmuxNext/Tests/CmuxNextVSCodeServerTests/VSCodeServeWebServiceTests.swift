@@ -15,12 +15,14 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
-    /// A VS Code install whose bundled CLI (`code-tunnel`) runs `serve-web`.
+    /// A VS Code install with a trusted cached `code-server`.
     func planner() -> VSCodeServeWebLaunchPlanner {
         VSCodeServeWebLaunchPlanner(
             homeDirectory: root, environment: ["PATH": "/usr/bin", "NODE_OPTIONS": "--inspect"],
-            isExecutable: { $0.hasSuffix("Resources/app/bin/code-tunnel") },
-            data: { _ in nil }, contents: { _ in [] }, modificationDate: { _ in nil }
+            isExecutable: { $0.hasSuffix("bin/code-server") },
+            data: { $0.path.hasSuffix("lru.json") ? Data(#"["trusted"]"#.utf8) : nil },
+            contents: { _ in [] }, modificationDate: { _ in nil },
+            executableTrust: { _ in true }
         )
     }
 
@@ -39,11 +41,11 @@ import Testing
         let url = try await service.url(vscode: Self.vscode)
         #expect(url.absoluteString == "http://127.0.0.1:50001/?tkn=tok123")
         let launch = try #require(await launcher.launches.first)
-        #expect(launch.executableURL.path == "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel")
-        #expect(Array(launch.arguments.prefix(7)) == ["serve-web", "--accept-server-license-terms", "--host", "127.0.0.1", "--port", "0", "--connection-token-file"])
-        #expect(launch.environment["ELECTRON_RUN_AS_NODE"] == "1")
+        #expect(launch.executableURL.lastPathComponent == "code-server")
+        #expect(Array(launch.arguments.prefix(6)) == ["--accept-server-license-terms", "--host", "127.0.0.1", "--port", "0", "--connection-token-file"])
+        #expect(launch.environment["ELECTRON_RUN_AS_NODE"] == nil)
         #expect(launch.environment["NODE_OPTIONS"] == nil, "VS Code's own Node must not inherit NODE_OPTIONS")
-        #expect(launch.environment["VSCODE_NODE_OPTIONS"] == "--inspect")
+        #expect(launch.environment["VSCODE_NODE_OPTIONS"] == nil)
         let tokenFile = try #require(launch.arguments.last.map { URL(fileURLWithPath: $0) })
         #expect(try String(contentsOf: tokenFile, encoding: .utf8) == "tok123")
         let permissions = try FileManager.default.attributesOfItem(atPath: tokenFile.path)[.posixPermissions] as? Int
@@ -130,7 +132,8 @@ import Testing
         let launcher = FakeServeWebLauncher()
         let service = VSCodeServeWebService(
             planner: VSCodeServeWebLaunchPlanner(homeDirectory: root, environment: [:], isExecutable: { _ in false },
-                                                 data: { _ in nil }, contents: { _ in [] }, modificationDate: { _ in nil }),
+                                                 data: { _ in nil }, contents: { _ in [] }, modificationDate: { _ in nil },
+                                                 executableTrust: { _ in true }),
             launcher: launcher, tokenDirectory: root
         )
         await #expect(throws: VSCodeServeWebError.serverMissing) { try await service.url(vscode: Self.vscode) }

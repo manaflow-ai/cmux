@@ -1,11 +1,18 @@
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextHelperSecurity
 
 /// One running `cnx-hostd` child: its stdout as event lines, its stdin for
 /// control lines, its stderr appended to a log file. Reading happens on
 /// Foundation's pipe queue, never the caller's actor. The child exits by
 /// itself when stdin closes, so a crash of the app ends it too.
 public final class CnxHostProcess: Sendable {
+    /// Why a host process could not be started.
+    public enum Failure: Error, Equatable, Sendable {
+        /// The executable is a symlink, unsigned, invalid, or not signed by the app's Team ID.
+        case untrustedExecutable
+    }
+
     private struct State {
         var process: Process?
         var input: FileHandle?
@@ -17,13 +24,20 @@ public final class CnxHostProcess: Sendable {
     public let lines: AsyncStream<String>
     private let continuation: AsyncStream<String>.Continuation
     private let state = Mutex(State())
+    private let executableTrust: @Sendable (URL) -> Bool
 
-    public init() {
+    /// Creates a host process whose executable must match the running app's signing team.
+    /// - Parameter executableTrust: The pre-launch trust check. Tests inject a fixture policy.
+    public init(executableTrust: @escaping @Sendable (URL) -> Bool = {
+        HelperExecutableTrust(reference: .runningProcess).accepts($0)
+    }) {
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
+        self.executableTrust = executableTrust
     }
 
     /// Starts `launch.executable` with `environment`; stderr goes to `log` (created 0600) or nowhere.
     public func start(_ launch: CnxHostLaunch, environment: [String: String], log: URL?) throws {
+        guard executableTrust(launch.executable) else { throw Failure.untrustedExecutable }
         let process = Process()
         process.executableURL = launch.executable
         process.environment = environment

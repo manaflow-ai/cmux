@@ -924,127 +924,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This VS Code install cannot serve in the browser: its code-tunnel CLI is missing."
+            "value": "This VS Code install has no trusted inline server."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يمكن لتثبيت VS Code هذا العمل في المتصفح: أداة code-tunnel مفقودة."
+            "state": "translated",
+            "value": "لا يحتوي تثبيت VS Code هذا على خادم مضمّن موثوق."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ova VS Code instalacija ne može raditi u pregledniku: nedostaje njen code-tunnel CLI."
+            "state": "translated",
+            "value": "Ova instalacija VS Codea nema pouzdan ugrađeni server."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne VS Code-installation kan ikke køre i browseren: dens code-tunnel-CLI mangler."
+            "state": "translated",
+            "value": "Denne VS Code-installation har ingen betroet integreret server."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Diese VS Code-Installation kann nicht im Browser laufen: Ihr code-tunnel-CLI fehlt."
+            "state": "translated",
+            "value": "Diese VS Code-Installation hat keinen vertrauenswürdigen Inline-Server."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta instalación de VS Code no puede servir en el navegador: falta su CLI code-tunnel."
+            "state": "translated",
+            "value": "Esta instalación de VS Code no tiene un servidor integrado de confianza."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cette installation de VS Code ne peut pas servir dans le navigateur : son CLI code-tunnel est absent."
+            "state": "translated",
+            "value": "Cette installation de VS Code ne dispose d’aucun serveur intégré fiable."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Questa installazione di VS Code non può funzionare nel browser: manca la sua CLI code-tunnel."
+            "state": "translated",
+            "value": "Questa installazione di VS Code non dispone di un server inline attendibile."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この VS Code はブラウザーで提供できません。code-tunnel CLI がありません。"
+            "value": "この VS Code には信頼済みのインラインサーバーがありません。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ការដំឡើង VS Code នេះមិនអាចដំណើរការក្នុងកម្មវិធីរុករកបានទេ៖ ខ្វះ CLI code-tunnel។"
+            "state": "translated",
+            "value": "ការដំឡើង VS Code នេះមិនមានម៉ាស៊ីនមេក្នុងកម្មវិធីដែលអាចទុកចិត្តបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "이 VS Code 설치는 브라우저에서 제공할 수 없습니다. code-tunnel CLI가 없습니다."
+            "state": "translated",
+            "value": "이 VS Code 설치에는 신뢰할 수 있는 인라인 서버가 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne VS Code-installasjonen kan ikke kjøre i nettleseren: code-tunnel-CLI-en mangler."
+            "state": "translated",
+            "value": "Denne VS Code-installasjonen har ingen klarert integrert server."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ta instalacja VS Code nie może działać w przeglądarce: brakuje jej CLI code-tunnel."
+            "state": "translated",
+            "value": "Ta instalacja VS Code nie ma zaufanego serwera wbudowanego."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta instalação do VS Code não pode ser servida no navegador: falta a CLI code-tunnel."
+            "state": "translated",
+            "value": "Esta instalação do VS Code não tem um servidor integrado confiável."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Эта установка VS Code не может работать в браузере: отсутствует CLI code-tunnel."
+            "state": "translated",
+            "value": "В этой установке VS Code нет доверенного встроенного сервера."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "VS Code ที่ติดตั้งนี้ให้บริการในเบราว์เซอร์ไม่ได้ เพราะไม่มี CLI code-tunnel"
+            "state": "translated",
+            "value": "การติดตั้ง VS Code นี้ไม่มีเซิร์ฟเวอร์แบบอินไลน์ที่เชื่อถือได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu VS Code kurulumu tarayıcıda sunulamaz: code-tunnel CLI’si eksik."
+            "state": "translated",
+            "value": "Bu VS Code kurulumunda güvenilir bir satır içi sunucu yok."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ця інсталяція VS Code не може працювати в браузері: бракує CLI code-tunnel."
+            "state": "translated",
+            "value": "У цій інсталяції VS Code немає довіреного вбудованого сервера."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bản cài VS Code này không thể chạy trong trình duyệt: thiếu CLI code-tunnel."
+            "state": "translated",
+            "value": "Bản cài đặt VS Code này không có máy chủ nội tuyến đáng tin cậy."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "此 VS Code 安装无法在浏览器中提供服务：缺少 code-tunnel CLI。"
+            "state": "translated",
+            "value": "此 VS Code 安装没有受信任的内嵌服务器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "此 VS Code 安裝無法在瀏覽器中提供服務：缺少 code-tunnel CLI。"
+            "state": "translated",
+            "value": "此 VS Code 安裝沒有受信任的內嵌伺服器。"
           }
         }
       }
