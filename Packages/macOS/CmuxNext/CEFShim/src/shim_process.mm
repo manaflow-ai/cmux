@@ -10,6 +10,7 @@
 #include <set>
 
 #include "include/cef_application_mac.h"
+#include "include/cef_parser.h"
 #include "include/wrapper/cef_library_loader.h"
 #include "shim_internal.h"
 
@@ -61,12 +62,29 @@ bool TakeHostClose(int browser_id) {
 static bool g_extension_developer_mode = false;
 // accept_language_list from cmux_shim_initialize, for every request context.
 static std::string g_accept_languages;
+// browser.searchEngine as Chromium template URL data (JSON); empty keeps
+// Chromium's own default search provider. Set by cmux_shim_set_default_search.
+static std::string g_default_search_json;
 
 namespace {
 
 std::set<std::string>& initialized_contexts() {
   static std::set<std::string> set;
   return set;
+}
+
+// Makes g_default_search_json the profile's default search provider, or
+// resets the preference to Chromium's own default when it is empty.
+void ApplyDefaultSearch(CefRefPtr<CefRequestContext> context) {
+  static const char kPref[] = "default_search_provider_data.template_url_data";
+  if (!context || !context->CanSetPreference(kPref)) return;
+  CefRefPtr<CefValue> value;  // null restores the default
+  if (!g_default_search_json.empty()) {
+    value = CefParseJSON(g_default_search_json, JSON_PARSER_RFC);
+    if (!value || value->GetType() != VTYPE_DICTIONARY) return;
+  }
+  CefString error;
+  context->SetPreference(kPref, value, error);
 }
 
 // Applies per-profile preferences once the profile is loaded.
@@ -83,6 +101,7 @@ class ContextHandler : public CefRequestContextHandler {
     }
     // Remote localhost: before any browser of this context navigates.
     ApplyContextProxy(context, cache_path_);
+    ApplyDefaultSearch(context);
     initialized_contexts().insert(cache_path_);
     WatchBookmarks(cache_path_);
   }
@@ -280,6 +299,13 @@ int cmux_shim_load(const char* framework_binary, char* err, size_t err_len) {
 
 void cmux_shim_set_extension_developer_mode(int enabled) {
   g_extension_developer_mode = enabled != 0;
+}
+
+void cmux_shim_set_default_search(const char* template_url_json) {
+  g_default_search_json = template_url_json ? template_url_json : "";
+  for (const auto& entry : request_contexts()) {
+    if (initialized_contexts().count(entry.first)) ApplyDefaultSearch(entry.second);
+  }
 }
 
 int cmux_shim_fork_api_version(void) {

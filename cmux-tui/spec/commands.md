@@ -1422,6 +1422,7 @@ CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--c
 | since | protocol 5 |
 | `paste` field | protocol 7 additive extension |
 | `terminal_id` field | `terminal-input-while-creating-v1` additive extension |
+| `expect_foreground` field | `send-expect-foreground-v1` additive extension |
 
 Writes input to a PTY surface. `text`, when present, is UTF-8 encoded and written as bytes. `bytes`, when present, is standard base64 decoded and written as raw bytes. If both are present, v5 writes `text` first and `bytes` second. If neither is present, v5 returns success and writes nothing.
 
@@ -1436,6 +1437,16 @@ Params:
 | `text` | `string` | default null | Written before `bytes` when both are present |
 | `bytes` | `Base64` | default null | Decoded with standard base64 |
 | `paste` | `boolean` | default false | Protocol 7; conditionally wraps the combined non-empty payload when DEC mode 2004 is enabled |
+| `expect_foreground` | `string` | default null | `send-expect-foreground-v1`; needs `surface`; write only while the foreground executable is this one |
+
+With `send-expect-foreground-v1`, `expect_foreground` names the executable the caller saw in the
+foreground (`process-info`'s `foreground_executable`, compared byte for byte). Right before the write the
+server reads the surface's foreground process-group leader again; when it is a different executable, or
+cannot be read, the request fails with `foreground changed: ...` and writes nothing. A reply typed to an
+agent therefore never runs as a shell command after that agent exited. It needs `surface`: with
+`terminal_id` the request fails with `bad request`. A server without the capability ignores the field.
+The check is best effort: the program can still exit between the read and the write, a window of
+microseconds instead of a client round trip.
 
 With `terminal-input-while-creating-v1`, `terminal_id` addresses the terminal by its host id. A
 `split`, `new-pane`, `new-pane-right` or `new-tab` that names a caller-minted `terminal_id` makes that id
@@ -7158,7 +7169,7 @@ While the app's lease exists, `cloud-*` events reach only the app's
 reach every trusted local `subscribe` stream.
 
 While the app's lease exists it is the human's: every command that uses it
-(`cloud-inbox-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`,
+(`cloud-inbox-list`, `cloud-requests-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`,
 `cloud-conversation-thread`, `cloud-conversation-op` with any origin,
 `cloud-inbox-subscribe`, `cloud-conversation-subscribe`, `cloud-mux-subscribe`,
 `cloud-mux-ack`) from another connection is refused the same way and sends
@@ -7313,7 +7324,8 @@ answer from a worker thread, so replies may arrive out of order (match by
 forwards one op tagged by `kind` (`dm.open`, `conversation.create`,
 `participants.add`, `participants.remove`, `message.send`, `message.edit`,
 `message.retract`, `reaction.add`, `reaction.remove`, `read_cursor.set`,
-`title.set`, `thread.update`, `invite.create`) with the client's key and origin and returns
+`title.set`, `thread.update`, `invite.create`, `invite.accept_verified`,
+`request.dismiss {block?}`) with the client's key and origin and returns
 `object{value, rev?, seq?, change?, replayed, transaction, stream, sequence}`.
 Errors carry `error_code` (`cloud_conversation_rejected`, `cloud_signed_out`,
 `cloud_session_expired`, `cloud_unauthenticated`, `cloud_unavailable`),
@@ -7324,6 +7336,23 @@ refused before anything is sent, with `cloud_conversation_rejected`,
 plans/cmux-next/home-cloud-proxy.md.
 `cloud-conversation-snapshot` and `cloud-conversation-history` pass the
 owner's `threads` field through unchanged when it sends one.
+
+### cloud-requests-list
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-requests-list` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversations-v1` |
+
+The lease person's open message requests (plans/cmux-next/home-messaging-invites/DESIGN.md
+2.3): `POST /v1/read home.requests.list {}` with the lease. Takes no fields (an
+unknown field is refused). Returns `object{requests}`, each row
+`{conversation, inviter, kind, title?, preview, created_at, expires_at, trusted}`
+as the owner sent it; a row whose `conversation` is not a conversation id is
+dropped. Accept with `cloud-conversation-op` `invite.accept_verified` and
+dismiss (or block, `block: true`) with `request.dismiss`, both naming the
+conversation. Errors as `cloud-inbox-list`.
 
 ### cloud-conversation-thread
 

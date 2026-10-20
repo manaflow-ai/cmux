@@ -2143,6 +2143,15 @@ pre.cv-math-source {
   max-width: 100%;
   height: auto;
 }
+/* Ondine's monochrome diagrams take the pane's colors (its defaults are black on white). */
+.cv-diagram__chart svg.ondine {
+  --ondine-fg: var(--agent-text);
+  --ondine-bg: var(--agent-page-bg);
+  --ondine-muted: var(--agent-text);
+  --ondine-line: var(--agent-text);
+  --ondine-border: var(--agent-text);
+  --ondine-surface-alt: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg));
+}
 .cv-diagram__error {
   padding: 8px 10px;
   font-size: 12px;
@@ -2491,6 +2500,39 @@ pre.cv-math-source {
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
+}
+
+/* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */
+/* The compaction note under the facts line: wraps (it is a sentence or three), indented to the
+   facts' text, quiet until dismissed. */
+.cv-session-start__compaction {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding-left: 22.5px;
+  line-height: 18px;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-session-start__compaction-text {
+  min-width: 0;
+  flex: 1;
+}
+.cv-session-start__dismiss {
+  all: unset;
+  flex: none;
+  display: flex;
+  padding: 3px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-session-start__dismiss:hover {
+  color: var(--agent-text);
+}
+.cv-session-start__dismiss:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
 }
 
 /* ---------- A compaction (CompactionNote.tsx) ---------- */

@@ -563,6 +563,7 @@
       "page-credential",
       "ws-listen",
       "cloud-inbox-list",
+      "cloud-requests-list",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",
