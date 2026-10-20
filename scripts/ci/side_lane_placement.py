@@ -14,8 +14,12 @@ trusted run. It lists the runners through the org route App
 (pr_runner_pool.GitHub.runners(), as admission_placement.py does) and places
 JOBS, in priority order, with pr_runner_pool.idle_placement(), the rule the
 main picker places the light side lanes with: one job per runner carrying
-SIDE_LABEL that is online and idle now. When no online runner carries the side
-label, jobs use its owned pool label so the std minis can accept them. When a
+the route that is online and idle now. The route is SIDE_LABEL or the same
+side label on a wider class (compatible_labels(): a light job runs on a std
+mini, never the reverse), whichever has the most idle, then online, runners
+live (side_route()), so a starved light pool spills onto idle std side
+runners. When no online runner carries a compatible side label, jobs use the
+owned pool label so the minis can accept them. When a
 side label is online but busy, jobs remain on it and the rescue supplies the
 measured overflow boundary after the mini queue drains.
 
@@ -82,23 +86,69 @@ def _cascade():
 cascade = _cascade()
 
 
+def compatible_labels(label: str) -> tuple[str, ...]:
+    """`label`, then the same label on each wider class: every label whose runners can run its jobs.
+
+    pr_runner_pool.RUN_CLASSES lists the owned classes widest first (std: 48 GB
+    minis with GUI runners; light: 16 GB minis with two runners and none), so
+    a job sized for a class also runs on any class before it, never after.
+    Only the class token changes: the role (side, gui, session), the trust and
+    fleet namespace (trusted, promote, aws) and the Xcode stay as they are, so
+    no route crosses a trust boundary. Any other label is its own only label.
+    """
+    if not pool.persistent(label):
+        return (label,) if label else ()
+    parts = label.split("-")
+    own = next((index for index, part in enumerate(parts) if part in pool.RUN_CLASSES), None)
+    if own is None:
+        return (label,)
+    wider = pool.RUN_CLASSES[:pool.RUN_CLASSES.index(parts[own])]
+    return (label, *("-".join([*parts[:own], name, *parts[own + 1:]]) for name in reversed(wider)))
+
+
+def _online(label: str, runners: Sequence[Mapping[str, Any]]) -> int:
+    return sum(1 for runner in runners
+               if runner.get("status") == "online" and pool.carries_office_pool_label(runner, label))
+
+
+def side_route(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """The compatible side label with the most live room, or "" when no online runner carries one.
+
+    Live room is the runners API itself (the fleet's registered labels), not a
+    count kept in a variable: the most idle runners now, then the most online
+    (the queue that drains fastest), with ties to the job's own class. On
+    2026-10-20 at 22:16Z the light side label had 133 jobs queued on its 3
+    online runners while 51 std side runners sat idle; the light jobs could
+    have run on any of them.
+    """
+    if runners is None or not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
+        return ""
+    best, room = "", (0, 0)
+    for candidate in compatible_labels(label):
+        online = _online(candidate, runners)
+        if not online:
+            continue
+        here = (pool.live_owned_free(runners, [candidate])[candidate], online)
+        if not best or here > room:
+            best, room = candidate, here
+    return best
+
+
 def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
-    """Use the side label while online, otherwise its owned pool label."""
+    """side_route(), else the owned pool label while no compatible side runner is online."""
     if runners is None:
         return ""
-    if any(runner.get("status") == "online" and label in pool.runner_labels(runner)
-           for runner in runners):
-        return label
-    return pool.pool_label(label)
+    return side_route(label, runners) or pool.pool_label(label)
 
 
 def _live_role_label(label: str, runners: Sequence[Mapping[str, Any]] | None, role) -> str:
     """The first online `role` label (pr_runner_pool.gui_label or session_label) for an owned side label.
 
-    The light minis run no GUI or session runner, so a light lane borrows the
-    std minis' before the workflow's Blacksmith fallback: on 2026-10-18 every
-    glaeda-gui-light job sampled waited for a runner until the rescue moved its
-    run to Blacksmith while the std GUI runners sat idle.
+    The light minis run no GUI or session runner, so a light lane borrows a
+    wider class's (compatible_labels()) before the workflow's Blacksmith
+    fallback: on 2026-10-18 every glaeda-gui-light job sampled waited for a
+    runner until the rescue moved its run to Blacksmith while the std GUI
+    runners sat idle.
     """
     if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return ""
@@ -109,12 +159,7 @@ def _live_role_label(label: str, runners: Sequence[Mapping[str, Any]] | None, ro
         return ""
     if runners is None:
         return ""
-    candidates = [role(owned)]
-    parts = owned.split("-")
-    if pool.LIGHT_CLASS in parts:
-        parts[parts.index(pool.LIGHT_CLASS)] = "std"
-        candidates.append(role("-".join(parts)))
-    for candidate in candidates:
+    for candidate in (role(name) for name in compatible_labels(owned)):
         if candidate and any(runner.get("status") == "online" and candidate in pool.runner_labels(runner)
                              for runner in runners):
             return candidate
@@ -154,13 +199,16 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
         return (), (), f"`{label or 'no label'}` is not an owned side label"
     if runners is None:
         return (), (), f"owned runners could not be read live; the jobs keep `{label}`"
-    owned = pool.idle_placement(runners, label, jobs)
+    # The jobs take the compatible side label with the most room (side_route()), so idle runners
+    # are counted where they go.
+    route = side_route(label, runners) or label
+    owned = pool.idle_placement(runners, route, jobs)
     # A busy fleet is a queue, not an instantaneous Blacksmith decision. The
     # rescue moves a job only after the side queue budget has elapsed.
     fallback: tuple[str, ...] = ()
     if not owned:
-        return owned, fallback, f"no idle `{label}` runner now; every job stays queued on the owned label"
-    return owned, fallback, (f"{len(owned)} idle `{label}` runner(s) now take {', '.join(owned)}"
+        return owned, fallback, f"no idle `{route}` runner now; every job stays queued on the owned label"
+    return owned, fallback, (f"{len(owned)} idle `{route}` runner(s) now take {', '.join(owned)}"
                              + "; remaining jobs stay queued on the owned label")
 
 
@@ -182,7 +230,8 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     gui_route = gui_route_label(label, runners)
     session_route = session_route_label(label, runners)
     if route and route != label:
-        why += f"; no online side runner, routing jobs on `{route}`"
+        why += (f"; `{route}` has more live room than `{label}`, routing jobs there"
+                if route.startswith(pool.SIDE_PREFIX) else f"; no online side runner, routing jobs on `{route}`")
     print(f"side-lane placement: {why}")
     watch = "false" if fallback and not owned else "true"
     output = env.get("GITHUB_OUTPUT")

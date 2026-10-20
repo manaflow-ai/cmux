@@ -183,7 +183,7 @@ export function workedTurnRows(at: number): AcpmuxRow[] {
       version: 1,
       at: at + 48_000,
       kind: "assistant",
-      text: "GETs now retry 408, 429 and 5xx gateway errors up to three times with jittered exponential backoff. POSTs only retry when the caller passes a policy. Added three tests for the retry paths.",
+      text: "GETs now retry 408, 429 and 5xx gateway errors up to three times with jittered exponential backoff. POSTs only retry when the caller passes a policy. Added three tests for the retry paths.\n\nThe status codes follow [MDN's 429 notes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429); the change is https://github.com/manaflow-ai/cmux/pull/22345 and closes manaflow-ai/cmux#21738.",
     },
   ] as AcpmuxRow[];
 }
