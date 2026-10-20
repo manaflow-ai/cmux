@@ -1,8 +1,19 @@
-/// Which reconnect a machine header's Reconnect runs. Stub: not routed yet.
+/// Which reconnect a machine header's Reconnect runs (remote-groups-DESIGN.md 8.2).
 enum MachineReconnectRoute: Equatable {
-    case ssh, wakeServer, retryCloud, none
+    /// An SSH host: its own `remote.reconnect`, already a row of its header menu.
+    case ssh
+    /// A paired server: wake its link now instead of at the next backoff.
+    case wakeServer
+    /// A Cloud machine: retry its link now.
+    case retryCloud
+    /// This Mac or an unknown machine: nothing to reconnect.
+    case none
 
-    init(isLocal: Bool, isSSH: Bool, isServer: Bool, isCloud: Bool) { self = .none }
+    init(isLocal: Bool, isSSH: Bool, isServer: Bool, isCloud: Bool) {
+        self = isLocal ? .none : isSSH ? .ssh : isServer ? .wakeServer : isCloud ? .retryCloud : .none
+    }
 
-    var showsSharedRow: Bool { false }
+    /// Whether the shared `machine.reconnect` row shows on the header: not where the header already
+    /// has Reconnect (SSH) or has nothing to reconnect.
+    var showsSharedRow: Bool { self == .wakeServer || self == .retryCloud }
 }

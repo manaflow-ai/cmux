@@ -42,11 +42,33 @@ enum RemoteGroupHandlers {
                 throw ActionFailure.invalidTarget(error.message)
             }
         })
+        // Reconnect on a paired server's or a Cloud machine's header (an SSH host has remote.reconnect).
+        registry.bind("machine.reconnect", run: { invocation in
+            guard let machine = invocation.target?.id ?? invocation["machine"]?.stringValue else {
+                throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
+            }
+            let machines = context.services.machines
+            switch route(machine, machines) {
+            case .wakeServer: machines.server(machine)?.wake()
+            case .retryCloud: machines.session(machine)?.retry()
+            case .ssh: _ = registry.perform("remote.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine)))
+            case .none: throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
+            }
+        })
+        ActionTargetVisibility.hide("machine.reconnect", in: registry) { invocation in
+            guard let machine = invocation.target?.id else { return true }
+            return !route(machine, context.services.machines).showsSharedRow
+        }
         // Only a remote group's header offers it.
         ActionTargetVisibility.hide("remote.removeGroup", in: registry) { invocation in
             guard let session = session(invocation, context), let store = SidebarDocStore.current else { return true }
             return store.records.sections["sec_m_\(session)"]?.hostGroup != true
         }
+    }
+
+    private static func route(_ machine: String, _ machines: MachineRegistry) -> MachineReconnectRoute {
+        MachineReconnectRoute(isLocal: machine == MachineRegistry.localID, isSSH: machines.sshSession(machine) != nil,
+                              isServer: machines.server(machine) != nil, isCloud: machines.session(machine) != nil)
     }
 
     /// The daemon session of the invocation's machine (target or `machine` argument).

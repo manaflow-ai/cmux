@@ -104,7 +104,7 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
         "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
         "cloudDiagnostics", "cloudPauseMachine", "cloudResumeMachine", "cloudDomainList", "cloudPublicationList", "palette.cloud.deleteSnapshot", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "palette.mobileConnect", "accounts.refresh",
-        "accounts.reauthenticate", "accounts.connect", "accounts.remove", "remote.connect", "remote.newGroup", "remote.removeGroup", "remote.newWorkspace",
+        "accounts.reauthenticate", "accounts.connect", "accounts.remove", "remote.connect", "remote.newGroup", "remote.removeGroup", "machine.reconnect", "remote.newWorkspace",
         "remote.openTerminalHere", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
         "reloadConfiguration", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting",
         "palette.shortcutKeymap", "palette.installCLI", "palette.uninstallCLI", "palette.restartSocketListener", "palette.restartServer",
