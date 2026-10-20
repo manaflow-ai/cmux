@@ -1449,6 +1449,29 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         probe = next(step for step in self.jobs()["path_route"]["steps"] if step.get("id") == "tree")
         self.assertNotIn("github.ref", probe["if"])
 
+    def test_a_dispatch_whose_tree_was_building_gets_its_daemon_tests_later(self):
+        # The marker says dispatch, not push: a same-tree run for a push skips daemon-test
+        # (push CI is the app build), and nothing else tests a working branch's tree.
+        marker = next(step for step in self.jobs()["path_route"]["steps"] if step.get("id") == "marker")
+        self.assertIn('origin="dispatch" if env["EVENT_NAME"] == "workflow_dispatch"', marker["run"])
+        same_tree = self.context("workflow_dispatch", ref="refs/heads/topic", same_tree_sha="a" * 40,
+                                 same_tree_state="ready", same_tree_tiers="daemon", same_tree_origin="dispatch")
+        self.assertTrue(evaluate(self.jobs()["daemon-test"]["if"], same_tree))
+        same_tree["inputs.same_tree_origin"] = "push"
+        self.assertFalse(evaluate(self.jobs()["daemon-test"]["if"], same_tree))
+
+    def test_web_bundles_run_only_for_a_tier_that_restores_them(self):
+        only_fast = self.context()
+        for tier in ("swift", "daemon", "generated"):
+            only_fast[f"needs.path_route.outputs.{tier}"] = "false"
+        self.assertFalse(evaluate(self.jobs()["web-bundles"]["if"], only_fast))
+        for tier in ("swift", "daemon", "generated"):
+            with self.subTest(tier=tier):
+                self.assertTrue(evaluate(self.jobs()["web-bundles"]["if"], dict(only_fast, **{f"needs.path_route.outputs.{tier}": "true"})))
+        # A push and a dispatch fill the cache whatever the route.
+        push = self.context("push", ref="refs/heads/feat-cmux-next")
+        self.assertTrue(evaluate(self.jobs()["web-bundles"]["if"], push))
+
     def test_the_cascade_counts_a_same_repository_prs_canary_and_scheme(self):
         place = next(step for step in self.jobs()["macos-placement"]["steps"] if step.get("id") == "place")
         expression = place["env"]["CASCADE_RUNS"]
