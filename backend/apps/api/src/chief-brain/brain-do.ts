@@ -25,6 +25,8 @@ import { chiefsTools } from "./brain-chiefs.ts"
 import { type ChildStart, childInput, childKey, childObject, childPrompt, childRunId, postReports, readChild, slotCounts, slotEnqueue, slotPump, SPAWN_SCHEMA, CHILD_LOST_MS, archiveAndDrop, childReportText, forwardOutcomes, outcomeWhere, keepMs, turnWhereOf, type AgentOutcome, checkOutcomes, noteAgentCall, postOutcomes, queueOutcome, spawnMax, spawnTool, subagentActivity, takeReport, turnThread } from "./brain-spawn.ts"
 import * as sub from "./brain-sub.ts"
 import * as turnLoop from "./brain-turn.ts"
+import { ccRoute } from "../chief-brain-cc/vm.ts"
+import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
@@ -232,6 +234,9 @@ export class ChiefBrainDO extends DurableObject<Env> {
    */
   private compactorName(): string | undefined {
     const cfg = this.config()
+    // The Claude Code route (chief-brain-cc/) has no Cloud model route for the compactor: compaction is off and the
+    // turns read the whole unsummarized log (Memory.turnInput), never a fake summary.
+    if (ccRoute(this.env, cfg.owner)) return undefined
     const fallback = this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE
     const picked = compactorModel(this.env, cfg.compactor_model, fallback)
     if (!isMetered(picked) || meteredOwner(this.env, cfg.owner ?? null)) return picked
@@ -282,6 +287,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     // Only an enabled pi Chief's conversation brain (an opencode, local or disabled Chief's old object stays asleep).
     if (!cfg.agent || !cfg.owner || !cfg.enabled || cfg.brain_impl !== "pi" || this.childOf()) return true
     await this.lifecycle.start()
+    // The Claude Code route (chief-brain-cc/) needs none of the model route's reads: only the admission.
+    if (ccRoute(this.env, cfg.owner)) {
+      this.ctx.waitUntil(this.settingsOf(cfg.agent).admit(cfg.agent, cfg.owner, false).catch(() => undefined))
+      return true
+    }
     const [agent, owner] = [cfg.agent, cfg.owner]
     this.ctx.waitUntil(this.settingsOf(agent).admit(agent, owner, false).catch(() => undefined))
     this.ctx.waitUntil(creditsCanStart(this.env, cfg).catch(() => undefined))
@@ -360,7 +370,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
     if (!cfg.enabled) return { ok: false, reason: "disabled" }
     if (cfg.agent !== agent || cfg.owner !== owner) return { ok: false, reason: "other_chief" }
     // The chief record and the credits check go at the same time (two other objects, independent reads).
-    const [record, credits] = await Promise.all([chiefRecordFresh(this.env, owner, agent).catch(() => undefined), turn ? creditsCanStart(this.env, cfg) : Promise.resolve("ok" as const)])
+    // A turn on the Claude Code route (chief-brain-cc/) uses no Cloud model route and is not charged to credits.
+    const [record, credits] = await Promise.all([chiefRecordFresh(this.env, owner, agent).catch(() => undefined), turn && !ccRoute(this.env, owner) ? creditsCanStart(this.env, cfg) : Promise.resolve("ok" as const)])
     if (record === undefined) return { ok: false, reason: "owner.unreachable" }
     if (!record) return { ok: false, reason: "chief_archived" }
     if (record.brain_place) return { ok: false, reason: "chief_placed" }
@@ -423,6 +434,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     await this.lifecycle.start()
     const agent = this.config().agent
     return agent ? readRuns(this.sql, agent, conversation, before, limit) : { runs: [], has_more: false }
+  }
+
+  /** The Claude Code route's turn machine (POST /v1/chief-cc/<agent>/<conversation>/notes, chief-brain-cc/turn.ts). */
+  async ccNotes(token: string, body: { run?: unknown; events?: unknown; result?: unknown }): Promise<{ status: number }> {
+    return ccNotes(this, token, body)
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
