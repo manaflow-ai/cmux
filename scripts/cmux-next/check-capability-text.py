@@ -47,7 +47,7 @@ ALLOWED = [
     # the old side's install channel (tui-tester-rollout.md #4).
     ("cmux-tui/crates/cmux-tui-core/src/release.rs", '"update the cmux app (cmux > Check for Updates)"'),
     ("cmux-tui/crates/cmux-tui-core/src/release.rs", 'PYPI_UPDATE: &str = "uv tool upgrade cmux";'),
-    ("cmux-tui/crates/cmux-tui-core/src/release.rs", '"update cmux: `{NPM_UPDATE}` (npm), `{PYPI_UPDATE}` (PyPI)'),
+    ("cmux-tui/crates/cmux-tui-core/src/release.rs", '"update cmux: `{NPM_UPDATE}` (npm), `{PYPI_UPDATE}` (PyPI), or Check for Updates in the cmux app"'),
 ]
 
 
