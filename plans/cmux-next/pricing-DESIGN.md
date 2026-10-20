@@ -30,6 +30,14 @@ included baseline, with open-source models. Also Chief can start sandboxes now."
 | Freestyle tenant VMs (a205) | One tenant = one Stack team; VM create credits (Stack items) and Cloud credits (USD) are two ledgers today; 402 now carries an upgrade link. | cmuxterm-hq `plans/freestyle-tenant-DESIGN.md` (#2610, eef94375164d) |
 | Hub VM | 4 vCPU / 8 GiB always on = $193/month, which matches Freestyle list price exactly (section 3). | a161, cmuxterm-hq `5d08849650bc` |
 
+a205 confirmed (2026-10-20): one credits unit, Cloud credits in USD in the team's existing
+`UsageMeterDO` ledger with its top-up link. Lines that convert to credits: workflow steps,
+sandbox seconds by size (its estimate $0.13/h for 2 vCPU / 4 GiB and $0.26/h for 4 vCPU / 8 GiB
+is our Freestyle cost; the list price below adds 12%), and model tokens. Classic Cloud VM create
+credits are not extended to cmux-next. Workflow steps are priced at Cloudflare cost
+($0.80 per 100,000 steps, `automations-billing.md` section 3), which is too small to show on the
+page; they appear as a line in Settings › Billing.
+
 This design does not add a billing backend. It sets the numbers and the story; the ledger is
 the existing Chief credits ledger, and a205 owns merging VM time into it.
 
@@ -115,9 +123,9 @@ A test enforces a 30% floor on every paid plan and billing interval
 $30 on Pro yearly would fall to 22%.
 
 Margin risk outside this table: today's flat Cloud VM entitlements. A Pro user who keeps the
-20 vCPU / 40 GB pool running 24x7 costs about $965/month at Freestyle list. Recommendation: in
-cmux-next, VM time draws from the same Chief credits (a205's ledger merge) and
-`CMUX_VM_PLAN_BUDGETS=on` caps classic VMs until then.
+20 vCPU / 40 GB pool running 24x7 costs about $965/month at Freestyle list. In cmux-next
+this risk is gone: sandbox time draws from Chief credits and classic create credits are not
+extended (a205). For classic, `CMUX_VM_PLAN_BUDGETS=on` would cap it.
 
 ## 4. Proposed price table (for approval)
 
