@@ -1424,6 +1424,15 @@ jobs:
         continue-on-error: true
         run: bash tests/test_web_bundle_key_inputs.sh
 
+      # build-web-bundles.sh --from installs and stamps bundles built elsewhere. It and the key
+      # inputs test ran last in the web-bundles job until 2026-10-20: a red there failed the job
+      # that swift test, daemon tests and generated files wait on, so those tiers were skipped
+      # (and a skipped tier reads as passing) on every pull request while it stayed red.
+      - name: Prebuilt web bundles install and stamp
+        id: web-bundles-from
+        continue-on-error: true
+        run: bash tests/test_build_web_bundles_from.sh
+
       # The companion workflows' structure: generated-files catch-up and the
       # next-batch landing queue.
       - name: Companion workflows
@@ -1564,6 +1573,7 @@ jobs:
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted
             ${{ steps.web-bundle-key-inputs.outcome }}|Web bundle key inputs
+            ${{ steps.web-bundles-from.outcome }}|Prebuilt web bundles install and stamp
             ${{ steps.companion-workflows.outcome }}|Companion workflows
             ${{ steps.dev-update-classic-import.outcome }}|DEV update and classic import scripts
             ${{ steps.routing-replay.outcome }}|Routing replay (router changes)
@@ -1682,11 +1692,6 @@ jobs:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
 
-      - name: Prebuilt bundles install and stamp (build-web-bundles.sh --from)
-        run: bash tests/test_build_web_bundles_from.sh
-
-      - name: Source key covers imports outside webviews/ (web-bundle-key.py)
-        run: bash tests/test_web_bundle_key_inputs.sh
 
   same-tree-cmux-tui:
     needs: [path_route, push-head-preflight]
