@@ -815,6 +815,11 @@ class Debouncer:
     def ran(self, heads: tuple) -> None:
         self.done, self.first = heads, None
 
+    def failed(self, heads: tuple, at: dt.datetime) -> None:
+        """A batch for `heads` raised (a rate limit, a 502): try the same set
+        again after another quiet wait instead of waiting for a new push."""
+        self.done, self.seen, self.first, self.last = None, heads, at, at
+
 
 # --- close watch --------------------------------------------------------------
 
@@ -2393,7 +2398,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 if debouncer.observe(heads, snapshot[1]):
                     debouncer.ran(heads)
                     log("batch for " + " ".join(f"#{number}" for number, _ in heads))
-                    Controller(args).run()
+                    try:
+                        Controller(args).run()
+                    except Exception:
+                        debouncer.failed(heads, now())
+                        raise
             except Exception as error:  # keep serving; the next poll retries
                 log(f"serve: {type(error).__name__}: {error}")
         time.sleep(5)
