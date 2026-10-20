@@ -5,7 +5,7 @@ import Testing
 /// The Changes view's Stage and Unstage (cx-tcwj): the page asks the App to run `git add` or
 /// `git restore --staged` on files of the chat's repository. Each needs a real click or key in the
 /// pane, a repository inside the pane's folders, and paths inside that repository.
-@MainActor
+@Suite(.serialized) @MainActor
 struct AgentPaneGitStageTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
@@ -58,6 +58,27 @@ struct AgentPaneGitStageTests {
         let unstaged = await model.respond(to: Self.request("git.unstage", repo, ["a.txt"]))
         #expect(unstaged["ok"] as? Bool == true, "\(unstaged)")
         #expect(try Self.staged(repo) == ["b.txt"])
+    }
+
+    /// A click-authorized stage keeps the user's system filter contract while still disabling
+    /// repository-selected monitors and hooks.
+    @Test func stagingUsesASystemConfiguredCleanFilter() async throws {
+        let (model, repo) = try Self.rig()
+        let config = repo + "/system.gitconfig"
+        try "[filter \"uppercase\"]\n\tclean = tr '[:lower:]' '[:upper:]'\n\trequired = true\n"
+            .write(toFile: config, atomically: true, encoding: .utf8)
+        try "a.txt filter=uppercase\n".write(toFile: repo + "/.git/info/attributes", atomically: true, encoding: .utf8)
+        let key = "GIT_CONFIG_SYSTEM"
+        let previous = ProcessInfo.processInfo.environment[key]
+        setenv(key, config, 1)
+        defer {
+            if let previous { setenv(key, previous, 1) } else { unsetenv(key) }
+        }
+
+        model.transport.gestures.record()
+        let reply = await model.respond(to: Self.request("git.stage", repo, ["a.txt"]))
+        #expect(reply["ok"] as? Bool == true, "\(reply)")
+        #expect(try Self.git(repo, "show", ":a.txt") == "TWO\n")
     }
 
     /// A chat reopened after a relaunch (dogfood run, hq #1893): its folder is no workspace folder
