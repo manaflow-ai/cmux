@@ -3,8 +3,9 @@ import Foundation
 /// One change to a state resource the app mirrors, from a `session.events`
 /// delta. A nil payload removes the record.
 public enum SessionStateChange: Sendable, Hashable {
-    /// A workspace upsert: its ephemeral flag and its agent folder (`extra.agent_folder`).
-    case workspace(ResourceID, ephemeral: Bool, agentFolder: String?)
+    /// A workspace upsert: its ephemeral flag, its agent folder (`extra.agent_folder`), and its
+    /// description and manual task status (`extra.description`, `extra.task_status`).
+    case workspace(ResourceID, ephemeral: Bool, agentFolder: String?, notes: SessionStateMirror.WorkspaceNotes = .init())
     case workspaceRemoved(ResourceID)
     case screen(ResourceID, SessionStateMirror.ScreenState?)
     case tab(ResourceID, SessionStateMirror.TabRecord?)
@@ -132,6 +133,11 @@ enum SessionWire {
         var ephemeral: Bool { extra?["ephemeral"] == .bool(true) }
         /// The folder new agent chats start in (`workspace.agent_folder.set`).
         var agentFolder: String? { extra?["agent_folder"]?.stringValue }
+        /// The description and the manual task status (`workspace.update`); an unknown lane reads as automatic.
+        var notes: SessionStateMirror.WorkspaceNotes {
+            SessionStateMirror.WorkspaceNotes(description: extra?["description"]?.stringValue,
+                                              taskStatus: extra?["task_status"]?.stringValue.flatMap(WorkspaceTaskStatus.init(rawValue:)))
+        }
 
         var screenState: SessionStateMirror.ScreenState {
             SessionStateMirror.ScreenState(pinned: extra?["pinned"] == .bool(true), color: extra?["color"]?.stringValue,
@@ -199,6 +205,7 @@ enum SessionWire {
             for workspace in workspaces?.compactMap(\.value) ?? [] {
                 if workspace.ephemeral { mirror.ephemeralWorkspaces.insert(workspace.id) }
                 if let folder = workspace.agentFolder { mirror.agentFolders[workspace.id] = folder }
+                if !workspace.notes.isEmpty { mirror.workspaceNotes[workspace.id] = workspace.notes }
             }
             for screen in screens?.compactMap(\.value) ?? [] { mirror.screens.updateValue(screen.screenState, forKey: screen.id) }
             for tab in tabs?.compactMap(\.value) ?? [] where !tab.tabRecord.isEmpty { mirror.tabs.updateValue(tab.tabRecord, forKey: tab.id) }
@@ -228,7 +235,7 @@ enum SessionWire {
             switch (kind, resource) {
             case ("upsert", "workspace"):
                 let workspace = try c.decode(Entity.self, forKey: .value)
-                change = .workspace(rid, ephemeral: workspace.ephemeral, agentFolder: workspace.agentFolder)
+                change = .workspace(rid, ephemeral: workspace.ephemeral, agentFolder: workspace.agentFolder, notes: workspace.notes)
             case ("delete", "workspace"): change = .workspaceRemoved(rid)
             case ("upsert", "screen"): change = .screen(rid, try c.decode(Entity.self, forKey: .value).screenState)
             case ("delete", "screen"): change = .screen(rid, nil)

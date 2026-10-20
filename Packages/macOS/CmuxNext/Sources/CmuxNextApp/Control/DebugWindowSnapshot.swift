@@ -91,7 +91,7 @@ enum DebugWindowSnapshot {
             let composited = window.compositedSnapshot(includeChild: WindowOverlayHost.isPageWindow)
             let base = try composited.map { (image: $0, method: WindowSnapshotMethod.composited) }
                 ?? (webViews.isEmpty ? appKitBaseImage(for: window) : nativeBaseImage(for: window, hiding: webViews))
-            var layers: [Layer] = []
+            var layers: [WindowImageLayer] = []
             // The child windows each layer brings, so the result counts only
             // the ones the image includes (none from a missing layer).
             let children = window.visibleChildWindows
@@ -135,7 +135,7 @@ enum DebugWindowSnapshot {
             // Menus are not child windows: an open one goes on top.
             let floating = window.floatingWindowsSnapshot()
             if let floating { layers.append(.window(floating.image)) }
-            let output = composite(base: base.image, window: window, layers: layers) ?? base.image
+            let output = WindowImageLayer.composite(base: base.image, window: window, layers: layers) ?? base.image
             let rep = NSBitmapImageRep(cgImage: output)
             guard let data = rep.representation(using: .png, properties: [:]) else {
                 throw CocoaError(.fileWriteUnknown)
@@ -160,15 +160,6 @@ enum DebugWindowSnapshot {
     /// The refusal HUD's message while it shows, else null.
     static func hudMessage(_ services: AppServices) -> JSONValue {
         services.refusalHUD.message.map(JSONValue.string) ?? .null
-    }
-
-    /// What `composite` paints over the base image, bottom first.
-    private enum Layer {
-        /// A page image filling a rectangle in window coordinates, except
-        /// `holes` (window coordinates), where the page window is cut out.
-        case page(CGImage, NSRect, holes: [NSRect] = [])
-        /// A window server image of child windows, the size of the window.
-        case window(CGImage)
     }
 
     /// The Chromium pages shown in `window`'s panes, with the page area in
@@ -231,47 +222,6 @@ enum DebugWindowSnapshot {
         }
         visit(root)
         return result
-    }
-
-    private static func composite(base: CGImage, window: NSWindow, layers: [Layer]) -> CGImage? {
-        let size = window.frame.size
-        guard !layers.isEmpty, size.width > 0, size.height > 0 else { return nil }
-        let width = base.width
-        let height = base.height
-        // sRGB, the space the written PNG is tagged with.
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                                      bytesPerRow: width * 4, space: space,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        let scaleX = CGFloat(width) / size.width
-        let scaleY = CGFloat(height) / size.height
-        let whole = CGRect(x: 0, y: 0, width: width, height: height)
-        context.draw(base, in: whole)
-        context.interpolationQuality = .high
-        for layer in layers {
-            switch layer {
-            case .page(let image, let rect, let holes):
-                // Window coordinates and the bitmap both have a bottom-left origin.
-                func pixels(_ rect: NSRect) -> CGRect {
-                    CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY)
-                }
-                let area = pixels(rect)
-                guard area.width > 0, area.height > 0 else { continue }
-                context.saveGState()
-                if !holes.isEmpty {
-                    let clip = CGMutablePath()
-                    clip.addRect(area)
-                    for hole in holes { clip.addRect(pixels(hole)) }
-                    context.addPath(clip)
-                    context.clip(using: .evenOdd)
-                }
-                context.draw(image, in: area)
-                context.restoreGState()
-            case .window(let image):
-                context.draw(image, in: whole)
-            }
-        }
-        return context.makeImage()
     }
 
     /// The window `params` names.

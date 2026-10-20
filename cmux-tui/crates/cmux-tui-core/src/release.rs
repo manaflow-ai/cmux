@@ -109,7 +109,7 @@ impl InstallChannel {
         match (self, self.update_command()) {
             (_, Some(command)) => format!("run `{command}`"),
             (Self::App, None) => "update the cmux app (cmux > Check for Updates)".to_string(),
-            _ => format!("reinstall cmux: `{}` or `{}`", NPM_UPDATE, PYPI_UPDATE),
+            _ => format!("reinstall cmux: `{NPM_UPDATE}` or `{PYPI_UPDATE}`"),
         }
     }
 }
