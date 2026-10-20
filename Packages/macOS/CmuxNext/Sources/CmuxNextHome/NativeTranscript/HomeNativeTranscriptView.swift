@@ -85,6 +85,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The Chief profile's picture and text (`setChiefAvatar`); with neither, the header shows
     /// `HomeChiefFace`. Nil until the host sets one: the header keeps its own avatar.
     var profileAvatar: (picture: NSImage?, text: String?)?
+    /// Told the header's picture and text each time they are set, the pet character's live changes
+    /// too (the Chief settings popover shows the same face).
+    public var onChiefAvatar: (@MainActor (NSImage?, String?) -> Void)?
     /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
     /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
     public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }

@@ -38,28 +38,49 @@ extension HomeChiefPetSetting {
 
     @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
                                 unavailable: String) {
+        let toggles = ChiefPetToggles()
         registry.bind(Self.toggleAction, invoke: { invocation in
             guard let settings = settings() else { return registry.refuse(unavailable) }
-            let on = !settings.snapshot.homeChiefPetEnabled
+            // A run while an earlier write is in flight flips that write's value, not the stale
+            // snapshot, and writes after it: two quick runs put the pet back as it was.
+            let on = !(toggles.pending ?? settings.snapshot.homeChiefPetEnabled)
+            toggles.pending = on
+            let previous = toggles.last
             let writer = SettingWriter(invocation.origin)
-            registry.track(ActionWork {
+            // task-owner: one write, after the previous run's; ends with the reload
+            let work = ActionWork { @MainActor in
+                _ = await previous?.value
+                defer { if toggles.pending == on { toggles.pending = nil } }
                 do { try await settings.setSetting(at: Self.configPath, to: .bool(on), by: writer) } catch {
                     return ActionWorkFailure(refusal: .unavailable, reason: String(describing: error))
                 }
                 return nil
-            })
+            }
+            toggles.last = work
+            registry.track(work)
         })
-        let title: @MainActor () -> String? = { settings()?.snapshot.homeChiefPetEnabled == true ? Self.hideTitle : nil }
+        let title: @MainActor () -> String? = {
+            (toggles.pending ?? settings()?.snapshot.homeChiefPetEnabled) == true ? Self.hideTitle : nil
+        }
         ActionTargetTitles.set(Self.toggleAction, in: registry) { _ in title() }
         ActionTargetTitles.setPaletteTitle(Self.toggleAction, in: registry, title)
     }
 }
 
-/// The Home settings' palette and CLI toggles: Enable / Disable Channels and Show / Hide Chief Pet,
+/// The toggle's runs in flight: the value the newest one writes and its work, so the next run
+/// flips that value and waits for it.
+@MainActor final class ChiefPetToggles {
+    var pending: Bool?
+    var last: ActionWork?
+}
+
+/// The Home settings' palette and menu toggles: Enable / Disable Channels and Show / Hide Chief Pet,
 /// bound together so the App target binds them in one call.
-public enum HomeSettingActions {
-    @MainActor public static func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
-                                       unavailable: String) {
+public nonisolated struct HomeSettingActions {
+    public nonisolated init() {}
+
+    @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
+                                unavailable: String) {
         HomeChannelsSetting().bind(into: registry, settings: settings, unavailable: unavailable)
         HomeChiefPetSetting().bind(into: registry, settings: settings, unavailable: unavailable)
     }

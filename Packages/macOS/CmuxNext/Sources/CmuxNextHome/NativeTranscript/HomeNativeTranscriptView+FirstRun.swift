@@ -30,15 +30,16 @@ extension HomeNativeTranscriptView {
 
     private func applyChiefAvatar() {
         guard let profile = profileAvatar else { return }
-        avatarPicture = profile.picture ?? (profile.text == nil ? HomeChiefFace.picture : nil)
+        avatarPicture = profile.picture ?? (profile.text == nil ? HomeChiefFace().picture : nil)
         avatarText = profile.text
+        onChiefAvatar?(avatarPicture, profile.text)
     }
 
     /// The Chief pet's character and whether it shows (`DesignSettings`, from `home.chiefPetMascot`
     /// and `home.chiefPetEnabled`): the first-run hero's picture, its pet row and the default face.
     func followChiefPet() {
         withObservationTracking {
-            firstRun.hero.image = HomeChiefFace.picture
+            firstRun.hero.image = HomeChiefFace().picture
             firstRun.setPetShown(DesignSettings.shared.homeChiefPetEnabled)
             applyChiefAvatar()
         } onChange: { [weak self] in
