@@ -30655,6 +30655,137 @@
         }
       }
     },
+    "macScreen.hub.reason.accessChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غيّر %@ صلاحية هذا الـ Mac. اتصل مجددًا للمتابعة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je promijenio pristup ovog Maca. Ponovo se povežite za nastavak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ændrede denne Macs adgang. Opret forbindelse igen for at fortsætte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat den Zugriff dieses Mac geändert. Verbinde dich erneut, um fortzufahren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ changed this Mac’s access. Connect again to continue."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ cambió el acceso de este Mac. Vuelve a conectarte para continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a modifié l’accès de ce Mac. Reconnectez-vous pour continuer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha cambiato l’accesso di questo Mac. Riconnettiti per continuare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がこの Mac のアクセス権を変更しました。続けるには再接続してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានប្ដូរសិទ្ធិចូលប្រើរបស់ Mac នេះ។ ភ្ជាប់ម្ដងទៀតដើម្បីបន្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 이 Mac의 접근 권한을 변경했습니다. 계속하려면 다시 연결하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ endret tilgangen til denne Macen. Koble til på nytt for å fortsette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ zmienił dostęp tego Maca. Połącz się ponownie, aby kontynuować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ alterou o acesso deste Mac. Conecte-se novamente para continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ изменил доступ этого Mac. Подключитесь снова, чтобы продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ เปลี่ยนสิทธิ์การเข้าถึงของ Mac เครื่องนี้แล้ว เชื่อมต่ออีกครั้งเพื่อดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bu Mac’in erişimini değiştirdi. Devam etmek için yeniden bağlanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ змінив доступ цього Mac. Підключіться знову, щоб продовжити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đã thay đổi quyền truy cập của máy Mac này. Hãy kết nối lại để tiếp tục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 更改了此 Mac 的访问权限。请重新连接以继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已變更此 Mac 的存取權限。請重新連線以繼續。"
+          }
+        }
+      }
+    },
     "macScreen.hub.reason.expired": {
       "extractionState": "manual",
       "localizations": {

@@ -143,8 +143,10 @@ public final class MacScreenHubHost {
     }
 
     /// The host's serve loop returned (bye, closed, revoked).
+    /// A connected session outlives its signaling (a dropped hub link): the
+    /// viewer leaving, the hub's revocation or end, or Stop Sharing ends it.
     private func served(_ host: ScreenStreamHost, session id: String) {
-        guard self.host === host, session?.id == id else { return }
+        guard self.host === host, let current = session, current.id == id, !current.connected else { return }
         closeLocal()
     }
 

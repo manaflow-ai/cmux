@@ -229,7 +229,10 @@ public final class ScreenStreamHost: @unchecked Sendable {
             signaling.close()
             if signaling.endsSessionOnClose {
                 lock.withLock { if ticketSignaling === signaling { ticketSignaling = nil } }
-                endSession()
+                // A session whose channel opened lives on without its signaling
+                // (a dropped hub link): WebRTC, `bye` or `disconnectViewer()` ends it.
+                let current = lock.withLock { session }
+                if !(current.map { session in session.lock.withLock { session.opened } } ?? false) { endSession() }
             }
         }
         for try await signal in signaling.messages() {

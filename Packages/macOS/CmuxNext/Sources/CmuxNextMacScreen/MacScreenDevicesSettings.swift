@@ -386,7 +386,7 @@ public final class MacScreenDevicesSettings {
     /// An end reason in History, naming the devices (never "this Mac" for another one).
     static func endText(_ reason: MacScreenEndReason, viewer: String, host: String) -> String {
         switch reason {
-        case .permissionRevoked: String(format: L.t("devices.history.revoked", "%@ removed the access"), host)
+        case .permissionRevoked, .accessChanged: String(format: L.t("devices.history.revoked", "%@ removed the access"), host)
         case .viewerRemoved: known(viewer) ? String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), viewer)
             : L.t("devices.history.someDeviceRemoved", "A device was removed")
         case .hostRemoved: known(host) ? String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), host)

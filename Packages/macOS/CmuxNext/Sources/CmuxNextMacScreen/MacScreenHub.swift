@@ -38,6 +38,9 @@ public nonisolated enum MacScreenHubRefusal: Equatable, Sendable {
     /// Anything else (a transport failure, a server error).
     case other
 
+    /// Whether Try Again makes sense: not for a device that left the user's devices.
+    public var canRetry: Bool { self != .notFound }
+
     /// The refusal for a failed `POST /v1/sessions`.
     public init(_ error: DeviceHubError) {
         switch error.code {
@@ -103,6 +106,8 @@ public nonisolated enum MacScreenHubPhase: Equatable, Sendable {
 /// `permission_changed` and `device_removed`, and a dropped socket `bye` or `closed`.
 public nonisolated enum MacScreenEndReason: Equatable, Sendable {
     case permissionRevoked
+    /// The host changed this Mac's access and it still has some (re-granted after a revocation).
+    case accessChanged
     /// This Mac (the viewer) was removed from the user's devices.
     case viewerRemoved
     /// The host was removed from the user's devices.
@@ -158,6 +163,7 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
     func text(host: String) -> String {
         switch self {
         case .permissionRevoked: String(format: L.t("macScreen.hub.reason.revoked", "%@ removed this Mac’s access to its screen."), host)
+        case .accessChanged: String(format: L.t("macScreen.hub.reason.accessChanged", "%@ changed this Mac’s access. Connect again to continue."), host)
         case .viewerRemoved: L.t("macScreen.hub.reason.viewerRemoved", "This Mac was removed from your devices.")
         case .hostRemoved: String(format: L.t("macScreen.hub.reason.hostRemoved", "%@ was removed from your devices."), host)
         case .deviceRemoved: L.t("macScreen.hub.reason.removed", "A device was removed from your devices.")

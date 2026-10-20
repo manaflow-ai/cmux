@@ -122,7 +122,7 @@ extension MacScreenPages {
                 return hubState
             case "audit":
                 await hub.refreshAudit(limit: params["limit"]?.intValue ?? 50)
-                let names = Dictionary(hub.devices.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+                let names = store.deviceNames.merging(hub.devices.map { ($0.id, $0.name) }) { _, listed in listed }
                 let rows = hub.audit.map { MacScreenDevicesSettings.historyRow($0, names: names, me: hub.identity.id) }
                 return ["entries": Self.json(rows)]
             default:

@@ -54,10 +54,13 @@ final class MacScreenPageService: InternalPageProvider {
         pages.events = events
     }
 
-    /// Closes the Mac Screen tab `key` like the tab's own close.
-    private func close(_ key: String) {
+    /// Closes the Mac Screen tab `key` like the tab's own close. `replaced`:
+    /// another tab took its place (Connect on the home page), so no
+    /// “Closed” undo toast offers it back.
+    private func close(_ key: String, replaced: Bool = false) {
         guard let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { return }
-        services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue)))
+        services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue),
+                                                                          origin: replaced ? .script : .user))
     }
 
     /// A person asked tab `key` to show `record` (the home page's Connect,
@@ -70,7 +73,7 @@ final class MacScreenPageService: InternalPageProvider {
         guard let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { return false }
         // The new tab goes after the selected one: this one.
         if pane.stripModel.selectedID != id { pane.select(id) }
-        open(record, in: pane, focus: true, byPerson: true) { [weak self] in self?.close(key) }
+        open(record, in: pane, focus: true, byPerson: true) { [weak self] in self?.close(key, replaced: true) }
         return true
     }
 

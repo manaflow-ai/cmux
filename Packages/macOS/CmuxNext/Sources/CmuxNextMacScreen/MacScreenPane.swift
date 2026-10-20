@@ -377,7 +377,7 @@ public final class MacScreenPane {
     private func reconnect() {
         stoppedByPerson = false
         if let hub = model.hub {
-            hub.request(hub.lastScope)
+            hub.request(MacScreenHubViewer.scopeToRequest(last: hub.lastScope, access: hub.accessToHost))
             return
         }
         guard let session else { return }

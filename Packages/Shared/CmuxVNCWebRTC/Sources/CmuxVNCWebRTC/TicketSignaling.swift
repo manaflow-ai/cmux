@@ -25,7 +25,8 @@ public protocol ScreenSignalSocket: Sendable {
 /// `"<sid>|<role>|<fingerprint>"`, `role` the sender's), and verifies the
 /// peer's against the ticket's `peerKey`. A mismatch aborts: the stream
 /// throws ``ScreenSignalingError/fingerprintMismatch``, `bye` is sent and the
-/// socket closed. The ticket admits once, so the session ends with the socket.
+/// socket closed. The ticket admits once, so no new signaling follows a
+/// closed socket; a peer connection already open outlives it.
 public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
     // @unchecked: `socket` and `opened` are behind `lock`.
 
@@ -125,8 +126,9 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
                 while !Task.isCancelled {
                     let text: String
                     do { text = try await socket.receive() } catch {
-                        // The socket closed: the session is over (bye, revoked, or the network).
-                        continuation.yield(.bye)
+                        // The socket closed (this device's network, or the server).
+                        // Signaling is over, not the session: a live peer
+                        // connection lives on; the hub's pushes or WebRTC end it.
                         break
                     }
                     guard let signal = try receive(text) else { continue }

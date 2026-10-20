@@ -58,6 +58,8 @@ public final class MacScreenHubViewer {
 
     /// Asks the host for a session (Connect, Try Again, a scope on the home page).
     public func request(_ scope: SessionScope) {
+        failureEnd?.cancel()
+        failedWhileOffline = false
         cancelPending(endingSession: true)
         stopStream()
         lastScope = scope
@@ -155,11 +157,40 @@ public final class MacScreenHubViewer {
     /// error), and the hub's revocation for it does not replace that card.
     @ObservationIgnored private(set) var failedSession: String?
 
-    /// The stream failed to start or dropped: the session is over for the hub too.
+    /// How long a dropped stream waits for the hub's reason before telling it "failed":
+    /// the host's cause (signed_out, sharing_off) often follows its stream's end.
+    @ObservationIgnored var failureGrace: Duration = .seconds(3)
+    /// The pending "failed" end (tests wait on it).
+    @ObservationIgnored private(set) var failureEnd: Task<Void, Never>?
+    /// The stream failed while this Mac's own hub link was down: the card keeps saying so after it returns.
+    @ObservationIgnored private(set) var failedWhileOffline = false
+
+    /// The stream failed to start or dropped. The hub hears `failed` only if
+    /// no reason of its own arrives within the grace, so a host's cause that
+    /// is on its way (it often comes a moment after the stream drops) wins.
     func streamFailed() {
-        guard let id = phase.sessionID, let hub = hub() else { return }
+        guard let id = phase.sessionID else { return }
         failedSession = id
-        end(id, reason: MacScreenHubReason.failed.rawValue, on: hub)
+        failedWhileOffline = !hubConnected
+        guard let hub = hub() else { return }
+        let grace = failureGrace, end = endSession
+        failureEnd?.cancel()
+        // task-owner: one delayed /end for this failed session; a push for it cancels it
+        failureEnd = Task { [weak self] in
+            try? await Task.sleep(for: grace) // wait for the hub's own reason
+            guard !Task.isCancelled, let self, phase.sessionID == id else { return }
+            await end(hub, id, MacScreenHubReason.failed.rawValue)
+        }
+    }
+
+    /// The scope Connect Again asks for: what the host allows now (Full
+    /// re-granted asks for Full, View for View), else the last one asked.
+    static func scopeToRequest(last: SessionScope, access: DeviceScope?) -> SessionScope {
+        switch access {
+        case .full?: .full
+        case .view?: .view
+        default: last
+        }
     }
 
     /// How long a request may wait for the host (PROTOCOL.md: requests expire after 5 min).
@@ -242,6 +273,7 @@ public final class MacScreenHubViewer {
 
     /// `session.revoked`: end now, and say why.
     func revoked(reason: String?) {
+        failureEnd?.cancel()
         if keepsFailedCard(reason) { return }
         requestTask?.cancel()
         approvalExpiry?.cancel()
@@ -252,6 +284,7 @@ public final class MacScreenHubViewer {
 
     /// `session.ended`.
     func ended(reason: String?) {
+        failureEnd?.cancel()
         if keepsFailedCard(reason) { return }
         requestTask?.cancel()
         approvalExpiry?.cancel()

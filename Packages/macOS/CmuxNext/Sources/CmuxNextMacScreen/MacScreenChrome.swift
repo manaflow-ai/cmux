@@ -118,7 +118,14 @@ extension MacScreenPaneModel {
     /// A device hub tab's card for `phase`; nil while it streams (the
     /// session's own phase decides then).
     static func hubCard(_ phase: MacScreenHubPhase, access: DeviceScope? = nil) -> MacScreenCard? {
-        if case let .revoked(reason) = phase, MacScreenEndReason(reason) == .permissionRevoked, access == .view { return .hubAccessLowered }
+        if case let .revoked(reason) = phase, MacScreenEndReason(reason) == .permissionRevoked {
+            // The permission as it stands now: lowered to View, raised again, or None.
+            switch access {
+            case .view?: return .hubAccessLowered
+            case .full?, .ask?: return .hubRevoked(.accessChanged)
+            case .none?, nil: break
+            }
+        }
         switch phase {
         case .idle: return .hubConnect
         case let .requesting(scope), let .approved(_, scope): return .hubRequesting(scope)
@@ -136,7 +143,7 @@ extension MacScreenPaneModel {
     /// found no relay, else what to check on the other Mac.
     var failedDetail: String {
         Self.failedDetail(relayErrors: session?.relayErrors ?? [], relayOnly: relayOnly, hubTab: hub != nil, name: name,
-                          hubOnline: hub?.hubConnected ?? true)
+                          hubOnline: (hub?.hubConnected ?? true) && !(hub?.failedWhileOffline ?? false))
     }
 
     static func failedDetail(relayErrors errors: [ICECandidateError], relayOnly: Bool, hubTab: Bool, name: String,
@@ -545,9 +552,11 @@ struct MacScreenCardView: View {
             HStack {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
                     .buttonStyle(MacScreenButtonStyle())
-                Button(L.t("macScreen.card.retry", "Try Again")) { actions.requestScope(requested) }
-                    .buttonStyle(MacScreenButtonStyle(role: .primary))
-                    .accessibilityIdentifier("macScreen.card.retry")
+                if refusal.canRetry {
+                    Button(L.t("macScreen.card.retry", "Try Again")) { actions.requestScope(requested) }
+                        .buttonStyle(MacScreenButtonStyle(role: .primary))
+                        .accessibilityIdentifier("macScreen.card.retry")
+                }
             }
         }
     }
