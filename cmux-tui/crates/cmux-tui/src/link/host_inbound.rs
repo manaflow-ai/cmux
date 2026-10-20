@@ -139,3 +139,7 @@ mod native_token_tests;
 #[cfg(test)]
 #[path = "host_stream_lifetime_tests.rs"]
 mod stream_lifetime_tests;
+
+#[cfg(test)]
+#[path = "host_handshake_lifetime_tests.rs"]
+mod handshake_lifetime_tests;
