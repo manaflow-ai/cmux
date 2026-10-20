@@ -13,8 +13,11 @@ extension CloudHandlers {
         services.cloud.accessAsks.start(services: services)
         // A move a quit left unfinished says so in its chat, with Retry (``CloudMoveAsks``).
         services.cloud.moveAsks.offerUnfinished(services: services)
-        // Files the person drops or pastes into a moved chat go to its machine (``CloudUploads``).
-        services.agentTabs.uploader = { [weak services] tab in services.flatMap { $0.cloud.uploads.uploader(tab: tab, services: $0) } }
+        // Files the person drops or pastes into a moved chat go to its machine (``CloudUploads``); in a
+        // chat on this Mac, files the composer can't attach are saved here (``AgentChatUploads``).
+        services.agentTabs.uploader = { [weak services] tab in
+            services.flatMap { $0.cloud.uploads.uploader(tab: tab, services: $0) ?? AgentChatUploads.uploader(tab: tab, services: $0) }
+        }
         bind(CloudMove.action, registry, reason: reason) { invocation in
             if CloudMoveAsks.isAgent(invocation) { return try services.cloud.moveAsks.ask(invocation, services: services) }
             try CloudMove(services: services).start(invocation, context: context)

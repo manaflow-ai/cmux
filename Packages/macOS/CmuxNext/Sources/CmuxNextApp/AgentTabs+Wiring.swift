@@ -150,6 +150,10 @@ extension AgentTabStore {
             }
             return AgentSessionRef.host(installID: id)
         }
+        tabs.openProcess = { [weak services] chat, viewer in
+            guard let services else { return false }
+            return AgentProcessTerminal(services: services).open(viewer, beside: chat)
+        }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)

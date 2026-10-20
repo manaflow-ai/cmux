@@ -37,6 +37,14 @@ public struct SystemScrollers {
         startObserving()
     }
 
+    /// Gives a card's scroll view the shared super-thin ``CardScroller`` and follows it like
+    /// ``follow(_:)``: every scrollable card (hover cards, the update card's popover) scrolls with
+    /// this one style.
+    public static func followAsCard(_ scrollView: NSScrollView) {
+        if !(scrollView.verticalScroller is CardScroller) { scrollView.verticalScroller = CardScroller() }
+        follow(scrollView)
+    }
+
     /// Calls `onChange` with the system's new style on every later change while `owner` lives (the
     /// owner is held weakly). For surfaces that are not a plain NSScrollView: web pages get the
     /// style through their theme payload.

@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import enum CmuxNextLayout.DockEdge
 import enum CmuxNextLayout.DockMode
 import enum CmuxNextLayout.DockRole
@@ -141,10 +142,11 @@ enum TabMoves {
     /// bottom are edge docks; `mode` nil uses `layout.dockColumnMode`, and
     /// `width` nil a third of the height for a band, half the window for a
     /// left dock, or the width of a new column beside the anchor for a right dock. `role` marks the chat dock
-    /// (dock-column-role-v1; an older daemon drops it).
+    /// (dock-column-role-v1; an older daemon drops it). `pinned` makes it a pinned column in the
+    /// same commit (Home's dock; `pinned-dock-alone-v1` lets a screen's only tab become it alone).
     static func toNewDockColumn(_ tab: TabModel, anchor pane: PaneModel, edge: CmuxNextLayout.DockEdge,
                                   mode: CmuxNextLayout.DockMode? = nil, role: CmuxNextLayout.DockRole? = nil,
-                                  width: Double? = nil, respawn: SplitRespawn? = nil,
+                                  width: Double? = nil, respawn: SplitRespawn? = nil, pinned: Bool = false,
                                   services: AppServices,
                                   transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
@@ -154,7 +156,7 @@ enum TabMoves {
         let surface = tab.surface, paneHandle = pane.handle
         let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.dockColumnMode == .overlay)
         let pin = DockSnapshot(edge: DockSnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked,
-                               role: role.map { _ in .agentChat })
+                               role: role.map { _ in .agentChat }, isPinned: pinned)
         // A band's size is a share of the screen height. A left dock (the agent chat dock) takes
         // half the window (cx-ihyx2, Lawrence 2026-10-14: "docked left columns needs to be 50% by
         // default"); a resize is the column's own width and stays. A right dock takes the width a
@@ -228,6 +230,12 @@ enum TabMoves {
     /// incognito page's title stays in memory (R102): the daemon stores the
     /// workspace name and keeps it in closed history.
     static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
+        // A conversation, page or app tab's record is titled `about:blank`, a placeholder (a New
+        // Tab page dragged to the sidebar named its workspace "about:blank"): only a name the tab
+        // shows of its own names the workspace.
+        if tab.kind == .conversation || tab.appTab != nil {
+            return NewWorkspaceName.Tab(kind: .page, userName: tab.name, title: ownName(tab, services: services), pageTitle: nil, url: nil, cwd: nil)
+        }
         let kind: NewWorkspaceName.Tab.Kind = switch tab.kind {
         case .pty: .terminal
         case .browser: .browser
@@ -237,8 +245,23 @@ enum TabMoves {
         }
         let offTheRecord = tab.kind == .browser && services.cache.browserTabs.isIncognitoTab(tab.id) == true
         let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
-        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title, pageTitle: pageTitle,
+        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.titleText, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)
+    }
+
+    /// The name a conversation, page or app tab shows of its own: its page's or app's title, its
+    /// Home conversation's title or the Chief's name. Nil for an agent chat or New Tab page (named
+    /// from its chat, `WorkspaceAutoNameReader`), an app with no page, and an untitled Home
+    /// conversation: a generic label ("New Tab", "Home") written now would stay as the user's name.
+    private static func ownName(_ tab: TabModel, services: AppServices) -> String? {
+        if tab.agentSession != nil { return nil }
+        if let app = tab.appTab {
+            guard let provider = services.apps.pageProvider(appID: app.app, codeRouterAsPage: false) else { return nil }
+            return services.pages.storeTabItem(tab, page: provider.page)?.title
+        }
+        if tab.page != nil { return services.pages.storeTabItem(tab)?.title }
+        let title = services.home.tabTitle(for: tab)
+        return title == HomeStrings.title ? nil : title
     }
 
     /// The other tabs of a multi-tab move follow the first into the workspace its move made (`key`), in order.

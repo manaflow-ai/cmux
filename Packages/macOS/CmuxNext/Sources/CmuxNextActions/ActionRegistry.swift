@@ -102,6 +102,9 @@ public final class ActionRegistry {
     /// Wraps every handler run with its invocation. The App routes the run
     /// to the machine that owns the invocation's explicit target.
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
+    /// Each sees every handler run just before it runs, with the run's effective origin (a run
+    /// nested in a CLI run is the CLI's): the sidebar animates only changes its user asked for.
+    @ObservationIgnored public var willRunObservers: [@MainActor (ActionID, ActionOrigin) -> Void] = []
     /// Sees every handler run after it ran (the tips card's local usage flags).
     @ObservationIgnored public var runObserver: (@MainActor (ActionID, ActionInvocation) -> Void)?
     /// The key window's claim on a run (``KeyWindowRoute``), asked first by `perform` and menu validation.
@@ -115,6 +118,8 @@ public final class ActionRegistry {
     @ObservationIgnored public internal(set) var isReportingRefusal = false
     @ObservationIgnored var reportedRefusal: String?
     @ObservationIgnored var capturedWork: [ActionWork]?
+    /// The value-producing tasks among ``capturedWork`` (`track(result:)`).
+    @ObservationIgnored var capturedResults: [ActionResultWork]?
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
     @ObservationIgnored var shortcutIndex: ShortcutIndex?

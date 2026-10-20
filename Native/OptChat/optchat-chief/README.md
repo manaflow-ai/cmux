@@ -188,7 +188,8 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 
 - Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
   caps it (one spawn takes at most 8 tasks; call spawn again for more). A spawn
-  over the cap answers `a<N>: queued`; a queued subagent starts, with the view
+  over the cap answers `a<N>: queued`, naming the cap's source (`control cap N`
+  or the env) and that `control cap 0` removes it; a queued subagent starts, with the view
   of that moment and its task, when another finishes. Its record keeps its
   task, directory, effort and floor, so a host that restarts still starts it
   (a record from before launches were saved takes its task from the spawn
@@ -237,12 +238,30 @@ marks (decision 2026-10-08; see Cache marks and TTL).
   from the person's app, so a refusal says to deny, steer or ask the user),
   `pause id` / `resume id [message]` (no auto-resume while paused),
   `cancel id`, `restart id [message]` (same session), `priority id`,
-  `cap n` (the live cap now, 0 none; saved as `live_cap`).
+  `cap n` (the live cap now, 0 none; saved as `live_cap`, so it outlives a
+  restart; a cap is opt-in, set only when the user asks for one).
 - Pushed to the Chief: a prompt with its option ids and the approve policy
   (safe steps: reads, edits and tests in its worktree; the user for money,
-  legal, destructive or credential steps), and one `looks stuck` note per run
-  after 15 minutes without a session change (checked each minute).
-- Tests: `tests/subagent_control.rs`.
+  legal, destructive or credential steps).
+- Stuck detection (`src/sub_watch.rs`, a204): each minute, a subagent whose
+  session summary has not changed for 5 minutes has its events read. One
+  alive in a wait or tool (Claude Code's 30 s `tool_progress` heartbeat) is
+  left alone and shows as `waiting on fleet run ID` or `running Bash`. One
+  with no event for 15 minutes is interrupted and continued automatically
+  (up to 2 times a run; the prompt names the fleet runs to wait on again and
+  says to keep uncommitted edits); the Chief gets one `is stuck` note only
+  when that did not help, or one note when a wait on one fleet run passes
+  3 h (another tool 90 min). A session acpmux reports idle with no turn end
+  since the last report is settled as done, quietly.
+- `control status id` shows the task, what it does now (thinking, running a
+  tool for N min, waiting on a fleet run, stalled, done), its last line, its
+  pushes and fleet runs, and its last report. `restart` of one alive in a
+  wait steers the message in instead of killing the wait; `interrupt` cuts
+  it and the follow-up names its fleet runs.
+- A stopped report carries the state it stopped in; a short acknowledgement
+  of a Chief `tell` ("Understood, I'm stopping") is quiet: logged, no turn.
+- Tests: `tests/subagent_control.rs`, `tests/subagent_watch.rs`,
+  `tests/sub_watch.rs`.
 
 ## Engine: harness, model and effort per turn
 

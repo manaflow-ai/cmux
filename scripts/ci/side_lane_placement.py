@@ -41,8 +41,11 @@ contains(' <key> ') matches whole keys only:
 - `watch`: "false" when every job took its fallback, so the run uploads no
   owned-pool-watch marker; "true" otherwise;
 - `blacksmith_12_jobs`, `blacksmith_6_jobs` and `retry_runner`: the jobs no idle
-  mini took that Blacksmith 12 vCPU, then 6 vCPU, has a free slot for now, and
-  the Blacksmith label of the bot's overflow attempt (next_macos_cascade.py).
+  mini took that Blacksmith 12 vCPU, then 6 vCPU, has a free slot for now (and
+  whose queue is not stalled), and the Blacksmith label of the bot's overflow
+  attempt (next_macos_cascade.py);
+- `hosted_jobs` and `hosted_runner`: the overflow hosted macos-26 takes, and
+  that label when it takes any (next_macos_cascade.py).
 """
 from __future__ import annotations
 
@@ -191,9 +194,10 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write(f"### macOS placement\n\n{why}\n")
-    # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now.
-    live, waiting = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
-    placed = cascade.place(env, owned, live, waiting)
+    # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now and its
+    # queue moves, then hosted macos-26 for the jobs it can run.
+    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
+    placed = cascade.place(env, owned, live, waiting, seen)
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0
