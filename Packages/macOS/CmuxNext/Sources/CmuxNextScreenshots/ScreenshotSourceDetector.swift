@@ -50,10 +50,10 @@ public nonisolated struct ScreenshotSourceDetector: Sendable {
             sources.append(source)
         }
         add(ScreenshotSource(id: "system", label: ScreenshotsStrings.systemSource, folder: systemFolder(), origin: .system,
-                             rule: FileGridScanRule()))
+                             rule: ScreenshotScanRule()))
         add(ScreenshotSource(id: "system.preview", label: ScreenshotsStrings.previewSource,
                              folder: environment.temporaryDirectory.appendingPathComponent("TemporaryItems", isDirectory: true),
-                             origin: .systemPreview, rule: FileGridScanRule(depth: 1, folderPrefix: Self.previewFolderPrefix)))
+                             origin: .systemPreview, rule: ScreenshotScanRule(depth: 1, folderPrefix: Self.previewFolderPrefix)))
         if findTools {
             for tool in ScreenshotTool.allCases {
                 if let folder = saveFolder(of: tool) {
@@ -70,7 +70,7 @@ public nonisolated struct ScreenshotSourceDetector: Sendable {
         for path in extraFolders {
             guard let folder = expand(path) else { continue }
             add(ScreenshotSource(id: "custom.\(folder.path)", label: FileManager().displayName(atPath: folder.path), folder: folder,
-                                 origin: .custom, rule: FileGridScanRule()))
+                                 origin: .custom, rule: ScreenshotScanRule()))
         }
         return sources
     }

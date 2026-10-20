@@ -18,6 +18,7 @@ beforeAll(() => {
 afterEach(() => {
   delete (window as ThemeWindow).cmuxTheme;
   document.documentElement.removeAttribute("style");
+  document.documentElement.removeAttribute("data-agent-motion");
 });
 
 const theme: AgentSessionTheme = {
@@ -72,5 +73,23 @@ describe("the agent pane's code follows the terminal font", () => {
   test("a face name with quotes stays one family", () => {
     hostApplies('My "Odd" Mono');
     expect(variable("--cv-code-font").startsWith('"My \\"Odd\\" Mono",')).toBe(true);
+  });
+});
+
+describe("the agent pane's motion policy", () => {
+  test("marks the explicit off speed so CSS loops and transitions can stop", () => {
+    applyAgentTheme({
+      ...theme,
+      motion: { hover: 0, hoverOut: 0, focus: 0, fadeIn: 0, fadeOut: 0, move: 0 },
+    });
+    expect(document.documentElement.dataset.agentMotion).toBe("off");
+  });
+
+  test("does not treat reduced motion's short crossfade as speed off", () => {
+    applyAgentTheme({
+      ...theme,
+      motion: { hover: 0, hoverOut: 0, focus: 0.1, fadeIn: 0.1, fadeOut: 0.08, move: 0 },
+    });
+    expect(document.documentElement.dataset.agentMotion).toBeUndefined();
   });
 });

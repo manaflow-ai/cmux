@@ -17,6 +17,10 @@ import type { ReadResult, SubmitResult } from "./owner-do.ts"
  * two failed check-ins in a row, also when check-ins stop (the Worker or its cron is down, which
  * no in-Worker counter can report), and resolves it on the next good one. Without SENTRY_DSN the
  * run only logs.
+ *
+ * Alert drill: HOME_HEALTH_FAULT (`open`, `send` or `read`, a secret set by hand and deleted after
+ * the drill) fails that step with code `fault`, so a staging run sends a real error check-in.
+ * Production ignores it.
  */
 
 export const HOME_HEALTH_CRON = "*/5 * * * *"
@@ -67,20 +71,24 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 export const probeHome = async (env: Env, readDeadlineMs = READ_DEADLINE_MS): Promise<ProbeResult> => {
   const started = Date.now()
   const done = (ok: boolean, step: ProbeStep, code?: string): ProbeResult => ({ ok, step, latency_ms: Date.now() - started, ...(code ? { code } : {}) })
+  const fault = env.ENVIRONMENT === "production" ? undefined : env.HOME_HEALTH_FAULT
   const run = crypto.randomUUID()
   const id = homeConversation.dmConversationId(PROBE_SENDER, PROBE_PEER)
   let step: ProbeStep = "open"
   try {
+    if (fault === step) return done(false, step, "fault")
     const conversation = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationProbeStub
     const participants = [{ id: PROBE_SENDER, kind: "human" }, { id: PROBE_PEER, kind: "human" }]
     const opened = replyOf(await conversation.submit(id, sender, { t: "op", op: "dm.open", params: { id, participants, retention_days: RETENTION_DAYS }, idempotency_key: `home-health:open:${run}`, origin: "script" }))
     if (opened?.t !== "result") return done(false, step, codeOf(opened))
     step = "send"
+    if (fault === step) return done(false, step, "fault")
     const text = `Cloud Home probe ${run}`
     // message.send: the client message id is the idempotency key (home-core apply.ts).
     const sent = replyOf(await conversation.submit(id, sender, { t: "op", op: "message.send", params: { client_msg_id: run, parts: [{ type: "text", text }] }, idempotency_key: run, origin: "script" }))
     if (sent?.t !== "result") return done(false, step, codeOf(sent))
     step = "read"
+    if (fault === step) return done(false, step, "fault")
     const inbox = env.USER_DO.get(env.USER_DO.idFromName(PROBE_PEER)) as unknown as InboxProbeStub
     const deadline = Date.now() + readDeadlineMs
     for (;;) {
