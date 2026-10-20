@@ -203,8 +203,10 @@ extension ScreenContentView {
         let gap = context.style.stripGap
         var result: [PaneID: CGRect] = [:]
         for (pane, shown) in geometry.panes {
-            // In a scroll area: mapped into the area's window, whatever its offset (K1).
-            let rect = baseGeometry.scrollAreaOfPane[pane] == nil ? shown : (baseGeometry.navigationRect(of: pane) ?? shown)
+            // In a scroll area: x mapped into the area's window, whatever its offset (K1); y as
+            // shown (a row's vertical offset applies).
+            let mapped = baseGeometry.scrollAreaOfPane[pane] == nil ? nil : baseGeometry.navigationRect(of: pane)
+            let rect = mapped.map { CGRect(x: $0.minX, y: shown.minY, width: $0.width, height: shown.height) } ?? shown
             guard let entry = geometry.dockFrame(containing: pane) else {
                 result[pane] = rect
                 continue
