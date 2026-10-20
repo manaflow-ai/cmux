@@ -17,7 +17,14 @@ import { commonmark, imageSchema, linkSchema } from "@milkdown/kit/preset/common
 import { gfm } from "@milkdown/kit/preset/gfm";
 import type { Mark, Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
 import { Plugin, PluginKey, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
-import { Decoration, DecorationSet, type EditorView, type NodeViewConstructor } from "@milkdown/kit/prose/view";
+import { TableView } from "@milkdown/kit/prose/tables";
+import {
+  Decoration,
+  DecorationSet,
+  type EditorView,
+  type NodeViewConstructor,
+  type ViewMutationRecord,
+} from "@milkdown/kit/prose/view";
 import { ParserState, type SerializerState } from "@milkdown/kit/transformer";
 import { $nodeSchema, $prose } from "@milkdown/kit/utils";
 import "../../markdown-task-checkbox.css";
@@ -683,6 +690,10 @@ function nodeViews(host: MarkdownEditorHost): Record<string, NodeViewConstructor
   return {
     code_block: (node, view, getPos) => new CodeBlockView(node, view, getPos, host),
     [RAW_NODE]: (node, view, getPos) => new RawBlockView(node, view, getPos, host),
+    // Each table sits in prosemirror-tables' `.tableWrapper` (its min-width 100px a column), the
+    // box a wide table scrolls sideways in (styles.css, MARKDOWN-TABLE-SCROLL). gfm's plugins leave
+    // out columnResizing, which would install this view, so the editor names it here.
+    table: (node) => new ScrollingTableView(node, 100),
     image: (node) => {
       const img = document.createElement("img");
       const apply = (next: ProseNode) => {
@@ -702,6 +713,15 @@ function nodeViews(host: MarkdownEditorHost): Record<string, NodeViewConstructor
       };
     },
   };
+}
+
+/** prosemirror-tables' TableView, minus one re-render: the wrapper's scroll mark
+ * (`data-cmux-scrolling`, scrollers.ts) is an attribute change ProseMirror would read as an edit,
+ * redrawing the table and dropping its sideways scroll on the first wheel step. */
+class ScrollingTableView extends TableView {
+  override ignoreMutation(record: ViewMutationRecord): boolean {
+    return (record.type === "attributes" && record.target === this.dom) || super.ignoreMutation(record);
+  }
 }
 
 /** Puts the caret at the start of a node's text, so clicking a preview edits its source. */
