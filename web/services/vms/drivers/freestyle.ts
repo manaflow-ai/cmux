@@ -67,6 +67,14 @@ import {
   DEVBOX_DESKTOP_UNIT,
   devboxDesktopOpenUrl,
 } from "../images/desktop";
+import {
+  DESKTOP_TRANSPORT_ENV,
+  type DesktopTransport,
+  desktopEndpoint,
+  desktopListenPort,
+  desktopReadyProbe,
+  resolveDesktopTransport,
+} from "../images/desktopTransport";
 import { devboxForkDaemonReadyCommand, devboxForkReadinessStage } from "../images/remoteState";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
@@ -213,6 +221,11 @@ const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9
 export type FreestyleProviderDependencies = {
   /** `signal` aborts every request of a bounded read (an uncached client). */
   readonly client: (timeoutMs?: number, signal?: AbortSignal) => Freestyle;
+  /**
+   * The desktop transport (images/desktopTransport.ts). Absent: read once from
+   * `CMUX_VM_DESKTOP_TRANSPORT` at construction; anything but `screen` is noVNC.
+   */
+  readonly desktopTransport?: DesktopTransport;
 };
 
 const FREESTYLE_CLIENT_CACHE_LIMIT = 8;
@@ -436,13 +449,26 @@ export function freestylePortAddress(addresses: FreestyleRouteAddresses, vmId: s
  * The URLs a port open returns: `url` is the bare origin at the private
  * address, `openUrl` what a pane navigates to. For the desktop port that is
  * the noVNC page (web/services/vms/images/desktop.ts), with a query for the
- * app to append its display options to.
+ * app to append its display options to. Under the default-off `screen`
+ * transport (images/desktopTransport.ts) the desktop port is the cmux-screen
+ * signaling WebSocket, opened as a native remote-view tab, and 6901 is an
+ * ordinary port.
  */
-export function freestylePortUrls(addresses: FreestyleRouteAddresses, vmId: string, port: number): { url: string; openUrl: string } {
+export function freestylePortUrls(
+  addresses: FreestyleRouteAddresses,
+  vmId: string,
+  port: number,
+  transport: DesktopTransport = "novnc",
+): { url: string; openUrl: string } {
   const address = freestylePortAddress(addresses, vmId);
+  if (transport === "screen" && port === desktopListenPort(transport)) {
+    const endpoint = desktopEndpoint(transport, address);
+    return { url: endpoint.url, openUrl: endpoint.openUrl };
+  }
   const host = address.includes(":") ? `[${address}]` : address;
   const url = `http://${host}:${port}/`;
-  return { url, openUrl: port === DEVBOX_DESKTOP_NOVNC_PORT ? devboxDesktopOpenUrl(address) : url };
+  const novncDesktop = transport === "novnc" && port === DEVBOX_DESKTOP_NOVNC_PORT;
+  return { url, openUrl: novncDesktop ? devboxDesktopOpenUrl(address) : url };
 }
 
 /**
@@ -455,11 +481,11 @@ export function freestylePortUrls(addresses: FreestyleRouteAddresses, vmId: stri
  * and the exec's own. Exit 3 means the image carries no desktop layer at all
  * (a base machine); any other failure means the desktop did not come up.
  */
-export function freestyleDesktopHealCommand(): string {
+export function freestyleDesktopHealCommand(transport: DesktopTransport = "novnc"): string {
   return (
     `[ -x ${DEVBOX_DESKTOP_START_SCRIPT} ] || exit 3; ` +
     `if [ -d /run/systemd/system ]; then systemctl start ${DEVBOX_DESKTOP_UNIT} || exit 1; fi; ` +
-    `ss -tln 2>/dev/null | grep -q ':${DEVBOX_DESKTOP_NOVNC_PORT} '`
+    desktopReadyProbe(transport)
   );
 }
 
@@ -1098,6 +1124,8 @@ export class FreestyleProvider implements VMProvider {
   readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
 
   readonly privateNetworking: VMPrivateNetworking;
+  /** Which desktop this provider opens: noVNC (default) or the cmux-screen host. */
+  private readonly desktopTransport: DesktopTransport;
   private readonly resourceStats: FreestyleResourceStatsReader;
   readonly healthInventory: VmHealthInventory;
 
@@ -1106,6 +1134,7 @@ export class FreestyleProvider implements VMProvider {
       client: freestyleClient,
     },
   ) {
+    this.desktopTransport = this.deps.desktopTransport ?? resolveDesktopTransport(process.env[DESKTOP_TRANSPORT_ENV]);
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
     this.resourceStats = new FreestyleResourceStatsReader(this.deps.client);
     this.healthInventory = freestyleHealthInventory(this.deps.client);
@@ -1804,11 +1833,11 @@ export class FreestyleProvider implements VMProvider {
           const fs = this.deps.client();
           const vm = fs.vms.ref(vmId);
           const data = await vm.data();
-          const urls = freestylePortUrls(data, vmId, port);
-          const desktop = port === DEVBOX_DESKTOP_NOVNC_PORT;
+          const urls = freestylePortUrls(data, vmId, port, this.desktopTransport);
+          const desktop = port === desktopListenPort(this.desktopTransport);
           span.setAttribute("cmux.vm.port.desktop", desktop);
           if (desktop) {
-            const healed = await this.execResult(vm, freestyleDesktopHealCommand(), DESKTOP_HEAL_TIMEOUT_MS);
+            const healed = await this.execResult(vm, freestyleDesktopHealCommand(this.desktopTransport), DESKTOP_HEAL_TIMEOUT_MS);
             if (healed?.exitCode === 3) {
               throw new ProviderError("freestyle", `VM ${vmId} has no desktop: its image carries no desktop layer (a base machine)`);
             }

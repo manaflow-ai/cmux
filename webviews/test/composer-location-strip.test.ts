@@ -111,7 +111,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       variant: "no-project",
       card: ".acpmux-composer-box",
     },
-    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "empty", card: ".nt-box" },
+    // The strip heads the New Tab card in the top-of-page templates (Threads here); Cards draws it
+    // under its pill field and Default's stage layout in the footer under the box.
+    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "template-threads", card: ".nt-box" },
   ];
   for (const surface of surfaces)
     for (const width of [420, 720])
@@ -188,7 +190,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const page = await open("agent-pane.composer-strip", variant, 720, remember);
       await page.locator(".acpmux-composer-bar .acpmux-model").waitFor();
       const measured = await page.evaluate(() => {
-        const bar = document.querySelector(".acpmux-composer-bar")!;
+        // The controls sit in the box's row and the quiet row under it (ComposerFoot.tsx).
+        const bar = document.querySelector(".acpmux-composer")!;
         const left = (selector: string) => bar.querySelector(selector)?.getBoundingClientRect().left;
         return {
           placeholders: document.querySelectorAll(

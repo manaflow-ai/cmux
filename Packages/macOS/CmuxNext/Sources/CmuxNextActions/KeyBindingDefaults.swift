@@ -40,7 +40,8 @@ public nonisolated struct KeyBindingDefaults {
     /// elsewhere the global key runs. Any page adds its own keys here with a
     /// `when` that names it.
     ///
-    /// Cmd-N on Home starts a New Message (``onHome``), as in Messages.
+    /// Cmd-N is New Workspace everywhere, Home too (Lawrence 2026-10-20: "Command + N needs to
+    /// always make a new workspace"); New Message keeps its compose button, palette and menu.
     ///
     /// Cmd-K searches the agent chats everywhere but a terminal, as in ChatGPT and Claude
     /// desktop (Leo 2026-10-12, keyboard parity); a focused terminal keeps Clear (decision K1)
@@ -56,8 +57,6 @@ public nonisolated struct KeyBindingDefaults {
     public static let scopedDefaults: [KeyBinding] = [
         KeyBinding(keys: [Shortcut("k", modifiers: [.command])], command: "agentPane.searchChats",
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
-        // Cmd-N on Home is Messages' New Message (Lawrence 2026-10-19); everywhere else it stays New Workspace.
-        KeyBinding(keys: [Shortcut("n", modifiers: [.command])], command: "home.newMessage", when: onHome),
     ]
 
     /// Home has the keyboard: its top page, its conversation view, or the docked Home's page.

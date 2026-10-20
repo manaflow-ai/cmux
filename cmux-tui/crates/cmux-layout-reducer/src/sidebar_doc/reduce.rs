@@ -279,11 +279,8 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
         Op::ItemAdd { item, to } => add_item(tx, item, to, mint),
         Op::ItemRemove { id } => {
             let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-            let children: Vec<ItemId> = tx
-                .doc
-                .list(&item.section, Some(id.as_str()))
-                .map(|child| child.id.clone())
-                .collect();
+            let children: Vec<ItemId> =
+                tx.doc.descendants(item).into_iter().map(|child| child.id.clone()).collect();
             for child in children {
                 tx.remove_item(&child);
             }
@@ -325,9 +322,6 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
                     }
                 }
             };
-            if target.parent.is_some() {
-                return Err(Refusal::Nesting);
-            }
             tx.doc.section(&target.section).ok_or(Refusal::UnknownSection)?;
             tx.put_item(Item::new(
                 &id,
@@ -373,10 +367,12 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
                 return Err(Refusal::InvalidValue);
             }
             let section = group.section.clone();
+            let parent = group.parent.clone();
             let children: Vec<ItemId> =
                 tx.doc.list(&section, Some(id.as_str())).map(|child| child.id.clone()).collect();
             if !children.is_empty() {
-                let to = Target { section, after: Some(id.clone()), ..Target::default() };
+                // Into the ungrouped group's own place: its parent group, or the top level.
+                let to = Target { section, parent, after: Some(id.clone()), ..Target::default() };
                 place(tx, &children, &to)?;
             }
             tx.remove_item(id);
@@ -554,24 +550,37 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
     }
     let target_machine = section.kind.machine().map(str::to_string);
     let mut parent_machine = None;
+    let mut parent_level = 0;
     if let Some(parent) = &to.parent {
         let group = tx.doc.item(parent).ok_or(Refusal::UnknownItem)?;
-        if !group.body.is_group() || group.parent.is_some() || group.section != to.section {
+        if !group.body.is_group() || group.section != to.section {
             return Err(Refusal::Nesting);
         }
-        if moved_set.contains(parent) {
+        // Not into itself or anything under a moved group.
+        if moved_set.contains(parent)
+            || tx.doc.ancestors(group).iter().any(|ancestor| moved_set.contains(&ancestor.id))
+        {
             return Err(Refusal::InvalidTarget);
         }
+        parent_level = tx.doc.group_level(group);
+        let root = tx.doc.root(group);
         parent_machine = tx
             .doc
-            .list(&group.section, Some(parent.as_str()))
-            .filter(|child| !moved_set.contains(&child.id))
+            .descendants(root)
+            .into_iter()
+            .filter(|child| {
+                !moved_set.contains(&child.id)
+                    && !tx.doc.ancestors(child).iter().any(|a| moved_set.contains(&a.id))
+            })
             .find_map(|child| child.body.workspace().map(|r| r.session_id.clone()));
     }
     let mut moved_machine: Option<String> = None;
     for id in &moved {
         let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-        if to.parent.is_some() && item.body.is_group() {
+        if to.parent.is_some()
+            && item.body.is_group()
+            && parent_level + tx.doc.group_height(item) > MAX_GROUP_DEPTH
+        {
             return Err(Refusal::Nesting);
         }
         if let Some(machine) = tx.doc.item_machine(item) {
@@ -615,12 +624,21 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
             .collect();
         assignments = run.iter().cloned().zip(order_key::spread(run.len())).collect();
     }
-    // Where each moved group's children are now, before the group moves.
-    let groups: Vec<(ItemId, SectionId)> = moved
+    // Where each moved group's subtree is now, before the group moves.
+    let subtrees: Vec<(Vec<ItemId>, SectionId)> = moved
         .iter()
         .filter_map(|id| tx.doc.item(id))
         .filter(|item| item.body.is_group() && item.section != to.section)
-        .map(|item| (item.id.clone(), item.section.clone()))
+        .map(|item| {
+            let ids = tx
+                .doc
+                .descendants(item)
+                .into_iter()
+                .filter(|child| !moved_set.contains(&child.id))
+                .map(|child| child.id.clone())
+                .collect();
+            (ids, item.section.clone())
+        })
         .collect();
     for (id, key) in assignments {
         let is_moved = moved_set.contains(&id);
@@ -633,11 +651,9 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
             Ok(())
         })?;
     }
-    // A moved group's children follow it to its section.
-    for (group, old_section) in groups {
-        let children: Vec<ItemId> =
-            tx.doc.list(&old_section, Some(group.as_str())).map(|child| child.id.clone()).collect();
-        for child in children {
+    // A moved group's subtree follows it to its section.
+    for (subtree, _old_section) in subtrees {
+        for child in subtree {
             tx.edit_item(&child, |item| {
                 item.section = to.section.clone();
                 Ok(())
@@ -754,11 +770,15 @@ fn close(tx: &mut Tx, refs: &[WorkspaceRef]) {
             continue;
         }
         tx.remove_item(&item.id);
-        if let Some(parent) = &item.parent
-            && tx.doc.list_len(&item.section, Some(parent.as_str())) == 0
-            && tx.doc.item(parent).is_some()
-        {
-            tx.remove_item(parent);
+        // Each group it leaves empty goes, up the tree.
+        let mut emptied = item.parent.clone();
+        while let Some(parent) = emptied {
+            if tx.doc.list_len(&item.section, Some(parent.as_str())) != 0 {
+                break;
+            }
+            let Some(group) = tx.doc.item(&parent) else { break };
+            emptied = group.parent.clone();
+            tx.remove_item(&parent);
         }
     }
 }

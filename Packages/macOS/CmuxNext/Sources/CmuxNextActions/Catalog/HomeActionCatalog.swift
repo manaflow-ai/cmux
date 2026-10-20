@@ -11,7 +11,8 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
         // 40 s result deadline for: a group with invites takes several requests.
         let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
-                                    "home.muteConversation", "home.unmuteConversation", "home.sendMessage"]
+                                    "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
+                                    "home.createGroup", "home.setChiefReplies"]
         return all.map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
@@ -211,6 +212,28 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home unmute",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
+            // Group chats with Chiefs (plans/cmux-next/chief-group-chats-DESIGN.md): `cmux chat create
+            // --members "Chief, Unii, aziz@manaflow.com" [--title T] [--replies auto|mentions|all]`
+            // makes the group New Message makes; `cmux chat replies` sets when its Chiefs answer.
+            ActionDescriptor(
+                id: "home.createGroup", title: t("action.home.createGroup", "New Group Chat…"),
+                keywords: ["home", "group", "chat", "chief", "chiefs", "agents", "people", "new", "create", "imessage", "conversation"],
+                category: .window, symbol: "person.3", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "members", title: t("argument.home.members", "Members (comma-separated)"), kind: .string),
+                            ActionArgument(name: "title", title: t("argument.home.message.title", "Group Name"), kind: .string,
+                                           isRequired: false),
+                            Self.replies(isRequired: false)],
+                cliName: "chat create",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "home.setChiefReplies", title: t("action.home.setChiefReplies", "Set When Chiefs Reply…"),
+                keywords: ["home", "group", "chief", "chiefs", "reply", "replies", "wake", "mention", "every message", "conversation"],
+                category: .window, symbol: "bubble.left.and.text.bubble.right", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation, Self.replies(isRequired: true)],
+                cliName: "chat replies",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             // `cmux home send --conversation <id> --text "…"`: a message as me, in a DM or group.
             ActionDescriptor(
                 id: "home.sendMessage", title: t("action.home.sendMessage", "Send Message…"),
@@ -230,6 +253,15 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
         ]
+    }
+
+    /// When a group's Chiefs answer: `auto` (the default), `mentions` or `all`.
+    private static func replies(isRequired: Bool) -> ActionArgument {
+        ActionArgument(name: "replies", title: t("argument.home.replies", "Chiefs Reply"),
+                       kind: .enumeration([ActionEnumCase(value: "auto", title: t("argument.home.replies.auto", "Automatically")),
+                                           ActionEnumCase(value: "mentions", title: t("argument.home.replies.mentions", "Only When @Mentioned")),
+                                           ActionEnumCase(value: "all", title: t("argument.home.replies.all", "To Every Message"))]),
+                       isRequired: isRequired)
     }
 
     /// The conversation a group action acts on (an id); without it, the one Home shows.
