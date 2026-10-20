@@ -6,8 +6,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
-// Owned member reads add 1.0 KiB: 410.4 -> 411.4 KiB in cmux#22388 CI, without a new dependency.
-const BUDGET_GZIP_BYTES = 412 * 1024; // 298 KiB at S1
+// Owned VM receiver policy adds 1.3 KiB: 411.4 -> 412.7 KiB in cmux#22451 CI (46717b9), no new dependency.
+const BUDGET_GZIP_BYTES = 413 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })

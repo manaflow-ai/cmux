@@ -969,6 +969,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/meshes/{meshId}/vms/{vmId}/receiver-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a VM's current receiving policy
+         * @description Read a VM's current receiving policy. Requires the mesh:read scope. Also needs vm:read and visibility of the exact VM and mesh. Returns unique live public client identities and at most 4096 incoming service rules, with a lease of at most 30 seconds capped by included owner-key expiry. Public-address transport rules are excluded. No listener activation or backend service grant is implied. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+         */
+        get: operations["mesh.getVmReceiverPolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/meshes/{meshId}/acl": {
         parameters: {
             query?: never;
@@ -2070,6 +2090,54 @@ export interface components {
             vmId: string;
             ipv4: string | null;
             attachedAt: string;
+        };
+        VmReceiverPolicy: {
+            /** @enum {number} */
+            schemaVersion: 1;
+            /**
+             * maxLength(128)
+             * @description a string matching the pattern ^[A-Za-z0-9_-]+$
+             */
+            tenantId: string;
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            vmId: string;
+            /** @description a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            meshId: string;
+            ipv4: string | null;
+            /**
+             * nonNegative
+             * @description a non-negative number
+             */
+            aclVersion: components["schemas"]["Int"];
+            /**
+             * nonNegative
+             * @description a non-negative number
+             */
+            checkedAt: components["schemas"]["Int"];
+            /**
+             * nonNegative
+             * @description a non-negative number
+             */
+            expiresAt: components["schemas"]["Int"];
+            /** @description a string matching the pattern ^[0-9a-f]{64}$ */
+            policyDigest: string;
+            /**
+             * maxItems(128)
+             * @description an array of at most 128 item(s)
+             */
+            peers: {
+                /** @description a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+                deviceId: string;
+                /** @description The device's WireGuard public key, base64. The private key never leaves the device. */
+                wgPublicKey: string;
+                /** @description The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device. */
+                installPublicKey: string;
+                /**
+                 * maxItems(4096)
+                 * @description an array of at most 4096 item(s)
+                 */
+                allow: components["schemas"]["PeerAllow"][];
+            }[];
         };
         Acl: {
             /** @description a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
@@ -7173,6 +7241,95 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "mesh.getVmReceiverPolicy": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                meshId: string;
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description VmReceiverPolicy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VmReceiverPolicy"];
+                };
             };
             /** @description The request did not match the expected schema */
             400: {
