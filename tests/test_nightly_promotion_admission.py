@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,7 +41,9 @@ SHA = "a" * 40
 NEWER = "b" * 40
 
 HARNESS = r"""
-const scenario = JSON.parse(process.env.SCENARIO);
+// From a file: a long range's scenario is over Linux's 128 KiB limit for one
+// environment variable (E2BIG).
+const scenario = JSON.parse((await import('node:fs')).readFileSync(process.env.SCENARIO_FILE, 'utf8'));
 const guard = await import(process.env.GUARD);
 const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0 };
 const pullsListCommits = Symbol('listCommits');
@@ -249,12 +252,15 @@ def scenario(**overrides) -> dict:
 
 
 def run(case: dict) -> dict:
-    result = subprocess.run(
-        ["node", "--input-type=module", "-e", HARNESS],
-        cwd=ROOT,
-        env={**os.environ, "SCENARIO": json.dumps(case), "GUARD": str(GUARD)},
-        capture_output=True, text=True, check=False,
-    )
+    with tempfile.NamedTemporaryFile("w", suffix=".json") as scenario_file:
+        json.dump(case, scenario_file)
+        scenario_file.flush()
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", HARNESS],
+            cwd=ROOT,
+            env={**os.environ, "SCENARIO_FILE": scenario_file.name, "GUARD": str(GUARD)},
+            capture_output=True, text=True, check=False,
+        )
     if result.returncode:
         raise RuntimeError(result.stderr)
     return json.loads(result.stdout)
