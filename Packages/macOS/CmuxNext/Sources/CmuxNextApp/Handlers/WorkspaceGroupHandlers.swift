@@ -182,19 +182,33 @@ enum WorkspaceGroupHandlers {
         guard daemon === local || daemon.connection != nil else {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.machineNotConnected)
         }
-        Task {
-            var spawn = WorkspaceSpawn()
-            spawn.opensNewTabPage = newTabPage
-            // Placed into the group below, not at the new-workspace slot.
-            spawn.placesBySetting = false
-            guard let key = try? await windows.createWorkspace(spawn, on: daemon, into: target),
-                  let session = daemon.store.registryID else { return }
+        var spawn = WorkspaceSpawn()
+        spawn.opensNewTabPage = newTabPage
+        // Only the group places it: never the new-workspace setting first (a slot in another group).
+        spawn.placesBySetting = false
+        // The group's slot, the path a double-click in the group takes: the row shows in the group from the press
+        // and is placed once the daemon lists it. Setting the group right after the create raced that listing:
+        // without the workspace's public id the place went out as the raw command, and it stayed outside the group.
+        let slot = windows.controller(for: target).flatMap { shownGroupID(id, in: $0.sidebar.model) }.map(WorkspaceSlot.endOfGroup)
+        spawn.slot = slot
+        spawn.onListed = { key, bridge in
+            // A slot that did not resolve where it is listed (the group is in another room) placed nothing.
+            let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
+            let section = SectionID.machine(MachineID(daemon.machineID))
+            guard slot?.position(moving: [key], section: section, in: sections) == nil, let session = daemon.store.registryID else { return }
             // The group lives in the home session's personal state, whichever machine runs the workspace.
             let workspace = WorkspaceKey(rawValue: key), resource = local.store.personalStateID(session: session, key: workspace)
             local.send("set-personal-workspace") {
                 try await $0.state.placePersonalWorkspace(session: session, key: workspace, resource: resource, group: .set(id))
             }
         }
+        Task { _ = try? await windows.createWorkspace(spawn, on: daemon, into: target) }
+    }
+
+    /// The id `model` lists personal group `id` under (`SidebarModel.groupID(personal:)`), nil when it lists none.
+    private static func shownGroupID(_ id: WorkspaceGroupID, in model: SidebarModel) -> CmuxNextSidebar.GroupID? {
+        let shown = model.groupID(personal: id.rawValue)
+        return model.group(shown) != nil ? shown : nil
     }
 
     /// A new group inside `parent` on the sidebar document (remote-groups-DESIGN.md slice 3), with the
