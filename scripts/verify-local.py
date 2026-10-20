@@ -82,25 +82,30 @@ def automatic_scope(repo, environ):
             continue
         candidates.append((base, f"Local default-branch reference: {base} (no fetch)"))
     # feat-cmux-next split from main long ago, so main's merge base with one of its branches is that
-    # old split and would select every check. The base HEAD is fewest commits past wins.
+    # old split and would select every check. The candidate with the fewest commits between it and
+    # HEAD wins; ties keep list order. On a large partial clone each git call takes seconds.
+    ranked = []
     for remote in ("upstream", "origin"):
         base = f"refs/remotes/{remote}/{INTEGRATION_BRANCH}"
         candidates.append((base, f"Local integration-branch reference: {base} (no fetch)"))
-    best = None
     for order, (base, reason) in enumerate(candidates):
         try:
-            subprocess.run(["git", "-C", str(repo), "merge-base", base, "HEAD"],
-                           capture_output=True, check=True, timeout=5)
             ahead = int(subprocess.run(["git", "-C", str(repo), "rev-list", "--count", f"{base}..HEAD"],
-                                       capture_output=True, text=True, check=True, timeout=20).stdout)
+                                       capture_output=True, text=True, check=True, timeout=30).stdout)
         except (OSError, ValueError, subprocess.SubprocessError):
             continue
-        if best is None or ahead < best[0]:
-            best = (ahead, base, reason)
-    if best is not None:
-        return {"mode": "affected", "base_ref": best[1], "reason": best[2]}
+        ranked.append((ahead, order, base, reason))
+    # rev-list counts every HEAD commit for a base with no shared history, so confirm the winner's
+    # merge base, falling back to the next candidate.
+    for _, _, base, reason in sorted(ranked):
+        try:
+            subprocess.run(["git", "-C", str(repo), "merge-base", base, "HEAD"],
+                           capture_output=True, check=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        return {"mode": "affected", "base_ref": base, "reason": reason}
     return {"mode": "full_fallback", "base_ref": None,
-            "reason": "No usable local remote-default reference: full static recipe; parse local Swift edits"}
+            "reason": "No usable local base reference: full static recipe; parse local Swift edits"}
 
 
 def affected_checks(repo, base):
