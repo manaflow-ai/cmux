@@ -9,7 +9,7 @@ export function usePromptHistory(rows: readonly AcpmuxRow[]) {
     const sent: string[] = [];
     for (const row of rows) {
       // Another agent's message or a task's result is not a prompt the person wrote.
-      const text = row.kind === "user" && !row.incoming && !row.received ? row.text?.trim() : undefined;
+      const text = row.kind === "user" && !row.untyped ? row.text?.trim() : undefined;
       // The same prompt sent twice in a row is one step.
       if (text && sent[sent.length - 1] !== text) sent.push(text);
     }

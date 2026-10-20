@@ -1425,6 +1425,12 @@ pre.cv-math-source {
 .cv-message__foot .cv-message__more {
   margin: 0;
 }
+/* Another agent's images, under its message and in line with it (IncomingMessageCard.tsx). */
+.cv-message.is-incoming > .cv-message__images {
+  justify-content: flex-start;
+  max-width: none;
+  margin: 0 10px 6px 32.5px;
+}
 .cv-message.is-incoming > .cv-tool-output {
   margin: 0 10px 8px 32.5px;
 }
@@ -2565,4 +2571,8 @@ pre.cv-math-source {
 }
 .cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
   color: var(--agent-accent);
+}
+/* A steer's read state under another agent's message, in line with its text (App.tsx). */
+.cv-incoming > .cv-user__steer {
+  padding-left: 32.5px;
 }

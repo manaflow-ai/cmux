@@ -4,14 +4,19 @@
 // chat here opens beside this one.
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
+import type { PromptImage } from "../model";
 import type { IncomingMessage } from "./incomingMessage";
+import { SentImages } from "./UserBubble";
 import { ArrowRight, ChevronDown, ChevronRight, Envelope, TerminalSquare } from "./icons";
 
 export function IncomingMessageCard({
   message,
+  images,
   onOpen,
 }: {
   message: IncomingMessage;
+  /// The images the message sent the agent (direct.ts `promptImages`).
+  images?: readonly PromptImage[];
   onOpen(sessionId: string): void;
 }) {
   const t = useT();
@@ -60,6 +65,7 @@ export function IncomingMessageCard({
       <div ref={body} id={bodyId} className={`cv-message__body selectable${open ? "" : " is-clamped"}`}>
         {message.text || t("message.noText")}
       </div>
+      {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
       {(long || raw !== undefined || sessionId) && (
         <div className="cv-message__foot">
           {(long || raw !== undefined) && (

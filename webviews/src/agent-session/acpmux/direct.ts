@@ -1855,17 +1855,24 @@ export class AcpmuxDirectClient {
           this.planCalls.clear();
         }
         this.streamingActivity = undefined;
-        const received = offersShown() ? offerResult(msg) : undefined;
+        // A task's result is not the person's prompt, shown or not: it never enters prompt recall.
+        const taskResult = offerResult(msg);
+        const received = offersShown() ? taskResult : undefined;
         // Another agent's message or harness bookkeeping (conversation/incomingMessage.ts): the row
-        // keeps the sender's words, or the typed prompt without the bookkeeping; bookkeeping alone
-        // gets no row.
+        // keeps the sender's words, or the typed prompt without the bookkeeping. Bookkeeping alone
+        // keeps an empty row that draws nothing, so the answer it brought stays its own turn
+        // (turns.ts). Retry resends the prompt as the agent got it (`resend`).
         const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg);
+        const raw = String(msg.text ?? "");
         const shown =
           incoming?.kind === "message"
-            ? { text: incoming.message.text, incoming }
+            ? { text: incoming.message.text, incoming, resend: raw }
             : incoming?.kind === "notice"
-              ? { text: incoming.text, incoming }
-              : { text: incoming?.kind === "prompt" ? incoming.text : String(msg.text ?? "") };
+              ? { text: incoming.text, incoming, resend: raw }
+              : incoming?.kind === "hidden"
+                ? { text: "", incoming }
+                : { text: incoming?.kind === "prompt" ? incoming.text : raw };
+        const untyped = taskResult !== undefined || (incoming !== undefined && incoming.kind !== "prompt");
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
@@ -1873,20 +1880,20 @@ export class AcpmuxDirectClient {
         if (msg.steer !== true) this.landSteer();
         const steer = msg.steer === true ? "waiting" : promptId && this.sentNow.has(promptId) ? "stopped" : undefined;
         if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
-        if (incoming?.kind !== "hidden")
-          this.rows.set(`user-${event.seq}`, {
-            id: `user-${event.seq}`,
-            version: 1,
-            at: event.at,
-            kind: "user",
-            ...shown,
-            ...(received ? { received } : {}),
-            ...(steer ? { steer } : {}),
-            ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
-            ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
-              ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
-              : {}),
-          });
+        this.rows.set(`user-${event.seq}`, {
+          id: `user-${event.seq}`,
+          version: 1,
+          at: event.at,
+          kind: "user",
+          ...shown,
+          ...(untyped ? { untyped } : {}),
+          ...(received ? { received } : {}),
+          ...(steer ? { steer } : {}),
+          ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
+          ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
+            ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
+            : {}),
+        });
         if (fallbackPromptId) {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
           if (attachments?.length) this.retryAttachments.set(`user-${event.seq}`, attachments);

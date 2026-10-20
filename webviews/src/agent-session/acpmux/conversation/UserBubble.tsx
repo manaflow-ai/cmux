@@ -109,9 +109,10 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   );
 }
 
-function SentImages({ images }: { images: readonly PromptImage[] }) {
+/// A prompt's images, each opening the image viewer; IncomingMessageCard shows another agent's.
+export function SentImages({ images, className }: { images: readonly PromptImage[]; className?: string }) {
   return (
-    <div className="cv-user__images">
+    <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
       {images.map((image) => (
         <SentImage key={image.id} image={image} />
       ))}

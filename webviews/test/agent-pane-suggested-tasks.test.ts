@@ -574,5 +574,121 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(await page.locator(".acpmux-row.acpmux-user").count()).toBe(3);
       await page.close();
     });
+
+    const say = (text: string) =>
+      record(
+        "agent_message_chunk",
+        {
+          method: "session/update",
+          params: {
+            sessionId: "agent-1",
+            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+          },
+        },
+        SESSION,
+        "in",
+      );
+
+    test("a reminder alone still starts its own turn: the answer it brought stays after the last footer", async () => {
+      const page = await openChat({
+        offered: [],
+        experiment: "off",
+        extra: () => [
+          say("The grid now reserves its height."),
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+          record("user_message", { text: "<system-reminder>\nThe date changed.\n</system-reminder>", client: "adopt" }),
+          say("Noted the new date."),
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+        ],
+      });
+      await page.getByText("Noted the new date.").first().waitFor({ timeout: 10_000 });
+      // Each answer is its own turn's: neither folds into the other's "Worked for", and the first
+      // turn's footer comes before the second answer.
+      expect(await page.getByText("The grid now reserves its height.").first().isVisible()).toBe(true);
+      const order = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".acpmux-row")].map((row) => row.textContent ?? "");
+        return {
+          first: rows.findIndex((text) => text.includes("The grid now reserves its height.")),
+          second: rows.findIndex((text) => text.includes("Noted the new date.")),
+          footers: [...document.querySelectorAll(".acpmux-row")].flatMap((row, index) =>
+            row.querySelector('[aria-label="Retry"], [aria-label="Copy"]') ? [index] : [],
+          ),
+        };
+      });
+      expect(order.first).toBeGreaterThanOrEqual(0);
+      expect(order.footers.some((index) => index > order.first && index < order.second)).toBe(true);
+      expect(await page.locator("body").innerText()).not.toContain("The date changed.");
+      await page.close();
+    });
+
+    test("Retry on another agent's message sends it again as the agent got it, sender and all", async () => {
+      const text = [
+        '<cross-session-message from="uds:/tmp/cc-socks/72618.sock" from-name="leoli-fb" from-mode="bypass">',
+        "Please review #123.",
+        "</cross-session-message>",
+      ].join("\n");
+      const page = await openChat({
+        offered: [],
+        experiment: "off",
+        extra: () => [
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+          record("user_message", { text, client: "adopt" }),
+          say("Reviewing #123 now."),
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+        ],
+      });
+      await page.getByText("Reviewing #123 now.").first().waitFor({ timeout: 10_000 });
+      await page.getByRole("button", { name: "Retry", exact: true }).last().click();
+      await waitUntil(() => calls.some((c) => c.method === "session/prompt"));
+      const sent = JSON.stringify(calls.find((c) => c.method === "session/prompt")?.params.prompt);
+      expect(sent).toContain("cross-session-message");
+      expect(sent).toContain("leoli-fb");
+      await page.close();
+    });
+
+    test("a task's result never comes back with ↑, with suggested tasks off", async () => {
+      const page = await openChat({
+        offered: [],
+        experiment: "off",
+        extra: () => [
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+          record("user_message", {
+            text: "The task Cart thumbnails finished: sized every image.",
+            _meta: {
+              provenance: { kind: "offer_result", offerId: "offer-1", childSessionId: "child-1", title: "Cart" },
+            },
+          }),
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+        ],
+      });
+      await page.getByText("The task Cart thumbnails finished").first().waitFor({ timeout: 10_000 });
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.press("ArrowUp");
+      await page.waitForFunction(() =>
+        document.querySelector(".acpmux-composer-prompt")?.textContent?.includes("Fix the product grid layout shift"),
+      );
+      expect(await page.locator(".acpmux-composer-prompt").innerText()).not.toContain("Cart thumbnails");
+      await page.close();
+    });
+
+    test("another agent's message keeps its images and a steer's read state", async () => {
+      const page = await openChat({
+        offered: [],
+        experiment: "off",
+        extra: () => [
+          record("user_message", {
+            text: "Here is the broken grid.",
+            steer: true,
+            images: [{ id: "img-1", mimeType: "image/png", name: "grid.png" }],
+            _meta: { provenance: { kind: "agent_message", from: "child-3", fromName: "Grid fix", to: SESSION } },
+          }),
+        ],
+      });
+      const card = incoming(page);
+      await card.waitFor({ timeout: 10_000 });
+      expect(await card.locator(".cv-message__images").count()).toBe(1);
+      expect(await page.locator(".cv-incoming .cv-user__steer").count()).toBe(1);
+      await page.close();
+    });
   });
 });

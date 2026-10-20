@@ -81,7 +81,13 @@ export type AcpmuxRow = {
   received?: AcpmuxOfferResult;
   /// A prompt that is not the person's: another agent's message, or harness bookkeeping
   /// (conversation/incomingMessage.ts).
-  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" }>;
+  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "hidden" }>;
+  /// The prompt as the agent got it, when the row shows something else (an incoming message's
+  /// body): what Retry sends again.
+  resend?: string;
+  /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
+  /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
+  untyped?: boolean;
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -648,8 +654,20 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   if (row.received) return 26 + 16;
   // Another agent's message: its route line over two lines of the message; a notice is a tool
   // row's line (conversation/IncomingMessageCard.tsx).
-  if (row.incoming?.kind === "message") return 32 + 2 * 19 + 7 + 8 + (row.incoming.message.text.length > 140 ? 12 : 0);
+  // Its images' 72px row with 6px below, and a steer's status line, as under a bubble.
+  if (row.incoming?.kind === "message")
+    return (
+      32 +
+      2 * 19 +
+      7 +
+      8 +
+      (row.incoming.message.text.length > 140 ? 12 : 0) +
+      (row.images?.length ? 78 : 0) +
+      (row.steer ? USER_STATUS_HEIGHT : 0)
+    );
   if (row.incoming?.kind === "notice") return 26 + 8;
+  // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
+  if (row.incoming?.kind === "hidden") return 0;
   // A preview row's text is its address, not prose: the card's height is fixed.
   if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
