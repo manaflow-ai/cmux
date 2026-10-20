@@ -98,7 +98,6 @@ export function MobileCard() {
                         <button
                           type="button"
                           className="button"
-                          title={state.remove_help}
                           aria-label={`${state.remove_title} ${phone.title}`}
                           data-remove-phone={phone.id}
                           onClick={() => void store.removePhone(phone.id)}

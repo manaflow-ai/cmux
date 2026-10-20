@@ -715,7 +715,9 @@ jobs:
           # branch. Pull requests may fall back to the base tree; a missing own
           # tree fails closed because this checked-out revision cannot dispatch.
           # A scheduled DEV run likewise owns its exact SHA without mutation
-          # authority; only trusted controls may start a publisher.
+          # authority; only trusted controls may start a publisher. Its probe
+          # looks once (read-only) for its push's artifacts run or a same-tree
+          # run and defers to it; dev-daily-tree-wait then waits.
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -797,8 +799,8 @@ jobs:
         id: tree-final
         if: steps.marker-upload.outcome == 'success'
         env:
-          # A scheduled DEV run owns its exact SHA. A cold tree fails closed;
-          # this checked-out revision never starts a publisher.
+          # A scheduled DEV run owns its exact SHA. A cold tree with no active
+          # publisher fails closed; this checked-out revision never starts one.
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}

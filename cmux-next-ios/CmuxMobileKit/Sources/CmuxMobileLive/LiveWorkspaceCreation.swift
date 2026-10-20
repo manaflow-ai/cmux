@@ -493,6 +493,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         let replies = await withTaskGroup(of: (Int, Result<Data, any Error>).self) { group in
             for surface in surfaces {
                 group.addTask {
+                    // One return of a local: swiftlang/swift#92698 drops a tuple's first
+                    // element at -O when an awaiting do and its catch each return one.
                     let reply: Result<Data, any Error>
                     do {
                         reply = .success(try await client.request("process-info", params: ["surface": surface],
