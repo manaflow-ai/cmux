@@ -195,6 +195,15 @@ public nonisolated struct AgentPaneTunables {
         help: "With Live thought viewport off: fold a finished thought taller than the transcript (never under 400px), or taller than Codex's seven lines (140px). With it on, thoughts fold past 140px. New agent tabs.",
         default: .viewport, code: "AgentPaneTunables.thoughtFoldThreshold")
 
+    /// The thoughts' look (webviews conversation/thoughtStyle.ts): `plain` sets nothing, so the
+    /// page draws as before; `brain` sets `data-thought-style` on `<html>`. New agent tabs read it.
+    public static let thoughtStyle = Tunable<AgentPaneThoughtStyle>.choice(
+        "agentPane.debug.thoughtStyle", PageTunables.section, "Thought style",
+        help: "Plain: a muted Thought beside its text. Brain: one line with a brain that opens to the whole thought; notes between steps in an open Worked for draw the same way. New agent tabs.",
+        default: .plain, code: "AgentPaneTunables.thoughtStyle")
+
+    /// Chat trials also set in layout.json (webviews acpmux/labs.ts). New tabs read these choices
+    /// at document start; an explicit layout value wins (Lucas 2026-10-18).
     /// What a folded long thought's line reads: how long the agent thought, or its first line.
     /// Only a folded thought shows it (``foldLongThoughts``). New agent tabs read it.
     public static let thoughtHeader = Tunable<AgentPaneThoughtHeader>.choice(
@@ -260,21 +269,29 @@ public nonisolated struct AgentPaneTunables {
 
     /// The page's `<html>` `data-*` attributes from these tunables.
     static var documentAttributes: [String: String] {
-        attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
-                   thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
-                   thoughtFoldThreshold: thoughtFoldThreshold.value)
+        attributes(
+            foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
+            thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
+            thoughtFoldThreshold: thoughtFoldThreshold.value,
+            thoughtStyle: thoughtStyle.value, labs: labTunables.mapValues { $0.value })
     }
 
-    static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
-                           thoughtHeader: AgentPaneThoughtHeader = .duration,
-                           liveThoughtViewport: Bool = true,
-                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport) -> [String: String] {
+    static func attributes(
+        foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
+        thoughtHeader: AgentPaneThoughtHeader = .duration, liveThoughtViewport: Bool = true,
+        thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport,
+        thoughtStyle: AgentPaneThoughtStyle = .plain, labs: [String: Bool] = [:]
+    ) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if thoughtFoldThreshold != .viewport { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
+        if thoughtStyle != .plain { attributes["thought-style"] = thoughtStyle.rawValue }
+        for (name, tunable) in labTunables {
+            attributes["lab-\(name)"] = (labs[name] ?? tunable.defaultValue) ? "on" : "off"
+        }
         return attributes
     }
 
@@ -337,27 +354,48 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
+    /// Every agent-pane tunable, one per line in alphabetical order, so two pull requests that each
+    /// add one insert different lines and merge cleanly (#21946). Debug Settings lists them in this
+    /// order. Declare a new tunable in its feature's own file (`extension AgentPaneTunables`) when you
+    /// can, so the declarations above do not collide either.
     public static var all: [TunableDescriptor] {
         [
             chatWidth.descriptor,
+            codeWrap.descriptor,
             codexToolRuns.descriptor,
             composerPlainFooter.descriptor,
+            contextMeter.descriptor,
+            dockBesideTabs.descriptor,
             escapeStopDoublePress.descriptor,
             foldLongThoughts.descriptor,
+            liveRender.descriptor,
             harnessSwitchInStartedChat.descriptor,
             liveThoughtViewport.descriptor,
+            messageTimes.descriptor,
             modelMenu.descriptor,
             newTabWidgets.descriptor,
             pageHost.descriptor,
+            panelTabs.descriptor,
+            planProgress.descriptor,
+            promptCollapse.descriptor,
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
+            renderExpand.descriptor,
+            renderGuide.descriptor,
+            renderKit.descriptor,
+            renderPreview.descriptor,
             sessionStatus.descriptor,
+            shortcutsHelp.descriptor,
             sidebarPreviewVariant.descriptor,
+            sideColumn.descriptor,
             sideSessions.descriptor,
+            sourceIcons.descriptor,
             suggestedTasks.descriptor,
+            tableScroll.descriptor,
             terminalButtonAdds.descriptor,
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
+            thoughtStyle.descriptor,
             topStripStyle.descriptor,
             turnActionsPlacement.descriptor,
         ]

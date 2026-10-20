@@ -6,6 +6,7 @@ extension AgentPaneView {
     /// Pushes ``customization`` to the page, even an empty one (it clears
     /// what removed files left behind).
     func applyCustomization() {
+        model.replyLinks.applySourceIconLayout(customization)
         runPageHostRegistry()
         deliver(AgentPageEvent.customization(customization), scripts: customization.scripts())
     }

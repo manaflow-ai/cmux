@@ -112,7 +112,6 @@
         "CmuxNextDictation",
         "CmuxNextErrorJournal",
         "CmuxNextPages",
-        "CmuxNextRemoteFetch",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -131,11 +130,11 @@
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
-        "CmuxNextRemoteFetch",
         "CmuxNextSettings"
       ],
       "packages": [],
       "reads": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/",
         "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
@@ -170,18 +169,6 @@
         "CmuxAgentQuestion"
       ]
     },
-    "CmuxNextAgentUpdates": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates",
-      "targets": [
-        "CmuxNextActions",
-        "CmuxNextDaemon",
-        "CmuxNextDaemonService",
-        "CmuxNextPages",
-        "CmuxNextSettings"
-      ],
-      "packages": []
-    },
     "CmuxNextApp": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp",
@@ -196,7 +183,6 @@
         "CmuxNextAgentPane",
         "CmuxNextAgentPermissions",
         "CmuxNextAgentQuestion",
-        "CmuxNextAgentUpdates",
         "CmuxNextApps",
         "CmuxNextBookmarks",
         "CmuxNextBridge",
@@ -248,7 +234,6 @@
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
-        "CmuxNextRemoteFetch",
         "CmuxNextRemoteLocalhost",
         "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
@@ -297,7 +282,6 @@
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextAgentLanes",
-        "CmuxNextAgentUpdates",
         "CmuxNextApp",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
@@ -409,7 +393,6 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
-        "CmuxNextRemoteFetch",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -465,8 +448,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests",
       "targets": [
-        "CmuxNextBrowser",
-        "CmuxNextRemoteFetch"
+        "CmuxNextBrowser"
       ],
       "packages": [],
       "reads": [
@@ -551,15 +533,6 @@
         "CmuxNextCompat"
       ],
       "packages": []
-    },
-    "CmuxNextCodeRouterTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCodeRouterTests",
-      "targets": [
-        "CmuxNextCodeRouter"
-      ],
-      "packages": [],
-      "reads": []
     },
     "CmuxNextCompat": {
       "kind": "regular",
@@ -1140,14 +1113,6 @@
       ],
       "packages": []
     },
-    "CmuxNextRemoteFetch": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteFetch",
-      "targets": [
-        "CmuxNextCompat"
-      ],
-      "packages": []
-    },
     "CmuxNextRemoteLocalhost": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhost",
@@ -1366,9 +1331,7 @@
     "CmuxNextVSCodeServer": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextVSCodeServer",
-      "targets": [
-        "CmuxNextWakeups"
-      ],
+      "targets": [],
       "packages": []
     },
     "CmuxNextVSCodeServerTests": {

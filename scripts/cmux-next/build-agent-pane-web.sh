@@ -70,7 +70,7 @@ cat "$ROOT/webviews/src/ui/popupSurface.css" >> "$WORK/styles.css"
 cat "$ROOT/webviews/src/ui/ghost.css" >> "$WORK/styles.css"
 # The shared find pill (Find in Chat), imported by ui/FindPill.tsx.
 cat "$ROOT/webviews/src/ui/findPill.css" >> "$WORK/styles.css"
-cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" >> "$WORK/styles.css"
+cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/conversation/chatLook.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" >> "$WORK/styles.css"
 # changes.css @imports git.css; an @import never loads here (mid-sheet, and the CSP loads no
 # style file), so inline it where the import stood.
 cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"
@@ -78,6 +78,7 @@ grep -v '^@import ' "$SRC/acpmux/changes/changes.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/bottomStack.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" >> "$WORK/styles.css"
+cat "$SRC/acpmux/planProgress.css" "$SRC/acpmux/shortcutsHelp.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$SRC/acpmux/offer/suggestedTasks.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
 # Every sheet the pane imports ships: a missing one renders its component unstyled in the app
 # only (the dev server loads imports), as New Tab's tools did.

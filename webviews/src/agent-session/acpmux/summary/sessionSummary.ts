@@ -11,7 +11,7 @@ export type PullRequestState = "open" | "merged" | "closed";
 export type SummaryPullRequest = { url: string; repo: string; number: number; title?: string; state: PullRequestState };
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
-export type SummarySource = { url?: string; label: string };
+export type SummarySource = { url?: string; label: string; settled?: boolean };
 export type SummaryBackgroundTask = {
   id: string;
   command: string;
@@ -129,7 +129,10 @@ function sources(all: readonly Tool[]): SummarySource[] {
     const url = URL.exec(text)?.[0];
     const label = url ? url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "") : tool.title;
     const key = url ?? label;
-    if (!seen.has(key)) seen.set(key, { url, label });
+    const settled = tool.status === "completed" || tool.status === "failed";
+    const previous = seen.get(key);
+    if (!previous) seen.set(key, { url, label, settled });
+    else if (settled) previous.settled = true;
   }
   return [...seen.values()];
 }

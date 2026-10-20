@@ -10,11 +10,13 @@ struct AgentPaneThoughtTunablesTests {
         #expect(AgentPaneTunables.thoughtHeader.descriptor.key == "agentPane.debug.thoughtHeader")
         #expect(AgentPaneTunables.thoughtHeader.defaultValue == .duration)
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, thoughtHeader: .duration)
+            .filter { !$0.key.hasPrefix("lab-") }
             == ["fold-long-thoughts": "on"])
     }
 
     @Test func previewHeaderSetsItsAttribute() {
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, thoughtHeader: .preview)
+            .filter { !$0.key.hasPrefix("lab-") }
             == ["fold-long-thoughts": "on", "thought-header": "preview"])
     }
 
@@ -22,8 +24,10 @@ struct AgentPaneThoughtTunablesTests {
         #expect(AgentPaneTunables.liveThoughtViewport.descriptor.key == "agentPane.debug.liveThoughtViewport")
         #expect(AgentPaneTunables.liveThoughtViewport.defaultValue == true)
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, liveThoughtViewport: true)
+            .filter { !$0.key.hasPrefix("lab-") }
             == ["fold-long-thoughts": "on"])
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, liveThoughtViewport: false)
+            .filter { !$0.key.hasPrefix("lab-") }
             == ["fold-long-thoughts": "on", "live-thought-viewport": "off"])
     }
 

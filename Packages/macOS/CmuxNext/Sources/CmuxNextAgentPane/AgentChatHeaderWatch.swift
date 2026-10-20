@@ -1,13 +1,12 @@
-import CmuxNextAgentPane
 import Observation
 
 /// Pushes a chat header's state to its page whenever it changes (cx-00n1): a split the user closes
 /// from its own tab or the strip turns its header button off at once, not on the next pointer move.
 /// Observes the store reads `state` makes, re-armed after each change; nothing polls.
 @MainActor
-final class AgentChatHeaderWatch {
-    private let state: () -> AgentPaneHeaderState
-    private let push: (AgentPaneHeaderState) -> Void
+package final class AgentChatHeaderWatch {
+    private let state: @MainActor () -> AgentPaneHeaderState
+    private let push: @MainActor (AgentPaneHeaderState) -> Void
     /// Each arming's number: a change seen by an older one (the page read again meanwhile) is
     /// dropped, so reads never add watchers.
     private var generation = 0
@@ -17,7 +16,8 @@ final class AgentChatHeaderWatch {
     /// (its tab rekeyed) never goes back below what its page already has.
     private static var versions = 0
 
-    init(state: @escaping () -> AgentPaneHeaderState, push: @escaping (AgentPaneHeaderState) -> Void) {
+    package init(state: @escaping @MainActor () -> AgentPaneHeaderState,
+                 push: @escaping @MainActor (AgentPaneHeaderState) -> Void) {
         self.state = state
         self.push = push
     }
@@ -26,7 +26,7 @@ final class AgentChatHeaderWatch {
     /// (`pane.tabState`) re-arm it, so a read made before the store listed the chat still starts
     /// the pushes once it does.
     @discardableResult
-    func read() -> AgentPaneHeaderState {
+    package func read() -> AgentPaneHeaderState {
         arm()
         return current
     }
