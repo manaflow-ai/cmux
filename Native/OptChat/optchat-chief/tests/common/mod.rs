@@ -551,6 +551,11 @@ pub struct Agents {
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
+    /// The status `session` reports per session id; without one, `idle`
+    /// once the session's last turn answered or lost its link, else `running`.
+    pub session_status: BTreeMap<String, String>,
+    /// Sessions whose last turn answered or lost its link.
+    pub turn_over: std::collections::BTreeSet<String>,
     /// Every folder the host trusted (`acp.trust.set`, level trusted).
     pub trusted: Vec<std::path::PathBuf>,
     /// Every permission answer: (session, permission id, option id).
@@ -756,11 +761,13 @@ impl AgentPort for FakeAgents {
             inner.prompt_ids.push(prompt_id.to_owned());
             inner.prompt_sessions.push(session.to_owned());
             inner.signals.insert(session.to_owned(), signals.clone());
+            inner.turn_over.remove(session);
             inner.prompts.len() - 1
         };
         self.changed.notify_all();
         self.append_events(session, (self.script)(turn, &blocks));
         let me = self.me.upgrade().expect("alive");
+        let session = session.to_owned();
         std::thread::spawn(move || {
             {
                 let mut inner = me.inner.lock().unwrap();
@@ -784,7 +791,11 @@ impl AgentPort for FakeAgents {
             if let Some(delay) = delay {
                 std::thread::sleep(delay);
             }
-            me.inner.lock().unwrap().answered_turns += 1;
+            {
+                let mut inner = me.inner.lock().unwrap();
+                inner.answered_turns += 1;
+                inner.turn_over.insert(session.clone());
+            }
             me.changed.notify_all();
             if lose {
                 let _ = signals.send(TurnSignal::Lost);
@@ -850,8 +861,16 @@ impl AgentPort for FakeAgents {
             .session_harness
             .clone()
             .unwrap_or_else(|| spec.harness.clone());
+        let status = inner.session_status.get(id).cloned().unwrap_or_else(|| {
+            if inner.turn_over.contains(id) {
+                "idle"
+            } else {
+                "running"
+            }
+            .into()
+        });
         Ok(Some(serde_json::from_value(json!({
-            "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": "running",
+            "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": status,
         })).unwrap()))
     }
 

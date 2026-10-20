@@ -343,3 +343,74 @@ fn an_update_relaunch_mid_turn_shows_no_error_in_the_run() {
         "{sends:?}"
     );
 }
+
+/// The user, 2026-10-20: "updates must never cut Chief". An update hands the
+/// acpmux daemon off, but the turn's harness runs in an agent host the next
+/// daemon adopts: the turn goes on. The Chief must not end that adopted
+/// session (its work would be lost and done again); it waits for the turn
+/// to end, folds all of it into the memory, and only then runs the resume.
+#[test]
+fn a_turn_the_next_daemon_adopted_runs_to_its_end_and_is_not_ended() {
+    let mut h = Harness::new(cut_first_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "rebase a187 and report");
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        h.step();
+    }
+    let session = h.agents.inner.lock().unwrap().prompt_sessions[0].clone();
+    h.brain.step(Input::from(AgentEvent::Down));
+    h.agents.inner.lock().unwrap().lose = true;
+    h.agents.hold(false);
+    h.agents.release();
+    drain(&mut h, Duration::from_millis(500));
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_status
+        .insert(session.clone(), "running".into());
+    // The next daemon is up and has adopted the session: it still runs.
+    h.connect();
+    drain(&mut h, Duration::from_millis(300));
+    {
+        let inner = h.agents.inner.lock().unwrap();
+        assert!(
+            !inner.ended.contains(&session),
+            "the adopted turn is not ended while it runs: {:?}",
+            inner.ended
+        );
+        assert_eq!(inner.prompts.len(), 1, "no turn starts while it runs");
+    }
+    // The adopted turn finishes on its own.
+    h.agents.append_events(
+        &session,
+        vec![
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "a187 rebased and pushed"}}),
+            ),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+        ],
+    );
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_status
+        .insert(session.clone(), "idle".into());
+    let idle: cmux_chief::acp::SessionSummary = serde_json::from_value(json!({
+        "sessionId": session, "name": "turn", "harness": "claude", "cwd": "/", "status": "idle",
+    }))
+    .unwrap();
+    h.brain.step(Input::from(AgentEvent::SessionChanged(idle)));
+    h.settle_posts();
+    assert!(h.agents.inner.lock().unwrap().ended.contains(&session));
+    let log = h.log();
+    assert!(
+        log.iter()
+            .any(|(_, t)| t.contains("a187 rebased and pushed")),
+        "the adopted turn's work is in the memory"
+    );
+    assert!(failures(&h).is_empty(), "{:?}", failures(&h));
+}
