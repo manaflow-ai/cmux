@@ -55,6 +55,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(tab_restart::KEPT_LAYOUT_CAPABILITY);
     #[cfg(unix)]
+    capabilities.push(tab_park::CAPABILITY);
+    #[cfg(unix)]
     capabilities.push(AGENT_CLI_APP_PROVIDER_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
