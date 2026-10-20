@@ -282,6 +282,11 @@ public nonisolated struct AgentPaneTunables {
         "agentPane.labs.planProgress", PageTunables.section, "Plan progress above the composer",
         help: "The running plan's current step stays above the composer. New agent tabs.",
         default: false, code: "AgentPaneTunables.planProgress")
+    /// Thread details sources show each site's icon, fetched by the favicon loader (Lucas 2026-10-19).
+    public static let sourceIcons = Tunable<Bool>.toggle(
+        "agentPane.labs.sourceIcons", PageTunables.section, "Site icons for sources",
+        help: "Thread details shows each source's site icon, fetched from the site without cookies. New agent tabs.",
+        default: true, code: "AgentPaneTunables.sourceIcons")
     public static let shortcutsHelp = Tunable<Bool>.toggle(
         "agentPane.labs.shortcutsHelp", PageTunables.section, "Keyboard shortcuts in the chat menu",
         help: "The chat menu shows the keyboard shortcuts available in the pane. New agent tabs.",
@@ -290,7 +295,7 @@ public nonisolated struct AgentPaneTunables {
     static let labTunables: [String: Tunable<Bool>] = [
         "live-render": liveRender, "render-guide": renderGuide, "render-kit": renderKit, "render-preview": renderPreview, "render-expand": renderExpand, "table-scroll": tableScroll, "context-meter": contextMeter, "prompt-collapse": promptCollapse,
         "message-times": messageTimes, "code-wrap": codeWrap, "plan-progress": planProgress,
-        "shortcuts-help": shortcutsHelp
+        "shortcuts-help": shortcutsHelp, "source-icons": sourceIcons
     ]
     /// What a folded long thought's line reads: how long the agent thought, or its first line.
     /// Only a folded thought shows it (``foldLongThoughts``). New agent tabs read it.
@@ -449,6 +454,7 @@ public nonisolated struct AgentPaneTunables {
             sidebarPreviewVariant.descriptor,
             sideColumn.descriptor,
             sideSessions.descriptor,
+            sourceIcons.descriptor,
             suggestedTasks.descriptor,
             tableScroll.descriptor,
             terminalButtonAdds.descriptor,
