@@ -49,7 +49,7 @@ class SidebarItemRowView: NSView {
     let pill = CALayer()
     private let chip = CALayer()
     let icon = DecorativeImageView() // the row's label names the item
-    private let pin = DecorativeImageView() // the row's label says it is pinned
+    private let pin = DecorativeImageView() // a pinned row's leading pin; Pinned's header names it
     let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
