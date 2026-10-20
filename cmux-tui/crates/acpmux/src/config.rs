@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 static HOME_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
@@ -37,7 +38,9 @@ pub fn default_home() -> PathBuf {
 pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 
+    validate_private_state_ancestors(dir)?;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    validate_private_state_ancestors(dir)?;
     let opened = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
@@ -51,11 +54,76 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         "{} is not a state directory owned by this user",
         dir.display()
     );
+    anyhow::ensure!(
+        metadata.mode() & 0o022 == 0,
+        "{} is writable by another user; inspect it before removing group/other write permission",
+        dir.display()
+    );
     refuse_extended_acl(&opened, dir)?;
     if metadata.mode() & 0o077 != 0 {
         opened
             .set_permissions(std::fs::Permissions::from_mode(0o700))
             .with_context(|| format!("make {} owner-only", dir.display()))?;
+    }
+    let reopened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+        .with_context(|| format!("reopen private state directory {}", dir.display()))?;
+    let again = reopened.metadata()?;
+    anyhow::ensure!(
+        metadata.dev() == again.dev() && metadata.ino() == again.ino(),
+        "{} changed while its private permissions were checked",
+        dir.display()
+    );
+    Ok(())
+}
+
+/// Every namespace owner above an acpmux state directory must be this user
+/// or root, and no other account may replace a child. A root/current-user
+/// sticky temporary directory is safe because another account cannot rename
+/// this user's entry there.
+#[cfg(unix)]
+fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let uid = unsafe { libc::getuid() };
+    let check = |path: &Path, metadata: &std::fs::Metadata| -> Result<()> {
+        anyhow::ensure!(
+            metadata.uid() == uid || metadata.uid() == 0,
+            "{} is a state path ancestor owned by another user",
+            path.display()
+        );
+        if metadata.file_type().is_dir() && metadata.mode() & 0o022 != 0 {
+            anyhow::ensure!(
+                metadata.mode() & 0o1000 != 0,
+                "{} is a non-sticky writable ancestor of the state directory",
+                path.display()
+            );
+        }
+        if metadata.file_type().is_dir() {
+            use std::os::unix::fs::OpenOptionsExt;
+            let opened = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+                .open(path)?;
+            refuse_writable_extended_acl(&opened, path)?;
+        }
+        Ok(())
+    };
+
+    let mut existing = dir.parent().unwrap_or_else(|| Path::new("/"));
+    while std::fs::symlink_metadata(existing).is_err() {
+        let Some(parent) = existing.parent() else { break };
+        existing = parent;
+    }
+    for path in existing.ancestors() {
+        check(path, &std::fs::symlink_metadata(path)?)?;
+    }
+    let canonical = std::fs::canonicalize(existing)
+        .with_context(|| format!("resolve state path ancestor {}", existing.display()))?;
+    for path in canonical.ancestors() {
+        check(path, &std::fs::symlink_metadata(path)?)?;
     }
     Ok(())
 }
@@ -64,13 +132,21 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
 /// owner and type, and narrow an older file to mode 0600 before reading it.
 #[cfg(unix)]
 pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::OpenOptionsExt;
 
     let file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
     let metadata = file.metadata()?;
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
@@ -79,11 +155,51 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
         "{} is not a state file owned by this user",
         path.display()
     );
-    refuse_extended_acl(&file, path)?;
+    anyhow::ensure!(
+        metadata.mode() & 0o022 == 0,
+        "{} is writable by another user; inspect it before removing group/other write permission",
+        path.display()
+    );
+    refuse_extended_acl(file, path)?;
     if metadata.mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .with_context(|| format!("make {} owner-only", path.display()))?;
     }
+    Ok(())
+}
+
+/// Open or create an owner-only regular state file for read/write without
+/// following a pre-positioned final symlink (daemon.lock).
+#[cfg(unix)]
+pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
+/// Open or create an owner-only regular state file for append without
+/// following a pre-positioned final symlink (daemon.log).
+#[cfg(unix)]
+pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
     Ok(file)
 }
 
@@ -113,6 +229,63 @@ fn refuse_extended_acl(file: &std::fs::File, path: &Path) -> Result<()> {
     anyhow::bail!("{} has an extended ACL", path.display())
 }
 
+#[cfg(target_os = "macos")]
+fn refuse_writable_extended_acl(file: &std::fs::File, path: &Path) -> Result<()> {
+    use std::ffi::CStr;
+    use std::os::fd::AsRawFd;
+
+    type Acl = *mut core::ffi::c_void;
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+    unsafe extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, acl_type: libc::c_int) -> Acl;
+        fn acl_to_text(acl: Acl, len: *mut libc::ssize_t) -> *mut libc::c_char;
+        fn acl_free(object: *mut core::ffi::c_void) -> libc::c_int;
+    }
+
+    let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        let error = std::io::Error::last_os_error();
+        return if error.raw_os_error() == Some(libc::ENOENT) { Ok(()) } else { Err(error.into()) };
+    }
+    let mut len = 0;
+    let text = unsafe { acl_to_text(acl, &mut len) };
+    if text.is_null() {
+        unsafe { acl_free(acl) };
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let rendered = unsafe { CStr::from_ptr(text) }.to_string_lossy().to_ascii_lowercase();
+    unsafe {
+        acl_free(text.cast());
+        acl_free(acl);
+    }
+    let token = |line: &str, wanted: &str| {
+        line.split(|c: char| c == ':' || c == ',' || c.is_ascii_whitespace())
+            .any(|part| part == wanted)
+    };
+    let change = [
+        "write",
+        "append",
+        "add_file",
+        "add_subdirectory",
+        "delete",
+        "delete_child",
+        "writeattr",
+        "writeextattr",
+        "writesecurity",
+        "chown",
+    ];
+    let writable = rendered
+        .lines()
+        .any(|line| token(line, "allow") && change.iter().any(|right| token(line, right)));
+    anyhow::ensure!(!writable, "{} has a writable extended ACL", path.display());
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn refuse_writable_extended_acl(_file: &std::fs::File, _path: &Path) -> Result<()> {
+    Ok(())
+}
+
 #[cfg(all(unix, not(target_os = "macos")))]
 fn refuse_extended_acl(_file: &std::fs::File, _path: &Path) -> Result<()> {
     Ok(())
@@ -129,6 +302,16 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
 #[cfg(windows)]
 pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
     Ok(crate::owner_only::open_read(path)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::open_rw(path)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::open_append(path)?)
 }
 
 /// Unix socket path, by the rule every host and client shares
@@ -822,13 +1005,17 @@ impl Config {
     /// `load_from` with explicit profile file sources.
     pub fn load_from_with(path: &Path, sources: &ProfileSources) -> Result<Self> {
         let path = path.to_owned();
-        let mut cfg = if path.exists() {
-            let text = std::fs::read_to_string(&path)
-                .with_context(|| format!("read {}", path.display()))?;
-            serde_json::from_str::<Config>(&text)
-                .with_context(|| format!("parse {}", path.display()))?
-        } else {
-            Config::default()
+        let mut cfg = match std::fs::symlink_metadata(&path) {
+            Ok(_) => {
+                let mut text = String::new();
+                private_state_file(&path)?
+                    .read_to_string(&mut text)
+                    .with_context(|| format!("read {}", path.display()))?;
+                serde_json::from_str::<Config>(&text)
+                    .with_context(|| format!("parse {}", path.display()))?
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Config::default(),
+            Err(error) => return Err(error.into()),
         };
         cfg.join_profiles(profiles::load(sources));
         let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
