@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d28b6c071931b63ff1a5f3d8212c6f894d99794587d18e247ed287611eb3726e";
+pub const ir_sha256 = "5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2994,6 +2994,11 @@ pub const TerminalResourcesResult = struct {
     missing: []const Id,
     sampled_at_ns: u64,
     terminals: []const TerminalResources,
+};
+
+pub const TerminalResumeCommandResult = struct {
+    command: wire.Nullable([]const u8),
+    terminal_id: []const u8,
 };
 
 pub const Tree = struct {
@@ -9208,6 +9213,25 @@ pub fn terminalResources(client: anytype, request: TerminalResourcesRequest) !wi
     );
 }
 
+pub const TerminalResumeCommandRequest = struct {
+    command: wire.Field([]const u8) = .absent,
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn terminalResumeCommand(client: anytype, request: TerminalResumeCommandRequest) !wire.Decoded(TerminalResumeCommandResult) {
+    return client.callTyped(
+        TerminalResumeCommandResult,
+        .{
+            .name = "terminal-resume-command",
+            .authority = "control",
+            .since = 12,
+            .capability = "resume-command",
+        },
+        request,
+    );
+}
+
 pub const UndoLayoutRequest = struct {
     confirm_close: ?bool = null,
     pane: Id,
@@ -11327,7 +11351,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 279;
+pub const command_count: usize = 280;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11584,6 +11608,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
+    .{ .name = "terminal-resume-command", .authority = "control", .since = 12, .capability = "resume-command", .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
     .{ .name = "ungroup-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "ungroup-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
