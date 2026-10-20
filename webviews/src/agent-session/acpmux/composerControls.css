@@ -77,8 +77,7 @@
   border: 0;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
-/* The opt-in slider (Debug Settings agent.reasoningSlider): wide enough for Faster, Smarter and the
-   recommended line; the title row names the level the thumb sits on. */
+/* The opt-in slider (Debug Settings agent.reasoningSlider) keeps the native effort control compact. */
 .acpmux-effort-menu:has(.acpmux-effort-slider) {
   width: min(232px, calc(100vw - 24px));
 }
@@ -119,6 +118,7 @@
   height: calc(23.5px * var(--cmux-interface-scale, 1));
   margin-top: calc(12px * var(--cmux-interface-scale, 1));
   border-radius: 12px;
+  overflow: hidden;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
   animation: acpmux-effort-track-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
 }
@@ -182,24 +182,18 @@
   background: var(--surface-popup);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 32%, transparent);
 }
-/* Faster and Smarter at the track's ends (the track is physical left-to-right, so the row is too),
-   the recommended level on its own centred line under them: a narrow panel never cuts it. */
-.acpmux-effort-ends {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  column-gap: 8px;
-  margin-top: 6px;
-  direction: ltr;
-  font-size: var(--text-detail);
-  line-height: 16px;
-  color: var(--agent-muted);
+/* Debug Settings agent.reasoningSliderStyle=minimal: a quieter comparison treatment that keeps
+   the same stops and interaction while reducing the thumb's visual weight. */
+.acpmux-effort-track[data-slider-style="minimal"] .acpmux-effort-fill {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 34%, transparent);
 }
-.acpmux-effort-recommended {
-  order: 3;
-  flex-basis: 100%;
-  text-align: center;
-  direction: initial;
+.acpmux-effort-track[data-slider-style="minimal"] .acpmux-effort-thumb {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-width: 1.5px;
+  background: var(--surface-popup);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 32%, transparent);
 }
 .acpmux-effort-range {
   position: absolute;

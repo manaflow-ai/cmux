@@ -33,7 +33,7 @@ const STEP_PENDING_MS = 800;
 /// The space left of the rows (`.acpmux-row`'s left).
 const gutter = (width: number) => transcriptColumn(width).inset;
 
-export function ThreadMinimap({
+export const ThreadMinimap = memo(function ThreadMinimap({
   rows,
   sessionId,
   layout,
@@ -271,7 +271,7 @@ export function ThreadMinimap({
       </nav>
     </div>
   );
-}
+});
 
 function isMarked(marks: ReadonlySet<number>, rowId: string): boolean {
   const seq = promptSeq(rowId);

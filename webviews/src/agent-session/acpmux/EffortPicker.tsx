@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
@@ -236,7 +236,6 @@ function ReasoningSlider({
   onPick(value: string): void;
   onClose(): void;
 }) {
-  const titleId = useId();
   // The host echoes `current` back after a pick, so the click that ends a drag (or a second Enter)
   // must not resend the level that was just sent.
   const sent = useRef<string | undefined>(undefined);
@@ -277,11 +276,8 @@ function ReasoningSlider({
   };
   return (
     // A group (a fieldset), as the list's MenuGroup is: the menu holds groups, rows and separators.
-    <fieldset className="acpmux-effort-slider" aria-labelledby={titleId}>
+    <fieldset className="acpmux-effort-slider" aria-label={title}>
       <div className="acpmux-effort-slider-head">
-        <span id={titleId} className="ui-menu-group-label">
-          {title}
-        </span>
         {/* tooltip-allow: the slider row shows only the level's name; the tooltip is its description */}
         <span className="acpmux-effort-slider-level" title={shown?.description}>
           {shown?.name}

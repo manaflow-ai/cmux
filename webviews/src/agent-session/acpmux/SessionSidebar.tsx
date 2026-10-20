@@ -1,4 +1,5 @@
 import React, { createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
+import type { PointerEventHandler } from "react";
 import {
   filterSessions,
   groupMark,
@@ -17,6 +18,7 @@ import { Icon } from "./icons/Icon";
 import { rowIconSize } from "./icons/iconSize";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { listRowKeyboardProps } from "../../ui/listRowKeyboard";
+import type { UiAnchor } from "../../ui/Popover";
 import { pressToOpen } from "../../ui/pressToOpen";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../ui/hoverIntent";
@@ -66,6 +68,42 @@ const VIEW_TITLES = {
 
 /** Sessions already open in a tab, when the list is a history layer beside them. */
 const OpenSessions = createContext<ReadonlySet<string> | undefined>(undefined);
+
+/** Shared hover-card wrapper used by the real sidebar and gallery specimens. */
+export function SessionPreviewCard({
+  anchor,
+  open,
+  previewVariant,
+  id,
+  instant,
+  onPointerEnter,
+  onPointerLeave,
+  children,
+}: {
+  anchor: UiAnchor;
+  open: boolean;
+  previewVariant: SidebarPreviewVariant;
+  id?: string;
+  instant?: boolean;
+  onPointerEnter?: PointerEventHandler<HTMLDivElement>;
+  onPointerLeave?: PointerEventHandler<HTMLDivElement>;
+  children: React.ReactNode;
+}) {
+  return (
+    <AnchoredCard
+      id={id}
+      anchor={anchor}
+      open={open}
+      side="inline-end"
+      className={`acpmux-session-preview acpmux-session-preview-${previewVariant}`}
+      instant={instant}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+    >
+      {children}
+    </AnchoredCard>
+  );
+}
 
 /** The pane's sidebar: an icon rail, the list it switches, and the account at the bottom. */
 export function SessionSidebar({
@@ -658,12 +696,11 @@ const SessionRow = memo(function SessionRow({
     <li>
       {menuItems.length > 0 ? <ContextMenu items={menuItems}>{row}</ContextMenu> : row}
       {previewText && placedPreview && (
-        <AnchoredCard
+        <SessionPreviewCard
           id={previewId}
           anchor={placedPreview}
           open={previewIntent.shown !== null}
-          side="inline-end"
-          className={`acpmux-session-preview acpmux-session-preview-${previewVariant}`}
+          previewVariant={previewVariant}
           instant={previewIntent.instant}
           onPointerEnter={cancelPreviewLeave}
           onPointerLeave={leavePreviewCard}
@@ -686,7 +723,7 @@ const SessionRow = memo(function SessionRow({
               )}
             </div>
           )}
-        </AnchoredCard>
+        </SessionPreviewCard>
       )}
     </li>
   );

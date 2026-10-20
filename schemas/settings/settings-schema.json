@@ -291,6 +291,7 @@
           {
             "key" : "settings.group.colorTransition",
             "rows" : [
+              "appearance.colorTransition.reduceMotion",
               "appearance.colorTransition.enabled",
               "appearance.colorTransition.duration",
               "appearance.colorTransition.curve",
@@ -300,8 +301,7 @@
               "appearance.colorTransition.bezierY1",
               "appearance.colorTransition.bezierX2",
               "appearance.colorTransition.bezierY2",
-              "appearance.colorTransition.colorSpace",
-              "appearance.colorTransition.reduceMotion"
+              "appearance.colorTransition.colorSpace"
             ],
             "title" : {
               "key" : "settings.group.colorTransition",
@@ -20069,6 +20069,79 @@
     },
     {
       "accepts" : [
+        "crossfade",
+        "instant",
+        "full"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.colorReduceCrossfade",
+            "text" : "Short Crossfade"
+          },
+          "value" : "crossfade"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorReduceInstant",
+            "text" : "Instant"
+          },
+          "value" : "instant"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorReduceFull",
+            "text" : "Same as Usual"
+          },
+          "value" : "full"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "crossfade",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.reduceMotion.help",
+        "text" : "What color changes do while Reduce Motion is on in macOS."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.reduceMotion",
+      "keywords" : [
+        "color",
+        "reduce motion",
+        "accessibility",
+        "instant",
+        "crossfade"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "reduceMotion"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.reduceMotion",
+        "text" : "With Reduce Motion"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -20665,79 +20738,6 @@
       "title" : {
         "key" : "settings.appearance.colorTransition.colorSpace",
         "text" : "Color Blend Space"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "crossfade",
-        "instant",
-        "full"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.colorReduceCrossfade",
-            "text" : "Short Crossfade"
-          },
-          "value" : "crossfade"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.colorReduceInstant",
-            "text" : "Instant"
-          },
-          "value" : "instant"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.colorReduceFull",
-            "text" : "Same as Usual"
-          },
-          "value" : "full"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "crossfade",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.colorTransition",
-        "text" : "Color Changes"
-      },
-      "help" : {
-        "key" : "settings.appearance.colorTransition.reduceMotion.help",
-        "text" : "What color changes do while Reduce Motion is on in macOS."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.colorTransition.reduceMotion",
-      "keywords" : [
-        "color",
-        "reduce motion",
-        "accessibility",
-        "instant",
-        "crossfade"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "colorTransition",
-        "reduceMotion"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.colorTransition.reduceMotion",
-        "text" : "With Reduce Motion"
       },
       "validation" : "portable"
     },
