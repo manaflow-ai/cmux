@@ -33,9 +33,7 @@ enum WorkspaceHandlers {
                 ?? context.refuse(RefusalStrings.noRecentlyClosedWorkspace) else { return }
             DaemonClosedHistory.reopen(entry, services: context.services)
         })
-        for id: ActionID in ["saveLayoutTemplate", "palette.layout.open", "manageLayouts"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("layout-templates-v1"))
-        }
+        LayoutTemplateHandlers.bind(into: registry, context: context)
         for id: ActionID in ["reconnectWorkspace", "disconnectWorkspace", "copyWorkspaceSSHError"] {
             registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("remote-workspaces-v1"))
         }

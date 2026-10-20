@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextPalette
 import Foundation
 import Testing
 
@@ -79,4 +80,55 @@ struct LayoutTemplateTests {
         #expect(await Self.run(services, "palette.layout.open", unknown) == "No layout template named “Nope”")
         #expect(Self.offered(services).isEmpty)
     }
+
+    // MARK: The repository and the library
+
+    static let blueprint = WorkspaceBlueprint(name: "api", color: nil, icon: nil, screens: [
+        WorkspaceBlueprint.Screen(name: nil, columns: [WorkspaceBlueprint.Column(width: nil, root: .split(
+            direction: .right, ratio: 0.5, a: .pane([.terminal(cwd: "/tmp")]), b: .pane([.terminal(cwd: "/var")])))]),
+    ])
+
+    /// The file keeps every template across launches; a rename keeps the id, a name another
+    /// template has (ignoring case) is refused, and a delete removes it from the file too.
+    @Test func templatesPersistAndRenameAndDeleteThroughTheFile() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("cn-layouts-\(UUID().uuidString.prefix(8))/layout-templates.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let library = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: file))
+        try await library.save(name: "Two up", blueprint: Self.blueprint)
+        try await library.save(name: "Solo", blueprint: Self.blueprint)
+        let id = try #require(library.template(named: "two UP")?.id, "names match ignoring case")
+
+        let relaunched = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: file))
+        await relaunched.load()
+        #expect(relaunched.templates.map(\.name) == ["Two up", "Solo"])
+        #expect(relaunched.template(named: "Two up")?.blueprint == Self.blueprint)
+
+        try await relaunched.rename(id, to: "Side by side")
+        #expect(relaunched.template(named: "Side by side")?.id == id)
+        await #expect(throws: LayoutTemplateRepository.Failure.nameTaken) { try await relaunched.rename(id, to: "solo") }
+        let solo = try #require(relaunched.template(named: "Solo")?.id)
+        relaunched.deleteLater(solo)
+        await relaunched.settled()
+        #expect(relaunched.templates.map(\.name) == ["Side by side"])
+
+        let again = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: file))
+        await again.load()
+        #expect(again.templates.map(\.name) == ["Side by side"])
+    }
+
+    /// Manage Layout Templates lists one row per template (Return builds a workspace from it,
+    /// Rename and Delete are its row's actions); with none it refuses in words.
+    @Test func manageLayoutTemplatesListsEveryTemplate() async throws {
+        let services = Self.services()
+        let refusal = services.registry.capturingRefusal { _ = services.registry.perform("manageLayouts") }
+        #expect(refusal == "No layout templates yet. Save a workspace’s layout as a template first.")
+        try await services.layoutTemplates.save(name: "Two up", blueprint: Self.blueprint)
+        let page = LayoutTemplateHandlers.managePage(services)
+        var items: [PaletteItem] = []
+        for provider in page.providers { items += await provider.items() }
+        #expect(items.map(\.title) == ["Two up"])
+        #expect(items.first?.subtitle == "Panes: 2")
+        #expect(items.first?.secondary.map(\.id) == ["rename", "delete"])
+    }
 }
+

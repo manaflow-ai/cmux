@@ -48,7 +48,8 @@ nonisolated enum CatalogArgument {
     }
 
     static var templateString: ActionArgument {
-        ActionArgument(name: "template", title: String(localized: "argument.template", defaultValue: "Template", bundle: .module), kind: .string)
+        ActionArgument(name: "template", title: String(localized: "argument.template", defaultValue: "Template", bundle: .module), kind: .string,
+                       suggestions: ActionSuggestions(source: ActionSuggestions.layoutTemplates, pinned: []))
     }
 
     static var groupWorkspaceGroup: ActionArgument {
