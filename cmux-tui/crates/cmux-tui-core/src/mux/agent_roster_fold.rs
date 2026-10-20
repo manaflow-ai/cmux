@@ -56,7 +56,14 @@ impl Mux {
         // How the CLI was started is read once, while it runs, at its session
         // start; before the fences lock, which serializes every terminal's hooks.
         let job = (ingress.kind == "agent.session.started")
-            .then(|| self.state.lock().unwrap().terminal_catalog.get(&terminal_id).cloned())
+            .then(|| {
+                self.state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .terminal_catalog
+                    .get(&terminal_id)
+                    .cloned()
+            })
             .flatten()
             .and_then(|runtime| runtime.process_id())
             .and_then(|pid| {
