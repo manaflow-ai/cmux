@@ -65,6 +65,10 @@ final class RemoteInputCaptureView: NSView {
         updateActive()
     }
 
+    /// Read by the app's mouse Back and Forward (`MouseSideButtons`): in control mode buttons 4
+    /// and 5 go to the host like every other button, so cmux does not navigate on them.
+    @objc var cmuxForwardsMouseButtons: Bool { controlMode }
+
     private func updateActive() {
         controller.isActive = controlMode && isFirstResponder && window?.isKeyWindow != false
     }

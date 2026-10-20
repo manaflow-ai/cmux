@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var services: AppServices?
     private var settings: SettingsController?
     private let control = AppControl()
+    private let mouseSideButtons = MouseSideButtons()
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?
@@ -170,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)
         services.home.start()
+        mouseSideButtons.start(services: services)
         services.keybindingsFile.start()
         services.bookmarks.start(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                  importStore: services.onboarding.importStore)
