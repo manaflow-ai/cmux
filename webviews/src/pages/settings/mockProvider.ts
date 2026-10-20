@@ -539,8 +539,8 @@ export class MockSettingsProvider {
         if (relay)
           this.setDevices({
             ...state,
-            relays: state.relays.map(
-              (row): DevicesRelay => (row.id === relay.id ? { ...row, check: { tone: "success", text } } : row),
+            relays: state.relays.map((row): DevicesRelay =>
+              row.id === relay.id ? { ...row, check: { tone: "success", text } } : row,
             ),
           });
         return { ok: true, text };

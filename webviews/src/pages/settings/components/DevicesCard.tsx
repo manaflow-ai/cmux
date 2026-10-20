@@ -188,7 +188,11 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
     if (!result.error) setMode(null);
   };
   return (
-    <div className="row accounts-row devices-device" data-device={device.id} data-this-device={device.thisDevice ? "" : undefined}>
+    <div
+      className="row accounts-row devices-device"
+      data-device={device.id}
+      data-this-device={device.thisDevice ? "" : undefined}
+    >
       <div className="row-main">
         <div className="row-label">
           <div className="row-title devices-title" id={titleId}>

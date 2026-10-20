@@ -7,7 +7,12 @@ import { expect, test } from "bun:test";
 import table from "./fixtures/new-tab-intents.json";
 import { classifyNewTabInput, type NewTabIntent } from "../src/agent-session/acpmux/newTabIntent";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
-import { defaultSelection, isAddress, pairingLinkRefused, screenRows } from "../src/agent-session/acpmux/newtab/screenModel";
+import {
+  defaultSelection,
+  isAddress,
+  pairingLinkRefused,
+  screenRows,
+} from "../src/agent-session/acpmux/newtab/screenModel";
 
 const rows = table.rows as { input: string; intent: NewTabIntent }[];
 
