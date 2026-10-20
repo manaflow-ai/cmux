@@ -10,9 +10,11 @@ import Foundation
 /// `auth.json` says nothing about whether Codex works. Mirrors acpmux's
 /// `harness_health/codex_provider.rs`.
 ///
-/// Presence only: no value is kept; names (the provider's id or `name`, an
-/// environment variable's name) come back for the row's detail.
-struct CodexProviderConfig: Equatable {
+/// Presence only: the parsed config is read for structure and names (the
+/// provider's id or `name`, an environment variable's name), which come
+/// back for the row's detail; ``ProviderDetector/detectCodex()`` makes one
+/// per detection and drops it.
+struct CodexProviderConfig {
     enum Auth: Equatable {
         /// The OpenAI sign-in decides (`auth.json` or the Keychain).
         case openAILogin
@@ -25,10 +27,16 @@ struct CodexProviderConfig: Equatable {
     }
 
     /// Codex's own providers that run on this machine and need no key.
-    static let localBuiltins: Set<String> = ["oss", "ollama", "lmstudio"]
+    let localBuiltins: Set<String> = ["oss", "ollama", "lmstudio"]
+    private let toml: MiniTOML
 
-    static func auth(configText: String, value: (String) -> String?) -> Auth {
-        let toml = MiniTOML(configText)
+    init(text: String) {
+        toml = MiniTOML(text)
+    }
+
+    /// The selected provider's sign-in; `value` reads an environment
+    /// variable (set or not) for an `env_key`.
+    func auth(value: (String) -> String?) -> Auth {
         let profile = toml.string(["profile"]).flatMap { toml.string(["profiles", $0, "model_provider"]) }
         let id = profile ?? toml.string(["model_provider"]) ?? "openai"
         // Codex's own providers win over a same-named table.

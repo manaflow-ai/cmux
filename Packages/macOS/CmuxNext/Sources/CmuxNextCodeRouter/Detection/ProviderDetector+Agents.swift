@@ -18,7 +18,7 @@ extension ProviderDetector {
         let config = codexHome.appendingPathComponent("config.toml")
         guard let data = environment.files.data(at: config), let text = String(data: data, encoding: .utf8) else { return login }
         let source = DetectionSource.providerConfig(environment.display(config))
-        switch CodexProviderConfig.auth(configText: text, value: environment.value) {
+        switch CodexProviderConfig(text: text).auth(value: environment.value) {
         case .openAILogin:
             return login
         case .configured(let name, let envKey):
