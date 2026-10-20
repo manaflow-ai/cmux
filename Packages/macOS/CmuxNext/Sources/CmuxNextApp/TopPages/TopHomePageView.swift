@@ -27,9 +27,9 @@ final class TopHomePageView: NSView {
     var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
     private(set) var shown: ConversationID?
-    /// Compose's create is running: another click waits for it (one Chief per click, not per bounce).
+    /// New Chief's create is running: another click waits for it (one Chief per click, not per bounce).
     private var creatingChief = false
-    /// The conversation whose message box takes the keyboard when it shows (compose's new Chief).
+    /// The conversation whose message box takes the keyboard when it shows (New Chief's new Chief).
     private var focusOnShow: ConversationID?
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
@@ -114,7 +114,8 @@ final class TopHomePageView: NSView {
             // task-owner: one conversation start; ends with the owner's answer
             Task { _ = await home.startConversation([.contact(person)], title: "") }
         }
-        list.onCompose = { [weak self] in self?.startChiefConversation() }
+        list.onNewMessage = { [weak self] in self?.presentNewMessage() }
+        list.onNewChief = { [weak self] in self?.startChiefConversation() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
@@ -285,7 +286,7 @@ final class TopHomePageView: NSView {
         requests.refresh()
     }
 
-    /// Compose, as classic cmux's Chief list (ChiefHomeView.newConversation, #21063): another Chief
+    /// The New Chief button, as classic cmux's Chief list (ChiefHomeView.newConversation, #21063): another Chief
     /// at once, under the next free name ("Chief 2"), its conversation shown with the message box
     /// focused so the person can ask it something; a refusal says why. New Chief… (the sheet) names
     /// one first.

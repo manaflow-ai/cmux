@@ -117,10 +117,10 @@ import Testing
         #expect(services.home.pendingSelection == ConversationID("conv_scout"))
     }
 
-    /// Home's compose button works as classic cmux's Chief list (ChiefConversationListView, #21063):
-    /// one click makes another Chief at once, named as the Chief is, with no sheet to fill first,
-    /// so the person can ask it something right away. New Message stays in compose's menu.
-    @MainActor @Test(.timeLimit(.minutes(1))) func homesComposeButtonStartsANewChiefInOneClick() async throws {
+    /// Home's New Chief button (beside compose, which stays New Message) works as classic cmux's
+    /// Chief list (ChiefConversationListView, #21063): one click makes another Chief at once, with
+    /// no sheet to fill first, so the person can ask it something right away.
+    @MainActor @Test(.timeLimit(.minutes(1))) func homesNewChiefButtonStartsANewChiefInOneClick() async throws {
         let calls = Calls()
         let (opened, open) = AsyncStream<Void>.makeStream()
         let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")
@@ -136,8 +136,9 @@ import Testing
             })
         }
         let page = TopHomePageView(services: services, windowKey: { "compose-new-chief" })
-        #expect(page.list.compose.accessibilityLabel() == HomeConversationStrings.chiefTitle)
-        page.list.compose.performClick(nil)
+        #expect(page.list.newChief.accessibilityLabel() == HomeConversationStrings.chiefTitle)
+        #expect(page.list.compose.accessibilityLabel() == HomeConversationStrings.newMessage)
+        page.list.newChief.performClick(nil)
         var iterator = opened.makeAsyncIterator()
         _ = await iterator.next()
         let sent = try #require(await calls.sends.first)

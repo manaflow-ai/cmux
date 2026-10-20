@@ -10,7 +10,7 @@ import CmuxNextIcons
 @MainActor
 public enum HomePageMenus {
     /// The menu around the conversations: New Message, New Chief and Invite,
-    /// each its catalog action (the toolbar's compose button makes a new Chief at once).
+    /// each its catalog action (the toolbar's compose button runs New Message, the button beside it makes a new Chief).
     public static func backgroundMenu(registry: ActionRegistry) -> NSMenu {
         let menu = NSMenu()
         for (id, symbol): (ActionID, String) in [("home.newMessage", "square.and.pencil"), ("home.newChief", "sparkles"), ("home.invite", "envelope")] {

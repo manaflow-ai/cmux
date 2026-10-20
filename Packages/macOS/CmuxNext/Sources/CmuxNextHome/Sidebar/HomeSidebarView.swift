@@ -27,9 +27,10 @@ public final class HomeSidebarView: NSView {
     public var teammates: (String) -> [HomeContact] = { _ in [] }
     /// A teammate from the search section was chosen: start (or open) the DM.
     public var onStartTeammate: (HomeContact) -> Void = { _ in }
-    /// The compose button was clicked: another Chief, as classic cmux's Chief list does.
-    public var onCompose: () -> Void = {}
-    /// The compose button's right-click menu (New Message, New Chief, Invite), or nil for none.
+    public var onNewMessage: () -> Void = {}
+    /// The New Chief button was clicked: another Chief at once, as classic cmux's Chief list makes one.
+    public var onNewChief: () -> Void = {}
+    /// The compose button's right-click menu (New Chief, Invite), or nil for none.
     public var composeMenu: () -> NSMenu? = { nil }
     /// The Message Requests button was clicked (`showRequests`).
     public var onOpenRequests: () -> Void = {}
@@ -38,9 +39,12 @@ public final class HomeSidebarView: NSView {
     /// The header band behind its row: a drag on its empty space moves the window, as on
     /// Messages' sidebar toolbar.
     let dragStrip = HomeWindowDragStrip()
-    /// The header row (`HomeSidebarHeaderLayout`): search, the Unread toggle, then compose.
-    let compose = HomeHeaderButton(symbol: "square.and.pencil", label: HomeConversationStrings.chiefTitle,
+    /// The header row (`HomeSidebarHeaderLayout`): search, the Unread toggle, New Chief, then compose.
+    let compose = HomeHeaderButton(symbol: "square.and.pencil", label: HomeConversationStrings.newMessage,
                                    identifier: "cmux.home.sidebar.compose")
+    /// Another Chief in one click, beside compose (New Message), as classic cmux's Chief list makes one.
+    let newChief = HomeHeaderButton(symbol: "plus.bubble", label: HomeConversationStrings.chiefTitle,
+                                    identifier: "cmux.home.sidebar.newChief")
     /// All or Unread: one click, the filled glyph while only unread conversations show
     /// (Home offers no other filter, so no menu).
     let unreadToggle = HomeHeaderButton(symbol: "line.3.horizontal.decrease.circle", onSymbol: "line.3.horizontal.decrease.circle.fill",
@@ -153,7 +157,8 @@ public final class HomeSidebarView: NSView {
         }
     }
 
-    @objc func composeClicked() { onCompose() }
+    @objc func newMessage() { onNewMessage() }
+    @objc func newChiefClicked() { onNewChief() }
     @objc func openRequests() { onOpenRequests() }
 
     /// Shows the Message Requests button for `count` open requests; none hides it.
@@ -190,7 +195,7 @@ public final class HomeSidebarView: NSView {
         list.selectionColor = .labelColor
         list.neutralSelectionFill = performWithTheme { Palette.selectionFill }
         layer?.backgroundColor = performWithTheme { Palette.legibilityScrim.cgColor }
-        for button in [compose, unreadToggle, searchButton] { button.applyTint() }
+        for button in [compose, newChief, unreadToggle, searchButton] { button.applyTint() }
         applySearchColors()
     }
 
@@ -216,14 +221,16 @@ public final class HomeSidebarView: NSView {
         field.onTextChange = { [weak self] in self?.list.headerView.needsLayout = true }
         searchCapsule.onClick = { [weak self] in self?.openSearch() }
         compose.target = self
-        compose.action = #selector(composeClicked)
+        compose.action = #selector(newMessage)
         compose.contextMenu = { [weak self] in self?.composeMenu() }
+        newChief.target = self
+        newChief.action = #selector(newChiefClicked)
         unreadToggle.target = self
         unreadToggle.action = #selector(toggleUnread)
         searchButton.target = self
         searchButton.action = #selector(openSearch)
         // Over the field: a collapsed search's field sits under its icon button.
-        for button in [searchButton, unreadToggle, compose] { host.addSubview(button) }
+        for button in [searchButton, unreadToggle, newChief, compose] { host.addSubview(button) }
         list.layoutHeader = { [weak self] bounds in self?.layoutHeader(bounds) ?? HomeSidebarHeaderLayout.band }
     }
 
@@ -254,8 +261,10 @@ public final class HomeSidebarView: NSView {
         searchButton.isHidden = h.searchButton == nil || h.buttonsCovered
         searchButton.frame = h.searchButton ?? .zero
         unreadToggle.frame = h.filter
+        newChief.frame = h.newChief
         compose.frame = h.compose
         unreadToggle.isHidden = h.buttonsCovered
+        newChief.isHidden = h.buttonsCovered
         compose.isHidden = h.buttonsCovered
         return h.listTop
     }
@@ -335,7 +344,7 @@ public final class HomeSidebarView: NSView {
         func frame(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
         let h = header
         return ["width": Double(split?.sidebarWidth ?? bounds.width),
-                "header": ["search": frame(h.search), "searchButton": frame(h.searchButton), "filter": frame(h.filter),
+                "header": ["search": frame(h.search), "searchButton": frame(h.searchButton), "filter": frame(h.filter), "newChief": frame(h.newChief),
                            "compose": frame(h.compose), "buttonsCovered": h.buttonsCovered] as [String: Any]]
     }
     #endif
