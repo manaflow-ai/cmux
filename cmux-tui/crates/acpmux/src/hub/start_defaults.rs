@@ -223,6 +223,10 @@ impl Hub {
         model: Option<&str>,
     ) -> (Option<StartValue>, Option<StartValue>) {
         let curated = super::models_view::curated_for(&self.catalog, agent, profile);
+        // The catalog default only when the harness offers it: an account that
+        // lacks it (Codex refusing GPT-6.1 Sol at the first prompt) starts on the
+        // harness's own default, its config's model, instead (cnx-ios full verify D4).
+        let reported = self.reported_model_ids(agent);
         let start_model = match model {
             Some(_) => None,
             None => saved
@@ -233,6 +237,7 @@ impl Hub {
                     curated
                         .as_ref()
                         .and_then(|c| c.default_model.clone())
+                        .filter(|m| offers(&reported, m))
                         .map(|value| StartValue { value, source: StartSource::Catalog })
                 }),
         };
@@ -255,6 +260,17 @@ impl Hub {
                     .map(|value| StartValue { value, source: StartSource::Catalog })
             });
         (start_model, start_effort)
+    }
+
+    /// The model ids `agent` itself reported (its last session or probe);
+    /// empty when it reported none (Claude Code, a harness not probed yet).
+    pub(super) fn reported_model_ids(&self, agent: &str) -> Vec<String> {
+        self.known_models
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(agent)
+            .map(|list| list.iter().map(|(id, _)| id.clone()).collect())
+            .unwrap_or_default()
     }
 
     /// `start` for one `_acpmux/harnesses` row: `{model?, effort?,
@@ -293,4 +309,10 @@ impl Hub {
         }
         Some(v)
     }
+}
+
+/// Whether a harness that reported `reported` offers `model`: any model when
+/// it reported none, else only a listed one.
+pub(super) fn offers(reported: &[String], model: &str) -> bool {
+    reported.is_empty() || reported.iter().any(|id| id == model)
 }
