@@ -177,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
         let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
         services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
+        DebugTimings.markLaunch("dfl.first_window_hooks")
         services.home.start()
         mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start()
@@ -191,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 services?.settings?.snapshot.browserDefaultEngine ?? services?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
             keyRouter: services.keyRouter)
+        DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
