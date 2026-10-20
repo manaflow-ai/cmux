@@ -22,7 +22,7 @@ extension NotificationCenterService {
         guard decision.alerts, let chiefPet, chiefPet.isOn else { return }
         chiefPet.arrive(Self.chiefPetNotice(notification, tab: located.tab, workspace: located.workspace.displayName,
                                             programTitle: program?.title(localizations: localizations),
-                                            body: notification.bannerBody(previews: previews, screenLocked: screenLocked())))
+                                            body: Self.bannerBody(notification, previews: preferences.previews, screenLocked: screenLocked())))
     }
 
     /// The notice as the banner reads: the program's or poster's title (else the tab's), and one line of

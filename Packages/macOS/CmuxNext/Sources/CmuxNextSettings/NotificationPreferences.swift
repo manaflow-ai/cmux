@@ -7,6 +7,7 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     public var dismissal: NotificationDismissal = .focus
     public var timeoutSeconds: Double = 30
     public var desktop: DesktopNotificationMode = .unlessFocused
+    public var previews: NotificationPreviews = .whenUnlocked
     /// `"default"`, a sound in /System/Library/Sounds (for example `"Glass"`), or `"none"`.
     public var sound = "default"
     public var quietHours: QuietHours?

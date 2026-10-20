@@ -70,9 +70,8 @@ final class NotificationCenterService {
     /// Showcase captures seed the real daemon ledger without showing banners
     /// or prompting for system authorization at launch.
     @ObservationIgnored var desktopPostingEnabled = true
-    /// When a banner shows an agent's last message (Show Previews, like macOS) and the screen lock it reads; tests pin both.
-    @ObservationIgnored var previews: NotificationPreviews = .whenUnlocked
-    @ObservationIgnored var screenLocked: () -> Bool = { NotificationPreviews.screenIsLocked }
+    /// Whether the screen is locked now (Show Previews `whenUnlocked`); tests pin it.
+    @ObservationIgnored var screenLocked: () -> Bool = { ScreenLock.isLocked }
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
@@ -363,7 +362,7 @@ final class NotificationCenterService {
         // An agent chat's permission prompt: Allow once and Deny, and what it asks as the body.
         withApproval(of: notification, tab: tab) { [weak self] approval in
             guard let self else { return }
-            self.desktop.post(id: id, title: title, subtitle: subtitle, body: approval?.summary ?? notification.bannerBody(previews: self.previews, screenLocked: self.screenLocked()),
+            self.desktop.post(id: id, title: title, subtitle: subtitle, body: approval?.summary ?? Self.bannerBody(notification, previews: self.preferences.previews, screenLocked: self.screenLocked()),
                               surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
                               attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
                               reply: notification.reply && tab?.kind == .pty, approval: approval != nil)

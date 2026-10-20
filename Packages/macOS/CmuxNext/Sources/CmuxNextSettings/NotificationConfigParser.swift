@@ -12,6 +12,7 @@ enum NotificationConfigParser {
         if let value = reader.choice("dismissal", NotificationDismissal.self) { prefs.dismissal = value }
         if let value = reader.number("timeoutSeconds", range: NotificationPreferences.timeoutRange) { prefs.timeoutSeconds = value }
         if let value = reader.choice("desktop", DesktopNotificationMode.self) { prefs.desktop = value }
+        if let value = reader.choice("showPreviews", NotificationPreviews.self) { prefs.previews = value }
         if let value = reader.string("sound") { prefs.sound = value }
         if let value = reader.number("suppressWhileTypingSeconds", range: NotificationPreferences.typingRange) {
             prefs.suppressWhileTypingSeconds = value
