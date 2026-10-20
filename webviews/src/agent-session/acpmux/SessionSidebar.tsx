@@ -584,7 +584,10 @@ const SessionRow = memo(function SessionRow({
   const placeLabel =
     place &&
     `${t(PLACE_LABELS[place.kind])} ${place.label}${place.branch ? `, ${t(PLACE_LABELS.branch)} ${place.branch}` : ""}`;
-  const previewStatus = mark ? t(MARK_LABELS[mark]) : undefined;
+  // A chat whose sub-session waits for a folder's trust says so, not just "Needs your input".
+  const markKey: StringKey | undefined =
+    mark && (mark === "input" && session.trustPending ? "sidebar.markTrust" : MARK_LABELS[mark]);
+  const previewStatus = markKey ? t(markKey) : undefined;
   const menuItems: ContextMenuItem[] = [];
   if (section === "settled" && onContinue) {
     menuItems.push({
@@ -611,7 +614,7 @@ const SessionRow = memo(function SessionRow({
       aria-describedby={previewText && previewIntent.shown ? previewId : undefined}
       aria-label={
         mark || place || trailing || open
-          ? [title, open && t("sidebar.alreadyOpen"), trailing, placeLabel, mark && t(MARK_LABELS[mark])]
+          ? [title, open && t("sidebar.alreadyOpen"), trailing, placeLabel, markKey && t(markKey)]
               .filter(Boolean)
               .join(", ")
           : undefined
@@ -644,13 +647,13 @@ const SessionRow = memo(function SessionRow({
         // A chat waiting on the person says so in amber, like the question card's pill.
         <span className="acpmux-session-mark acpmux-session-mark-input acpmux-session-mark-labeled" aria-hidden="true">
           {MARK_GLYPHS.input}
-          {t(MARK_LABELS.input)}
+          {t(markKey ?? MARK_LABELS.input)}
         </span>
       ) : mark ? (
         <span
           className={`acpmux-session-mark acpmux-session-mark-${mark}`}
           aria-hidden="true"
-          title={t(MARK_LABELS[mark])}
+          title={t(markKey ?? MARK_LABELS[mark])}
         >
           {MARK_GLYPHS[mark]}
         </span>
