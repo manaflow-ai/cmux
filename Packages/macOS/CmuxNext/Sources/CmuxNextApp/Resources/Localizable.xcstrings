@@ -11576,6 +11576,137 @@
         }
       }
     },
+    "classicImport.preview.cleanup": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحات العمل المتوقفة التي سيتم استبدالها (سيتم إنهاء محطاتها الطرفية): %1$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prekinuti radni prostori za zamjenu (njihovi terminali će se završiti): %1$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afbrudte arbejdsområder, der erstattes (deres terminaler afsluttes): %1$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu ersetzende unterbrochene Arbeitsbereiche (ihre Terminals werden beendet): %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrupted workspaces to replace (their terminals will end): %1$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacios de trabajo interrumpidos que se reemplazarán (sus terminales finalizarán): %1$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaces de travail interrompus à remplacer (leurs terminaux seront arrêtés) : %1$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazi di lavoro interrotti da sostituire (i relativi terminali verranno terminati): %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置き換える中断済みワークスペース（そのターミナルは終了します）：%1$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការដែលបានផ្អាក និងត្រូវជំនួស (ស្ថានីយរបស់វានឹងបញ្ចប់)៖ %1$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "교체할 중단된 작업 공간(해당 터미널이 종료됨): %1$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avbrutte arbeidsområder som erstattes (terminalene deres avsluttes): %1$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przerwane obszary robocze do zastąpienia (ich terminale zostaną zakończone): %1$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaços de trabalho interrompidos a substituir (os terminais serão encerrados): %1$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прерванные рабочие пространства для замены (их терминалы будут завершены): %1$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงานที่หยุดชะงักซึ่งจะแทนที่ (เทอร์มินัลของพื้นที่เหล่านี้จะสิ้นสุด): %1$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Değiştirilecek kesintiye uğramış çalışma alanları (terminalleri sonlandırılacak): %1$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перервані робочі простори для заміни (їхні термінали буде завершено): %1$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc bị gián đoạn sẽ được thay thế (các terminal của chúng sẽ kết thúc): %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要替换的中断工作区（其终端将结束）：%1$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要取代的中斷工作區（其終端將結束）：%1$@"
+          }
+        }
+      }
+    },
     "classicImport.preview.title": {
       "extractionState": "manual",
       "localizations": {

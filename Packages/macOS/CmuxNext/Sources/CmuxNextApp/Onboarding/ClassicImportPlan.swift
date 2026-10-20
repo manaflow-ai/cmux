@@ -25,11 +25,13 @@ struct ClassicImportPlan: Sendable {
     let source: Source
     let workspaces: [ClassicSessionWorkspace]
     let skippedCloudVMs: Int
+    let cleanupWorkspaces: Int
 
     init(source: ClassicMigrationSource, migration: ClassicMigrationPlan) {
         self.source = Self.source(source.bundleID)
         workspaces = migration.windows.flatMap(\.workspaces)
         skippedCloudVMs = migration.skipped.values.count { $0 == .cloudVM }
+        cleanupWorkspaces = migration.cleanup.count
     }
 
     var browserTabs: Int { tabs.count { $0.url != nil } }

@@ -107,7 +107,13 @@ enum ClassicImportStrings {
             format: format, plan.source.fileName, String(plan.workspaces.count), String(plan.browserTabs),
             String(plan.localFilePages), String(plan.sshWorkspaces), String(plan.agentChats), String(plan.skippedCloudVMs)
         )
-        return text.components(separatedBy: "\n")
+        let cleanupFormat = String(
+            localized: "classicImport.preview.cleanup",
+            defaultValue: "Interrupted workspaces to replace (their terminals will end): %1$@",
+            bundle: .module
+        )
+        let cleanup = String(format: cleanupFormat, String(plan.cleanupWorkspaces))
+        return text.components(separatedBy: "\n") + [cleanup]
     }
     static var imported: String {
         String(localized: "classicImport.toast.imported", defaultValue: "Workspaces from classic cmux are open.", bundle: .module)

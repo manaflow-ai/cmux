@@ -328,7 +328,7 @@ struct ClassicImportTests {
             $0.spec.identifier == "cmux.dialog.classicImport"
         }, "classic import showed no preview")
         #expect(preview.spec.title == ClassicImportStrings.previewTitle)
-        #expect(preview.spec.lines.count == 8 && preview.spec.lines.allSatisfy { !$0.isEmpty })
+        #expect(preview.spec.lines.count == 9 && preview.spec.lines.allSatisfy { !$0.isEmpty })
         #expect(preview.spec.defaultButton?.id == ClassicImportConfirmation.importButton)
         #expect(preview.spec.cancelButton?.id == "cancel")
         #expect(try await connection.listWorkspaces().workspaces.count == before,
