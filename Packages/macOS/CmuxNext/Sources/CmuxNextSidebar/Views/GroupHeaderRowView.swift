@@ -33,7 +33,8 @@ final class GroupHeaderRowView: SidebarRowView {
     private let pin = DecorativeImageView()
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
-    private let pill = CALayer()
+    /// The row's fill (internal so tests can read its frame and radius).
+    let pill = CALayer()
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     private let dot = CALayer()
