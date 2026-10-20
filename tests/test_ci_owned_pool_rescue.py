@@ -1307,6 +1307,66 @@ class SideLanes(unittest.TestCase):
         self.assertNotIn("cancel", api.calls)
         self.assertIn("watch limit reached", summary)
 
+    def test_a_run_a_code_failure_already_decided_is_not_re_run(self):
+        # feat-cmux-next, 2026-10-20: the Linux `checks` job failed on the base's own red checks,
+        # the Release compile waited on the side minis, and the rescue cancelled and re-ran the
+        # run twice; each attempt failed `checks` the same way (run 39382369248, attempts 1 to 3).
+        def checks_failed():
+            failed = job("cmux-next checks (god files, concurrency, string tables)", status="completed",
+                         labels=["blacksmith-16vcpu-ubuntu-2404"], runner="blacksmith-1")
+            failed.update(conclusion="failure", started_at=stamp(1), completed_at=stamp(120), steps=[
+                {"name": "Set up job", "conclusion": "success"},
+                {"name": "God files and types (Swift)", "conclusion": "success"},
+                {"name": "Fail on any red check", "conclusion": "failure"}])
+            return failed
+
+        def cmux_next(seconds):
+            return [checks_failed(), job("cmux-next Release compile (Xcode 26)", labels=[SIDE], created=0)]
+
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next)
+        code, summary = run_main(api, clock, payload=side_event(path=".github/workflows/cmux-next.yml"),
+                                 env_extra={"SIDE_RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("already failed", summary)
+
+        # The same holds for a CI pull request run on the minis: a stuck shard is left queued when a guard
+        # already failed.
+        stuck = job("macos / shard 2", labels=[MINI], created=0)
+        late = START + dt.timedelta(seconds=600)
+        look = rescue.assess([checks_failed(), stuck], now=late, budget_seconds=90, leave_decided=True)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        self.assertIn("already failed", look.reason)
+        # Runs that are not pull requests (main, nightly, push) keep the rescue.
+        self.assertEqual(rescue.assess([checks_failed(), stuck], now=late, budget_seconds=90).action, "rescue")
+        # A refusal is still re-run: it is the fleet's failure, not the change's.
+        look = rescue.assess([checks_failed(), stuck, refused_job("macos / shard 3")], now=late, budget_seconds=90,
+                             leave_decided=True)
+        self.assertEqual(look.action, "refused")
+        # Neither a refusal nor a lost runner (no step ran) nor a job carried from an earlier attempt
+        # decides the run: the stuck job is still moved.
+        lost = {**checks_failed(), "steps": []}
+        carried = {**checks_failed(), "created_at": stamp(200), "started_at": stamp(100)}
+        for sibling in (refused_job("macos / shard 3"), lost, carried):
+            look = rescue.assess([sibling, stuck], now=late, budget_seconds=90, leave_decided=True)
+            self.assertEqual(look.action, "rescue", sibling)
+
+    def test_a_main_run_a_guard_failed_is_still_cancelled_once_main_moves(self):
+        # Main's stuck run holds its concurrency group, so a red one is still cancelled.
+        failed = job("guards / workflow-guard-tests", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"],
+                     runner="blacksmith-2")
+        failed.update(conclusion="failure", started_at=stamp(1), completed_at=stamp(20),
+                      steps=[{"name": "Run the guard tests", "conclusion": "failure"}])
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: persistent_run()(seconds) + [failed], marker=True, head="b" * 40)
+        _, summary = run_main(api, clock, payload=main_event())
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("not re-run", summary)
+
     def test_a_sibling_on_a_mini_does_not_hide_a_refusal_or_a_held_job(self):
         running = job("macos / shard 1", status="in_progress", labels=[MINI], runner="mini-2")
         running["started_at"] = stamp(5)

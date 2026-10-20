@@ -36,6 +36,8 @@ extension ContentView {
             return String(localized: "settings.section.account", defaultValue: "Account")
         case .cloudVPNSetup:
             return String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
+        case .chief:
+            return ChiefStrings.chiefName
         }
     }
     func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -73,6 +75,8 @@ extension ContentView {
             return ["account", "auth", "profile", "sign in"]
         case .cloudVPNSetup:
             return ["cloud", "vpn", "network", "private address"]
+        case .chief:
+            return ["chief", "home", "chat", "messages", "assistant", "agent"]
         }
     }
 }
