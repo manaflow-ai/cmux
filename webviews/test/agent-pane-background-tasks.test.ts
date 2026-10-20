@@ -184,20 +184,46 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
   const recordingPage = async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.addInitScript(() => {
-      const posted: { method: string; params: Record<string, unknown> }[] = [];
-      Object.assign(window, {
-        __posted: posted,
-        webkit: {
-          messageHandlers: {
-            agentSession: {
-              postMessage: async (message: { method: string; params: Record<string, unknown> }) => {
-                posted.push({ method: message.method, params: message.params });
-                return { ok: true, value: message.method === "chat.processTerminal" ? { opened: true } : null };
-              },
-            },
-          },
+      // The dev host installs its native shims on `window.webkit` (dev-host/host.ts); each one is
+      // wrapped as it is installed, so the page talks to the dev host as before and every call is
+      // recorded. `chat.processTerminal` is answered here, as the App answers it.
+      type Call = { method: string; params: Record<string, unknown> };
+      const posted: Call[] = [];
+      const ask = "chat.processTerminal";
+      const wrap = (handlers: Record<string, any> | undefined) => {
+        const page = handlers?.cmuxPage;
+        if (page && !page.recorded) {
+          const post = page.postMessage.bind(page);
+          page.postMessage = (message: any) => {
+            if (message?.t !== "call") return post(message);
+            const method = String(message.op ?? "").replace(/^cmux\.agent\./, "");
+            posted.push({ method, params: message.params ?? {} });
+            return method === ask
+              ? Promise.resolve({ t: "ok", id: message.id, value: { opened: true } })
+              : post(message);
+          };
+          page.recorded = true;
+        }
+        const session = handlers?.agentSession;
+        if (session && !session.recorded) {
+          const post = session.postMessage.bind(session);
+          session.postMessage = (message: any) => {
+            posted.push({ method: message.method, params: message.params ?? {} });
+            return message.method === ask ? Promise.resolve({ ok: true, value: { opened: true } }) : post(message);
+          };
+          session.recorded = true;
+        }
+      };
+      let webkit: any;
+      Object.defineProperty(window, "webkit", {
+        configurable: true,
+        get: () => webkit,
+        set: (next) => {
+          wrap(next?.messageHandlers);
+          webkit = next;
         },
       });
+      Object.assign(window, { __posted: posted });
     });
     await page.goto(url(CHAT));
     await page.getByText("Dev server stopped.").waitFor();
@@ -212,7 +238,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
 
   test("clicking a background task's end opens its terminal beside the chat", async () => {
     const page = await recordingPage();
-    const note = page.getByRole("button", { name: "Background task stopped · Stopped by the agent: npm run dev" });
+    const note = page.getByRole("button", { name: /Stopped by the agent: npm run dev/ });
     expect(await note.getAttribute("title")).toBe("Show output");
     await note.click();
     await page.waitForFunction(() =>
