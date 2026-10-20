@@ -11,7 +11,7 @@ import AppKit
 final class GlassTintBlend {
     /// Lies over the glass, under every other backdrop layer; hidden while no blend runs.
     let overlay = NSView()
-    private static let key = "cmux.colorTransition.glassTint"
+    static let key = "cmux.colorTransition.glassTint"
     private var generation = 0
 
     init() {

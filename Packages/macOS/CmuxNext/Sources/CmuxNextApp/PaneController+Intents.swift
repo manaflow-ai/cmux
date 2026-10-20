@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextFocus
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
@@ -17,11 +18,10 @@ extension PaneController {
         case .close(let id, _):
             CloseUndoToasts.close(in: self, [id])
         case .closeOthers(let keep):
-            CloseUndoToasts.close(in: self, stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
+            CloseUndoToasts.close(in: self, stripModel.closedByCloseOthers(keeping: keep))
         case .closeToRight(let id):
-            let ids = orderedIDs
-            guard let index = ids.firstIndex(of: id) else { return }
-            CloseUndoToasts.close(in: self, Array(ids[(index + 1)...]))
+            // Pinned tabs after `id` stay, as in Chrome.
+            CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id))
         case .reorder(let id, _, let to):
             StripOrder.reorder(id, to: to, in: self)
         case .newTab(_, let opensWorkspace, let sameKind):
@@ -55,6 +55,8 @@ extension PaneController {
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
+        // Only a switch this action may show is timed (a refused one never ends its interval).
+        if stripModel.selectedID != id, workspace != nil || ActionRunScope.viewChangeAllowed() { DebugTabSwitch.began(self) }
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
         if source.isUserIntent, stripModel.selectedID != id {
             services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
@@ -69,11 +71,16 @@ extension PaneController {
     /// Selects `id` and shows it; called by the focus applier, never moves focus.
     func applySelection(_ id: StripTabID) {
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
+        DebugTabSwitch.mark(self, "focus")
         state.selection.select(id.rawValue, in: paneKey)
         setStripSelection(id)
+        DebugTabSwitch.mark(self, "strip")
         presentSelection()
+        DebugTabSwitch.mark(self, "present")
         remapViewedTab()
         services.windows.recordSaver.stateDidChange(state)
+        DebugTabSwitch.mark(self, "record")
+        DebugTabSwitch.shown(self, in: view.window)
     }
 
     /// Selects the neighbor `offset` tabs away, wrapping.
@@ -113,13 +120,15 @@ extension PaneController {
         // that types its own text first keeps the keys where they are.
         let window = self.workspace == nil || text != nil || page != nil ? nil : view.window
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
+        // The PTY starts at the grid this pane's view will fit, so the first frame is final (NewTerminalGrid).
+        let size = newTerminalSize
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, size: size, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
                 if let text { try await connection.send(created.surface, text: text) }
                 if let page {
                     try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
@@ -162,7 +171,7 @@ extension PaneController {
                 continue
             }
             if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
-            if services.madeAgentTabs?.closeWhenCreated(id.rawValue, close: { [weak self] real in self?.close([StripTabID(real)]) }) == true { continue }
+            if daemon.cancelCreation(tab: id.rawValue) { services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window); services.keyRouter.newTabInputCoordinator.drop(tab: id.rawValue, in: view.window); continue }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
@@ -261,7 +270,8 @@ extension PaneController {
         let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute"]).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
+            // Reload and Mute are a page's rows (Chrome's Reload, Mute Site).
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute", "reloadTab"]).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries)
         }
         // A browser tab offers the engine it is not on.

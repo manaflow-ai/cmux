@@ -1,3 +1,4 @@
+import Combine
 import CmuxNextDesign
 import SwiftUI
 
@@ -66,12 +67,13 @@ struct UpdateSheetView: View {
                         .underline()
                 }
                 Spacer(minLength: 0)
+                let cancel = content.buttons.dropLast().firstIndex(where: \.dismisses)
                 ForEach(Array(content.buttons.enumerated()), id: \.element) { index, button in
                     let isDefault = index == content.buttons.count - 1
-                    Button(button.title) { press(button) }
+                    // The last button is Return's; the first other one that closes the sheet, Escape's.
+                    CmuxDialogActionButton(button.title, hint: isDefault ? .return : (index == cancel ? .escape : nil)) { press(button) }
                         .glassButtonStyle()
                         .font(Font(isDefault ? Typography.bodyEmphasized : Typography.body))
-                        .keyboardShortcut(isDefault ? .defaultAction : (button.dismisses ? .cancelAction : nil))
                 }
             }
         }
@@ -84,15 +86,26 @@ struct UpdateSheetView: View {
 }
 
 /// The indeterminate-progress symbol effect: rotate on macOS 15 and newer,
-/// pulse on macOS 14 (no rotate effect there).
+/// pulse on macOS 14 (no rotate effect there). Still while loops are off
+/// (Reduce Motion or `ui.animationSpeed` off; cx-sya4n: nothing loops). The
+/// environment's Reduce Motion and `Motion.reduceMotionDidChange` re-run the
+/// body when either changes while the sheet shows.
 private struct IndeterminateSymbolEffect: ViewModifier {
     let isActive: Bool
+    @Environment(\.accessibilityReduceMotion) private var systemReducesMotion
+    @State private var overrideChanges = 0
 
     func body(content: Content) -> some View {
-        if #available(macOS 15, *) {
-            content.symbolEffect(.rotate, isActive: isActive)
-        } else {
-            content.symbolEffect(.pulse, isActive: isActive)
+        // Read so a change of either re-runs this body; `Motion` reads the live values.
+        _ = (systemReducesMotion, overrideChanges)
+        let runs = isActive && Motion.animatesLoops
+        return Group {
+            if #available(macOS 15, *) {
+                content.symbolEffect(.rotate, isActive: runs)
+            } else {
+                content.symbolEffect(.pulse, isActive: runs)
+            }
         }
+        .onReceive(NotificationCenter.default.publisher(for: Motion.reduceMotionDidChange)) { _ in overrideChanges += 1 }
     }
 }

@@ -166,6 +166,20 @@
   color: var(--page-text);
   font-weight: 500;
 }
+.lg-row-name.with-backend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lg-row-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lg-row-name .hc-tag {
+  flex: none;
+  font-weight: 600;
+}
 .lg-row.unread .lg-row-name {
   font-weight: 650;
 }
@@ -1796,6 +1810,12 @@
   font-size: var(--text-caption);
   color: var(--page-text-3);
 }
+.lg-chief-backend {
+  color: var(--page-text);
+}
+.lg-form-note code {
+  font-family: ui-monospace, monospace;
+}
 .lg-form-error {
   font-size: var(--text-detail);
   color: var(--hc-danger);
@@ -1883,6 +1903,30 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+/* Placing a still in the Chief's circle (backgrounds plan phase 4). */
+.lg-picture-crop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.lg-picture-crop-view {
+  position: relative;
+  overflow: hidden;
+  border-radius: 50%;
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 0 0 1px var(--lg-line);
+}
+.lg-picture-crop-view:active {
+  cursor: grabbing;
+}
+.lg-picture-crop-view img {
+  position: absolute;
+  max-width: none;
+  user-select: none;
+  pointer-events: none;
 }
 .lg-chief-names {
   display: flex;

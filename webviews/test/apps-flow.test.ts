@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmDevServer } from "./support/warmDevServer";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("apps-flow.test.ts", async () => {
   setDefaultTimeout(360_000);
@@ -22,10 +22,22 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    const { port } = vite.httpServer!.address() as { port: number };
     // The canonical gallery eagerly registers every stage; on a cold worktree this transform pass
     // can exceed the helper's 100s default (the matrix uses the same 300s allowance).
-    await warmDevServer(`http://127.0.0.1:${port}`, "/gallery/frame.html", { timeoutMs: 300_000 });
+    // The stage registry is filtered to this entryPath; only warm the HTML shell so the browser
+    // owns the targeted entry graph instead of traversing the complete gallery registry.
+    await warmViteServer(vite, "/gallery/frame.html?entryPath=src/pages/apps/apps.gallery.ts", {
+      timeoutMs: 30_000,
+      limit: 0,
+    });
+    await warmViteServer(vite, "/src/gallery/frame/main.ts", {
+      timeoutMs: 120_000,
+      limit: 200,
+    });
+    await warmViteServer(vite, "/src/pages/apps/apps.gallery.ts", {
+      timeoutMs: 120_000,
+      limit: 600,
+    });
     browsers.chromium = await chromium.launch({ headless: true });
     browsers.webkit = await webkit.launch({ headless: true });
   });
@@ -36,14 +48,29 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
   });
 
   async function open(engine: "chromium" | "webkit", variant: string): Promise<import("playwright").Page> {
-    const page = await browsers[engine]!.newPage({ viewport: { width: 1100, height: 760 } });
     const { port } = vite!.httpServer!.address() as { port: number };
-    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=pages.apps&variant=${variant}`);
-    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    return page;
+    const url =
+      `http://127.0.0.1:${port}/gallery/frame.html?entry=pages.apps&entryPath=src/pages/apps/apps.gallery.ts` +
+      `&variant=${variant}&reducedMotion=1`;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const page = await browsers[engine]!.newPage({ viewport: { width: 1100, height: 760 } });
+      try {
+        await page.goto(url, { timeout: 300_000 });
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+          timeout: 30_000,
+        });
+        return page;
+      } catch (error) {
+        lastError = error;
+        await page.close();
+        if (attempt === 0) continue;
+      }
+    }
+    throw lastError;
   }
 
-  for (const engine of ["chromium", "webkit"] as const) {
+  for (const engine of ["webkit", "chromium"] as const) {
     describe(`${engine}: Apps discover and lifecycle`, () => {
       test("search, category, detail, keyboard reset, and install use the page host", async () => {
         const page = await open(engine, "list");
@@ -92,11 +119,11 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
       test("installed update, permission, log, enable, and hide controls reflect host results", async () => {
         const page = await open(engine, "installed");
         try {
-          const github = page.locator(".apps-installed-row").filter({ hasText: "GitHub PRs" });
+          const github = page.locator(".apps-installed > .apps-installed-row").filter({ hasText: "GitHub PRs" });
           await github.waitFor();
           expect(await github.innerText()).toContain("1.1.0");
           await github.getByRole("button", { name: "Update" }).click();
-          await page.waitForFunction(() => document.body.innerText.includes("1.2.0"));
+          await github.getByRole("button", { name: "Update" }).waitFor({ state: "detached" });
           expect(await github.innerText()).toContain("1.2.0");
           expect(await github.getByRole("button", { name: "Update" }).count()).toBe(0);
 
@@ -145,6 +172,48 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
         const page = await open(engine, "error");
         try {
           expect(await page.locator(".apps-error").innerText()).toContain("catalog is unavailable");
+          expect(await page.getByRole("button", { name: "Reload", exact: true }).count()).toBeGreaterThan(0);
+          expect(await page.getByRole("searchbox", { name: "Search apps" }).isVisible()).toBe(true);
+        } finally {
+          await page.close();
+        }
+      });
+
+      test("retries a catalog failure without replacing the toolbar", async () => {
+        const page = await open(engine, "error");
+        try {
+          await page.getByRole("button", { name: "Reload", exact: true }).first().click();
+          await page.locator(".apps-card").first().waitFor();
+          expect(await page.locator(".apps-card").count()).toBe(4);
+          expect(await page.getByRole("searchbox", { name: "Search apps" }).isVisible()).toBe(true);
+          expect(await page.locator('[role="alert"]').count()).toBe(0);
+        } finally {
+          await page.close();
+        }
+      });
+
+      test("shows a not-found detail with Back and Retry", async () => {
+        const page = await open(engine, "not-found");
+        try {
+          const state = page.locator('[data-detail-state="not-found"]');
+          await state.waitFor();
+          expect(await state.getByRole("button", { name: "Reload", exact: true }).isVisible()).toBe(true);
+          expect(await state.getByRole("button", { name: /Discover/ }).isVisible()).toBe(true);
+          expect(await page.getByRole("searchbox", { name: "Search apps" }).isVisible()).toBe(true);
+        } finally {
+          await page.close();
+        }
+      });
+
+      test("retries a detail error while preserving the selected app", async () => {
+        const page = await open(engine, "detail-error");
+        try {
+          const state = page.locator('[data-detail-state="error"]');
+          await state.waitFor();
+          expect(await state.innerText()).toContain("temporarily unavailable");
+          await state.getByRole("button", { name: "Reload", exact: true }).click();
+          await page.locator(".apps-detail-name").waitFor();
+          expect(await page.locator(".apps-detail-name").innerText()).toBe("CodeRouter");
           expect(await page.getByRole("searchbox", { name: "Search apps" }).isVisible()).toBe(true);
         } finally {
           await page.close();
@@ -155,8 +224,11 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
         const page = await open(engine, "empty");
         try {
           expect(await page.locator(".apps-card").count()).toBe(0);
-          expect(await page.locator(".apps-empty").innerText()).toContain("No apps match");
+          const emptyDiscover = page.locator(".apps-state-empty, .apps-empty").filter({ hasText: "No apps match" });
+          await emptyDiscover.waitFor();
+          expect(await emptyDiscover.innerText()).toContain("No apps match");
           await page.getByRole("tab", { name: "Installed" }).click();
+          await page.locator(".apps-empty").waitFor();
           expect(await page.locator(".apps-empty").innerText()).toContain("No apps installed");
         } finally {
           await page.close();

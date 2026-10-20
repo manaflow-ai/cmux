@@ -24,8 +24,8 @@ extension DaemonStore {
     /// needs a resync is decided per event: the echo's own delta applied
     /// exactly holds the intent's result even when another event of the
     /// batch needs a resync.
-    private func applyEvent(_ event: DaemonEvent, sequence: UInt64?) -> Followup {
-        let followup = applyState(event)
+    private func applyEvent(_ event: DaemonEvent, sequence: UInt64?, envelope: DaemonEventEnvelope? = nil) -> Followup {
+        let followup = applyState(event, envelope: envelope)
         if let transaction = event.clientTransactionID {
             confirm(transaction)
             ProvisionalTab.echoed(event, transaction: transaction, in: self)
@@ -57,7 +57,7 @@ extension DaemonStore {
             var followup = Followup.none
             for envelope in batch {
                 if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
-                    if applyEvent(envelope.event, sequence: envelope.sequence) == .resync { followup = .resync }
+                    if applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) == .resync { followup = .resync }
                 } else if let transaction = envelope.event.clientTransactionID {
                     // Superseded by the snapshot (which holds its result),
                     // but its echo still settles the patch and the intent.
@@ -80,29 +80,14 @@ extension DaemonStore {
         runAppliedWaiters(nil)
     }
 
-    private func applyState(_ event: DaemonEvent) -> Followup {
+    private func applyState(_ event: DaemonEvent, envelope: DaemonEventEnvelope?) -> Followup {
         switch event {
         case .connected(let identity, _):
-            connectionEpoch += 1
-            session.connected(servesStateResources: identity.supports(DaemonCapabilities.shared.stateResources))
-            connectionState = .connected(identity)
-            noteHandshake(identity)
-            return .resync
+            return DaemonConnectionChange.connected(identity, envelope).apply(to: self)
         case .disconnected(let reason):
-            connectionEpoch += 1
-            clearPresence()
-            connectionState = .disconnected(reason)
-            onDisconnected?()
-            // Nothing newer will arrive for commands sent on this connection.
-            drainAppliedWaiters = true
-            flushAppliedWaiters()
-            return .none
+            return DaemonConnectionChange.disconnected(reason).apply(to: self)
         case .daemonShutdown:
-            connectionEpoch += 1
-            clearPresence()
-            connectionState = .disconnected("daemon shut down")
-            onDisconnected?()
-            return .none
+            return DaemonConnectionChange.shutdown.apply(to: self)
 
         case .workspaceAdded(let delta):
             return applyWorkspaceDelta(delta) { store, delta in
@@ -111,7 +96,7 @@ extension DaemonStore {
                     store.indexed(existing)
                 } else {
                     let index = min(max(delta.index ?? store.workspaces.count, 0), store.workspaces.count)
-                    let workspace = WorkspaceModel(delta.entity)
+                    let workspace = store.confirmedWorkspace(delta.entity)
                     store.workspaces.insert(workspace, at: index)
                     store.indexed(workspace)
                 }
@@ -197,7 +182,7 @@ extension DaemonStore {
                 indexed(existing, in: screen)
             } else {
                 let index = min(max(delta.index ?? screen.panes.count, 0), screen.panes.count)
-                let pane = PaneModel(delta.entity)
+                let pane = confirmedPane(delta.entity)
                 screen.panes.insert(pane, at: index)
                 indexed(pane, in: screen)
             }
@@ -298,7 +283,7 @@ extension DaemonStore {
         case .sessionState(let item): session.apply(item, in: self); return .none
         case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
-            sideEvents.deliver(event)
+            sideEvents.deliver(event, envelope: envelope)
             return .none
 
         case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client:

@@ -1,6 +1,8 @@
 //! Resource topology effect execution: effect intents, the executor, effect slots and created paths, and the per-effect create, rename, add-pane and layout-apply steps.
 
-use super::client_ids::{requested_client_pane_id, requested_client_tab_id};
+use super::client_ids::{
+    requested_client_pane_id, requested_client_split_id, requested_client_tab_id,
+};
 use super::*;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
 
@@ -73,6 +75,17 @@ impl Mux {
                 None => PanePublicId::random()?,
             };
             intent["pane_reservation"] = json!({ "pane_id": pane_id });
+        }
+        if operation == ResourceOperation::PaneSplit {
+            // The new split's public id is fixed here too: the caller's
+            // (`split-client-split-id-v1`), so the layout names the split the
+            // caller already shows, else a new one, so the first layout that
+            // holds the split already names it.
+            let split_id = match requested_client_split_id(fields, state, registry)? {
+                Some(split_id) => split_id,
+                None => SplitPublicId::random()?,
+            };
+            intent["split_reservation"] = json!({ "split_id": split_id });
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = context.mutation.reservation();
@@ -199,7 +212,10 @@ impl Mux {
                         name: optional_owned_string(fields, "terminal_name")?,
                         created_screen_name: None,
                         size: effect_cell_size(fields)?,
-                        on_exit: None,
+                        // Internal owner jobs retain their terminal view.
+                        // Generic workspace.create still rejects this field
+                        // at catalog admission, preserving its public shape.
+                        on_exit: effect_on_exit(fields)?,
                     },
                 )
                 .map(|created| created.path)
@@ -700,6 +716,10 @@ impl Mux {
         on_exit: Option<TerminalOnExit>,
         index: Option<usize>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
+        // `pinned-dock-v1`: a pinned column that takes no tabs refuses
+        // before anything spawns, and again when the tab attaches.
+        let operation = ResourceOperation::TabCreateTerminal.wire_name();
+        self.with_state(|state| ensure_pane_takes_tabs(operation, state, target))?;
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
@@ -720,9 +740,14 @@ impl Mux {
         }
         let active_at = self.next_active_at();
         let notifications = self.tree_decorations();
+        let mut refused = None;
         let attached = {
             let mut state = self.state.lock().unwrap();
-            let delta = match state.panes.get_mut(&target) {
+            if let Err(error) = ensure_pane_takes_tabs(operation, &state, target) {
+                refused = Some(error);
+            }
+            let pane = if refused.is_some() { None } else { state.panes.get_mut(&target) };
+            let delta = match pane {
                 Some(pane) => {
                     // At its end, or at the strip index the creation names
                     // (`tab_slot`: Reopen Closed puts a tab back in place).
@@ -764,6 +789,14 @@ impl Mux {
                 })
                 .transpose()?
         };
+        if let Some(error) = refused {
+            self.fail_hosted_terminal_attachment(
+                &surface,
+                "resource-terminal-tab-attach-failed",
+                "pinned-column-takes-no-tabs",
+            )?;
+            return Err(error);
+        }
         let Some((delta, created)) = attached else {
             self.fail_hosted_terminal_attachment(
                 &surface,
@@ -835,6 +868,15 @@ impl Mux {
         {
             hook();
         }
+        let split_public_id = match intent["split_reservation"]["split_id"].as_str() {
+            Some(reserved) => Some(
+                SplitPublicId::parse(reserved.to_string())
+                    .context("stored topology intent has an invalid split id")?,
+            ),
+            // An intent stored before split reservations existed: the
+            // projection names the split.
+            None => None,
+        };
         let pane_id = self.next_id();
         let split_id = split_direction.map(|_| self.next_id());
         let base_column_id =
@@ -842,6 +884,9 @@ impl Mux {
         let base_row_id = row_height.map(|_| self.next_id());
         let active_at = self.next_active_at();
         let notifications = self.tree_decorations();
+        // A conversation tab's split (`conversation-tab-split-v1`): its one
+        // `pane-added` carries the client transaction.
+        let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);
         let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
             let mut state = self.state.lock().unwrap();
             // A reserved pane id that became taken since preparation is
@@ -850,6 +895,12 @@ impl Mux {
                 !state.resource_indexes.panes.contains_key(&pane_public_id),
                 "pane_id_exists: {pane_public_id}"
             );
+            if let Some(split_public_id) = &split_public_id {
+                anyhow::ensure!(
+                    !state.resource_indexes.splits.contains_key(split_public_id),
+                    "split_id_exists: {split_public_id}"
+                );
+            }
             let Some((workspace, screen_index)) = state.screen_of(target) else {
                 anyhow::bail!("pane disappeared before new pane attachment");
             };
@@ -931,6 +982,10 @@ impl Mux {
             screen.active_pane = pane_id;
             screen.zoomed_pane = None;
             screen.record_layout_change(before, vec![pane_id], None);
+            if let (Some(split), Some(public_id)) = (split_id, split_public_id) {
+                state.resource_indexes.splits.insert(public_id.clone(), split);
+                state.resource_indexes.split_ids.insert(split, public_id);
+            }
             state.insert_pane(Pane {
                 id: pane_id,
                 public_id: pane_public_id,
@@ -967,7 +1022,7 @@ impl Mux {
                     index: Some(pane_index),
                     entity,
                     workspace_revision: None,
-                    transaction: None,
+                    transaction,
                 },
                 screen_id,
                 CreatedTerminalEffect { path },

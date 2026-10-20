@@ -12,7 +12,7 @@ final class TerminalFindBarView: NSView {
     private let find: TerminalFindController
     /// Themes its caret, selection and placeholder in the bar's scope, focused or not.
     private let field = ThemedTextField()
-    private let countLabel = NSTextField(labelWithString: "")
+    private let countLabel = ChromeLabel(labelWithString: "")
     private let icon = NSImageView()
     private var buttons: [NSButton] = []
     private var shownFocusRequest = 0

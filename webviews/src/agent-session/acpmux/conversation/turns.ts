@@ -384,11 +384,18 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 }
 
 /// A row that draws under a finished turn's fold line rather than inside it: a subagent group,
-/// and the turn's todo list (cx-ncc.80), whose last state is what the turn got done.
+/// the turn's todo list (cx-ncc.80), whose last state is what the turn got done, and the notes
+/// below.
 const staysOut = (row: AcpmuxRow) =>
   isSubagentGroup(row) ||
   (row.kind === "plan" && row.plan !== undefined) ||
   row.kind === "backgroundTask" ||
+  // A compaction or a move to the fallback harness changes what the rest of the turn knows or
+  // who answers it; folded, nobody would see it happened.
+  row.kind === "compaction" ||
+  row.kind === "failover" ||
+  // Where the session started: what it runs on and how it compacts.
+  row.kind === "sessionStart" ||
   // A session offer waits for the person's Start or Dismiss.
   row.kind === "sessionOffer";
 

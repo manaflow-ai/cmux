@@ -47,6 +47,13 @@ extension HomeStore {
     /// The running Chief run `id` shows (`live`), nil when none.
     public func liveRun(in id: ConversationID) -> HomeLiveRun? { live[id] }
 
+    /// Who shows typing dots in `id`: the owner's typing frames, plus the author of a run still
+    /// running there. One rule for every view: typing frames do not outlive a connection
+    /// (`handle(.connection)`), a running turn's dots come from its live run.
+    public func typists(in id: ConversationID) -> Set<ParticipantID> {
+        (typing[id] ?? []).union(live[id].map { [$0.participant] } ?? [])
+    }
+
     /// Asks the owner for its `run.live` snapshot (it arrives as an event).
     func requestLive(_ conversation: ConversationID) {
         guard liveRequests.insert(conversation).inserted else { return }

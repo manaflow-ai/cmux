@@ -62,7 +62,8 @@ extension ProjectionCore {
         return actions
     }
 
-    /// The reply's text, nil while it is only whitespace.
+    /// The reply's whole text so far, nil while it is only whitespace. Always the whole reply: a send
+    /// while it streams never cuts it (the bubble stays one, below the send, in the owner's order).
     private static func visibleText(_ draft: HomeTurnDraft) -> String? {
         let text = draft.text
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text

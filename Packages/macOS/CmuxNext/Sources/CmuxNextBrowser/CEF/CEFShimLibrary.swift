@@ -32,6 +32,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let forkAPIVersion: @convention(c) () -> Int32
     let prepareApplication: @convention(c) () -> Int32
     let setExtensionDeveloperMode: @convention(c) (Int32) -> Void
+    /// Chromium's default search provider in every profile (`CEFDefaultSearch`).
+    let setDefaultSearch: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setBackgroundColor: @convention(c) (UInt32) -> Void
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
     let initialize: @convention(c) (
@@ -252,6 +254,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         forkAPIVersion = try r("cmux_shim_fork_api_version")
         prepareApplication = try r("cmux_shim_prepare_application")
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
+        setDefaultSearch = try r("cmux_shim_set_default_search")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         initialize = try r("cmux_shim_initialize")
