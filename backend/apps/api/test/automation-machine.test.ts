@@ -33,7 +33,7 @@ const fakePort = (answer: Awaited<ReturnType<MachineExec["exec"]>>) => {
 describe("machine and agent step specs", () => {
   it("accepts a machine step and an agent step, and refuses bad machines, harnesses and timeouts", () => {
     expect(Exit.isSuccess(decodeStep({ type: "machine", machine: VM, command: "echo hi", timeout_seconds: 60 }))).toBe(true)
-    expect(Exit.isSuccess(decodeStep({ type: "agent", machine: VM, harness: "claude", prompt: "Say hi", input_from: 0, timeout_seconds: 600 }))).toBe(true)
+    expect(Exit.isSuccess(decodeStep({ type: "agent", machine: VM, harness: "claude", prompt: "Say hi", input_from: 0, timeout_seconds: 300 }))).toBe(true)
     expect(Exit.isSuccess(decodeStep({ type: "machine", machine: "vm-83d983e7", command: "echo hi", timeout_seconds: 60 }))).toBe(false)
     expect(Exit.isSuccess(decodeStep({ type: "agent", machine: VM, harness: "bash", prompt: "x", timeout_seconds: 60 }))).toBe(false)
     expect(Exit.isSuccess(decodeStep({ type: "machine", machine: VM, command: "", timeout_seconds: 60 }))).toBe(false)

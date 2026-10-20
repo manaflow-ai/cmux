@@ -8,7 +8,13 @@ import { asDaemonUser, layoutSelector, shellQuote } from "./cloud-acpmux-guest.t
  * result inside `step.do`, so a replay reads the journal and never runs the command again.
  *
  * Determinism: the command is a pure function of the step and (run, index). Free text (an agent
- * prompt, an earlier step's output) goes on stdin only, never into the command line.
+ * prompt, an earlier step's output) goes on stdin, never into the command string the provider
+ * gets; on the guest the prompt becomes one argument after `--` (it is visible in the guest's own
+ * process list, which only the team can read). An unattended agent turn fails on a permission
+ * request instead of waiting, and acpmux cancels it 10 s before the step timeout.
+ *
+ * A step runs at most once: no automatic retry, because a lost answer does not prove the command
+ * did not start. Guest scripts can dedupe their own effects with CMUX_STEP_KEY.
  */
 type Step = typeof StepSchema.Type
 export type MachineStep = Extract<Step, { readonly type: "machine" }>
@@ -18,7 +24,7 @@ export type MachineLikeStep = MachineStep | AgentStep
 /** The journaled output of a step: the last 8 KiB of its stdout. */
 export const STEP_OUTPUT_MAX = 8192
 
-export type MachineExecRefusal = "not_found" | "not_running" | "provider_failed"
+export type MachineExecRefusal = "not_found" | "not_running" | "forbidden" | "provider_failed"
 export type MachineExecReply =
   | { readonly ok: true; readonly exitCode: number; readonly stdout: string; readonly stderr: string }
   | { readonly ok: false; readonly refusal: MachineExecRefusal }
@@ -30,7 +36,7 @@ export interface MachineExec {
 
 export type StepOutcome =
   | { readonly ok: true; readonly output: string }
-  | { readonly ok: false; readonly code: "machine.exit" | "machine.timeout" | "machine.not_found" | "machine.not_running" | "machine.unavailable"; readonly message: string }
+  | { readonly ok: false; readonly code: "machine.exit" | "machine.timeout" | "machine.not_found" | "machine.not_running" | "machine.forbidden" | "machine.unavailable"; readonly message: string }
 
 export const isMachineLikeStep = (s: Step): s is MachineLikeStep => s.type === "machine" || s.type === "agent"
 
@@ -38,7 +44,7 @@ export const isMachineLikeStep = (s: Step): s is MachineLikeStep => s.type === "
 export const machineStepCommand = (step: MachineLikeStep, ctx: { readonly run: string; readonly index: number }): string => {
   const ids = `CMUX_RUN=${shellQuote(ctx.run)} CMUX_STEP=${ctx.index} CMUX_STEP_KEY=${shellQuote(`step:${ctx.run}:${ctx.index}`)}`
   // The harness is one of three literals, so it is safe in the command; the prompt never is.
-  const body = step.type === "machine" ? step.command : `p="$(cat)"; PATH="$HOME/.local/bin:$PATH" exec acpmux run -m ${step.harness} "$p"`
+  const body = step.type === "machine" ? step.command : `p="$(cat)"; PATH="$HOME/.local/bin:$PATH" exec acpmux run -m ${step.harness} --on-permission fail --timeout ${Math.max(1, step.timeout_seconds - 10)} -- "$p"`
   return `${layoutSelector()}; ${asDaemonUser(`${ids} bash -lc ${shellQuote(body)}`, { exec: true })}`
 }
 
@@ -55,6 +61,7 @@ export const runMachineStep = async (port: MachineExec, step: MachineLikeStep, c
   const r = await port.exec(step.machine, machineStepCommand(step, ctx), machineStepStdin(step, input), step.timeout_seconds * 1000)
   if (!r.ok) {
     if (r.refusal === "not_found") return { ok: false, code: "machine.not_found", message: `step ${ctx.index}: ${step.machine} is not a machine of this team` }
+    if (r.refusal === "forbidden") return { ok: false, code: "machine.forbidden", message: `step ${ctx.index}: only automations of ${step.machine}'s creator may run commands on it` }
     if (r.refusal === "not_running") return { ok: false, code: "machine.not_running", message: `step ${ctx.index}: ${step.machine} is not running` }
     return { ok: false, code: "machine.unavailable", message: `step ${ctx.index}: the machine did not answer` }
   }
