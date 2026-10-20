@@ -12,6 +12,12 @@ on:
       agent_session_web:
         required: true
         type: string
+      # A push's event.before (cmux-next-web.yml): subareas route from the whole push, not
+      # only its last commit. Empty on pull requests, which route from the merge commit.
+      push_base:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -36,10 +42,18 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
+      # The push base is not in a depth-2 clone; fetch it alone (an unknown one runs everything).
+      - name: Fetch the push base
+        if: ${{ inputs.push_base != '' }}
+        env:
+          PUSH_BASE: ${{ inputs.push_base }}
+        run: git fetch --no-tags --depth=1 origin "$PUSH_BASE" || echo "::warning title=web routing::push base $PUSH_BASE is not fetchable; every web subarea runs"
+
       - name: Classify web subareas
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
+          WEB_SUBAREAS_BASE: ${{ inputs.push_base }}
         run: python3 scripts/ci/web_subareas.py route
 
   web-typecheck:
@@ -313,7 +327,11 @@ jobs:
       - name: Generated bundle merge driver
         run: python3 tests/test_install_git_hooks.py
 
+      # A budget miss must not hide the checks and tests below: the step records its outcome and
+      # the job fails on it in the last step. A failed build still stops everything after it.
       - name: Check diff viewer eager JS budget
+        id: eager-js-budget
+        continue-on-error: true
         run: node ./scripts/check-webviews-diff-budget.mjs
 
       - name: Verify React Compiler for webviews
@@ -341,6 +359,12 @@ jobs:
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
         run: ../scripts/ci/run-webviews-tests.sh
+
+      - name: Fail on the eager JS budget
+        if: ${{ !cancelled() && steps.eager-js-budget.outcome == 'failure' }}
+        run: |
+          echo "::error::The webviews eager JS budget failed; see the step 'Check diff viewer eager JS budget'."
+          exit 1
 
   # React Doctor is independent of the per-file browser tests. Keep it on its
   # own required lane so the long-running shard 1 does not serialize this

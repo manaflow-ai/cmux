@@ -336,6 +336,12 @@ final class WorkspaceHoverCardView: NSView {
             row.label.lineBreakMode = fact.lines > 1 ? .byWordWrapping : .byTruncatingMiddle
             row.label.preferredMaxLayoutWidth = fact.lines > 1 ? Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 : 0
         }
+        // The last reply sits a step apart from the metadata above it, like the stack's own gap.
+        for (index, row) in factViews.enumerated() {
+            guard let view = row.icon.superview else { continue }
+            let next = index + 1 < content.facts.count ? content.facts[index + 1] : nil
+            factsStack.setCustomSpacing(next?.kind == WorkspaceHoverCardContent.Fact.lastReplyKind ? Metrics.space3 : NSStackView.useDefaultSpacing, after: view)
+        }
         factsStack.isHidden = content.facts.isEmpty
         applyColors()
     }
@@ -454,8 +460,12 @@ extension WorkspaceHoverCardView {
             ageLabel.textColor = Palette.textSecondary
             activityLabel.textColor = Palette.textPrimary
             kindIcon.contentTintColor = Palette.textSecondary
-            for row in factViews {
-                row.label.textColor = Palette.textPrimary
+            // A clear title, muted metadata, and what was said in the primary ink (Leo 2026-10-19,
+            // Claude desktop's session card); no fill of its own, the shared overlay glass shows.
+            let facts = content?.facts ?? []
+            for (index, row) in factViews.enumerated() {
+                let message = index < facts.count && facts[index].isMessage
+                row.label.textColor = message ? Palette.textPrimary : Palette.textSecondary
                 row.icon.contentTintColor = Palette.textSecondary
             }
             resourceLabel.textColor = Palette.textSecondary

@@ -52,6 +52,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page's style switch (`newTab.setTemplate`): the template to
     /// save as `tabs.newTabTemplate` (the App checks the value).
     case setNewTabTemplate(String)
+    /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
+    case nowPlaying(AgentPaneNowPlaying.Command)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -80,6 +82,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
+    /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
+    case projectIcon(String)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)

@@ -37,7 +37,9 @@ struct ContextMenuEssentialsTests {
     @Test func theWorkspaceMenuShowsTheFrequentRowsThenMore() {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
         // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
-        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow", "—",
+        // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
+        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
+                               "palette.moveWorkspaceToTop", "—",
                                "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "More", "—", "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.
         let groups = menu.items.first { ActionRegistry.menuRun(of: $0.submenu?.items.first ?? NSMenuItem())?.id == "moveWorkspaceToGroup" }

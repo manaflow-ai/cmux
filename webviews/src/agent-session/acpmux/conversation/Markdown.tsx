@@ -769,7 +769,9 @@ export function Markdown({
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
   // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
   // same object until a new reference arrives.
-  const noteIds = footnoteOrder(children).join(" ");
+  // The reveal clock can re-render a streaming reply while its source is unchanged. Keep the
+  // full footnote scan on source changes instead of repeating it for each animation frame.
+  const noteIds = useMemo(() => footnoteOrder(children).join(" "), [children]);
   // The reply's data URL budget; only a reply longer than the budget can pass it.
   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
   const overBudget = useMemo(() => dataUrlsOverBudget(budgetSource), [budgetSource]);

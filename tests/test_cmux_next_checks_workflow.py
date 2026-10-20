@@ -12,6 +12,7 @@ so it can never mask the Swift god-type check.
 from __future__ import annotations
 
 import fnmatch
+import json
 import os
 import re
 import subprocess
@@ -23,6 +24,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
@@ -541,10 +543,11 @@ class PathRoutingStructure(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         stale = "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."
         self.assertNotIn(stale, text)
-        self.assertEqual(
-            text.count("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."),
-            13,
-        )
+        guard = "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && "
+        # The session-only jobs read `(session_runner || gui_runner)`, the rest one output.
+        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 9)
+        self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
+                                    "needs.macos-placement.outputs.gui_runner)"), 4)
         self.assertIn("bot attempt 3 is the measured Blacksmith overflow", text)
         self.assertIn("bot attempt 3\n# drops the stale placement output and takes the Blacksmith fallback", text)
 
@@ -1064,6 +1067,123 @@ class FastTierRunner(unittest.TestCase):
         # No env value mirrors runs-on with the old route.
         for value in (job.get("env") or {}).values():
             self.assertNotIn("CI_SIDE_LANE_RUNNER", str(value))
+
+
+class _UnsetIsEmpty(dict):
+    def __missing__(self, key):
+        return ""
+
+
+def evaluate(expression: str, context: dict):
+    """Evaluate a job `if:` or `runs-on:` against literal context values.
+
+    Covers the subset of GitHub's expression syntax this workflow uses: `&&`, `||`, `!`,
+    `==`, `!=`, `<=`, contains(), startsWith(), fromJSON() and `!cancelled()` (true: the
+    run was not cancelled). A context name the test does not set reads as '' (unset).
+    """
+    text = expression.strip()
+    if text.startswith("${{"):
+        text = text[3:].rsplit("}}", 1)[0]
+    text = text.replace("!cancelled()", "True")
+    text = re.sub(r"\b(?:github|needs|inputs|vars)\.[A-Za-z0-9_.*-]+",
+                  lambda match: f"_ctx[{match.group(0)!r}]", text)
+    text = text.replace("&&", " and ").replace("||", " or ")
+    text = re.sub(r"!(?!=)", " not ", text)
+    text = re.sub(r"(?<!')\btrue\b(?!')", "True", text)
+    names = {
+        "_ctx": _UnsetIsEmpty(context),
+        "contains": lambda haystack, needle: needle in haystack,
+        "startsWith": lambda value, prefix: str(value).startswith(prefix),
+        "fromJSON": json.loads,
+    }
+    return eval(text, {"__builtins__": {}}, names)  # noqa: S307 - this repository's workflow, not input
+
+
+class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
+    """A PR that changes any CmuxNext package Swift file runs the Release compile; a web-only PR does not.
+
+    #20543 left ordinary PRs only the Debug fast tier. A Release-only swift-frontend crash
+    (EarlyPerfInliner on a main-actor generic class's isolated deinit, cx-ebm.59.5,
+    PageCallDeadline.Once) then reached feat-cmux-next through a PR that changed CmuxNext
+    Swift sources: Debug `swift build` cannot see an optimizer crash. Fixed in #20876.
+    """
+
+    def job(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile"]
+
+    def context(self, changed: list[str], *, event: str = "pull_request", labels: tuple[str, ...] = ()) -> dict:
+        from cmux_next_route import outputs, route
+
+        routed = outputs(route(ROOT, event, changed, set(labels)))
+        context = {f"needs.path_route.outputs.{key}": value for key, value in routed.items()}
+        context.update({
+            "github.event_name": event,
+            "github.ref": "refs/pull/1/merge" if event == "pull_request" else "refs/heads/feat-cmux-next",
+            "github.repository": "manaflow-ai/cmux",
+            "github.repository_owner": "manaflow-ai",
+            "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+            "github.event.pull_request.labels.*.name": list(labels),
+            "github.run_attempt": 1,
+            "github.triggering_actor": "someone",
+            "needs.push-head-preflight.outputs.current": "true",
+            # An ordinary PR skips macos-placement (full-ci gated), so its outputs are empty.
+            "needs.macos-placement.outputs.runner": "",
+            "vars.CI_PR_POOL_OWNED": "1",
+            "vars.CI_SIDE_LANE_RUNNER": "shared-side-route",
+            "vars.CI_NEXT_PROMOTE_POOL": "reserved-promotion-runner",
+            "vars.MACOS_RUNNER_26": "hosted-macos",
+        })
+        return context
+
+    def runs(self, context: dict) -> bool:
+        return bool(evaluate(self.job()["if"], context))
+
+    def test_a_cmuxnext_swift_pr_runs_the_release_compile_on_the_shared_route(self):
+        context = self.context(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"])
+        self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "true")
+        self.assertTrue(self.runs(context))
+        # Never the reserved promotion runner on a PR, with macos-placement skipped.
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "shared-side-route")
+        self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], context), "shared-side-route")
+
+    def test_the_cx_ebm_59_5_file_mix_runs_the_release_compile(self):
+        # 67ab9281307a: two CmuxNext Sources files and a proof script. The script made
+        # swift_canary false, so a swift_canary gate would not have run this job.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.assertEqual(jobs["path_route"]["outputs"].get("cmuxnext_swift"),
+                         "${{ steps.route.outputs.cmuxnext_swift }}")
+        for changed in (
+            ["Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefProfilePageRelay.swift",
+             "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/PageCallDeadline.swift",
+             "scripts/cmux-next/chief-create-click-proof.py"],
+            ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift",
+             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/WorkspaceSpawnFirstTabTests.swift"],
+        ):
+            with self.subTest(changed=changed):
+                context = self.context(changed)
+                self.assertEqual(context["needs.path_route.outputs.swift_canary"], "false")
+                self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "true")
+                self.assertTrue(self.runs(context))
+                self.assertEqual(evaluate(self.job()["runs-on"], context), "shared-side-route")
+
+    def test_a_web_only_pr_skips_the_release_compile(self):
+        for changed in (["web/app/page.tsx"], ["webviews/src/app/Thing.tsx"]):
+            with self.subTest(changed=changed):
+                context = self.context(changed)
+                self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "false")
+                self.assertFalse(self.runs(context))
+
+    def test_a_native_pr_without_cmuxnext_swift_keeps_the_full_ci_cadence(self):
+        context = self.context(["App/Info.plist"])
+        self.assertEqual(context["needs.path_route.outputs.native"], "true")
+        self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "false")
+        self.assertFalse(self.runs(context))
+        self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",))))
+
+    def test_base_pushes_still_run_it_on_the_promotion_runner(self):
+        context = self.context([], event="push")
+        self.assertTrue(self.runs(context))
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "reserved-promotion-runner")
 
 if __name__ == "__main__":
     unittest.main()

@@ -9883,12 +9883,23 @@
       "nullable": false,
       "default": false,
       "since": 7
+     },
+     "expect_foreground": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "send-expect-foreground-v1"
      }
     },
     "additional_properties": false,
     "constraints": [
      "When both are present, UTF-8 text bytes precede decoded bytes.",
-     "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write."
+     "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
+     "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written."
     ]
    },
    "result": {
@@ -29314,6 +29325,44 @@
       "type": {
        "kind": "literal",
        "value": "cloud-session-needed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expires_at": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-host-replica-needed": {
+   "since": 12,
+   "capability": "cloud-host-replica-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-host-replica-needed"
       },
       "presence": "required",
       "nullable": false

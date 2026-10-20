@@ -228,7 +228,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools: break
+             .tabRowTools, .projectIcon: break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -270,6 +270,7 @@ public final class AgentPaneModel {
         case .newTabInputReady(let token): guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }; onNewTabInputReady?(token); return AgentPaneReply.success()
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .setNewTabTemplate(let template): guard let onSetNewTabTemplate else { return Self.unsupported("newTab.setTemplate") }; onSetNewTabTemplate(template); return AgentPaneReply.success()
+        case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
@@ -288,6 +289,13 @@ public final class AgentPaneModel {
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["cwd": await transport.pick(cwd)])
+        case .projectIcon where remoteChat:
+            // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
+            return AgentPaneReply.success()
+        case .projectIcon(let cwd):
+            // Off the main actor, cached by file and modification date; nil keeps the page's letters.
+            guard let src = await AgentPaneProjectIcons.shared.icon(for: cwd) else { return AgentPaneReply.success() }
+            return AgentPaneReply.success(["src": src])
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])

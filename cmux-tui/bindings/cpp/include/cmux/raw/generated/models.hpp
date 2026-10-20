@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85";
+inline constexpr std::string_view kProtocolIrSha256 = "9392cc109f8bc0c8c0f000289c18ad6bb03e6eb1a959c08811fc510fb5f822e0";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -565,6 +565,7 @@ struct CloudConversationLiveEvent;
 struct CloudConversationResyncedEvent;
 struct CloudConversationRunChangedEvent;
 struct CloudConversationTypingEvent;
+struct CloudHostReplicaNeededEvent;
 struct CloudInboxChangedEvent;
 struct CloudInboxResetEvent;
 struct CloudMuxResyncedEvent;
@@ -1730,6 +1731,12 @@ struct CloudConversationUnsubscribeRequest {
 struct CloudHostReplicaClearRequest {
     std::optional<bool> purge{};
     friend bool operator==(const CloudHostReplicaClearRequest&, const CloudHostReplicaClearRequest&) = default;
+};
+
+struct CloudHostReplicaNeededEvent {
+    Field<std::uint64_t> expires_at{};
+    std::string reason{};
+    friend bool operator==(const CloudHostReplicaNeededEvent&, const CloudHostReplicaNeededEvent&) = default;
 };
 
 struct CloudHostReplicaSetRequest {
@@ -4687,6 +4694,7 @@ struct SendKeyRequest {
 
 struct SendRequest {
     Field<Base64> bytes{};
+    Field<std::string> expect_foreground{};
     std::optional<bool> paste{};
     Field<Id> surface{};
     Field<std::string> terminal_id{};
@@ -9127,6 +9135,12 @@ template <>
 struct Codec<CloudConversationTypingEvent> {
     static Result<Json> encode(const CloudConversationTypingEvent& value);
     static Result<CloudConversationTypingEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaNeededEvent> {
+    static Result<Json> encode(const CloudHostReplicaNeededEvent& value);
+    static Result<CloudHostReplicaNeededEvent> decode(const Json& value);
 };
 
 template <>

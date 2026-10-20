@@ -142,7 +142,8 @@ enum HomeConversationStrings {
         }
     }
 
-    /// A refused invite's reason as the user reads it (the owner's codes).
+    /// A refused invite's reason as the user reads it (the owner's codes). A code with no
+    /// sentence of its own reads as the generic failure: a raw code is never shown.
     static func inviteRefusal(_ code: String) -> String {
         switch code {
         case "invite.blocked", "invite.recipient_limited":
@@ -153,7 +154,8 @@ enum HomeConversationStrings {
         case "home.not_configured":
             String(localized: "home.outcome.inviteUnavailable", defaultValue: "Invites aren’t available on this server.",
                    bundle: .module)
-        default: code
+        default:
+            String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .module)
         }
     }
 }
