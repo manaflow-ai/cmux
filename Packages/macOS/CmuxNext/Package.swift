@@ -19,6 +19,7 @@ import PackageDescription
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix); CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
+//   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
@@ -188,6 +189,7 @@ let package = Package(
         .target(
             name: "CmuxNextApp",
             dependencies: [
+                "CmuxNextChiefMemory",
                 "CmuxNextCompat",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
@@ -778,6 +780,22 @@ let package = Package(
             dependencies: ["CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots"],
             swiftSettings: uiSwiftSettings
         ),
+        // The built-in Memory Inspector (plans/cmux-next/memory-inspector-native-DESIGN.md):
+        // one Chief's memory read and changed through a ChiefMemorySource (the app's goes
+        // over its daemon connection); model and SwiftUI view, no daemon or AppKit types.
+        .target(
+            name: "CmuxNextChiefMemory",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources/Localizable.xcstrings"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextChiefMemoryTests",
+            dependencies: ["CmuxNextChiefMemory"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The acpmux watch feed (turn states and lanes) and the sidebar's Lanes item (cx-v9k2f).
         .target(
             name: "CmuxNextAgentLanes",
@@ -1286,6 +1304,8 @@ let package = Package(
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                // UpdateLoadingIndicatorTests feeds Sparkle's update states.
+                .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 // ReduceMotionLoopTests builds the vendored Home typing indicators.
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
                 .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),

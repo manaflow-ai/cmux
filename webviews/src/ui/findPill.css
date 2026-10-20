@@ -148,3 +148,26 @@
   background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 20%, transparent);
   color: var(--agent-accent, var(--cmux-accent));
 }
+
+/* The replace row (the code editor's Replace): the capsule grows into a rounded panel of two rows. */
+.find-pill--replace {
+  flex-direction: column;
+  align-items: stretch;
+  height: auto;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  gap: 4px;
+}
+.find-pill__row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: calc(var(--find-pill-height) - 10px);
+}
+.find-pill__replace .find-pill__field {
+  flex: 1 1 auto;
+}
+.find-pill__toggle {
+  margin-left: -6px;
+  margin-right: 2px;
+}

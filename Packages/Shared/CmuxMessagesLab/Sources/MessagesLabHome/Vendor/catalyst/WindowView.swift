@@ -1189,6 +1189,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case .streamBegin, .streamSet, .streamAppend, .streamEnd: idx.append(max(0, old.conversation.messages.count - 1))
         case let .status(id, _): if let i = index(id) { idx.append(i) }
         case let .cmuxSetAttachment(id, _): if let i = index(id) { idx.append(i) }  // cmux
+        case let .cmuxSetParts(id, _): if let i = index(id) { idx.append(i) }  // cmux
         case let .react(ref, _, _):
             guard let i = index(ref.messageId) else { return nil }
             idx.append(i)

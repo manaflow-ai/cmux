@@ -5,15 +5,21 @@ import Foundation
 /// A check the user asked for shows its progress and result; a scheduled
 /// (background) check shows nothing (Lawrence 2026-10-20). A found update
 /// that waits for a click shows without a check only when the person turned
-/// `updates.downloadAutomatically` off. A staged or installing update is
-/// never this card: the staged update card owns it (UPDATE-CARD).
+/// `updates.downloadAutomatically` off. A staged update is never this card:
+/// the staged update card owns it (UPDATE-CARD), and so does its own
+/// install click.
 nonisolated public enum UpdateCard: Equatable, Sendable {
     /// The user asked to check.
     case checking
-    /// The user asked and a found update downloads.
-    case downloading(progress: Double?)
+    /// The user asked and a found update downloads, then unpacks.
+    case downloading(UpdateTransfer)
     /// Found, not downloaded: Update downloads, installs and relaunches.
     case available(version: String?)
+    /// The user asked (Attempt Update, a check that went on to install):
+    /// the update installs and cmux relaunches. A click on the staged update
+    /// card's Restart to Update keeps that card instead (its button reads
+    /// Installing…).
+    case installing
     /// The result of a check the user asked for.
     case note(UpdateNote)
 }

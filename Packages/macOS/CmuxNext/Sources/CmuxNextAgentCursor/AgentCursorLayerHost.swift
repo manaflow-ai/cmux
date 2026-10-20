@@ -1,4 +1,5 @@
 public import CmuxAgentCursor
+import CmuxNextDesign
 public import QuartzCore
 
 /// Draws agent cursors as CALayers inside one host layer: the window's
@@ -25,6 +26,9 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
     private let color: Coloring
     private let label: Labeling
     private var cursors: [String: AgentCursorLayer] = [:]
+    /// A cursor came, went, showed or hid: the window's tag links may have
+    /// changed (`WindowOverlayHost.agentCursorTagsDidChange`).
+    public var onTagsChange: (() -> Void)?
 
     public init(hostLayer: CALayer, glassLayer: CALayer? = nil, color: @escaping Coloring,
                 label: @escaping Labeling = { AgentCursorSessionLabel(sessionID: $0).text }) {
@@ -58,16 +62,30 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             let cursor = cursor(for: session)
             for layer in cursor.roots { layer.isHidden = false }
             cursor.showsIndicator = false
-            let position = plan.positionAnimation()
-            let rotation = plan.rotationAnimation()
             if let last = plan.samples.last {
                 for layer in cursor.roots { layer.position = CGPoint(x: last.x, y: last.y) }
-                cursor.heading.setValue(last.heading - AgentCursorOverlayModel.restingHeading, forKeyPath: "transform.rotation.z")
+                for layer in cursor.headings {
+                    layer.setValue(last.heading - AgentCursorOverlayModel.restingHeading, forKeyPath: "transform.rotation.z")
+                }
             }
-            rotation.values = rotation.values?.compactMap { ($0 as? Double).map { $0 - AgentCursorOverlayModel.restingHeading } }
-            for layer in cursor.roots { layer.add(position, forKey: "agentCursor.glide") }
-            cursor.heading.add(rotation, forKey: "agentCursor.heading")
-            cursor.armIdleHide(after: plan.duration + Self.idleHideDelay)
+            // The cmux-cua path, played short (user, 2026-10-20: "quick:
+            // short, snappy motion"), through the Motion gate: at once under
+            // Reduce Motion or with animations off.
+            let played = Motion.agentCursorGlideDuration(plan.duration) ?? 0
+            cursor.lastGlideDuration = played
+            if played > 0 {
+                let position = plan.positionAnimation()
+                position.duration = played
+                let rotation = plan.rotationAnimation()
+                rotation.duration = played
+                rotation.values = rotation.values?.compactMap { ($0 as? Double).map { $0 - AgentCursorOverlayModel.restingHeading } }
+                for layer in cursor.roots { layer.add(position, forKey: "agentCursor.glide") }
+                for layer in cursor.headings { layer.add(rotation, forKey: "agentCursor.heading") }
+            } else {
+                for layer in cursor.roots { layer.removeAnimation(forKey: "agentCursor.glide") }
+                for layer in cursor.headings { layer.removeAnimation(forKey: "agentCursor.heading") }
+            }
+            cursor.armIdleHide(after: played + Self.idleHideDelay)
         case let .pulse(session):
             // A pulse follows its action's place or glide, which armed the idle hide.
             cursor(for: session).pulse()
@@ -79,7 +97,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             cursor.armIdleHide(after: Self.idleHideDelay)
         case let .indicate(session, anchor):
             let cursor = cursor(for: session)
-            cursor.heading.removeAnimation(forKey: "agentCursor.heading")
+            for layer in cursor.headings { layer.removeAnimation(forKey: "agentCursor.heading") }
             for layer in cursor.roots {
                 layer.removeAnimation(forKey: "agentCursor.glide")
                 layer.position = anchor
@@ -96,6 +114,37 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
         case let .remove(session):
             for layer in cursors.removeValue(forKey: session)?.roots ?? [] { layer.removeFromSuperlayer() }
         }
+        switch command {
+        case .place, .glide, .indicate, .hide, .remove: onTagsChange?()
+        case .pulse, .caption, .setPaused: break
+        }
+    }
+
+    /// The name tags a person can click now, by session, in the host
+    /// layer's coordinates: shown cursors with a tag, not faded out after
+    /// their agent went idle. A gliding tag is where it is drawn now.
+    public func tagSpots() -> [AgentCursorTagSpot] {
+        cursors.keys.sorted().compactMap { session in
+            guard let cursor = cursors[session], cursor.hasName, !cursor.root.isHidden, !cursor.showsIndicator,
+                  !cursor.nameTag.isHidden else { return nil }
+            var position = cursor.root.position
+            if cursor.root.animation(forKey: "agentCursor.glide") != nil, let shown = cursor.root.presentation() {
+                position = shown.position
+            }
+            if cursor.root.animation(forKey: AgentCursorLayer.idleHideKey) != nil, let shown = cursor.root.presentation(),
+               shown.opacity < 0.05 {
+                return nil
+            }
+            return AgentCursorTagSpot(session: session, frame: cursor.nameTag.frame.offsetBy(dx: position.x, dy: position.y))
+        }
+    }
+
+    /// Highlights the tag of `session` (the pointer is on it); nil highlights none.
+    public func highlightTag(of session: String?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (key, cursor) in cursors { cursor.isTagHighlighted = key == session }
+        CATransaction.commit()
     }
 
     private func cursor(for session: String) -> AgentCursorLayer {

@@ -87,6 +87,15 @@ enum AccountsStrings {
     // Errors
     static var errorNotSignedIn: String { text("accounts.error.notSignedIn", "Sign in to cmux first.") }
     static var errorTimedOut: String { text("accounts.error.timedOut", "CodeRouter did not answer in time. Try again.") }
+    static var errorBusy: String {
+        text("accounts.error.busy", "Another action on this account is still running. Try again when it finishes.")
+    }
+    static var errorStaleList: String {
+        text("accounts.error.staleList", "The account list changed. Refresh, then try again.")
+    }
+    static func errorProviderSignInFirst(_ provider: String) -> String {
+        String(format: text("accounts.error.providerSignInFirst", "Sign in to %@ first, then try again."), provider)
+    }
     static var errorNeedsPaste: String { text("accounts.error.needsPaste", "Paste a key or token first.") }
     static var errorInvalidFormat: String { text("accounts.error.invalidFormat", "That is not a valid key or token for this provider.") }
     static var errorIncomplete: String { text("accounts.error.incomplete", "This sign-in is incomplete. Re-authenticate, then try again.") }
@@ -95,6 +104,18 @@ enum AccountsStrings {
     }
     static func errorFailed(_ detail: String) -> String {
         String(format: text("accounts.error.failed", "Failed: %@"), detail)
+    }
+
+    /// Why Connect cannot run for `row`, naming what to fix, or nil when it can.
+    static func connectRefusal(_ row: AccountRowState) -> String? {
+        guard row.isLinkable else { return unsupported }
+        guard row.cmuxSignedIn else { return errorNotSignedIn }
+        if let problem = row.codeRouterProblem { return problem }
+        guard !row.canConnect else { return nil }
+        if row.provider.codeRouterLink == .bedrockKeys {
+            return errorMissingEnvironment(AccountRowState.bedrockKeyNames.joined(separator: ", "))
+        }
+        return errorProviderSignInFirst(row.provider.displayName)
     }
 
     /// User-facing text for an operation failure. Never includes a secret:

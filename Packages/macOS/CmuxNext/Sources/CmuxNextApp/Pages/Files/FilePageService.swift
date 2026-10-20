@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
@@ -322,6 +323,15 @@ final class FilePageService: InternalPageProvider {
         if kind == .markdown { page.contextMenuEditor = Self.tableMenu(provider: provider, page: page) }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
+        // Selected text: Copy, then Send to Chief and Send to… (the terminal's and pages' rows).
+        let registry = services.registry
+        PageSelectionRows(rows: (["home.sendSelectionToChief", "home.sendSelectionTo"] as [ActionID]).compactMap { id in
+            registry.title(for: id).map { title in
+                (title: title, run: { text in
+                    _ = registry.perform(id, invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
+                })
+            }
+        }).install(on: page)
         tab.page = page
         tab.provider = provider
         tab.host = host
