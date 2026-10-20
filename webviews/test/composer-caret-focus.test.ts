@@ -363,7 +363,9 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
           shadow.match(
             /(?:rgba?|color)\([^)]*\)\s*0px 1px 0px(?: 0px)?\s*inset|inset\s*0px 1px 0px(?: 0px)?\s*(?:rgba?|color)\([^)]*\)/,
           )?.[0];
-        expect(topLit(focused), "the top-lit rim brightens").not.toBe(topLit(rest));
+        // Headless WebKit reports Reduce Transparency, so it draws no rim layer (composerStates.css);
+        // there the ring alone shows focus.
+        if (topLit(rest)) expect(topLit(focused), "the top-lit rim brightens").not.toBe(topLit(rest));
         expect(background, "in the background the glass rim rests").toBe(rest);
       });
   }
