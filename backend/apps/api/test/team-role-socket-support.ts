@@ -6,7 +6,7 @@ import { inDO, worker } from "./team-ssh-support.ts"
 /** Native wire authentication and a real owner subscription, without a polling wait. */
 export const listenToTeam = (token: string, team: string): Promise<WebSocket> => listenToOwnerWire(token, team, "team")
 
-export const listenToOwnerWire = async (token: string, team: string, owner: "team" | "cloud"): Promise<WebSocket> => {
+export const listenToOwnerWire = async (token: string, team: string, owner: "user" | "team" | "cloud"): Promise<WebSocket> => {
   const response = await worker.fetch(`https://api.test/v1/wire/${owner}`, {
     headers: { Upgrade: "websocket", Authorization: `Bearer ${token}`,
       "Sec-WebSocket-Protocol": `cmux.wire.v1, team.${team}`, "x-cmux-client-version": "2.4.0" }
