@@ -2,23 +2,22 @@
 import AppKit
 
 /// Keeps the bundled command-line client out of macOS application surfaces.
-enum CLIApplicationPolicy {
-    static func apply(
-        setActivationPolicy: (NSApplication.ActivationPolicy) -> Bool
-    ) -> Bool {
-        setActivationPolicy(.prohibited)
+@MainActor
+struct CLIApplicationPolicy {
+    private let setActivationPolicy: (NSApplication.ActivationPolicy) -> Bool
+
+    init(setActivationPolicy: @escaping (NSApplication.ActivationPolicy) -> Bool) {
+        self.setActivationPolicy = setActivationPolicy
     }
 
-    @MainActor
-    static func apply() -> Bool {
-        apply(application: .shared)
-    }
-
-    @MainActor
-    static func apply(application: NSApplication) -> Bool {
-        apply { policy in
+    init(application: NSApplication) {
+        self.init { policy in
             application.setActivationPolicy(policy)
         }
+    }
+
+    func apply() -> Bool {
+        setActivationPolicy(.prohibited)
     }
 }
 #endif
