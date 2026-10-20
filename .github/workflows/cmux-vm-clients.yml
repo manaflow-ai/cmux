@@ -10,8 +10,7 @@
 name: cmux VM clients
 
 on:
-  # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10);
-  # dispatch this workflow on a ref to run it.
+  # These jobs only check generated clients; they never deploy the Worker.
   workflow_dispatch:
   pull_request:
     paths:
@@ -24,7 +23,7 @@ on:
   push:
     # feat-cmux-next too: cmux VM lands there first, and without this run an
     # openapi.json change left the generated clients stale unnoticed (cx-b4h.4).
-    branches: [main]
+    branches: [main, feat-cmux-next, "codex/vm-api-*"]
     paths:
       - workers/cmux-vm/openapi.json
       - workers/cmux-vm/cli/**

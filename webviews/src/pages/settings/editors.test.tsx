@@ -35,6 +35,7 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "color":
       return has('input[type="color"]') && has("input.hex") ? null : "no swatch + hex field";
     case "theme":
+      return has("[data-theme-picker]") ? null : "no theme picker";
     case "font_family":
       return has("button.domain-button") ? null : "no searchable list";
     case "sound":
@@ -72,6 +73,12 @@ describe("editors", () => {
         // The Theme section draws appearance.theme as its theme picker.
         if (row.key === "appearance.theme" || row.key === "appearance.appTheme") {
           if (!page.container.querySelector("[data-theme-picker]")) failures.push(`${row.key}: no theme picker`);
+          continue;
+        }
+        // The Theme section draws appearance.accent as its swatch popup.
+        if (row.key === "appearance.accent") {
+          if (!page.container.querySelector('[data-card="theme"] [data-accent-picker]'))
+            failures.push(`${row.key}: no accent picker`);
           continue;
         }
         // Change Background…'s art picker draws appearance.background as its tiles.

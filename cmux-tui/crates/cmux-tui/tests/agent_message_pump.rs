@@ -489,4 +489,86 @@ mod agent_message_pump {
         daemon.withdraw_answers("b", "too_late");
         run(0, "too_late");
     }
+
+    #[test]
+    fn an_unsettled_delivery_to_a_deleted_session_is_unsent() {
+        let (daemon, a, (_, alpha)) = two_agents_in("unsend-deleted");
+        daemon.place_session("slow", &alpha);
+        daemon.silent("slow", 1000);
+        let message = id(&daemon.sent(Some(&a), to("acp:slow", "are you there")));
+        let waited = daemon.wait_for(&message, "a noted attempt", |m| {
+            delivery(m, "acp:slow")["attempts"] != "0" || state(m, "acp:slow") != "queued"
+        });
+        assert_eq!(state(&waited, "acp:slow"), "queued", "{waited}");
+        // The session is deleted; the pump finds no such session and keeps trying.
+        daemon.delete_session("slow");
+        let before = daemon.lookups_of("slow");
+        let deadline = Instant::now() + Duration::from_secs(40);
+        while daemon.lookups_of("slow") == before {
+            assert!(Instant::now() < deadline, "the pump never looked for the deleted session");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        // No running session can take a late prompt: it never reached the agent.
+        let reply = unsend(&daemon, Some(&a), &message);
+        assert_eq!(outcome(&reply, "acp:slow"), "unsent", "{reply}");
+        assert_eq!(reply["result"]["value"]["outcome"], "unsent", "{reply}");
+        assert_eq!(state(&reply["result"]["value"]["message"], "acp:slow"), "unsent", "{reply}");
+        assert!(!daemon.withdrawals().is_empty(), "acpmux was never asked");
+        // A later pass (a send wakes the pump) no longer looks for it.
+        let after = daemon.lookups_of("slow");
+        delivered_to_b(&daemon, &a, "after the unsend");
+        assert_eq!(daemon.lookups_of("slow"), after, "the pump still retries an unsent delivery");
+    }
+
+    #[test]
+    fn a_blank_acpmux_refusal_reason_reads_withdraw_refused() {
+        let (daemon, a) = two_agents("unsend-blank-reason");
+        let message = id(&delivered_to_b(&daemon, &a, "blank"));
+        daemon.withdraw_answers("b", "refuse:   ");
+        let reply = unsend(&daemon, Some(&a), &message);
+        let refused = entry(&reply, "acp:b");
+        assert_eq!(refused["outcome"], "failed", "{reply}");
+        assert_eq!(refused["error"]["reason"], "withdraw_refused", "{reply}");
+        assert_eq!(refused["error"]["acpmux_reason"], "withdraw.refused", "{reply}");
+    }
+
+    #[test]
+    fn an_unsettled_delivery_to_a_peer_session_is_never_called_unsent() {
+        let (daemon, a, (_, alpha)) = two_agents_in("unsend-peer");
+        // A peer daemon runs `far`: acpmux forwards its prompts there, but a
+        // withdraw is answered here, where no session matches.
+        daemon.place_peer_session("far", &alpha);
+        daemon.silent("far", 1000);
+        let message = id(&daemon.sent(Some(&a), to("acp:far", "over there")));
+        let waited = daemon.wait_for(&message, "a noted attempt", |m| {
+            delivery(m, "acp:far")["attempts"] != "0" || state(m, "acp:far") != "queued"
+        });
+        assert_eq!(state(&waited, "acp:far"), "queued", "{waited}");
+        // The peer's session may still run the hand-over: not unsent.
+        let reply = unsend(&daemon, Some(&a), &message);
+        let pending = entry(&reply, "acp:far");
+        assert_eq!(pending["outcome"], "failed", "{reply}");
+        assert_eq!(pending["error"]["reason"], "acpmux_unavailable", "{reply}");
+        assert_eq!(state(&reply["result"]["value"]["message"], "acp:far"), "queued", "{reply}");
+        assert!(!daemon.withdrawals().is_empty(), "acpmux was never asked");
+    }
+
+    #[test]
+    fn an_unsettled_delivery_to_an_unreachable_peer_is_never_called_unsent() {
+        let (daemon, a, (_, alpha)) = two_agents_in("unsend-peer-down");
+        // A peer daemon runs `far` and stops answering once the prompt went
+        // out: acpmux cannot say whether the peer holds it.
+        daemon.place_unreachable_peer_session("far", &alpha);
+        daemon.silent("far", 1000);
+        let message = id(&daemon.sent(Some(&a), to("acp:far", "over there")));
+        let waited = daemon.wait_for(&message, "a noted attempt", |m| {
+            delivery(m, "acp:far")["attempts"] != "0" || state(m, "acp:far") != "queued"
+        });
+        assert_eq!(state(&waited, "acp:far"), "queued", "{waited}");
+        let reply = unsend(&daemon, Some(&a), &message);
+        let pending = entry(&reply, "acp:far");
+        assert_eq!(pending["outcome"], "failed", "{reply}");
+        assert_eq!(pending["error"]["reason"], "acpmux_unavailable", "{reply}");
+        assert_eq!(state(&reply["result"]["value"]["message"], "acp:far"), "queued", "{reply}");
+    }
 }
