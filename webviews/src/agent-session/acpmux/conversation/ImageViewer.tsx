@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Dialog } from "../../../ui/Dialog";
+import { keyedIconProps } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
 import { postNative } from "../native";
 import type { ChatImage } from "./chatImages";
@@ -285,8 +286,7 @@ export function ImageViewer({
             type="button"
             className="acpmux-image-viewer-action"
             ref={close}
-            aria-label={t("image.close")}
-            title={t("image.close")}
+            {...keyedIconProps(t("image.close"), "escape")}
             onClick={onClose}
           >
             <Close />
@@ -323,8 +323,7 @@ export function ImageViewer({
             <button
               type="button"
               className="acpmux-image-viewer-step is-previous"
-              aria-label={t("image.previous")}
-              title={t("image.previous")}
+              {...keyedIconProps(t("image.previous"), "left")}
               onClick={() => step(-1)}
             >
               <ChevronLeft size={20} />
@@ -332,8 +331,7 @@ export function ImageViewer({
             <button
               type="button"
               className="acpmux-image-viewer-step is-next"
-              aria-label={t("image.next")}
-              title={t("image.next")}
+              {...keyedIconProps(t("image.next"), "right")}
               onClick={() => step(1)}
             >
               <ChevronRight size={20} />

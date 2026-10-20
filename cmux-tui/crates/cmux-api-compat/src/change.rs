@@ -15,7 +15,8 @@ use crate::pointer::{self, WILDCARD};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Change {
-    /// The member at `path` is now called `to` (same parent object).
+    /// The member at `path` is now called `to` (same parent object). It
+    /// replaces any member already called `to`.
     Rename { path: String, to: String },
     /// The value at `from` now lives at `path`. Missing parents of `path` are created.
     Move { from: String, path: String },
@@ -353,11 +354,17 @@ impl Change {
 /// streaming rewriter must produce exactly this result; tests check it.
 pub(crate) fn apply_op(value: &mut Value, op: &Op) {
     match op {
+        // A rename replaces its target, even when the source is missing, so
+        // the streaming trie never has to look ahead for the source.
         Op::Rename { parent, from, to } => for_each_mut(value, parent, &mut |v| {
             if let Value::Object(map) = v
-                && let Some(inner) = map.remove(from)
+                && from != to
             {
-                map.insert(to.clone(), inner);
+                let moved = map.remove(from);
+                map.remove(to);
+                if let Some(inner) = moved {
+                    map.insert(to.clone(), inner);
+                }
             }
         }),
         Op::Delete { parent, key } => for_each_mut(value, parent, &mut |v| {

@@ -76,7 +76,8 @@ shows none (no key presses it).
 | Home `FormDialog` sheets: New Message, Invite, New/Edit Chief, Archive Chief, Unavailable notice | Cancel ⎋, primary ↩; Chief picture buttons no key |
 | Cloud `CreateSheet` | Cancel ⎋, Create ↩ |
 | `PathPicker` | Cancel ⎋; Choose This Folder no key (Return chooses the highlighted row; its footer hint already says ↩) |
-| Home attachment lightbox | Close ⎋ |
+| Home attachment lightbox | Close ⎋; Previous ←, Next → (icon buttons) |
+| Image viewers: acpmux `ImageViewer`, `GalleryDialog`, `ReplyMedia` | icon buttons through `keyedIconProps`: Close ⎋, Previous ←, Next → in the tooltip and `aria-keyshortcuts`; Copy has no key |
 
 ### Not changed, with reason
 
@@ -84,9 +85,6 @@ shows none (no key presses it).
   already follow the macOS Return/Escape rules and cannot carry custom hints.
 - Browser permission prompt bar (`PromptBarView`): a non-modal bar over the page; Return and
   Escape belong to the page, so the bar binds none (its text fields answer Return/Escape).
-- Icon-only viewer controls (acpmux `ImageViewer`, `GalleryDialog`, `ReplyMedia`): image
-  viewers, not decisions; Escape closes them and the close button has a tooltip. Follow-up:
-  add `aria-keyshortcuts` and a tooltip keycap.
 - acpmux `AddProjectPanel`: already shows a key legend in its footer (⌘↩, ↑↓, ↩, ⌥←, Esc).
 - Inline hints and chips (`TabOverflowHintView`, `HomeFirstRunSwitchCard`,
   `TerminalSizedForChip`, `BrowserFitFrameView`, Feed approve controls): not dialogs; giving
