@@ -1,53 +1,4 @@
-import CmuxNextCompat
 public import Foundation
-
-/// One GET to one checked address.
-public nonisolated struct RemoteFetchRequest: Equatable, Sendable {
-    public let address: RemoteAddress
-    /// The URL's host: the TLS server name and the `Host` header.
-    public let host: String
-    public let port: Int
-    /// The path and query.
-    public let target: String
-    public let headers: [String: String]
-
-    public init(address: RemoteAddress, host: String, port: Int, target: String, headers: [String: String]) {
-        self.address = address
-        self.host = host
-        self.port = port
-        self.target = target
-        self.headers = headers
-    }
-}
-
-public nonisolated struct RemoteFetchResponse: Equatable, Sendable {
-    public let status: Int
-    /// Lowercased names.
-    public let headers: [String: String]
-    public let body: Data
-
-    public init(status: Int, headers: [String: String], body: Data) {
-        self.status = status
-        self.headers = headers
-        self.body = body
-    }
-}
-
-/// Sends one request to its address and returns the answer, failing past `maximumBytes` of body.
-/// It never resolves a name: the address is the one the fetch checked.
-public protocol RemoteFetchTransport: Sendable {
-    func send(_ request: RemoteFetchRequest, maximumBytes: Int) async throws -> RemoteFetchResponse
-}
-
-/// Why a guarded fetch gave no body.
-public nonisolated enum RemoteFetchFailure: Error, Equatable, Sendable {
-    /// The URL, a name or an address is not allowed.
-    case refused
-    /// The network, TLS, the reply or the deadline failed.
-    case failed
-    /// The body is over the cap.
-    case tooLarge
-}
 
 /// A host fetch for page content whose URL is untrusted (markdown remote images; agent pane reply
 /// images and media). Every hop: https only, no URL credentials, no `localhost`, `.local` or
@@ -199,46 +150,5 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
             "Host": hostHeader, "Accept": accept, "Accept-Encoding": RemoteFetchContentDecoding.accepted,
             "Accept-Language": Self.acceptLanguage, "Connection": "close", "User-Agent": Self.userAgent,
         ])
-    }
-}
-
-/// Resumes the caller once, with the fetch's result or the deadline's, and cancels the loser.
-private nonisolated final class DeadlineRace: Sendable {
-    private struct State {
-        var continuation: CheckedContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, Never>?
-        var result: Result<RemoteFetchResponse, RemoteFetchFailure>?
-        var tasks: [Task<Void, Never>] = []
-    }
-
-    // carve-out: a cancel handler and two tasks race to resume one continuation; the lock keeps
-    // that exactly-once and synchronous (an actor hop could not run inside onCancel).
-    private let state = Mutex(State())
-
-    func arm(_ continuation: CheckedContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, Never>) {
-        let early = state.withLock { state -> Result<RemoteFetchResponse, RemoteFetchFailure>? in
-            if let result = state.result { return result }
-            state.continuation = continuation
-            return nil
-        }
-        if let early { continuation.resume(returning: early) }
-    }
-
-    func own(_ tasks: Task<Void, Never>...) {
-        let done = state.withLock { state -> Bool in
-            state.tasks += tasks
-            return state.result != nil
-        }
-        if done { tasks.forEach { $0.cancel() } }
-    }
-
-    func finish(_ result: Result<RemoteFetchResponse, RemoteFetchFailure>) {
-        let (continuation, tasks) = state.withLock { state -> (CheckedContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, Never>?, [Task<Void, Never>]) in
-            guard state.result == nil else { return (nil, []) }
-            state.result = result
-            defer { state.continuation = nil }
-            return (state.continuation, state.tasks)
-        }
-        tasks.forEach { $0.cancel() }
-        continuation?.resume(returning: result)
     }
 }

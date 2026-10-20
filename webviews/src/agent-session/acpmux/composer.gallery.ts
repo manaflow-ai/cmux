@@ -1261,7 +1261,12 @@ export default agentPaneEntry({
             "Filtering the model catalog reflows rows inside the fixed-height popup; the transcript and composer anchors must remain fixed.",
         },
       },
-      snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
+      // A chat before its first send: a started chat's model menu has no harness rail, so no
+      // Starred tab (75bc9406caf7, #22226).
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
       play: async (ctx) => {
         const { translate } = await import("./i18n");
         const starred = { role: "option", name: translate("picker.starred") };

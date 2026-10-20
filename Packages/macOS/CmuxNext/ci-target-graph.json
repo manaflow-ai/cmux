@@ -116,6 +116,7 @@
         "CmuxNextDictation",
         "CmuxNextErrorJournal",
         "CmuxNextPages",
+        "CmuxNextRemoteFetch",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -134,6 +135,7 @@
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
+        "CmuxNextRemoteFetch",
         "CmuxNextSettings"
       ],
       "packages": [],
@@ -172,6 +174,18 @@
         "CmuxAgentQuestion"
       ]
     },
+    "CmuxNextAgentUpdates": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
     "CmuxNextApp": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp",
@@ -186,6 +200,7 @@
         "CmuxNextAgentPane",
         "CmuxNextAgentPermissions",
         "CmuxNextAgentQuestion",
+        "CmuxNextAgentUpdates",
         "CmuxNextApps",
         "CmuxNextBookmarks",
         "CmuxNextBridge",
@@ -239,6 +254,7 @@
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
+        "CmuxNextRemoteFetch",
         "CmuxNextRemoteLocalhost",
         "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
@@ -288,6 +304,7 @@
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextAgentLanes",
+        "CmuxNextAgentUpdates",
         "CmuxNextApp",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
@@ -401,6 +418,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextRemoteFetch",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -456,7 +474,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests",
       "targets": [
-        "CmuxNextBrowser"
+        "CmuxNextBrowser",
+        "CmuxNextRemoteFetch"
       ],
       "packages": [],
       "reads": [
@@ -1163,6 +1182,14 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextRemoteView"
+      ],
+      "packages": []
+    },
+    "CmuxNextRemoteFetch": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteFetch",
+      "targets": [
+        "CmuxNextCompat"
       ],
       "packages": []
     },

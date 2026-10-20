@@ -124,7 +124,13 @@ struct PageFactory {
             openTerminal: { [weak services] line in
                 guard let pane = services?.windows.active?.focusedPane else { return }
                 pane.newTerminalTab(typing: line + "\r")
-            }
+            },
+            runUpdate: { [weak services] params, context in
+                guard let services, let updates = services.agentHarnesses.updates else { throw PageError.closed }
+                return try await updates.runPage(params, context: context, registry: services.registry)
+            },
+            updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
+            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() }
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }

@@ -69,8 +69,16 @@ public final class HomeChiefSettingsView: NSView {
     var source: any HomeChiefEngineSource
     /// The engine the pickers last showed (the brain's answer), which a refused pick shows again.
     var shownEngine: HomeChiefSnapshot?
-    /// Renames the Chief conversation (the daemon's set-title op).
-    public var onRename: (String) -> Void = { _ in }
+    /// The note says why the person's own change did not take (a pick, a picture): it stays
+    /// through refreshes until their next change or another Chief.
+    var changeFailed = false
+    /// The harness whose backend check is running (`pickHarness`); nil when none is.
+    var checkingHarness: String?
+    /// Runs harness `id`'s backend check on this Mac's acpmux (`_acpmux/harness/doctor`, one real
+    /// hello turn); true when it passed. The app sets it; unset, every harness passes.
+    public var checkHarness: @MainActor (String) async -> Bool = { _ in true }
+    /// Renames the Chief conversation (the daemon's set-title op); false when it did not take.
+    public var onRename: @MainActor (String) async -> Bool = { _ in true }
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
     /// registry for a Chief of this Mac (set by the header view); nil writes this panel's
     /// mux home's files (a cloud Chief).
@@ -181,6 +189,8 @@ public final class HomeChiefSettingsView: NSView {
     public func use(_ source: any HomeChiefEngineSource) -> Task<Void, Never> {
         self.source = source
         shownEngine = nil
+        changeFailed = false
+        checkingHarness = nil
         // A named Chief's panel keeps its own files (cx-327wl), never the default's.
         if let files = (source as? HomeChiefLocalEngine)?.files ?? (source as? HomeChiefRemoteEngine)?.files, files.muxHome != muxHome {
             muxHome = files.muxHome
@@ -230,10 +240,30 @@ public final class HomeChiefSettingsView: NSView {
 
     /// Return, or the end of an edit: a new, non-empty name renames the Chief.
     @objc func renamed() {
+        commitName()
+    }
+
+    /// Renames the Chief to the field's new, non-empty name; nil when the name is no change. A
+    /// rename the daemon refuses (or with no daemon to send it to) shows the kept name again and
+    /// says so, unless a newer name came since. The Home reads the title again on every
+    /// transcript or typing change (`setName`), so the kept name arriving meanwhile is no newer name.
+    @discardableResult
+    func commitName() -> Task<Void, Never>? {
         let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name != shownName else { return }
+        // A blank name renames nothing, so the field shows the name the Chief keeps; a kept
+        // name shows as it is saved, without the spaces around it.
+        nameField.stringValue = name.isEmpty ? shownName : name
+        guard !name.isEmpty, name != shownName else { return nil }
+        let kept = shownName
         shownName = name
-        onRename(name)
+        // task-owner: one rename; ends with the daemon's answer
+        return Task { [weak self] in
+            guard let self, !(await onRename(name)), shownName == name || shownName == kept else { return }
+            shownName = kept
+            // Still in the field after Return: it shows the kept name too, unless the person typed on.
+            if nameField.currentEditor() == nil || nameField.stringValue == name { nameField.stringValue = kept }
+            note(HomeEngineStrings.renameRefused, kept: true)
+        }
     }
 
     // MARK: Picture
@@ -269,11 +299,14 @@ public final class HomeChiefSettingsView: NSView {
     /// Makes `source` the shown Chief's picture (nil: the default again) through
     /// ``pictureStore`` (the daemon's registry for a Chief of this Mac, else its files),
     /// then has the header (and this panel's avatar) read it; a picture that could not be
-    /// used says so.
-    func usePicture(_ source: URL?) {
+    /// used says so, with a beep, since the open panel closed the card (the note waits for its
+    /// next open).
+    @discardableResult
+    func usePicture(_ source: URL?) -> Task<Void, Never> {
         let store = pictureStore ?? (avatars: HomeChiefAvatars(muxHome: muxHome), chief: HomeChiefAvatars.defaultChief)
+        changeFailed = false
         // task-owner: one picture write (registry or files), then the header reads it
-        Task { [weak self] in
+        return Task { [weak self] in
             let written: Bool
             do {
                 if let source { try await store.avatars.setPicture(from: source, chief: store.chief) } else {
@@ -284,10 +317,14 @@ public final class HomeChiefSettingsView: NSView {
                 written = false
             }
             guard let self else { return }
-            failure.stringValue = written ? "" : HomeEngineStrings.pictureUnreadable
-            failure.isHidden = written
-            onResize()
-            if written { onAvatar() }
+            if written {
+                failure.isHidden = true
+                onResize()
+                onAvatar()
+            } else {
+                NSSound.beep()
+                note(HomeEngineStrings.pictureUnreadable, kept: true)
+            }
         }
     }
 
