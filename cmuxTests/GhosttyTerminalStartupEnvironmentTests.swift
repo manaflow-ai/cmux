@@ -54,10 +54,44 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(environment["TERM"], TerminalSurface.managedTerminalType)
         XCTAssertEqual(environment["COLORTERM"], TerminalSurface.managedColorTerm)
         XCTAssertEqual(environment["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        XCTAssertNil(environment["TERM_PROGRAM_VERSION"])
         XCTAssertEqual(environment["CUSTOM_FLAG"], "1")
         XCTAssertTrue(protectedKeys.contains("TERM"))
         XCTAssertTrue(protectedKeys.contains("COLORTERM"))
         XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM"))
+    }
+
+    func testManagedTerminalIdentityHidesEmbeddedGhosttyVersionForCopyOnSelectCompatibility() {
+        var environment = [
+            "TERM_PROGRAM_VERSION": "1.3.2-HEAD-+324c027",
+            "TERM_PROGRAM": "Apple_Terminal",
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        XCTAssertEqual(environment["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        XCTAssertNil(environment["TERM_PROGRAM_VERSION"])
+        XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM_VERSION"))
+    }
+
+    func testManagedTerminalIdentityProtectsVersionFromOverrides() {
+        var environment = [
+            "TERM_PROGRAM_VERSION": "1.3.2-HEAD-+324c027",
+            "CMUX_AGENT_LAUNCH_KIND": "shell"
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        XCTAssertNil(environment["TERM_PROGRAM_VERSION"])
+        XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM_VERSION"))
     }
 
     func testApplyManagedGitWatchEnvironmentDisablesShellGitWatch() {
@@ -181,13 +215,15 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
             initialEnvironmentOverrides: [
                 "TERM": "screen-256color",
                 "COLORTERM": "false",
-                "TERM_PROGRAM": "WarpTerminal"
+                "TERM_PROGRAM": "WarpTerminal",
+                "TERM_PROGRAM_VERSION": "9.9.9"
             ]
         )
 
         XCTAssertEqual(merged["TERM"], TerminalSurface.managedTerminalType)
         XCTAssertEqual(merged["COLORTERM"], TerminalSurface.managedColorTerm)
         XCTAssertEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        XCTAssertNil(merged["TERM_PROGRAM_VERSION"])
     }
 
     func testMergedStartupEnvironmentPreservesThirdPartyClaudeApiEnvironment() {
