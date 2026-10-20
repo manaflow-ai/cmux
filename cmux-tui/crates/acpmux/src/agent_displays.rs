@@ -5,8 +5,11 @@
 //! [`MODE_ENV`]`=`[`PER_WORKSPACE`]; then:
 //!
 //! - A session's workspace is the typed `_meta.acpmux.workspaceId` of its
-//!   `session/new` (a fork keeps its parent's unless it names another),
-//!   recorded in the session meta, so a restart or respawn keeps it.
+//!   `session/new`, else its session env's `CMUX_WORKSPACE_ID` (a request
+//!   naming two different ones is refused, `workspace.mismatch`); a fork
+//!   keeps its parent's unless it names another either way. It is recorded
+//!   in the session meta, so a restart or respawn keeps it. The env never
+//!   sets [`DISPLAY_ENV`] (not an allowed session env key).
 //! - Each workspace gets a display number from [`BASE`] up, allocated once
 //!   and kept in `<ACPMUX_HOME>/agent-displays/displays.json` (0600 in a 0700
 //!   folder, written under a file lock), so it is stable across sessions

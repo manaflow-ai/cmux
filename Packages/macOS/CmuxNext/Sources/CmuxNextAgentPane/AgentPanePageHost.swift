@@ -31,10 +31,13 @@ enum AgentPanePageHost {
         events.append(AgentPaneSuggestedTasks.shared.event(for: view))
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(.recentlyClosed(view.recentlyClosed))
+        events.append(AgentPaneNowPlaying.shared.event(for: view))
         events.append(.editedFiles(view.editedFiles))
         events.append(.composer(view.model.composer))
+        events.append(.sidebarPreviewVariant(view.model.sidebarPreviewVariant))
         events.append(.diffColors(view.model.diffColors))
         events.append(.toolCards(view.model.toolCards))
+        events.append(view.model.tabRow.event)
         if !view.customization.isEmpty { events += AgentPageEvent.customization(view.customization) }
         return events
     }

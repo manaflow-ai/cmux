@@ -48,6 +48,7 @@ pub(super) fn handle_resource_line(
         })
         .and_then(|actor| check_pairing_accept(mux, client, &envelope, &actor).map(|()| actor))
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
+    crate::debug_spans::mark("origin.admitted");
     match admitted {
         Ok(request) => handle_resource_connection_message(mux, client, request, writer),
         Err(error) => {

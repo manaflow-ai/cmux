@@ -11,8 +11,11 @@ import { setAgentDiffColors } from "./diffColors";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
+import { setNowPlaying } from "./newtab/nowPlaying";
 import { setHeaderState } from "./header/headerState";
+import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
+import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
@@ -81,6 +84,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "sidebarPreviewVariant":
+      return configureNativeSidebarPreviewVariant(event.value);
     case "sessionStatus":
       // Direct, like editedFiles: a push before the chat mounts is kept.
       return setSessionStatus(event.value);
@@ -97,6 +102,9 @@ export function applyHostEvent(event: HostEvent): void {
       return setDeviceChats(event.value);
     case "recentlyClosed":
       return setRecentlyClosed(event.value);
+    case "nowPlaying":
+      // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
+      return setNowPlaying(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
@@ -104,6 +112,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyCustomization(value);
     case "headerState":
       return setHeaderState(event.value);
+    case "tabRow":
+      return setTabRow(event.value);
     case "floatingState":
       return setFloatingState(event.value);
     case "dictation":

@@ -129,14 +129,15 @@ pub struct Plan {
     pub run_shell: bool,
     /// Agent spawns wait for that run (bounded by `MAX_ROUNDS` x `TIMEOUT`) only when
     /// Claude has no sign-in without it (the daemon's environment, settings
-    /// files, credentials file, keychain) and there is no matching cache or
+    /// files, credentials file; never the keychain) and there is no matching cache or
     /// the cache names a secret whose value this process lacks.
     pub wait: bool,
 }
 
 /// Start resolution: apply a matching cache at once, and say whether the
 /// shell must run. Fast: stats and one small file read (plus, only when
-/// the cache lacks secret values, the Claude sign-in sources check).
+/// the cache lacks secret values, the Claude sign-in sources check, which
+/// reads files and never the keychain).
 pub fn begin() -> Plan {
     ENABLED.store(true, Ordering::SeqCst);
     let fingerprint = fingerprint();
@@ -162,7 +163,7 @@ pub fn begin() -> Plan {
         return Plan { run_shell: stale, wait: false };
     }
     // Secret values are never cached: the shell runs; spawns wait for it
-    // unless Claude signs in without it (keychain, settings, env).
+    // unless Claude signs in without it (settings, credentials file, env).
     Plan { run_shell: true, wait: !crate::claude_auth::direct_sign_in() }
 }
 

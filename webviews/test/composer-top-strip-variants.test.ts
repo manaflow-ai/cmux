@@ -1,12 +1,20 @@
+// cmux-web-test-timeout: 300
 // The composer's top strip variants (Debug toggle agentPane.debug.topStripStyle, which the app sets
 // on <html> as data-top-strip; composerLocation.css). The "top strip" is whatever stands on the
 // card's top edge: the location strip of a new chat (chat composer and New Tab) or the queued
 // prompts of a started chat. For each value:
-//   - default (no attribute): today's tab, flush on the card, in the card's fill, its rim open at
-//     the bottom, and the card's rim masked under the strip;
+//   - default (no attribute): in a chat, the card's full-width head, flush on the card, in the
+//     card's fill, the card's top corners square under it; one rim goes round the head and the card
+//     (#20391): the location strip draws none of its own and the card's rim layer reaches up around
+//     it, while a queue keeps its own top and side hairlines and the card's rim layer gives way to
+//     them; on the New Tab, plain text a few px over the card (Cursor's home, #21133), no fill and
+//     no rim, the card's rim whole;
 //   - bump: a few px above the card, the card's fill, one closed hairline ring, the card's rim whole;
 //   - plain: a few px above the card, no fill and no rim, its first ink on the card's content edge
-//     (where the prompt's text starts), the card's rim whole.
+//     (where the prompt's text starts), the card's rim whole;
+//   - tray: a filled tray tucked under the card's top edge, one inset for the location strip and
+//     the queue, its first ink on the card's content edge, a lighter fill than the card's in a light
+//     theme, the card's rim whole and drawn over the tray.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -76,6 +84,8 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       filled: style.backgroundColor !== "rgba(0, 0, 0, 0)",
       shadows,
       cardMasked: getComputedStyle(box, "::before").content !== "none",
+      cardTopRadius:
+        parseFloat(getComputedStyle(box).borderTopLeftRadius) + parseFloat(getComputedStyle(box).borderTopRightRadius),
       contentEdge: field.getBoundingClientRect().left - cardBox.left,
       inkFromCard: ink - cardBox.left,
     };
@@ -114,12 +124,24 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
           const drawn = await page.evaluate(measure, surface.card);
           await page.close();
           expect(drawn.kind).toBe(surface.kind);
+          if (style === "default" && surface.card === ".nt-box") {
+            // The New Tab: plain text a few px over the card, nothing drawn, the card's rim whole.
+            expect(drawn.gap).toBeGreaterThanOrEqual(2);
+            expect(drawn.gap).toBeLessThanOrEqual(8);
+            expect(drawn.filled).toBe(false);
+            expect(drawn.shadows).toEqual([]);
+            expect(drawn.cardMasked).toBe(false);
+            return;
+          }
           if (style === "default") {
-            // Today's tab: flush, filled, the hairline on its top and sides only.
+            // The card's head (#20391): flush, filled, the card's top corners square under it, and
+            // the card's rim layer drawn. The strip leaves its rim to that layer; a queue draws its
+            // own hairline on its top and sides.
             expect(Math.abs(drawn.gap)).toBeLessThanOrEqual(0.5);
             expect(drawn.filled).toBe(true);
-            expect(drawn.shadows.length).toBe(3);
-            expect(drawn.cardMasked).toBe(surface.kind === "strip");
+            expect(drawn.shadows.length).toBe(surface.kind === "strip" ? 0 : 3);
+            expect(drawn.cardMasked).toBe(true);
+            expect(drawn.cardTopRadius).toBe(0);
             return;
           }
           expect(drawn.gap).toBeGreaterThanOrEqual(2);
@@ -190,4 +212,84 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
         await page.close();
         expect(stray).toEqual([]);
       });
+
+  /** Runs in the page: the tray against the card it tucks under. */
+  function measureTray(card: string) {
+    const box = document.querySelector(card)!;
+    const cardBox = box.getBoundingClientRect();
+    const top = (document.querySelector(".acpmux-composer-queue") ?? document.querySelector(".acpmux-composer-strip"))!;
+    const topBox = top.getBoundingClientRect();
+    const field = box.querySelector(".ProseMirror, textarea, [contenteditable]")!;
+    // The folder icon's ink is its ghost bearing (1.5 px, ui/ghost.css) inside its box; a queue's
+    // number is its text, left-aligned.
+    const icon = top.querySelector(".acpmux-location-icon");
+    const mark = top.querySelector(".acpmux-queued-mark");
+    let ink: number;
+    if (icon) ink = icon.getBoundingClientRect().left + 1.5;
+    else {
+      const range = document.createRange();
+      range.selectNodeContents(mark!);
+      ink = range.getBoundingClientRect().left;
+    }
+    // A point inside the tuck (below the card's top edge, inside its rounded corner) hits the card.
+    const probe = document.elementFromPoint(cardBox.left + cardBox.width / 2, cardBox.top + 4);
+    return {
+      kind: top.classList.contains("acpmux-composer-queue") ? "queue" : "strip",
+      insetLeft: topBox.left - cardBox.left,
+      insetRight: cardBox.right - topBox.right,
+      tucked: topBox.bottom - cardBox.top,
+      cardOnTop: !!probe && box.contains(probe),
+      fill: getComputedStyle(top).backgroundColor,
+      cardFill: getComputedStyle(box).backgroundColor,
+      cardMasked: getComputedStyle(box, "::before").content !== "none",
+      contentEdge: field.getBoundingClientRect().left - cardBox.left,
+      inkFromCard: ink - cardBox.left,
+    };
+  }
+
+  const trayThemes = [
+    { slug: "Catppuccin Latte", light: true },
+    { slug: "Apple System Colors Light", light: true },
+    { slug: "Catppuccin Mocha", light: false },
+  ];
+  async function drawTray(surface: (typeof surfaces)[number], width: number, theme: string) {
+    const page = await browser!.newPage({ viewport: { width, height: 560 } });
+    await page.goto(`${stageURL(surface.entry, surface.variant)}&theme=${encodeURIComponent(theme)}`);
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.evaluate(async () => {
+      document.documentElement.setAttribute("data-top-strip", "tray");
+      await document.fonts.ready;
+    });
+    const drawn = await page.evaluate(measureTray, surface.card);
+    await page.close();
+    return drawn;
+  }
+
+  for (const surface of surfaces)
+    for (const width of [760, 400])
+      for (const theme of trayThemes)
+        test(`${surface.name}, tray, ${width} px, ${theme.slug}`, async () => {
+          const drawn = await drawTray(surface, width, theme.slug);
+          expect(drawn.kind).toBe(surface.kind);
+          // Tucked under the card's top edge, the card's whole rim drawn over it.
+          expect(drawn.tucked).toBeGreaterThanOrEqual(8);
+          expect(drawn.cardOnTop).toBe(true);
+          expect(drawn.cardMasked).toBe(false);
+          // The first ink (folder icon, queue number) on the prompt's text column.
+          expect(Math.abs(drawn.inkFromCard - drawn.contentEdge)).toBeLessThanOrEqual(0.5);
+          // Filled; in a light theme a tone of its own, not the card's.
+          expect(drawn.fill).not.toBe("rgba(0, 0, 0, 0)");
+          if (theme.light) expect(drawn.fill).not.toBe(drawn.cardFill);
+          expect(Math.abs(drawn.insetLeft - drawn.insetRight)).toBeLessThanOrEqual(0.5);
+        });
+
+  // One inset: the new chat's strip and a started chat's queue stand the same distance in from the
+  // card's sides, at both widths.
+  for (const width of [760, 400])
+    test(`tray, ${width} px: the location strip and the queue share one inset`, async () => {
+      const strip = await drawTray(surfaces[0]!, width, "Catppuccin Latte");
+      const queue = await drawTray(surfaces[1]!, width, "Catppuccin Latte");
+      expect(Math.abs(strip.insetLeft - queue.insetLeft)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(strip.tucked - queue.tucked)).toBeLessThanOrEqual(0.5);
+    });
 });

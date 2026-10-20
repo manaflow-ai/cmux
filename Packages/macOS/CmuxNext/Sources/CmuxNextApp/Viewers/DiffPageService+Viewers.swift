@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDaemon
+import CmuxNextDiff
 
 /// The diff host behind R89's open actions: ``DiffViewerOpening`` is
 /// ``DiffPageService/open(folder:source:in:focus:)``, and the empty state's

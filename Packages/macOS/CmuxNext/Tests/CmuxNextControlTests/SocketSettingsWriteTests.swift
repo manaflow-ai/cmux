@@ -211,6 +211,7 @@ extension SettingDescriptor {
         case .timeRange: return .object(["start": .string("22:00"), "end": .string("07:00")])
         case .theme: return .string("Dracula")
         case .fontFamily: return .string("Menlo")
+        case .text: return .string("TextEdit")
         }
     }
 }

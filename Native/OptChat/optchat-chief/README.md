@@ -49,7 +49,7 @@ settle go into that same call. A pending approval is denied by a newer
 human message, so the turn reaches its next tool boundary. Subagent reports
 follow the same rule. Only chief.stop stops a turn: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
-ends, and the end posts what the turn said and "(turn stopped)".
+ends, and the end posts nothing to the chat or any bridge.
 
 ## Several Chiefs and channels
 
@@ -186,11 +186,13 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   and it starts no turn. A subagent that runs again later (a `tell`, the user
   writing in its chat) reports again when it finishes.
 
-- At most 16 subagents work at once (`subagents::MAX_LIVE`; one spawn takes
-  at most 8 tasks). A spawn over the cap answers `a<N>: queued`; a queued
-  subagent starts, with the view of that moment and its task, when another
-  finishes. The queue lives in the host's memory: a host that restarts
-  reports a still-queued subagent as not started.
+- Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
+  caps it (one spawn takes at most 8 tasks; call spawn again for more). A spawn
+  over the cap answers `a<N>: queued`; a queued subagent starts, with the view
+  of that moment and its task, when another finishes. Its record keeps its
+  task, directory, effort and floor, so a host that restarts still starts it
+  (a record from before launches were saved takes its task from the spawn
+  call in the log, and the floor of that moment).
 - A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
   after the view, before its new messages (never logged).
 - `chief.stop` stops the running turn and every subagent at work
@@ -216,6 +218,31 @@ spawn's subagents start at once: Claude Code marks its two system blocks and
 the last two messages of every later request in a session, the API takes at
 most 4 marks, and a subagent's long tool loop needs Claude Code's own rolling
 marks (decision 2026-10-08; see Cache marks and TTL).
+
+### Subagent control (2026-10-19)
+
+- `tell(id, message, key?)` never fails for a known subagent. One with no
+  session yet, whose task is not sent yet, or that is paused keeps the
+  message in its saved inbox (`SubRecord.inbox`, host.json), delivered in
+  order after its task; a queued one gets it appended to its task. The
+  answer says `outcome: queued` or `outcome: done`, and a note tells the
+  Chief when the inbox is delivered. A repeat of `key` is `outcome: noop`.
+- `control(action, id?, message?, option?, n?)` (`chief control ...`), every
+  answer `outcome: done|queued|noop|refused`, a repeat a noop:
+  `status [id]` (queued, starting, running, waiting-on-permission, stuck,
+  idle, stopped, failed, paused, cancelled; elapsed, last output, prompt,
+  inbox), `interrupt id [message]` (`session/cancel`; the cut run reports
+  nothing when a message follows, the message is its next prompt),
+  `answer id OPTION|deny` (its pending prompt; acpmux takes an allow only
+  from the person's app, so a refusal says to deny, steer or ask the user),
+  `pause id` / `resume id [message]` (no auto-resume while paused),
+  `cancel id`, `restart id [message]` (same session), `priority id`,
+  `cap n` (the live cap now, 0 none; saved as `live_cap`).
+- Pushed to the Chief: a prompt with its option ids and the approve policy
+  (safe steps: reads, edits and tests in its worktree; the user for money,
+  legal, destructive or credential steps), and one `looks stuck` note per run
+  after 15 minutes without a session change (checked each minute).
+- Tests: `tests/subagent_control.rs`.
 
 ## Engine: harness, model and effort per turn
 
@@ -322,9 +349,19 @@ optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
                                                            Claude Code transcripts as messages (host stopped)
 optchat-chief memory export --text DIR [--mux-home DIR]    the memory as JSONL day files (read-only; host may run)
 optchat-chief memory import [--mux-home DIR] DIR           an old JSONL home or an export into an empty memory (host stopped)
-optchat-chief memory search [--mux-home DIR] [--limit N] WORDS  messages and summaries holding every word (FTS5)
+optchat-chief memory search [--mux-home DIR] [--limit N] [--json] WORDS  messages and summaries holding every word (FTS5);
+                                                           --json: id, kind, date, snippet and full text per hit
 optchat-chief memory stats [--mux-home DIR]                counts, schema, migration record, backup status
+optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...
+                                                           long-term memory shared by Codex and Claude Code sessions
 ```
+
+`agent-memory` is a separate home (`~/.cmux/agent-memory`) built from the agents'
+own memory files, with its own MCP server (`cmux-agent-memory`: `memory_search`,
+`memory_get`, `memory_remember`) that cmux registers for agent sessions when
+`agents.memory.enabled` is on. It never touches a Chief's memory, and `mcp`'s
+tool list above is unchanged (section 7.2). Setup, several machines and the
+migration from the leo-workspace script: [cmux-agent-memory](../../../skills/cmux-agent-memory/SKILL.md).
 
 Inside a turn the Chief runs `chief agents ...` (a launcher in
 `$MUX_HOME/optchat/bin`, first on the turn's PATH). A child's final reply of
@@ -710,6 +747,21 @@ send byte-identical system prompts. A 4-breakpoint refusal (`A maximum of 4
 blocks with cache_control`) reruns the turn once without the marker, and
 the next 10 turns skip it (`MARK_RETRY_AFTER`); then it is tried again. An acpmux without `systemPrompt` keeps the old layout
 (no marker, CLAUDE.md, host.log says so).
+
+**Frozen view and delta (spec 5a, cx-d7a4d).** A turn sends the view frozen at
+the last re-render (`optchat_core::turn_input`; the host keeps only the
+`frozen` record in its state), then every log entry after the view's front as
+`<id>+1|<kind>: <text>` lines, one block per run of user or of other kinds
+(the turn's new messages always start one; the view keeps an unbuilt line as
+the placeholder until the next re-render), then the turn's images, then the per-turn tail (subagents at work, the Home
+workspace, resume notes). Our three marks sit on the `<chat>` header, the
+view's end and the delta's end, so a turn reads the whole previous input. An
+edit or retraction of a logged message is logged as a note (`edit of <id>:
+<text>`, `retracted <id>`; a queued one takes the edit or leaves the queue). A re-render happens past 8,000 delta bytes when the
+compactor folded over the front, past 32,000 bytes, or with no frozen view
+(optchat-core `turn_input`, shared with the Cloud brain). Claude Code's own system message after our blocks (deferred
+tools and the rest, below) stays uncached each request: 3,400 tokens with the
+cmux MCP server's 165 deferred tools (measured 2026-10-16).
 
 **Cache marks and TTL.** Measured on the requests Claude Code 2.1.287
 sends (a capture proxy on a scratch route, 2026-10-08): Claude Code sends its

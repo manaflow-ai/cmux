@@ -21,6 +21,14 @@ use crate::model::{
 /// replace or remove a permanent column (`permanent-dock-v1`).
 pub const PERMANENT_COLUMN_CODE: &str = "dock-column-permanent";
 
+/// `reason_code` / `error_code` of every refusal by a pinned column
+/// (`pinned-dock-v1`): its pinned tab would close, leave or lose the first
+/// place, a tab would enter it while it takes no tabs, or the column itself
+/// would be undocked, moved, replaced or removed.
+pub const PINNED_COLUMN_CODE: &str = "dock-column-pinned";
+const PINNED_COLUMN_MESSAGE: &str =
+    "the column is pinned: its first tab stays, and it takes no other tab unless allow_tabs is on";
+
 /// Internal journal operation name. It is not a public resource operation:
 /// the command is reachable only through the JSON-lines `set-column-dock`.
 const COLUMN_DOCK_OPERATION: &str = "pane.column_dock.set";
@@ -38,6 +46,9 @@ pub enum ColumnDockError {
     /// `permanent-dock-v1`: the change would undock, move or replace a
     /// permanent column.
     PermanentColumn,
+    /// `pinned-dock-v1`: the change would undock, move or replace a pinned
+    /// column.
+    PinnedColumn,
     /// The change would make a column that holds more than one pane the
     /// agent chat dock, which holds one.
     AgentChatColumn,
@@ -51,6 +62,7 @@ impl ColumnDockError {
     pub const INVALID_ARGUMENT_CODE: &'static str = "invalid-argument";
     pub const PERMANENT_CODE: &'static str = PERMANENT_COLUMN_CODE;
     pub const AGENT_CHAT_CODE: &'static str = AGENT_CHAT_COLUMN_CODE;
+    pub const PINNED_CODE: &'static str = PINNED_COLUMN_CODE;
 
     pub fn code(&self) -> Option<&'static str> {
         match self {
@@ -60,6 +72,7 @@ impl ColumnDockError {
             Self::LastScrollingColumn => Some(Self::LAST_SCROLLING_CODE),
             Self::InvalidArgument { .. } => Some(Self::INVALID_ARGUMENT_CODE),
             Self::PermanentColumn => Some(Self::PERMANENT_CODE),
+            Self::PinnedColumn => Some(Self::PINNED_CODE),
             Self::AgentChatColumn => Some(Self::AGENT_CHAT_CODE),
             Self::CommitFailed => None,
         }
@@ -89,6 +102,7 @@ impl fmt::Display for ColumnDockError {
             Self::PermanentColumn => formatter.write_str(
                 "the column is permanent: it stays docked on its edge and cannot be replaced or removed",
             ),
+            Self::PinnedColumn => formatter.write_str(PINNED_COLUMN_MESSAGE),
             Self::AgentChatColumn => formatter.write_str(
                 "the agent chat dock holds one pane: a column with more panes cannot become it",
             ),
@@ -147,7 +161,7 @@ pub fn parse_column_dock(
             })
         })
         .transpose()?;
-    Ok(dock.then_some(ColumnDock { edge, mode, role, permanent: false }))
+    Ok(dock.then_some(ColumnDock { role, ..ColumnDock::new(edge, mode) }))
 }
 
 /// The pure reducer of `set-column-dock`: the screen's column flags in
@@ -171,9 +185,22 @@ pub(crate) fn reduce_column_dock(
             _ => return Err(ColumnDockError::PermanentColumn),
         }
     }
+    // `pinned-dock-v1`: a pinned column (the Home dock) keeps its edge, its
+    // pin and its tab setting through a re-dock; only the mode may change.
+    if let Some(current) = flags[index].filter(|flag| flag.pinned) {
+        match dock.as_mut() {
+            Some(next) if next.edge == current.edge => {
+                next.pinned = true;
+                next.allow_tabs = current.allow_tabs;
+            }
+            _ => return Err(ColumnDockError::PinnedColumn),
+        }
+    }
     if let Some(flag) = dock
         && flags.iter().enumerate().any(|(candidate, held)| {
-            candidate != index && held.is_some_and(|held| held.permanent && held.edge == flag.edge)
+            candidate != index
+                && held
+                    .is_some_and(|held| (held.permanent || held.pinned) && held.edge == flag.edge)
         })
     {
         return Err(ColumnDockError::PermanentColumn);
@@ -350,8 +377,8 @@ impl Mux {
             // transaction travels as its decimal form.
             let transaction =
                 transaction.map(|(_, transaction)| Arc::from(transaction.to_string()));
-            self.emit_screen_changed_for_transaction(&[outcome.screen], transaction);
-            self.emit(MuxEvent::LayoutChanged(outcome.screen));
+            self.emit_screen_changed_for_transaction(&[outcome.screen], transaction.clone());
+            self.emit_layout_changed(outcome.screen, transaction);
         }
         Ok(outcome)
     }
@@ -412,6 +439,7 @@ pub(crate) fn close_keeping_permanent(
 ) -> anyhow::Result<State> {
     if !matches!(operation, ResourceOperation::TerminalClose | ResourceOperation::WorkspaceClose) {
         ensure_permanent_columns_kept(operation.wire_name(), &permanent_columns(before), &after)?;
+        ensure_pinned_columns_kept(operation.wire_name(), &pinned_columns(before), &after)?;
     }
     Ok(after)
 }

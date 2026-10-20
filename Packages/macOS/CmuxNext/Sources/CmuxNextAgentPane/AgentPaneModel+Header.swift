@@ -126,13 +126,16 @@ extension AgentPaneModel {
             // `ran`: the page knows the App took the action (a host without panes, such as the
             // gallery, answers null), so its diff link opens the diff beside the chat, not in place.
             return AgentPaneReply.success(["ran": true])
+        case .tabRowTools(let width):
+            tabRow.report(width: CGFloat(width)) // used only while chrome.tabs.rowTools is on and the pane offered the row
+            return AgentPaneReply.success()
         case .tabState(let refresh):
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
             return AgentPaneReply.success(header.state(refresh: refresh).reply)
         case .sideChat(let fork):
-            return await openSideChat(fork)
+            return await AgentPaneSideChat.open(fork, in: self)
         case .subagentPane(let agent, let focus):
             // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
             // answers `opened: false`, and the page shows the subagent in this pane instead.
@@ -158,12 +161,16 @@ extension AgentPaneModel {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request")
         }
     }
+}
 
-    /// New side chat's view part: opens `fork` in the chat's one side pane, tagged its side chat by
-    /// acpmux (`_acpmux/side` or `_acpmux/btw`, cx-jlzsf). `fork` must be a session this pane made (its
-    /// reply put it in the pane's scope), never the chat itself.
-    private func openSideChat(_ fork: String) async -> [String: Any] {
-        guard let sessionId, newTab == nil, fork != sessionId, transport.sessions.contains(fork), let header else {
+/// New side chat's view part: opens `fork` in the chat's one side pane, tagged its side chat by
+/// acpmux (`_acpmux/side` or `_acpmux/btw`, cx-jlzsf). `fork` must be a session this pane made (its
+/// reply put it in the pane's scope), never the chat itself. Kept off ``AgentPaneModel``, whose type
+/// is at its size limit.
+enum AgentPaneSideChat {
+    static func open(_ fork: String, in model: AgentPaneModel) async -> [String: Any] {
+        guard let sessionId = model.sessionId, model.newTab == nil, fork != sessionId, model.transport.sessions.contains(fork),
+              let header = model.header else {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.sideChat")
         }
         header.openSide(sessionId, fork)

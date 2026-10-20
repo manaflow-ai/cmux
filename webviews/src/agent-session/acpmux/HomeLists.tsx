@@ -1,4 +1,5 @@
 import React from "react";
+import { pressToOpen } from "../../ui/pressToOpen";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { type AcpmuxSessionEntry, listed, projectLabel, sessionMark, withoutChildren } from "./sessionList";
 
@@ -123,7 +124,7 @@ function HomeRow({
   const when = age(session.updatedAt, Date.now(), t);
   return (
     <li>
-      <button type="button" className="acpmux-home-row" onClick={() => onSelect(session.sessionId)}>
+      <button type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(session.sessionId))}>
         {mark}
         <span className="acpmux-home-title">{title ?? session.displayTitle}</span>
         {detail && <span className="acpmux-home-detail">{detail}</span>}

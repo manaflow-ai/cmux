@@ -9039,6 +9039,399 @@
           }
         }
       }
+    },
+    "remote.update.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update available on %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتوفر تحديث على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostupno ažuriranje na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdatering tilgængelig på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Update für %@ verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Actualización disponible en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mise à jour disponible sur %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiornamento disponibile su %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のアップデートがあります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានបច្ចុប្បន្នភាពនៅលើ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에 업데이트가 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdatering tilgjengelig på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostępna aktualizacja na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atualização disponível em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доступно обновление на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีอัปเดตบน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ için güncelleme var"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доступне оновлення на %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Có bản cập nhật trên %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上有可用更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上有可用更新"
+          }
+        }
+      }
+    },
+    "remote.update.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ runs an older cmux-tui. Agents or chats run there now, so cmux does not update it by itself. Update installs cmux-tui %2$@ at %3$@; terminals and agents keep running."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل على %1$@ إصدار أقدم من cmux-tui. تعمل هناك الآن وكلاء أو محادثات، لذا لا يحدّثه cmux تلقائيًا. يثبّت «تحديث» cmux-tui %2$@ في %3$@، وتستمر الطرفيات والوكلاء في العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ pokreće stariji cmux-tui. Tamo sada rade agenti ili razgovori, pa ga cmux ne ažurira sam. „Ažuriraj“ instalira cmux-tui %2$@ na %3$@; terminali i agenti nastavljaju raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ kører en ældre cmux-tui. Der kører agenter eller chats der nu, så cmux opdaterer den ikke selv. »Opdater« installerer cmux-tui %2$@ i %3$@; terminaler og agenter kører videre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auf %1$@ läuft ein älteres cmux-tui. Dort laufen gerade Agenten oder Chats, daher aktualisiert cmux es nicht selbst. „Aktualisieren“ installiert cmux-tui %2$@ unter %3$@; Terminals und Agenten laufen weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ejecuta un cmux-tui antiguo. Ahora hay agentes o chats en ejecución allí, así que cmux no lo actualiza por sí solo. «Actualizar» instala cmux-tui %2$@ en %3$@; los terminales y agentes siguen funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ exécute un cmux-tui plus ancien. Des agents ou des discussions y tournent en ce moment, donc cmux ne le met pas à jour de lui-même. « Mettre à jour » installe cmux-tui %2$@ dans %3$@ ; les terminaux et les agents continuent de tourner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ esegue un cmux-tui meno recente. Lì sono attivi agenti o chat, quindi cmux non lo aggiorna da solo. «Aggiorna» installa cmux-tui %2$@ in %3$@; terminali e agenti restano attivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ では古い cmux-tui が動いています。いまエージェントやチャットが動いているため、cmux は自動ではアップデートしません。アップデートすると cmux-tui %2$@ を %3$@ にインストールします。ターミナルとエージェントは動き続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ដំណើរការ cmux-tui ចាស់ជាង។ ឥឡូវនេះមាន agent ឬការជជែកកំពុងដំណើរការនៅទីនោះ ដូច្នេះ cmux មិនធ្វើបច្ចុប្បន្នភាពវាដោយខ្លួនឯងទេ។ “ធ្វើបច្ចុប្បន្នភាព” ដំឡើង cmux-tui %2$@ នៅ %3$@ ហើយ terminal និង agent នៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@에서 이전 cmux-tui가 실행 중입니다. 지금 그곳에서 에이전트나 채팅이 실행 중이므로 cmux가 자동으로 업데이트하지 않습니다. '업데이트'를 누르면 cmux-tui %2$@를 %3$@에 설치하며, 터미널과 에이전트는 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ kjører en eldre cmux-tui. Agenter eller chatter kjører der nå, så cmux oppdaterer den ikke selv. «Oppdater» installerer cmux-tui %2$@ i %3$@; terminaler og agenter fortsetter å kjøre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ uruchamia starszy cmux-tui. Działają tam teraz agenci lub czaty, więc cmux nie aktualizuje go samodzielnie. „Aktualizuj” instaluje cmux-tui %2$@ w %3$@; terminale i agenci działają dalej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ roda um cmux-tui mais antigo. Agentes ou chats estão rodando lá agora, então o cmux não o atualiza sozinho. “Atualizar” instala o cmux-tui %2$@ em %3$@; terminais e agentes continuam rodando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На %1$@ работает старая версия cmux-tui. Сейчас там работают агенты или чаты, поэтому cmux не обновляет её сам. «Обновить» устанавливает cmux-tui %2$@ в %3$@; терминалы и агенты продолжают работать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ใช้ cmux-tui รุ่นเก่า ขณะนี้มีเอเจนต์หรือแชตทำงานอยู่ที่นั่น cmux จึงไม่อัปเดตเอง “อัปเดต” จะติดตั้ง cmux-tui %2$@ ที่ %3$@ และเทอร์มินัลกับเอเจนต์ยังทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ eski bir cmux-tui çalıştırıyor. Orada şu anda ajanlar veya sohbetler çalıştığı için cmux onu kendiliğinden güncellemez. “Güncelle”, cmux-tui %2$@ sürümünü %3$@ konumuna kurar; terminaller ve ajanlar çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На %1$@ працює старіша версія cmux-tui. Зараз там працюють агенти або чати, тому cmux не оновлює її сам. «Оновити» встановлює cmux-tui %2$@ у %3$@; термінали й агенти працюють далі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ đang chạy cmux-tui cũ hơn. Hiện có agent hoặc cuộc trò chuyện đang chạy ở đó, nên cmux không tự cập nhật. “Cập nhật” sẽ cài cmux-tui %2$@ vào %3$@; terminal và agent vẫn tiếp tục chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 运行的是较旧的 cmux-tui。那里现在有智能体或聊天在运行，因此 cmux 不会自行更新它。“更新”会将 cmux-tui %2$@ 安装到 %3$@；终端和智能体继续运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 執行的是較舊的 cmux-tui。那裡現在有代理程式或聊天在執行，因此 cmux 不會自行更新它。「更新」會將 cmux-tui %2$@ 安裝到 %3$@；終端機和代理程式繼續執行。"
+          }
+        }
+      }
+    },
+    "remote.button.update": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdater"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Actualizar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettre à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiorna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើបច្ចុប្បន្នភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdater"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atualizar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cập nhật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

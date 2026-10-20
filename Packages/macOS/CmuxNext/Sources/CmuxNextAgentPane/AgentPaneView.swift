@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
 import Observation
@@ -18,9 +19,10 @@ public final class AgentPaneView: NSView {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
     public let webView: WKWebView
-    /// Opens a link the user clicked in the transcript. Defaults to the
-    /// system handler; the App can route it to a cmux browser tab.
-    public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
+    /// Opens a link the user clicked in the transcript: the shared link rule (``LinkRouter``,
+    /// `browser.openLinksInCmuxBrowser`), `otherTarget` for a Shift-Command click.
+    public var openURL: (_ url: URL, _ otherTarget: Bool) -> Void = AgentPaneView.routedOpenURL
+    static let routedOpenURL: (URL, Bool) -> Void = { LinkRouter.shared.open($0, otherTarget: $1) }
 
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
@@ -41,7 +43,7 @@ public final class AgentPaneView: NSView {
     /// Shown instead of reloading once the page keeps crashing.
     var crashNotice: NSView?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
-    var otherInstallNotice: NSTextField?
+    var otherInstallNotice: ChromeLabel?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -57,6 +59,13 @@ public final class AgentPaneView: NSView {
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?
+    /// The theme last pushed to the page (I5: a push only when it changed since then; a page load
+    /// pushes again with `force`, a page-host replay or a crash forgets it).
+    var deliveredThemeEvent: AgentPageEvent?
+    var deliveredThemeScript: String?
+    /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
+    /// shown after a change paints its first frame in the new colors (cx-8w027.12).
+    private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
     private var uiScaleObservation: Task<Void, Never>?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
@@ -138,6 +147,8 @@ public final class AgentPaneView: NSView {
                 configuration.userContentController.addUserScript(
                     WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             }
+            // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
+            ConsoleErrorCapture(page: "agent-pane").install(in: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
             webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
             #if DEBUG
@@ -217,7 +228,7 @@ public final class AgentPaneView: NSView {
 
     private func observeMotion() {
         motionObservation = Task { [weak self] in
-            for await _ in ObservationStream({ Motion.speed }) {
+            for await _ in ObservationStream({ (Motion.speed, DesignSettings.shared.statusIndicator.animation) }) {
                 guard let self else { return }
                 self.applyTheme()
             }
@@ -335,15 +346,14 @@ public final class AgentPaneView: NSView {
         popupHostStorage?.dismiss()
     }
 
-    /// Shown again in its pane (parked there while another tab showed): a theme change meanwhile.
-    public override func viewDidUnhide() {
-        super.viewDidUnhide()
-        applyTheme()
-    }
-
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
+    }
+
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        themeFollower.rebind()
     }
 
     public override func viewDidMoveToWindow() {
@@ -376,8 +386,11 @@ public final class AgentPaneView: NSView {
     }
 
     /// Pushes this view's scope tokens to the page (and to the area WebKit
-    /// shows before the page paints); again when `surfaceKind` changes.
-    public func applyTheme() {
+    /// shows before the page paints); again when `surfaceKind` changes. The page gets a push
+    /// only when its theme differs from the last one it got; `force` pushes it anyway (a page
+    /// that just loaded has none).
+    public func applyTheme(force: Bool = false) {
+        themeFollower.rebind()
         let tokens = themeTokens
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
@@ -385,8 +398,15 @@ public final class AgentPaneView: NSView {
         otherInstallNotice?.textColor = tokens.textSecondary.nsColor
         themeLoadingState(tokens)
         page?.themeSurface = surface
-        deliver(AgentPageEvent.theme(tokens, surface: surface).map { [$0] } ?? [],
-                scripts: AgentPaneTheme.script(tokens, surface: surface).map { [$0] } ?? [])
+        if let pageEvents {
+            guard let event = AgentPageEvent.theme(tokens, surface: surface), force || event != deliveredThemeEvent else { return }
+            deliveredThemeEvent = event
+            pageEvents.publish(event)
+        } else {
+            guard let script = AgentPaneTheme.script(tokens, surface: surface), force || script != deliveredThemeScript else { return }
+            deliveredThemeScript = script
+            evaluateScript(script)
+        }
     }
 
     /// Sends a push to the page: events on the page host, scripts on the old host (only built there).

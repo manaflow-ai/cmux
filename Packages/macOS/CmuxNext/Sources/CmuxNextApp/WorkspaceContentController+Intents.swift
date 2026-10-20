@@ -61,7 +61,7 @@ extension WorkspaceContentController {
             services.windows.recordSaver.stateDidChange(state)
         case .cancelGesture(let transaction):
             // No `.ended` will come for this gesture (its target went away).
-            gestureTransactions[transaction] = nil
+            if let value = gestureTransactions.removeValue(forKey: transaction) { daemon.store.layoutGestureTransaction(value, ended: true) }
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
         case .newColumn(let after, let width):
@@ -142,14 +142,15 @@ extension WorkspaceContentController {
             gestureTransactions[id] = value
         }
         if phase == .ended { gestureTransactions[id] = nil }
-        return value
+        return daemon.store.layoutGestureTransaction(value, ended: phase == .ended) // its live echoes do no work (I3)
     }
 
     private func sendGesture(_ transaction: LayoutTransactionID, phase: LayoutGesturePhase, label: String,
                              _ body: @escaping DaemonCommandBody) {
-        Task {
-            let ok = await daemon.run(label, body)
-            guard phase == .ended || !ok else { return }
+        // One command in flight per gesture; a drag's live values coalesce to the newest (GestureCommandCoalescer).
+        gestureCommands.submit(transaction, phase: phase, label: label, body) { [layoutModel] ok, superseded in
+            // A failed live value with a newer one waiting needs no rollback: the newer value (or the end) decides.
+            guard phase == .ended || (!ok && !superseded) else { return }
             if ok {
                 layoutModel.settleTransaction(transaction)
             } else {

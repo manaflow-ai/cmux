@@ -182,11 +182,22 @@ pub(super) fn subscribe_command(
                 }
                 // The person's own clients: Unix, or an authenticated page
                 // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
+                // The host replica's renewal only to the verified app: it holds the install token.
+                MuxEvent::CloudConversation(event)
+                    if host_replica_needed(event)
+                        && !matches!(
+                            super::origin_gate::connection_actor(&event_mux, client),
+                            crate::workspace_registry::Actor::Frontend { .. }
+                        ) =>
+                {
+                    continue;
+                }
                 MuxEvent::CloudConversation(_) if !conversation_client => {
                     continue;
                 }
-                MuxEvent::CloudConversation(_)
-                    if !super::cloud_conversations::delivers(&event_mux, client) =>
+                MuxEvent::CloudConversation(event)
+                    if !host_replica_needed(event)
+                        && !super::cloud_conversations::delivers(&event_mux, client) =>
                 {
                     continue;
                 }
@@ -212,6 +223,19 @@ pub(super) fn subscribe_command(
                     ) && !event_mux.control_clients.supports_capability(
                         client,
                         super::conversation_live::CHIEF_LIVE_CAPABILITY,
+                    ) =>
+                {
+                    continue;
+                }
+                // Typing in a Cloud conversation only to a connection that
+                // asked for it (`cloud-conversation-typing-v1`).
+                MuxEvent::CloudConversation(event)
+                    if matches!(
+                        event.as_ref(),
+                        crate::cloud_conversations::CloudEvent::Typing { .. }
+                    ) && !event_mux.control_clients.supports_capability(
+                        client,
+                        super::cloud_conversations::CLOUD_TYPING_CAPABILITY,
                     ) =>
                 {
                     continue;
@@ -343,7 +367,9 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "notification",
             "notification": notification.notification,
             "title": notification.title,
+            "subtitle": notification.subtitle,
             "body": notification.body,
+            "preview": notification.preview,
             "level": notification.level.as_str(),
             "surface": notification.surface,
             "source": notification.source.as_str(),
@@ -450,7 +476,20 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "terminal": terminal,
             "grace_ms": grace_ms,
         }),
-        MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
+        MuxEvent::LayoutChanged(screen, delta) => {
+            let mut value = json!({"event": "layout-changed", "screen": screen});
+            // `layout-delta-v1`: the screen's layout fields, flat, as in `Screen`.
+            if let Some(delta) = delta {
+                value["workspace"] = json!(delta.workspace);
+                if let (Value::Object(value), Value::Object(layout)) = (&mut value, &delta.layout) {
+                    value.extend(layout.iter().map(|(key, field)| (key.clone(), field.clone())));
+                }
+                if let Some(transaction) = &delta.transaction {
+                    value["transaction"] = json!(transaction.as_ref());
+                }
+            }
+            value
+        }
         MuxEvent::ClientAttached { client, transport, name, kind } => json!({
             "event": "client-attached",
             "client": client,
@@ -487,4 +526,8 @@ pub(super) fn subscription_overflow_json() -> Value {
         "event": "overflow",
         "error": "subscriber fell behind; resubscribe to continue receiving events",
     })
+}
+
+fn host_replica_needed(event: &crate::cloud_conversations::CloudEvent) -> bool {
+    matches!(event, crate::cloud_conversations::CloudEvent::HostReplicaNeeded { .. })
 }
