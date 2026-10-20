@@ -110,6 +110,25 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(landed[EXPORT], "old")
         self.assertIn("newer run", out)
 
+    def test_the_unaffected_part_of_a_repair_lands_while_the_affected_part_waits(self):
+        # 2026-10-20: 4 of ~50 runs landed in a day. Packages/ (the graph area) moves on nearly every push,
+        # so a repair that also carried the graph, settings or webviews never landed any of it. Each file
+        # whose areas are untouched since HEAD_SHA is exactly right at the tip, so it lands alone.
+        done, landed, out = self.push({SETTINGS: "k0"}, repair={EXPORT: "new", SHORTCUTS: "new"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual(landed[SHORTCUTS], "new")
+        self.assertEqual(landed[EXPORT], "old")
+        self.assertIn("settings", out)
+        self.assertIn("newer run", out)
+
+    def test_a_partial_repair_never_overwrites_an_output_changed_meanwhile(self):
+        # web/data/ is no input area: the tip's own edit of the output keeps it out of the partial repair.
+        done, landed, out = self.push({SETTINGS: "k0", SHORTCUTS: "someone else's"},
+                                      repair={EXPORT: "new", SHORTCUTS: "new"})
+        self.assertEqual(landed[SHORTCUTS], "someone else's")
+        self.assertEqual(landed[EXPORT], "old")
+        self.assertEqual(done.returncode, 1, out)
+
     def test_the_defaults_snapshot_waits_when_the_action_exports_moved(self):
         # The snapshot is built from the settings and the action exports (coord-2 review of c30bfe5).
         done, landed, out = self.push({SURFACES: "changed"}, repair={SNAPSHOT: "new"})
