@@ -93,6 +93,27 @@ await requireBrowserLane("composer-click-near-focuses.test.ts", async () => {
         await page.close();
       });
 
+      test("a press inside a menu the card opened is not a press on the card", async () => {
+        const page = await chat(browsers.get(name)!);
+        await page.locator(".acpmux-composer-plus").click();
+        const menu = page.locator(".acpmux-menu").first();
+        await menu.waitFor();
+        // The menu's own padding: no option, no control. Whether the press's default was cancelled,
+        // read after every handler ran (window, bubbling).
+        await page.evaluate(() => {
+          window.addEventListener("mousedown", (event) => {
+            (window as unknown as { cancelled?: boolean }).cancelled = event.defaultPrevented;
+          });
+        });
+        const at = (await menu.boundingBox())!;
+        await page.mouse.move(at.x + 2, at.y + 2);
+        await page.mouse.down();
+        const cancelled = await page.evaluate(() => (window as unknown as { cancelled?: boolean }).cancelled);
+        await page.mouse.up();
+        expect(cancelled).toBe(false);
+        await page.close();
+      });
+
       test("the card's buttons keep their own presses", async () => {
         const page = await chat(browsers.get(name)!);
         // A press on a button (held, so its menu or action does not run) is the button's: the card
