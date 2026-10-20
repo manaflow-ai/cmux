@@ -32,7 +32,7 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
     let memoryPressurePriority = 70
     let memoryPressureResponderScope: MemoryPressureResponderScope = .all
 
-    private let isEnabled: @MainActor () -> Bool
+    private let isEnabled: @MainActor @Sendable () -> Bool
     private let paneProvider: @MainActor () -> [PaneMemoryDescriptor]
     private let thresholdBytes: @MainActor () -> Int64
     private let snapshotProvider: SnapshotProvider
@@ -45,7 +45,7 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
     private(set) var evaluationTask: Task<Void, Never>?
 
     init(
-        isEnabled: @escaping @MainActor () -> Bool = { PaneMemoryGuardrail.isConfiguredEnabled() },
+        isEnabled: @escaping @MainActor @Sendable () -> Bool = { PaneMemoryGuardrail.isConfiguredEnabled() },
         paneProvider: @escaping @MainActor () -> [PaneMemoryDescriptor],
         thresholdBytes: @escaping @MainActor () -> Int64 = { PaneMemoryGuardrail.configuredThresholdBytes() },
         snapshotProvider: @escaping SnapshotProvider = {
@@ -122,6 +122,7 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         let signalProcessGroup = signalProcessGroup
         let waitForGraceDeadline = waitForGraceDeadline
         let ttyDevice = ttyDevice
+        let isEnabled = isEnabled
         evaluationTask = Task { @MainActor [weak self] in
             let targets = await Self.evaluate(
                 descriptors: descriptors,
@@ -132,7 +133,8 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
                 aggregateProvider: aggregateProvider,
                 signalProcessGroup: signalProcessGroup,
                 waitForGraceDeadline: waitForGraceDeadline,
-                ttyDevice: ttyDevice
+                ttyDevice: ttyDevice,
+                shouldEscalate: { await MainActor.run { isEnabled() } }
             )
             self?.evaluationTask = nil
             guard !targets.isEmpty else { return }
@@ -165,8 +167,8 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
 
     /// Re-checks aggregate pressure, selects runaway panes from a fresh census,
     /// sends SIGTERM, and after the grace deadline sends SIGKILL to the selected
-    /// groups that are still signallable on the same tty. Returns the panes
-    /// acted on.
+    /// groups that are still signallable on the same tty, unless
+    /// `shouldEscalate` turned false meanwhile. Returns the panes acted on.
     #if compiler(>=6.2)
     @concurrent
     #else
@@ -181,7 +183,8 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         aggregateProvider: AggregateProvider,
         signalProcessGroup: ProcessGroupSignaller,
         waitForGraceDeadline: GraceDeadline,
-        ttyDevice: TTYDeviceResolver
+        ttyDevice: TTYDeviceResolver,
+        shouldEscalate: @Sendable () async -> Bool = { true }
     ) async -> [RunawayPaneTreeTarget] {
         let aggregate: MemoryPressureAggregateSnapshot
         if let knownAggregate {
@@ -204,23 +207,18 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
             return RunawayPaneTreeTarget(key: descriptor.key, selection: selection)
         }
         guard !targets.isEmpty else { return [] }
+        let terminator = RunawayPaneTreeTerminator(
+            snapshotProvider: snapshotProvider,
+            signalProcessGroup: signalProcessGroup,
+            waitForGraceDeadline: waitForGraceDeadline
+        )
         for target in targets {
-            for processGroupID in target.selection.processGroupIDs {
-                signalProcessGroup(processGroupID, SIGTERM)
-            }
-        }
-
-        // Without a complete census a reused group ID can't be ruled out.
-        guard await waitForGraceDeadline(),
-              let freshCensus = await snapshotProvider().runawaySessionCensus() else { return targets }
-        for target in targets {
-            let liveGroups = selector.signallableProcessGroupIDs(
+            await terminator.terminate(
+                processGroupIDs: target.selection.processGroupIDs,
                 ttyDevice: target.selection.ttyDevice,
-                in: freshCensus
-            ) ?? []
-            for processGroupID in target.selection.processGroupIDs where liveGroups.contains(processGroupID) {
-                signalProcessGroup(processGroupID, SIGKILL)
-            }
+                selector: selector,
+                shouldEscalate: shouldEscalate
+            )
         }
         return targets
     }

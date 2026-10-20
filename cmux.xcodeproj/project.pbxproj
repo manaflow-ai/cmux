@@ -3300,6 +3300,11 @@
 		B22273000000000000000003 /* RunawayPaneTreeMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B22273000000000000000004 /* RunawayPaneTreeMemoryPressureResponder.swift */; };
 		F0D5F6AB013F89B0FAF4A91C /* RunawayPaneTreeMemoryPressureResponderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30F5443EBD5F6684ECFA01A9 /* RunawayPaneTreeMemoryPressureResponderTests.swift */; };
 		B22273000000000000000005 /* RunawayPaneTreeTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B22273000000000000000006 /* RunawayPaneTreeTarget.swift */; };
+		0312E18AA811A0941EFC0A2E /* RunawayPaneTreeTerminator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE508B1AB726E8989952D52 /* RunawayPaneTreeTerminator.swift */; };
+		FA8F453B4B42851A3212AD2B /* RunawayPaneWarning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BCF98563CBF7FAD9FC291F1 /* RunawayPaneWarning.swift */; };
+		1B5B68930406626D56C9FB68 /* RunawayPaneWarningBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2A66EE280AA533CAEEBB49A /* RunawayPaneWarningBanner.swift */; };
+		A3696F0F8042ECE33675CE18 /* RunawayPaneWarningCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A60C6670F74C20E48D00563 /* RunawayPaneWarningCenter.swift */; };
+		42F6D3FC75BC21D0E0F62FF7 /* RunawayPaneWarningCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15DA3ADDE62FD53233E5576 /* RunawayPaneWarningCenterTests.swift */; };
 		C0DE1A080000000000000001 /* SavedLayoutDefinitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */; };
 		C0DE1A020000000000000001 /* SavedLayoutStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A020000000000000002 /* SavedLayoutStore.swift */; };
 		C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */; };
@@ -7966,6 +7971,11 @@
 		B22273000000000000000004 /* RunawayPaneTreeMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneTreeMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		30F5443EBD5F6684ECFA01A9 /* RunawayPaneTreeMemoryPressureResponderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunawayPaneTreeMemoryPressureResponderTests.swift"; sourceTree = "<group>"; };
 		B22273000000000000000006 /* RunawayPaneTreeTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneTreeTarget.swift; sourceTree = "<group>"; };
+		3BE508B1AB726E8989952D52 /* RunawayPaneTreeTerminator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneTreeTerminator.swift; sourceTree = "<group>"; };
+		7BCF98563CBF7FAD9FC291F1 /* RunawayPaneWarning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneWarning.swift; sourceTree = "<group>"; };
+		B2A66EE280AA533CAEEBB49A /* RunawayPaneWarningBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneWarningBanner.swift; sourceTree = "<group>"; };
+		3A60C6670F74C20E48D00563 /* RunawayPaneWarningCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneWarningCenter.swift; sourceTree = "<group>"; };
+		C15DA3ADDE62FD53233E5576 /* RunawayPaneWarningCenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunawayPaneWarningCenterTests.swift"; sourceTree = "<group>"; };
 		C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutDefinitionTests.swift; sourceTree = "<group>"; };
 		C0DE1A020000000000000002 /* SavedLayoutStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutStore.swift; sourceTree = "<group>"; };
 		C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutStoreTests.swift; sourceTree = "<group>"; };
@@ -12652,6 +12662,10 @@
 				F1C6800D38EC5F238A2994FC /* DockSplitStore+ChiefPane.swift */,
 				7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */,
 				0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */,
+				3BE508B1AB726E8989952D52 /* RunawayPaneTreeTerminator.swift */,
+				7BCF98563CBF7FAD9FC291F1 /* RunawayPaneWarning.swift */,
+				B2A66EE280AA533CAEEBB49A /* RunawayPaneWarningBanner.swift */,
+				3A60C6670F74C20E48D00563 /* RunawayPaneWarningCenter.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14293,6 +14307,7 @@
 				E5E915CF2237052FDE02EE05 /* WorkspaceTitleRecoveryTests.swift */,
 				AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */,
 				30F5443EBD5F6684ECFA01A9 /* RunawayPaneTreeMemoryPressureResponderTests.swift */,
+				C15DA3ADDE62FD53233E5576 /* RunawayPaneWarningCenterTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16869,6 +16884,10 @@
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
 				B22273000000000000000003 /* RunawayPaneTreeMemoryPressureResponder.swift in Sources */,
 				B22273000000000000000005 /* RunawayPaneTreeTarget.swift in Sources */,
+				0312E18AA811A0941EFC0A2E /* RunawayPaneTreeTerminator.swift in Sources */,
+				FA8F453B4B42851A3212AD2B /* RunawayPaneWarning.swift in Sources */,
+				1B5B68930406626D56C9FB68 /* RunawayPaneWarningBanner.swift in Sources */,
+				A3696F0F8042ECE33675CE18 /* RunawayPaneWarningCenter.swift in Sources */,
 				C0DE1A020000000000000001 /* SavedLayoutStore.swift in Sources */,
 				F12748000000000000000003 /* SavingTextView+WordWrapShortcut.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
@@ -19314,6 +19333,7 @@
 				F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */,
 				F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */,
 				F0D5F6AB013F89B0FAF4A91C /* RunawayPaneTreeMemoryPressureResponderTests.swift in Sources */,
+				42F6D3FC75BC21D0E0F62FF7 /* RunawayPaneWarningCenterTests.swift in Sources */,
 				C0DE1A080000000000000001 /* SavedLayoutDefinitionTests.swift in Sources */,
 				C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */,
 				3C3FDDC0C744FA3350DA1D9B /* ScrollbackTestTerminal.swift in Sources */,

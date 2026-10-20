@@ -161,7 +161,8 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
         descriptor: PaneMemoryDescriptor? = nil,
         snapshots: SnapshotSequence,
         recorder: SignalRecorder,
-        graceElapses: Bool = true
+        graceElapses: Bool = true,
+        stillEnabledAfterGrace: Bool = true
     ) async -> [RunawayPaneTreeTarget] {
         let resampled = resampledAggregate ?? MemoryPressureAggregatePolicy.default.evaluate(
             sample: .unavailable(sampledAt: Date())
@@ -175,10 +176,12 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
             aggregateProvider: { _ in resampled },
             signalProcessGroup: { recorder.record($0, $1) },
             waitForGraceDeadline: { graceElapses },
-            ttyDevice: Self.ttyDevice
+            ttyDevice: Self.ttyDevice,
+            shouldEscalate: { stillEnabledAfterGrace }
         )
     }
 
+    @MainActor
     private func makeResponder(
         isEnabled: Bool = true,
         snapshots: SnapshotSequence,
@@ -248,6 +251,21 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
             snapshots: SnapshotSequence([census(session() + runawayJob())]),
             recorder: recorder,
             graceElapses: false
+        )
+
+        #expect(recorder.groups(for: SIGTERM) == [300])
+        #expect(recorder.groups(for: SIGKILL).isEmpty)
+    }
+
+    @Test
+    func turningTheGuardrailOffDuringTheGraceDeadlineSkipsEscalation() async {
+        let recorder = SignalRecorder()
+
+        _ = await evaluate(
+            knownAggregate: critical,
+            snapshots: SnapshotSequence([census(session() + runawayJob())]),
+            recorder: recorder,
+            stillEnabledAfterGrace: false
         )
 
         #expect(recorder.groups(for: SIGTERM) == [300])

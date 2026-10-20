@@ -5297,5 +5297,19 @@
     "identityLocales": {
       "fr": "Suggestions is the standard French noun for this label and shares the English spelling."
     }
+  },
+  "runawayPaneWarning.unnamedTerminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "runawayPaneWarning.location": {
+    "source": "%1$@ in %2$@",
+    "identityLocales": {
+      "de": "Reviewed native word, technical abbreviation, or SaaS tier name with the same spelling in this context."
+    }
   }
 }

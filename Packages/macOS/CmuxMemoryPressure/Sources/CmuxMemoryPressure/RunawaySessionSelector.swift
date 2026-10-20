@@ -68,7 +68,7 @@ public struct RunawaySessionSelection: Equatable, Sendable {
     public let ttyDevice: Int64
     /// Physical-footprint bytes of every process on the tty.
     public let memoryBytes: Int64
-    /// Number of processes on the tty.
+    /// Number of processes in the selected groups.
     public let processCount: Int
     /// Process groups to signal, sorted ascending.
     public let processGroupIDs: [Int]
@@ -141,6 +141,11 @@ public struct RunawaySessionSelector: Equatable, Sendable {
             )
         }
         let clearBytes = Int64(Double(thresholdBytes) * clearFraction)
+        let allowedBytes = bytesByProcessGroup.values.reduce(Int64(0)) { saturatingAdd($0, $1) }
+        // When the memory sits in groups that can't be signalled, releasing
+        // every allowed group still leaves the session over the clear level:
+        // stopping those bystander jobs would free nothing that matters.
+        guard memoryBytes - allowedBytes < clearBytes else { return nil }
         var remainingBytes = memoryBytes
         var selected: [Int] = []
         for (processGroupID, groupBytes) in bytesByProcessGroup.sorted(by: {
@@ -152,10 +157,11 @@ public struct RunawaySessionSelector: Equatable, Sendable {
             remainingBytes -= groupBytes
         }
         guard !selected.isEmpty else { return nil }
+        let selectedGroups = Set(selected)
         return RunawaySessionSelection(
             ttyDevice: ttyDevice,
             memoryBytes: memoryBytes,
-            processCount: processes.count,
+            processCount: processes.filter { $0.processGroupID.map(selectedGroups.contains) == true }.count,
             processGroupIDs: selected.sorted()
         )
     }
