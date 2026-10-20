@@ -1,4 +1,4 @@
-import CoreGraphics
+public import CoreGraphics
 
 /// Describes where a terminal's default browser link should open.
 public nonisolated struct TerminalLinkBrowserPlacement {
