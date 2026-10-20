@@ -5,7 +5,8 @@
 //! - its turn ended: "<chat> finished" with the reply's last line, or
 //!   "<chat> failed" (level error) when the turn failed;
 //! - it waits for the person (a permission or a question): "<chat> needs
-//!   input" with what it asks;
+//!   input" with what it asks, and again for each ask that comes while it
+//!   already waits;
 //! - its agent went away mid-turn: "<chat> stopped responding" (error).
 //!
 //! The app shows them like any tab notification (a banner unless that tab is
@@ -255,6 +256,8 @@ struct Chat {
     notified_turn: Option<String>,
     last_message: String,
     last_seq: u64,
+    /// The permissions and questions it waits on (acpmux `pendingPermissions`).
+    pending: u64,
 }
 
 struct Notice {
@@ -295,6 +298,7 @@ impl Chat {
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
+            pending: summary["pendingPermissions"].as_u64().unwrap_or(0),
         })
     }
 
@@ -338,7 +342,10 @@ impl Chat {
             }
         }
         let was = before.map_or("", |chat| chat.indicator.as_str());
-        if self.indicator == "input" && was != "input" {
+        // A new ask while the chat already waits (a second permission, a subagent's question)
+        // notifies too; one answered while another still waits does not.
+        let asks_more = before.is_some_and(|chat| self.pending > chat.pending);
+        if self.indicator == "input" && (was != "input" || asks_more) {
             notices.push(Notice {
                 // The record it waits on: the same key while it still waits.
                 key: format!("input-{}", self.last_seq),
