@@ -131,6 +131,9 @@ extension DaemonStore {
         resumeRefreshWaiters()
         resyncRetry?.cancel()
         resyncRetry = nil
+        personalRefetch?.cancel()
+        personalRefetch = nil
+        personalRefetchAgain = false
         needsResync = false
         resyncPacer.reset()
         self.driver = nil
@@ -144,8 +147,50 @@ extension DaemonStore {
         let connected = batch.contains { if case .connected = $0.event { true } else { false } }
         // A snapshot that failed past its retry budget is retried on the
         // next daemon event (something changed), not on a timer.
-        if apply(batch: batch) == .resync || needsResync {
-            resync(seedAgents: connected)
+        switch apply(batch: batch) {
+        case .resync: resync(seedAgents: connected)
+        case _ where needsResync: resync(seedAgents: connected)
+        case .personal: refetchPersonal()
+        case .none: break
+        }
+    }
+
+    /// Refetches personal state alone (`personal-changed`): one
+    /// `list-personal` off the main actor, applied in place. It is not the
+    /// tree, so no `list-workspaces` and no reconcile of every workspace
+    /// (CREATE-CLOSE-DESIGN.md C3). One in flight at a time; a change that
+    /// arrives meanwhile fetches once more after it. A failed read falls
+    /// back to a full resync, which reads personal state too.
+    func refetchPersonal() {
+        guard let driver else { return }
+        guard personalRefetch == nil else {
+            personalRefetchAgain = true
+            return
+        }
+        // task-owner: at most one personal refetch at a time (personalRefetch); the request has a deadline
+        personalRefetch = Task { @MainActor in
+            let state: PersonalState?
+            do {
+                state = try await driver.connection.listPersonal()
+            } catch {
+                logger.error("personal refetch failed: \(String(describing: error), privacy: .public)")
+                state = nil
+            }
+            personalRefetch = nil
+            guard self.driver != nil else { return }
+            if let state {
+                // A resync that read personal state later may have applied first.
+                if !personal.isLoaded || state.revision >= personal.revision {
+                    withOverlayLifted(writer: "personal refetch") { applyPersonal(state) }
+                }
+                personalRefetches += 1
+            } else {
+                resync()
+            }
+            if personalRefetchAgain {
+                personalRefetchAgain = false
+                refetchPersonal()
+            }
         }
     }
 

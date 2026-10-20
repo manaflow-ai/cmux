@@ -32,6 +32,10 @@ public enum DaemonEvent: Sendable, Hashable {
     /// Full resync barrier: refetch `list-workspaces`. `transaction` echoes
     /// the client transaction id of the command that caused it, when any.
     case treeChanged(transaction: ClientTransactionID?)
+    /// Personal state (`profiles-v1`: rooms, pins, personal groups and
+    /// order) changed; the tree did not. The store refetches `list-personal`
+    /// alone (CREATE-CLOSE-DESIGN.md C3).
+    case personalChanged
     /// Pane geometry changed on a screen. With `layout-delta-v1` it carries
     /// the screen's new layout, which patches that screen; without one
     /// (an older daemon) the store refetches.

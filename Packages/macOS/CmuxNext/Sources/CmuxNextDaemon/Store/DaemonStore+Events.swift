@@ -4,8 +4,20 @@ extension DaemonStore {
     /// What the caller must do after `apply(_:)`.
     public enum Followup: Equatable, Sendable {
         case none
+        /// Refetch `list-personal` only: personal state changed, the tree
+        /// did not (`personal-changed`, CREATE-CLOSE-DESIGN.md C3).
+        case personal
         /// Refetch `list-workspaces` and apply it.
         case resync
+
+        /// The stronger of two followups: a resync refetches personal state too.
+        func merged(_ other: Followup) -> Followup {
+            switch (self, other) {
+            case (.resync, _), (_, .resync): .resync
+            case (.personal, _), (_, .personal): .personal
+            default: .none
+            }
+        }
     }
 
     /// Applies one event in place. Returns `.resync` when the event cannot be
@@ -57,7 +69,7 @@ extension DaemonStore {
             var followup = Followup.none
             for envelope in batch {
                 if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
-                    if applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) == .resync { followup = .resync }
+                    followup = followup.merged(applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope))
                 } else if let transaction = envelope.event.clientTransactionID {
                     // Superseded by the snapshot (which holds its result),
                     // but its echo still settles the patch and the intent,
@@ -72,7 +84,7 @@ extension DaemonStore {
             }
             // A batch that needs a resync is reflected only once the snapshot
             // lands (`resync` advances to its barrier).
-            if followup == .none, let last = batch.map(\.sequence).max() { advanceAppliedSequence(to: last) }
+            if followup != .resync, let last = batch.map(\.sequence).max() { advanceAppliedSequence(to: last) }
             return followup
         }
     }
@@ -251,6 +263,8 @@ extension DaemonStore {
             return applyLayoutChange(screen: screen, layout: layout)
         case .treeChanged, .layoutChanged:
             return .resync
+        case .personalChanged:
+            return .personal
         case .overflow:
             clearPresence()
             return .resync

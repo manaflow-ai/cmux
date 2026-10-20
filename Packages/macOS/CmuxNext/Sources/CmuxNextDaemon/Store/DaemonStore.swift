@@ -150,6 +150,12 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var resyncRetry: DemandTimer?
     /// The retry budget ran out: the next daemon event resyncs.
     @ObservationIgnored var needsResync = false
+    /// `personal-changed` refetch in flight (`list-personal` only).
+    @ObservationIgnored var personalRefetch: Task<Void, Never>?
+    /// Another `personal-changed` arrived while one was in flight.
+    @ObservationIgnored var personalRefetchAgain = false
+    /// Personal refetches applied (tests; CREATE-CLOSE-DESIGN.md C3).
+    @ObservationIgnored public internal(set) var personalRefetches = 0
     /// Clock of the retry spacing (tests inject one that does not wait).
     @ObservationIgnored public var resyncClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.store")
