@@ -46,6 +46,9 @@ impl std::fmt::Display for OpError {
 }
 
 /// The conversation operations the brain needs, on a connection bound as `agent_mux`.
+/// Most bytes the owner sends in one `conversation-attachment-read`.
+pub const ATTACHMENT_CHUNK_BYTES: u64 = 4 * 1024 * 1024;
+
 pub trait ConversationPort: Send {
     fn snapshot(
         &mut self,
@@ -99,8 +102,9 @@ pub trait ConversationPort: Send {
         Err(OpError::Rejected("attachments_unsupported".into()))
     }
     /// One attachment variant (`original`, `preview`, `poster`) of `hash`,
-    /// base64, in a single owner read of `bytes` (at most 4 MiB): an error
-    /// when the owner has not sent all of it (`local-attachments-v1`).
+    /// all `bytes` of it, base64 (`local-attachments-v1`). The owner sends at
+    /// most [`ATTACHMENT_CHUNK_BYTES`] a read, so a larger file takes several
+    /// reads; an error when the owner ends before `bytes`.
     fn attachment(
         &mut self,
         conversation: &str,
@@ -493,22 +497,40 @@ impl ConversationPort for SdkConversations {
         variant: &str,
         bytes: u64,
     ) -> Result<String, OpError> {
-        let data = self
-            .client
-            .conversation_attachment_read(ConversationAttachmentReadRequest {
-                conversation: conversation.into(),
-                hash: hash.into(),
-                length: Optional::Value(bytes),
-                offset: Optional::Value(0),
-                variant: Optional::Value(variant.into()),
-            })
-            .map_err(sdk_error)?;
-        if !data.eof {
-            return Err(OpError::Rejected(
-                "attachment_needs_more_than_one_read".into(),
-            ));
+        use base64::Engine as _;
+        let b64 = base64::engine::general_purpose::STANDARD;
+        let mut offset = 0u64;
+        let mut whole: Option<Vec<u8>> = None;
+        loop {
+            let data = self
+                .client
+                .conversation_attachment_read(ConversationAttachmentReadRequest {
+                    conversation: conversation.into(),
+                    hash: hash.into(),
+                    length: Optional::Value(
+                        bytes.saturating_sub(offset).min(ATTACHMENT_CHUNK_BYTES),
+                    ),
+                    offset: Optional::Value(offset),
+                    variant: Optional::Value(variant.into()),
+                })
+                .map_err(sdk_error)?;
+            // One read is the common case: its base64 goes on as is.
+            if offset == 0 && data.eof {
+                return Ok(data.data);
+            }
+            let chunk = b64
+                .decode(data.data.as_bytes())
+                .map_err(|e| OpError::Rejected(format!("attachment_bad_base64: {e}")))?;
+            let buffer = whole.get_or_insert_with(Vec::new);
+            buffer.extend_from_slice(&chunk);
+            offset += chunk.len() as u64;
+            if data.eof {
+                return Ok(b64.encode(buffer));
+            }
+            if chunk.is_empty() || offset >= bytes {
+                return Err(OpError::Rejected("attachment_ended_early".into()));
+            }
         }
-        Ok(data.data)
     }
 
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError> {

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc";
+inline constexpr std::string_view kProtocolIrSha256 = "6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -105,10 +105,12 @@ struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
 struct MachineListeningTcpResult;
+struct MachinePlatform;
 struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
 struct MoveTerminalResult;
+enum class NameSource;
 struct NewRowResult;
 struct NoteSizeActivityResult;
 enum class NotificationLevel;
@@ -274,7 +276,11 @@ struct CloudConversationRunsRequest;
 struct CloudConversationSnapshotRequest;
 struct CloudConversationSubscribeRequest;
 struct CloudConversationThreadRequest;
+struct CloudConversationTypingRequest;
 struct CloudConversationUnsubscribeRequest;
+struct CloudHostReplicaClearRequest;
+struct CloudHostReplicaSetRequest;
+struct CloudHostReplicaStatusRequest;
 struct CloudInboxListRequest;
 struct CloudInboxOpRequest;
 struct CloudInboxSubscribeRequest;
@@ -283,6 +289,7 @@ struct CloudMuxAckRequest;
 struct CloudMuxSubscribeRequest;
 struct CloudMuxUnsubscribeRequest;
 struct CloudParticipantAvatarGetRequest;
+struct CloudRequestsListRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
@@ -543,6 +550,8 @@ struct WsListenRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
+struct AgentInventoryChangedEvent;
+struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
@@ -556,6 +565,8 @@ struct CloudConversationChangedEvent;
 struct CloudConversationLiveEvent;
 struct CloudConversationResyncedEvent;
 struct CloudConversationRunChangedEvent;
+struct CloudConversationTypingEvent;
+struct CloudHostReplicaNeededEvent;
 struct CloudInboxChangedEvent;
 struct CloudInboxResetEvent;
 struct CloudMuxResyncedEvent;
@@ -735,6 +746,20 @@ struct AgentChangedEvent {
     Id surface{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
+};
+
+struct AgentInventoryChangedEvent {
+    std::string machine{};
+    std::uint64_t revision{};
+    std::string watch_id{};
+    friend bool operator==(const AgentInventoryChangedEvent&, const AgentInventoryChangedEvent&) = default;
+};
+
+struct AgentInventoryWatchEndedEvent {
+    std::string machine{};
+    std::string reason{};
+    std::string watch_id{};
+    friend bool operator==(const AgentInventoryWatchEndedEvent&, const AgentInventoryWatchEndedEvent&) = default;
 };
 
 enum class AgentPresenceActivity {
@@ -1685,9 +1710,47 @@ struct CloudConversationThreadRequest {
     friend bool operator==(const CloudConversationThreadRequest&, const CloudConversationThreadRequest&) = default;
 };
 
+struct CloudConversationTypingEvent {
+    std::optional<std::string> account{};
+    std::string conversation{};
+    bool on{};
+    std::string participant{};
+    friend bool operator==(const CloudConversationTypingEvent&, const CloudConversationTypingEvent&) = default;
+};
+
+struct CloudConversationTypingRequest {
+    std::string conversation{};
+    bool on{};
+    friend bool operator==(const CloudConversationTypingRequest&, const CloudConversationTypingRequest&) = default;
+};
+
 struct CloudConversationUnsubscribeRequest {
     std::string conversation{};
     friend bool operator==(const CloudConversationUnsubscribeRequest&, const CloudConversationUnsubscribeRequest&) = default;
+};
+
+struct CloudHostReplicaClearRequest {
+    std::optional<bool> purge{};
+    friend bool operator==(const CloudHostReplicaClearRequest&, const CloudHostReplicaClearRequest&) = default;
+};
+
+struct CloudHostReplicaNeededEvent {
+    Field<std::uint64_t> expires_at{};
+    std::string reason{};
+    friend bool operator==(const CloudHostReplicaNeededEvent&, const CloudHostReplicaNeededEvent&) = default;
+};
+
+struct CloudHostReplicaSetRequest {
+    std::string api_base_url{};
+    Field<std::string> client_version{};
+    std::uint64_t expires_at{};
+    std::string host_name{};
+    std::string install_token{};
+    friend bool operator==(const CloudHostReplicaSetRequest&, const CloudHostReplicaSetRequest&) = default;
+};
+
+struct CloudHostReplicaStatusRequest {
+    friend bool operator==(const CloudHostReplicaStatusRequest&, const CloudHostReplicaStatusRequest&) = default;
 };
 
 struct CloudInboxChangedEvent {
@@ -1757,6 +1820,10 @@ struct CloudParticipantAvatarGetRequest {
     Field<std::string> conversation{};
     std::string participant_id{};
     friend bool operator==(const CloudParticipantAvatarGetRequest&, const CloudParticipantAvatarGetRequest&) = default;
+};
+
+struct CloudRequestsListRequest {
+    friend bool operator==(const CloudRequestsListRequest&, const CloudRequestsListRequest&) = default;
 };
 
 struct CloudSessionClearRequest {
@@ -3070,10 +3137,18 @@ struct IdMapping {
 };
 
 struct IdentifyRequest {
+    std::optional<bool> machine_metadata{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
 };
 
+struct MachinePlatform {
+    std::string arch{};
+    std::string os{};
+    friend bool operator==(const MachinePlatform&, const MachinePlatform&) = default;
+};
+
 struct IdentifyResult {
+    Field<std::uint32_t> api_revision{};
     Field<std::string> build_commit{};
     Field<std::string> build_id{};
     std::optional<std::vector<std::string>> capabilities{};
@@ -3082,7 +3157,11 @@ struct IdentifyResult {
     Field<std::string> ghostty_commit{};
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
+    std::optional<std::vector<std::string>> machine_capabilities{};
+    std::optional<std::string> machine_id{};
     std::optional<std::string> machine_name{};
+    std::optional<MachinePlatform> machine_platform{};
+    Field<std::uint32_t> min_api_revision{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
@@ -3730,6 +3809,11 @@ struct MoveWorkspaceToGroupRequest {
     friend bool operator==(const MoveWorkspaceToGroupRequest&, const MoveWorkspaceToGroupRequest&) = default;
 };
 
+enum class NameSource {
+    user,
+    auto_,
+};
+
 struct NewBrowserTabRequest {
     Field<std::uint16_t> cols{};
     Field<Id> pane{};
@@ -4269,11 +4353,14 @@ struct RenameSurfaceRequest {
 
 struct RenameWorkspaceRequest {
     Field<std::string> expected_generation{};
+    Field<std::string> expected_name_revision{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     std::string name{};
     Field<std::string> origin{};
+    std::optional<bool> release{};
+    Field<NameSource> source{};
     Field<Id> workspace{};
     friend bool operator==(const RenameWorkspaceRequest&, const RenameWorkspaceRequest&) = default;
 };
@@ -4614,6 +4701,7 @@ struct SendKeyRequest {
 
 struct SendRequest {
     Field<Base64> bytes{};
+    Field<std::string> expect_foreground{};
     std::optional<bool> paste{};
     Field<Id> surface{};
     Field<std::string> terminal_id{};
@@ -4759,6 +4847,7 @@ struct SetCellPixelsResult {
 };
 
 struct SetClientInfoRequest {
+    Field<std::uint32_t> api_revision{};
     Field<std::vector<std::string>> capabilities{};
     Field<std::string> device_id{};
     Field<std::string> device_kind{};
@@ -4784,6 +4873,7 @@ struct SetColumnDockRequest {
     Field<std::string> mode{};
     Id pane{};
     Field<bool> permanent{};
+    Field<bool> pinned{};
     Field<std::string> role{};
     Field<std::uint64_t> transaction{};
     friend bool operator==(const SetColumnDockRequest&, const SetColumnDockRequest&) = default;
@@ -5430,6 +5520,8 @@ struct Workspace {
     Id id{};
     std::optional<std::string> key{};
     std::string name{};
+    std::optional<std::string> name_revision{};
+    std::optional<NameSource> name_source{};
     std::vector<Screen> screens{};
     std::optional<std::string> short_id{};
     friend bool operator==(const Workspace&, const Workspace&) = default;
@@ -6294,6 +6386,12 @@ struct Codec<MachineListeningTcpResult> {
 };
 
 template <>
+struct Codec<MachinePlatform> {
+    static Result<Json> encode(const MachinePlatform& value);
+    static Result<MachinePlatform> decode(const Json& value);
+};
+
+template <>
 struct Codec<MachineUsage> {
     static Result<Json> encode(const MachineUsage& value);
     static Result<MachineUsage> decode(const Json& value);
@@ -6315,6 +6413,12 @@ template <>
 struct Codec<MoveTerminalResult> {
     static Result<Json> encode(const MoveTerminalResult& value);
     static Result<MoveTerminalResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<NameSource> {
+    static Result<Json> encode(const NameSource& value);
+    static Result<NameSource> decode(const Json& value);
 };
 
 template <>
@@ -7308,9 +7412,33 @@ struct Codec<CloudConversationThreadRequest> {
 };
 
 template <>
+struct Codec<CloudConversationTypingRequest> {
+    static Result<Json> encode(const CloudConversationTypingRequest& value);
+    static Result<CloudConversationTypingRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudConversationUnsubscribeRequest> {
     static Result<Json> encode(const CloudConversationUnsubscribeRequest& value);
     static Result<CloudConversationUnsubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaClearRequest> {
+    static Result<Json> encode(const CloudHostReplicaClearRequest& value);
+    static Result<CloudHostReplicaClearRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaSetRequest> {
+    static Result<Json> encode(const CloudHostReplicaSetRequest& value);
+    static Result<CloudHostReplicaSetRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaStatusRequest> {
+    static Result<Json> encode(const CloudHostReplicaStatusRequest& value);
+    static Result<CloudHostReplicaStatusRequest> decode(const Json& value);
 };
 
 template <>
@@ -7359,6 +7487,12 @@ template <>
 struct Codec<CloudParticipantAvatarGetRequest> {
     static Result<Json> encode(const CloudParticipantAvatarGetRequest& value);
     static Result<CloudParticipantAvatarGetRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudRequestsListRequest> {
+    static Result<Json> encode(const CloudRequestsListRequest& value);
+    static Result<CloudRequestsListRequest> decode(const Json& value);
 };
 
 template <>
@@ -8922,6 +9056,18 @@ struct Codec<AgentChangedEvent> {
 };
 
 template <>
+struct Codec<AgentInventoryChangedEvent> {
+    static Result<Json> encode(const AgentInventoryChangedEvent& value);
+    static Result<AgentInventoryChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryWatchEndedEvent> {
+    static Result<Json> encode(const AgentInventoryWatchEndedEvent& value);
+    static Result<AgentInventoryWatchEndedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentPresenceChangedEvent> {
     static Result<Json> encode(const AgentPresenceChangedEvent& value);
     static Result<AgentPresenceChangedEvent> decode(const Json& value);
@@ -8997,6 +9143,18 @@ template <>
 struct Codec<CloudConversationRunChangedEvent> {
     static Result<Json> encode(const CloudConversationRunChangedEvent& value);
     static Result<CloudConversationRunChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationTypingEvent> {
+    static Result<Json> encode(const CloudConversationTypingEvent& value);
+    static Result<CloudConversationTypingEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaNeededEvent> {
+    static Result<Json> encode(const CloudHostReplicaNeededEvent& value);
+    static Result<CloudHostReplicaNeededEvent> decode(const Json& value);
 };
 
 template <>

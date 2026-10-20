@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc. */
+/* cmux-tui mux protocol 12, IR 6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -547,6 +547,7 @@ export type IdMapping = {
 };
 
 export type IdentifyResult = {
+  "api_revision"?: (number) | null;
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
@@ -557,7 +558,11 @@ export type IdentifyResult = {
   "ghostty_commit"?: (string) | null;
   "launch_snapshot_path"?: (string) | null;
   "lifecycle_ready"?: boolean;
+  "machine_capabilities"?: Array<string>;
+  "machine_id"?: string;
   "machine_name"?: string;
+  "machine_platform"?: MachinePlatform;
+  "min_api_revision"?: (number) | null;
   "pid": number;
   "protocol": number;
   "registry_id": string;
@@ -649,6 +654,11 @@ export type MachineListeningTcpResult = {
   "stdout": string;
 };
 
+export type MachinePlatform = {
+  "arch": string;
+  "os": string;
+};
+
 export type MachineUsage = {
   "api_equivalent_usd": number;
   "as_of": (string) | null;
@@ -687,6 +697,8 @@ export type MoveTerminalResult = {
   "workspace": (Id) | null;
   "workspace_key": string;
 };
+
+export type NameSource = "user" | "auto";
 
 export type NewRowResult = {
   "pane": Id;
@@ -1499,6 +1511,8 @@ export type Workspace = {
   "id": Id;
   "key"?: string;
   "name": string;
+  "name_revision"?: string;
+  "name_source"?: NameSource;
   "screens": Array<Screen>;
   "short_id"?: string;
 };

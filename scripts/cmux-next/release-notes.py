@@ -32,6 +32,7 @@ writes the same lines as plain text into the build's appcast <description>.
 
   release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
+  release-notes.py prs --head SHA [--since SHA] [--repo O/R] [--limit N]   the GitHub release's "PRs in this build"
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
   release-notes.py backfill --index I --base URL... --public-key K --out DIR   adds summary/items to old notes
   release-notes.py since --index index.json [--not SHA]  prints the newest build's head commit (the next span's start)
@@ -44,6 +45,7 @@ from pathlib import Path
 HIGHLIGHTS = "release-notes/next/highlights"
 MAX_CHANGES = 200
 SUMMARY_LIMIT = 8
+PR_LIMIT = 40
 GROUP_TITLES = {"new": "New", "fixed": "Fixed", "changed": "Changed"}
 # Conventional types that never reach a person.
 INTERNAL_TYPES = {"ci", "test", "tests", "refactor", "docs", "doc", "chore", "style", "build", "lint", "release-note",
@@ -61,13 +63,21 @@ INTERNAL_WORDS = re.compile(
     r"frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|"
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
-    r"consumers?|metrics)\b", re.I)
+    r"consumers?|metrics|review fixes)\b", re.I)
+# Product names whose casing is not code.
+BRANDS = re.compile(r"\b(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
 # Code-looking subjects (dotted names, snake_case, versioned ids, backticks) are internal.
-CODE_LIKE = re.compile(r"`|\b\w+\.\w+\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}")
+CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}")
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
 AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
-# "(#123)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)": references, anywhere in the subject.
-REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|#\d+|red)\)", re.I)
+# "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".
+LABEL = re.compile(r"^(?P<area>[A-Za-z][\w-]*(?: [A-Za-z][\w-]*){0,2})(?:\((?P<scope>[^)]*)\))?!?:\s+(?P<rest>\S.*)$")
+# Work streams that measure or check the app (perf-split, perf-gate, motion-record, strip-scroll-check).
+INTERNAL_AREA_SHAPE = re.compile(r"^(?:perf-[\w-]+|[\w-]+-(?:check|record|gate|bench|probe)|motion-record|review|gate|base-red)$", re.I)
+PRODUCT_WORDS = {"cmux", "next", "cmux-next", "cmuxnext"}
+# "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", anywhere in the subject, and a
+# bead reference cut off at the end.
+REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$", re.I)
 
 def summary_entry(subject):
     """(group, title) for a user-facing commit subject, else None."""
@@ -84,17 +94,52 @@ def summary_entry(subject):
             return None if kind not in {"cmux-next", "cmuxnext"} else summary_entry(match["rest"])
         group = {"feat": "new", "fix": "fixed", "perf": "changed"}[kind]
         text = match["rest"]
+    # Each "area: " label in turn; a work-stream label marks the whole line internal. The same
+    # rules as readableChange (webviews/src/pages/changelog/readableChange.ts).
+    while (label := LABEL.match(text)):
+        words = [w for w in label["area"].lower().split() if w not in PRODUCT_WORDS]
+        scopes = [s.strip() for s in (label["scope"] or "").lower().split(",") if s.strip()]
+        if any(INTERNAL_AREA_SHAPE.match(w) for w in words + scopes):
+            return None
+        text = label["rest"]
     text = AREA_PREFIX.sub("", text)
     text = REFS.sub("", text).strip(" .")
-    if not text or INTERNAL_WORDS.search(text) or CODE_LIKE.search(text):
+    if not text or INTERNAL_WORDS.search(text) or CODE_LIKE.search(BRANDS.sub("", text)):
         return None
     if group == "changed" and re.match(r"^(add|adds|new|introduce|support|show)\b", text, re.I):
         group = "new"
     elif group == "changed" and re.match(r"^(fix|fixes|repair|stop|keep)\b", text, re.I):
         group = "fixed"
-    if len(text) > 90:
-        text = text[:89].rsplit(" ", 1)[0] + "…"
+    # Whole: the page wraps a long line, and short_title gives the digest a title that fits.
     return group, text[:1].upper() + text[1:]
+
+
+CLAUSE = re.compile(r",|;| —| - | \(| so | because | while ")
+DANGLING = re.compile(r"\b(?:a|an|the|and|or|but|to|of|in|on|for|with|by|even|so|that|which|its|their)$", re.I)
+
+
+def short_title(text, limit):
+    """At most `limit` characters: the text when it fits, else its first clause when that fits, has
+    three words and does not end on a joining word, else None. Never a cut word or an ellipsis
+    (readableChange.ts shortTitle)."""
+    text = " ".join(text.split()).rstrip(". ")
+    if len(text) <= limit:
+        return text
+    for match in CLAUSE.finditer(text):
+        head = text[:match.start()].rstrip(" ,;:—-")
+        if len(head) > limit:
+            return None
+        if len(head.split()) >= 3 and not DANGLING.search(head):
+            return head
+    return None
+
+
+def title_tail(full, title):
+    """What follows `title` in `full`, as a summary (readableChange.ts titleTail)."""
+    tail = full[len(title):].lstrip(" ,;:—-").strip()
+    if tail.startswith("(") and tail.endswith(")"):
+        tail = tail[1:-1]
+    return tail[:1].upper() + tail[1:]
 
 
 def summarize_changes(subjects, limit=SUMMARY_LIMIT):
@@ -198,21 +243,19 @@ def summary_whats_new_digest(args, lines):
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
     import validate
 
-    def bounded(text, limit):
-        text = " ".join(text.split()).rstrip(". ")
-        if len(text) > limit:
-            text = text[:limit - 1].rsplit(" ", 1)[0].rstrip(". ") + "…"
-        return text
-
     document = {"schemaVersion": 1, "version": args.short, "channel": "nightly", "date": args.date,
                 "headline": {"en": "Fixes and improvements"}, "entries": []}
     categories = {"new": "new", "fixed": "fixed", "changed": "improved"}
     for index, line in enumerate(lines):
-        title = bounded(line.get("title", ""), validate.LIMITS["title"])
+        # A line with no clause short enough stays out of the digest; the page shows it whole
+        # from the summary lines.
+        title = short_title(line.get("title", ""), validate.LIMITS["title"])
         if not title or line.get("group") not in categories:
             continue
+        # The summary says what the title leaves out, or repeats a title that is the whole line.
+        full = " ".join(line["title"].split()).rstrip(". ")
         entry = {"id": f"summary-{index}", "category": categories[line["group"]],
-                 "title": {"en": title}, "summary": {"en": line["title"].strip()},
+                 "title": {"en": title}, "summary": {"en": title_tail(full, title) if title != full else full},
                  "platforms": ["macos"], "audience": "all", "docs": "https://cmux.com/docs/changelog"}
         problems = validate.validate_document(f"{args.short}.json", {**document, "entries": [entry]})
         if problems:
@@ -221,7 +264,7 @@ def summary_whats_new_digest(args, lines):
         document["entries"].append(entry)
     if not document["entries"]:
         return None
-    document["headline"] = {"en": bounded(document["entries"][0]["title"]["en"], validate.LIMITS["headline"])}
+    document["headline"] = {"en": document["entries"][0]["title"]["en"]}
     problems = validate.validate_document(f"{args.short}.json", document)
     if problems:
         print("whats-new summary skipped:\n" + "\n".join(problems), file=sys.stderr)
@@ -240,10 +283,46 @@ def write_community_summary(digest, args):
             out.write(text)
 
 
+def commits_with_authors(since, head, limit=MAX_CHANGES):
+    """(subject, author) of each non-merge commit in the span, newest first, at most `limit` (None: all)."""
+    span = rev_range(since, head)
+    commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
+    return [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:limit]
+
+
+def pr_lines(items, repo, limit=PR_LIMIT):
+    """The GitHub release body's "PRs in this build" section: one line per PR (newest first, each
+    PR once), at most `limit`, then "and K more"; commits without a "(#1234)" suffix are counted."""
+    seen, prs = set(), []
+    for item in items:
+        if "pr" in item and item["pr"] not in seen:
+            seen.add(item["pr"])
+            prs.append(item)
+    without = sum(1 for item in items if "pr" not in item)
+    if not prs and not without:
+        return ""
+    lines = ["### PRs in this build", ""]
+    # A subject's "@login" would ping that person and a "<" could open an HTML comment.
+    escape = lambda text: text.replace("&", "&amp;").replace("<", "&lt;").replace("@", "&#64;")
+    lines += [f'- [#{i["pr"]}](https://github.com/{repo}/pull/{i["pr"]}) {escape(i["title"])}' for i in prs[:limit]]
+    if len(prs) > limit:
+        lines.append(f"- and {len(prs) - limit} more")
+    if not prs:
+        lines.append("No PRs.")
+    if without:
+        lines += ["", f"{without} commit{'s' if without != 1 else ''} without a PR number not listed."]
+    return "\n".join(lines) + "\n"
+
+
+def prs(args):
+    # The whole span, not MAX_CHANGES: "and K more" and the no-PR count must cover every commit.
+    commits = commits_with_authors(args.since, args.head, limit=None)
+    print(pr_lines([change_item(s, a) for s, a in commits], args.repo, args.limit), end="")
+
+
 def build(args):
     span = rev_range(args.since, args.head)
-    commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
-    commits = [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:MAX_CHANGES]
+    commits = commits_with_authors(args.since, args.head)
     changes = [subject for subject, _ in commits]
     items = [change_item(subject, author) for subject, author in commits]
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
@@ -402,6 +481,11 @@ def main():
     a.add_argument("--appcasts", required=True)
     a.add_argument("--build", required=True)
     a.add_argument("--feeds", nargs="+", required=True)
+    p = sub.add_parser("prs")
+    p.add_argument("--head", required=True)
+    p.add_argument("--since", default="")
+    p.add_argument("--repo", default="manaflow-ai/cmux")
+    p.add_argument("--limit", type=int, default=PR_LIMIT)
     i = sub.add_parser("index")
     i.add_argument("--notes", required=True)
     i.add_argument("--previous")
@@ -424,7 +508,7 @@ def main():
     v.add_argument("--public-key", required=True)
     v.add_argument("file")
     args = parser.parse_args()
-    return {"build": build, "appcast": appcast, "index": index, "since": since, "backfill": backfill, "sign": sign, "verify": verify}[args.cmd](args) or 0
+    return {"build": build, "appcast": appcast, "prs": prs, "index": index, "since": since, "backfill": backfill, "sign": sign, "verify": verify}[args.cmd](args) or 0
 
 
 if __name__ == "__main__":

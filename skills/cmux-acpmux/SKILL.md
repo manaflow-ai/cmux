@@ -37,6 +37,20 @@ path can store a message while ACP delivery is unavailable; it does not start an
 the cmux daemon is unavailable too, use the available coordination tool and retain the same
 idempotency key for reconciliation. Report which fallback was used.
 
+## Session handles a user pastes
+
+In cmux-next, Go to Workspace (Cmd-P) lists agent sessions; Cmd-K on a row opens its Actions
+menu, and **Copy Session ID** copies:
+
+- an acpmux chat: `acp:<session id>` (the id `acpmux --json ls` prints). Pass it as is to
+  `cmux agent message acp:<session id> "..."` (the Chief and other agents use the same path). For
+  acpmux commands, drop the `acp:` prefix: `acpmux --json session info <session id>`,
+  `acpmux send <session id> "..."`. The id names a session on the machine that runs it; from
+  another machine, use the peer form `host/name` from `acpmux --json ls`.
+- a Claude Code or Codex terminal: the harness's own session UUID (the `session_id` its hooks
+  report), for `claude --resume <uuid>` or `codex resume <uuid>`. To message that agent, use its
+  terminal instead: `cmux agent message term_<id> "..."`.
+
 ## Partition work before launching agents
 
 Write a small work ledger before starting parallel work:
@@ -99,9 +113,8 @@ Retry `send` with the same `id`; a duplicate is safe, while changed content for 
 id conflict. Bound bodies and metadata, bound wait time, and acknowledge only as the recipient.
 
 Mailbox state is local to one daemon. Use only the local Unix or LocalApp trust boundary with an
-attached sender or recipient. The mailbox auth follow-up adds a fail-closed refusal for Web and
-Peer origins (`mailbox_remote_refused`); until that fix is present on the daemon being driven,
-there is no safe remote mailbox route. Do not mistake attachment alone for remote authorization or
+attached sender or recipient. The daemon refuses Web and Peer origins with
+`mailbox_remote_refused`, so there is no remote mailbox route. Do not mistake attachment alone for remote authorization or
 route raw mailbox calls through a different origin. Federation needs a route that preserves sender
 identity and delivery scope.
 

@@ -148,6 +148,9 @@ const prepare = (
 ): { op: Op; trusted?: boolean } | string => {
   // Params never name the actor or the op kind.
   const { actor: _actor, kind: _kind, proof, ...rest } = params as Record<string, unknown>
+  if (op === "invite.accept_verified") {
+    return { op: { kind: "invite.accept_verified", display_name: safeDisplayName(ctx.principal.display_name, FALLBACK_NAME) } }
+  }
   if (op === "invite.accept") {
     if (typeof proof !== "string" || proof.length === 0 || proof.length > 256) return "unknown_invite"
     return { op: { kind: "invite.accept", token_hash: hashInviteSecret(proof), display_name: safeDisplayName(ctx.principal.display_name, FALLBACK_NAME) } }
@@ -241,7 +244,7 @@ const reduceConversation = (
   const floor = historyFloor(head, actor)
   const visible = (row: Message | null): Message | null => (row && row.seq > floor ? row : null)
   const threadRow = threadId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, threadId)?.row ?? null)
-  const verified = op === "invite.accept" && ctx.principal.email_verified === true && options.addressIdsFor
+  const verified = (op === "invite.accept" || op === "invite.accept_verified") && ctx.principal.email_verified === true && options.addressIdsFor
   const request: OpRequest = {
     actor,
     // The engine's ledger owns idempotency; `msgkey` keeps (author, client_msg_id) unique.

@@ -1,0 +1,11 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift
+@@ -273,7 +273,7 @@
+             attr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(range, in: s))
+         }
+         if let l = link, let range = s.range(of: l) {
+-            attr.addAttributes([.foregroundColor: UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1),
++            attr.addAttributes([.foregroundColor: Fixture.incomingLink, // cmux: themed link tint
+                                 .underlineStyle: NSUnderlineStyle.single.rawValue], range: NSRange(range, in: s))
+         }
+         let line = CTLineCreateWithAttributedString(attr)

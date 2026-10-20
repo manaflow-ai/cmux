@@ -62,6 +62,8 @@ import Foundation
             pane.insertTab(tab, at: pane.tabs.count)
             store.index.insert(tab, in: pane)
             return .createdTab(surface: provisional.surface, pane: paneHandle)
+        case .createWorkspace(let provisional, let index):
+            return ProvisionalWorkspaceOverlay.apply(provisional, index: index, to: store)
         case .splitPane(let target, let direction, let ratio, let provisional):
             return ProvisionalSplit.apply(target: target, direction: direction, ratio: ratio,
                                           provisional: provisional, to: store)
@@ -104,6 +106,7 @@ import Foundation
     /// Applies a pending intent again after a daemon apply. A created tab the daemon already
     /// reported replaces its provisional one (``ProvisionalTab/created(_:surface:in:)``).
     static func restore(_ pending: PendingIntent, to store: DaemonStore) -> IntentUndo? {
+        if pending.closeWhenCreated { return CancelledCreation.hide(pending, in: store) }
         if let created = pending.createdSurface, store.tabsBySurface[created] != nil { return nil }
         // The daemon's pane under the split's public pane id replaces the provisional one
         // (ProvisionalSplit.apply places it until the daemon's layout does).
@@ -143,8 +146,12 @@ import Foundation
             guard let tab = store.tabsBySurface[surface] else { return }
             tab.update(previous)
             if let pane = store.pane(holding: tab) { store.index.insert(tab, in: pane) }
+        case .hiddenTab, .hiddenPane:
+            CancelledCreation.unhide(undo, in: store)
         case .splitPane(let screen, let layout, let columns, let pane):
             ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, pane: pane, in: store)
+        case .createdWorkspace(let key, let inserted):
+            ProvisionalWorkspaceOverlay.undo(key: key, inserted: inserted, in: store)
         case .createdTab(let surface, let pane):
             guard let tab = store.panesByHandle[pane]?.removeTab(surface: surface) else {
                 if let stray = store.tabsBySurface[surface] { store.index.remove(stray) }

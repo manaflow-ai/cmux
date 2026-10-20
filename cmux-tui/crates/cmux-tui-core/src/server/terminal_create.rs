@@ -130,15 +130,13 @@ impl PrelaunchRequest {
             None => None,
         };
         // An invalid environment is reported by the create itself.
-        let env = env.map(crate::mux::validate_terminal_env).transpose().ok()?.unwrap_or_default();
-        Some(Self {
-            pane,
-            terminal_id,
-            cwd: cwd.cloned(),
-            argv: shell_argv(&env, shell_args.cloned(), frontend_shell),
-            env,
-            size,
-        })
+        let mut env =
+            env.map(crate::mux::validate_terminal_env).transpose().ok()?.unwrap_or_default();
+        let argv = shell_argv(&env, shell_args.cloned(), frontend_shell);
+        // The create adopts this host only with the same launch: mark it as
+        // `placement_spawn_options` does.
+        crate::login_shell::mark(&mut env, argv.as_deref());
+        Some(Self { pane, terminal_id, cwd: cwd.cloned(), argv, env, size })
     }
 
     fn launch(self, mux: &Arc<Mux>) -> Option<String> {
