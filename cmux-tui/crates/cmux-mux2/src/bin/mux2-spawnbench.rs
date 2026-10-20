@@ -1,16 +1,16 @@
-//! macOS only for now (kqueue, posix_spawn PTY setup); see GOAL.md.
+//! Unix only for now (kqueue on macOS, epoll on Linux); Windows comes next. See GOAL.md.
 
-#[cfg(target_os = "macos")]
-#[path = "../macos/mux2_spawnbench.rs"]
+#[cfg(unix)]
+#[path = "../unix/mux2_spawnbench.rs"]
 mod imp;
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn main() {
     imp::main();
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(unix))]
 fn main() {
-    eprintln!("mux2-spawnbench: macOS only for now");
+    eprintln!("mux2-spawnbench: Unix only for now");
     std::process::exit(2);
 }
