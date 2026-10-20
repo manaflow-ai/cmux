@@ -51,6 +51,11 @@ nonisolated enum PaletteStrings {
     static var paneKeyword: String { String(localized: "palette.keyword.pane", defaultValue: "pane", bundle: .module) }
     static var sectionGroups: String { String(localized: "palette.section.groups", defaultValue: "Groups", bundle: .module) }
     static var sectionPanes: String { String(localized: "palette.section.panes", defaultValue: "Panes", bundle: .module) }
+    /// The Search scope's title (the sidebar's Search button) and its field's placeholder.
+    static var searchEverythingTitle: String { String(localized: "palette.scope.search", defaultValue: "Search", bundle: .module) }
+    static var searchEverythingPlaceholder: String {
+        String(localized: "palette.placeholder.searchEverything", defaultValue: "Search workspaces, tabs, history, chats, settings and commands…", bundle: .module)
+    }
     static var goToAnythingPlaceholder: String {
         String(localized: "palette.placeholder.goToAnything", defaultValue: "Search workspaces, groups, panes and tabs…", bundle: .module)
     }

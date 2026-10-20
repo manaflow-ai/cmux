@@ -56,6 +56,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
         SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
+        // The footer's Search button runs the one palette.open path (plans/cmux-next/sidebar-search.md).
+        sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
+            _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
+        }
         root = WindowRootView(sidebar: sidebar.container)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
