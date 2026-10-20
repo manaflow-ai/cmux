@@ -78,7 +78,8 @@ import Testing
     private static func covers(_ path: CGPath?, _ x: CGFloat, _ y: CGFloat) -> Bool { path?.contains(CGPoint(x: x, y: y)) ?? false }
 
     /// Leo 2026-10-19, measured on his Chrome reference at 2x: by default a 26 pt header bar with
-    /// 6 pt corners, a 6 pt cut (`SidebarStyle.groupLineCut`), then a 2 pt line in the bar's color
+    /// 6 pt corners, an 8 pt cut (`SidebarStyle.groupLineCut`, Leo after the renders: "a liiiitle
+    /// more cut-y" than Chrome's 6 pt), then a 2 pt line in the bar's color
     /// whose right edge meets the end of the bar's corner arc (bar left + corner radius), that runs to
     /// the last member row's bottom. Its ends are trimmed as Chrome's are: the left corners square,
     /// the right corners cut by a quarter circle as wide as the line. An unnamed group's header is
@@ -92,7 +93,7 @@ import Testing
         line.updateLayer()
         let drawn = sidebar.convert(line.bounds, from: line)
         try #require(sidebar.isFlipped)
-        #expect(SidebarStyle.groupLineCut == Metrics.space3, "Chrome's cut is about 6 pt, the space3 step")
+        #expect(SidebarStyle.groupLineCut == Metrics.space4, "a little more cut than Chrome's 6 pt: the 8 pt space4 step")
         #expect(abs(drawn.minY - bar.maxY - SidebarStyle.groupLineCut) < 0.01,
                 "minimal \(minimal): a \(drawn.minY - bar.maxY) pt gap below the bar, want the \(SidebarStyle.groupLineCut) pt cut")
         #expect(abs(drawn.width - Metrics.space1) < 0.01, "a \(drawn.width) pt line, want Chrome's \(Metrics.space1) pt one")
