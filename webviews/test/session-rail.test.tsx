@@ -237,3 +237,86 @@ test("a harness that reports its MCP servers gets a Connectors card; one that do
   await render(container, base);
   expect(card(container, "Connectors")).toBeUndefined();
 });
+
+/// A `gh pr create` the agent ran, printing its pull request's URL.
+const opened = (number: number, title: string) =>
+  tool("gh pr create", "execute", "completed", {
+    command: `gh pr create --title "${title}" --body x`,
+    output: `https://github.com/acme/atlas-web/pull/${number}\n`,
+    exitCode: 0,
+  });
+
+test("a Changes card appears with the first pull request the session opened, newest first, each a link", async () => {
+  const container = installDom(true);
+  await render(container, localChat);
+  await click(toggle(container)!);
+  // No pull request yet: no card, not an empty one.
+  expect(card(container, "Changes")).toBeUndefined();
+
+  // The folder's pull request, as the App pushes it: checks failing.
+  setHeaderState({
+    pullRequest: {
+      url: "https://github.com/acme/atlas-web/pull/12",
+      number: 12,
+      title: "Retry the fetch helper",
+      state: "open",
+      checks: { state: "failing", passed: 3, total: 5 },
+    },
+  });
+  await render(
+    container,
+    chat([
+      activity([opened(12, "Retry the fetch helper")], 5),
+      activity([opened(14, "Back off on 429")], 2),
+    ]),
+  );
+  expect([...container.querySelectorAll(".acpmux-rail-card__title")].map((element) => element.textContent)).toEqual([
+    "Environment",
+    "Context",
+    "Outputs",
+    "Changes",
+  ]);
+  const links = [...card(container, "Changes")!.querySelectorAll<HTMLAnchorElement>("a.acpmux-rail-pr")];
+  expect(links.map((link) => link.getAttribute("href"))).toEqual([
+    "https://github.com/acme/atlas-web/pull/14",
+    "https://github.com/acme/atlas-web/pull/12",
+  ]);
+  expect(links[0]!.querySelector(".acpmux-rail-pr__title")?.textContent).toBe("Back off on 429");
+  expect(links[0]!.querySelector(".acpmux-rail-pr__ref")?.textContent).toBe("atlas-web #14");
+  // Only the pull request whose checks the App reads says how they stand.
+  expect(links[0]!.querySelector(".acpmux-rail-pr__checks")).toBeNull();
+  expect(links[1]!.querySelector(".acpmux-rail-pr__checks")?.textContent).toBe("Failing");
+
+  // Passing checks are a dot with a label, not a word.
+  setHeaderState({
+    pullRequest: {
+      url: "https://github.com/acme/atlas-web/pull/12",
+      number: 12,
+      title: "Retry the fetch helper",
+      state: "open",
+      checks: { state: "passing", passed: 5, total: 5 },
+    },
+  });
+  await render(container, chat([activity([opened(12, "Retry the fetch helper")], 5)]));
+  const checks = card(container, "Changes")!.querySelector(".acpmux-rail-pr__checks");
+  expect(checks?.textContent).toBe("");
+  expect(checks?.getAttribute("aria-label")).toBe("Checks passed");
+  setHeaderState({ pullRequest: null });
+});
+
+test("Changes shows five pull requests and folds the rest behind Show more", async () => {
+  const container = installDom(true);
+  await render(
+    container,
+    chat([activity([1, 2, 3, 4, 5, 6, 7].map((number) => opened(number, `Change ${number}`)), 2)]),
+  );
+  await click(toggle(container)!);
+  const changes = () => card(container, "Changes")!;
+  const titles = () => [...changes().querySelectorAll(".acpmux-rail-pr__title")].map((title) => title.textContent);
+  expect(titles()).toEqual(["Change 7", "Change 6", "Change 5", "Change 4", "Change 3"]);
+  const more = changes().querySelector<HTMLButtonElement>(".acpmux-rail-more")!;
+  expect(more.textContent).toBe("Show 2 more");
+  await click(more);
+  expect(titles()).toHaveLength(7);
+  expect(changes().querySelector(".acpmux-rail-more")?.textContent).toBe("Show less");
+});
