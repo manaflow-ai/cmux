@@ -491,6 +491,10 @@ enum Phase {
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// The longest the Chief waits for a turn session the next acpmux adopted
+/// (an update relaunch) to end before it folds and ends it.
+pub(crate) const ORPHAN_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 /// Runs after every turn with its key (persist and back up, section 10).
 pub type TurnHook = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -656,6 +660,9 @@ pub struct Brain {
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
+    /// While set, an adopted turn session still runs and no turn starts; at
+    /// this time it is folded and ended anyway (`children::adopt_orphans`).
+    orphan_wait: Option<Instant>,
     /// When a turn an upstream error cut may run again (None: now).
     resume_at: Option<Instant>,
     /// The waits before such a turn runs again (`turns::UPSTREAM_RESUME_BACKOFF`).
@@ -767,6 +774,7 @@ impl Brain {
             previewer: None,
             cuts: 0,
             resume_at: None,
+            orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
         };
         // Each cut turn runs again first, on the reference client's note;
@@ -905,10 +913,10 @@ impl Brain {
 
     /// When the outbox timer fires, if armed.
     pub fn next_timer(&self) -> Option<Instant> {
-        match (self.outbox_timer, self.resume_at) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        [self.outbox_timer, self.resume_at, self.orphan_wait]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// Runs until a fatal error; returns it.
@@ -1170,6 +1178,11 @@ impl Brain {
             self.flush_outbox();
         }
         self.on_resume_timer();
+        if self.orphan_wait.is_some_and(|at| at <= now) {
+            (self.log)("an adopted turn session ran past its wait; folding and ending it");
+            self.adopt_orphans(true);
+            self.maybe_start_turn();
+        }
     }
 
     fn save(&self) {
