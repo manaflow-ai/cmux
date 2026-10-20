@@ -492,7 +492,7 @@ jobs:
                 # The run still fails: both jobs take "since" from the last successful run, and a
                 # left-out file may not be re-flagged by a diff from HEAD_SHA (an output no input area
                 # claims, or a change reverted again). Failing keeps "since" at the older run.
-                echo "::error::pushed part of the repair; ${partial} left to the next run, which feat-cmux-next ${base:0:12} changed." | tee -a "$GITHUB_STEP_SUMMARY"
+                echo "::error::pushed part of the repair; ${partial} left to the next run (feat-cmux-next ${base:0:12} changed their inputs)." | tee -a "$GITHUB_STEP_SUMMARY"
                 exit 1
               fi
               exit 0
@@ -529,6 +529,35 @@ jobs:
                   kept+=("$path")
                 fi
               done < <(git diff --no-renames --name-only "$HEAD_SHA" "$repair")
+              # A file built from another repaired file waits when that one waits: the docs shortcuts,
+              # app-host files and snapshot are built from the action export, and the strings tables and
+              # snapshot from the settings export. export_of names the export a file is; built_from the
+              # exports a file reads.
+              export_of() {
+                case "$1" in
+                  plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json) echo actions ;;
+                  schemas/settings/settings-schema.json|schemas/settings-export/*|docs/mdm/*) echo settings ;;
+                esac
+              }
+              built_from() {
+                case "$1" in
+                  web/data/cmux-shortcuts.generated.json|cmux-tui/crates/cmux-app-host/generated/*) echo actions ;;
+                  */generated/strings.json) echo settings ;;
+                  schemas/defaults/cmux-next.json) echo actions; echo settings ;;
+                esac
+              }
+              waiting="$(for path in ${left[@]+"${left[@]}"}; do export_of "$path"; done | sort -u)"
+              if [[ -n "$waiting" ]]; then
+                still=()
+                for path in ${kept[@]+"${kept[@]}"}; do
+                  if [[ -n "$(comm -12 <(built_from "$path" | sort -u) <(echo "$waiting"))" ]]; then
+                    left+=("$path")
+                  else
+                    still+=("$path")
+                  fi
+                done
+                kept=(${still[@]+"${still[@]}"})
+              fi
               if (( ${#kept[@]} == 0 )); then
                 echo "::error::feat-cmux-next ${tip:0:12} changed this repair's inputs since ${HEAD_SHA:0:12} (${overlap% }); the newer run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
                 exit 1
