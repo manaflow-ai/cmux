@@ -10,7 +10,10 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         // Owner round trips a caller that waits (`action.run` with `wait`) gets the
         // 40 s result deadline for: a group with invites takes several requests.
-        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief"]
+        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief",
+                                    "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
+                                    "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
+                                    "home.createGroup", "home.setChiefReplies"]
         return all.map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
@@ -87,6 +90,14 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home attach",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Reply to Selection (plans/cmux-next/reply-to-selection-DESIGN.md): the text selected in one
+            // message of the shown Home conversation is the reply's quote. Cmd-Shift-R on Home (KeyBindingDefaults).
+            ActionDescriptor(
+                id: "home.replyToSelection", title: t("action.home.replyToSelection", "Reply to Selection"),
+                keywords: ["home", "reply", "quote", "selection", "selected", "highlight", "message", "thread"],
+                category: .window, symbol: "text.quote", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
+            ),
             // The Home page's conversation list (plans/cmux-next/home-messaging.md):
             // New Message (a DM or a group), Invite, New Chief and Archive Chief.
             // Without arguments the first three open their sheet on the Home page;
@@ -148,6 +159,112 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 arguments: [ActionArgument(name: "conversation", title: t("argument.home.conversation", "Conversation"), kind: .string)],
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.focusMove), cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
             ),
+            // Person-to-person DMs and groups (plans/cmux-next/home-dm-group-chats): the group info
+            // sheet, the Home row menu and these actions share one path (HomeGroupActions). Each takes
+            // `conversation` (an id); without it it acts on the conversation the Home page shows.
+            ActionDescriptor(
+                id: "home.conversationInfo", title: t("action.home.conversationInfo", "Conversation Info…"),
+                keywords: ["home", "group", "info", "details", "members", "people", "dm", "conversation", "mute", "rename"],
+                category: .window, symbol: "info.circle", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "home.renameConversation", title: t("action.home.renameConversation", "Rename Group…"),
+                keywords: ["home", "group", "rename", "name", "title", "conversation"],
+                category: .window, symbol: "pencil", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            ActionArgument(name: "title", title: t("argument.home.message.title", "Group Name"), kind: .string)],
+                cliName: "home rename",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "home.addMembers", title: t("action.home.addMembers", "Add People to Group…"),
+                keywords: ["home", "group", "add", "people", "members", "invite", "person", "conversation"],
+                category: .window, symbol: "person.badge.plus", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            ActionArgument(name: "people", title: t("argument.home.people", "People (comma-separated)"), kind: .string)],
+                cliName: "home add-members",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "home.removeMember", title: t("action.home.removeMember", "Remove from Group…"),
+                keywords: ["home", "group", "remove", "kick", "member", "person", "conversation"],
+                category: .window, symbol: "person.badge.minus", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            ActionArgument(name: "person", title: t("argument.home.person", "Person"), kind: .string)],
+                cliName: "home remove-member",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // Leaving cannot be undone by me (someone in the group adds me again): it asks first.
+            ActionDescriptor(
+                id: "home.leaveConversation", title: t("action.home.leaveConversation", "Leave Group…"),
+                keywords: ["home", "group", "leave", "exit", "quit", "conversation"],
+                category: .window, symbol: "rectangle.portrait.and.arrow.right", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation],
+                cliName: "home leave", destructive: true,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "home.muteConversation", title: t("action.home.muteConversation", "Hide Alerts"),
+                keywords: ["home", "mute", "hide alerts", "notifications", "silence", "group", "dm", "conversation"],
+                category: .window, symbol: "bell.slash", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation],
+                cliName: "home mute",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "home.unmuteConversation", title: t("action.home.unmuteConversation", "Show Alerts"),
+                keywords: ["home", "unmute", "show alerts", "notifications", "group", "dm", "conversation"],
+                category: .window, symbol: "bell", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation],
+                cliName: "home unmute",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // Group chats with Chiefs (plans/cmux-next/chief-group-chats-DESIGN.md): `cmux chat create
+            // --members "Chief, Unii, aziz@manaflow.com" [--title T] [--replies auto|mentions|all]`
+            // makes the group New Message makes; `cmux chat replies` sets when its Chiefs answer.
+            ActionDescriptor(
+                id: "home.createGroup", title: t("action.home.createGroup", "New Group Chat…"),
+                keywords: ["home", "group", "chat", "chief", "chiefs", "agents", "people", "new", "create", "imessage", "conversation"],
+                category: .window, symbol: "person.3", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "members", title: t("argument.home.members", "Members (comma-separated)"), kind: .string),
+                            ActionArgument(name: "title", title: t("argument.home.message.title", "Group Name"), kind: .string,
+                                           isRequired: false),
+                            Self.replies(isRequired: false)],
+                cliName: "chat create",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "home.setChiefReplies", title: t("action.home.setChiefReplies", "Set When Chiefs Reply…"),
+                keywords: ["home", "group", "chief", "chiefs", "reply", "replies", "wake", "mention", "every message", "conversation"],
+                category: .window, symbol: "bubble.left.and.text.bubble.right", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation, Self.replies(isRequired: true)],
+                cliName: "chat replies",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // Pin or unpin a conversation in the Home sidebar's pinned grid (pinning-DESIGN.md): the
+            // row's Pin/Unpin, a tile dragged out of the grid, the palette, `cmux home pin-unpin` and
+            // MCP run it. `pinned` sets the state; without it the action toggles.
+            ActionDescriptor(
+                id: "home.togglePin", title: t("action.home.togglePin", "Pin/Unpin Conversation"),
+                keywords: ["home", "pin", "unpin", "pinned", "favorite", "top", "conversation", "chief", "dm", "group"],
+                category: .window, symbol: "pin", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            ActionArgument(name: "pinned", title: t("argument.home.pinned", "Pinned"), kind: .bool, isRequired: false)],
+                cliName: "home pin-unpin",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // `cmux home send --conversation <id> --text "…"`: a message as me, in a DM or group.
+            ActionDescriptor(
+                id: "home.sendMessage", title: t("action.home.sendMessage", "Send Message…"),
+                keywords: ["home", "send", "message", "text", "dm", "group", "chat", "conversation"],
+                category: .window, symbol: "paperplane", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            ActionArgument(name: "text", title: t("argument.home.send.text", "Message"), kind: .string)],
+                cliName: "home send",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             // DEV and NIGHTLY: MessagesLab's flight recorder writes the last ~10 s of the
             // Home transcript to ~/Library/Logs/<app>/blink-<time>/ (Debug menu, palette).
             ActionDescriptor(
@@ -157,6 +274,20 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
         ]
+    }
+
+    /// When a group's Chiefs answer: `auto` (the default), `mentions` or `all`.
+    private static func replies(isRequired: Bool) -> ActionArgument {
+        ActionArgument(name: "replies", title: t("argument.home.replies", "Chiefs Reply"),
+                       kind: .enumeration([ActionEnumCase(value: "auto", title: t("argument.home.replies.auto", "Automatically")),
+                                           ActionEnumCase(value: "mentions", title: t("argument.home.replies.mentions", "Only When @Mentioned")),
+                                           ActionEnumCase(value: "all", title: t("argument.home.replies.all", "To Every Message"))]),
+                       isRequired: isRequired)
+    }
+
+    /// The conversation a group action acts on (an id); without it, the one Home shows.
+    private static var conversation: ActionArgument {
+        ActionArgument(name: "conversation", title: t("argument.home.conversation", "Conversation"), kind: .string, isRequired: false)
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {

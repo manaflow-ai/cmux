@@ -38,6 +38,9 @@ import Testing
         func linkTapped(_ ref: MessagesLabHome.PartRef, url: String) {}
         func canCancelSend(_ message: ID) -> Bool { false }
         func cancelSend(_ message: ID) {}
+        func canRetrySend(_ message: ID) -> Bool { false }
+        func retrySend(_ message: ID) {}
+        func deleteFailedSend(_ message: ID) {}
         func openAttachment(_ message: ID, _ attachment: ID) {}
         func toggleVideo(_ ref: MessagesLabHome.PartRef, _ attachment: ID) {}
         func videoState(_ ref: MessagesLabHome.PartRef) -> HomeVideoState { .poster }

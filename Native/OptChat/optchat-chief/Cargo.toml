@@ -45,6 +45,9 @@ base64 = "0.22"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 sha2 = "0.10"
+# `move`: consistent SQLite copies (VACUUM INTO) and row counts; the same
+# rusqlite optchat-host links.
+rusqlite = { version = "0.32", features = ["bundled"] }
 # The four fingerprint words, the same list and derivation the app shows.
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
 
