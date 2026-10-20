@@ -204,7 +204,9 @@ Neither value is complete history, and listing never releases quota or contacts
 the provider. The CLI advances at most 32 backfill pages per command; set
 `--index-pages 1..128` to change that budget or resume from the printed cursor.
 
-An uncertain send or failed grow retains the VM and its quota reservation.
+An uncertain send, or a failed grow under a client key, retains the VM and its
+quota reservation. A failed grow without a client key cancels the creation:
+the VM is deleted and tombstoned, its slot is released, and the answer is 409.
 Use the original intent to recover it, or cancel with its handle. A fork that
 used the older snapshot stage without a VM receipt reports unresolved. New
 forks retain their destination ID before capture and stay pending under the
