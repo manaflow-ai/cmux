@@ -68,7 +68,14 @@ done
 product="${base_helper% Helper.app}"
 folder="$product Chromium"
 
-plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true; }
+# PlistBuddy on macOS; plistlib elsewhere (the script tests run on Linux CI).
+plist() {
+  if [[ -x /usr/libexec/PlistBuddy ]]; then
+    /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true
+  else
+    python3 -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1], "rb")).get(sys.argv[2], ""))' "$1" "$2" 2>/dev/null || true
+  fi
+}
 bundle_id="$(plist "$app/Contents/Info.plist" CFBundleIdentifier)"
 [[ -n "$bundle_id" ]] || die "no CFBundleIdentifier in $app/Contents/Info.plist"
 # An unsigned engine (tests) makes codesign fail: no team.
@@ -159,9 +166,13 @@ for helper in "${helpers[@]}"; do mv "$helper" "$runtime/"; done
 echo '{"schema": 1, "key": "'"$key"'"}' > "$stage/cef-runtime.json"
 
 asset="cef-runtime-$key.tar.xz"
-COPYFILE_DISABLE=1 /usr/bin/tar --options xz:compression-level=9 -cJf "$out/$asset" -C "$stage" "$folder" cef-runtime.json
+if [[ "$(/usr/bin/tar --version 2>/dev/null || true)" == *bsdtar* ]]; then
+  COPYFILE_DISABLE=1 /usr/bin/tar --options xz:compression-level=9 -cJf "$out/$asset" -C "$stage" "$folder" cef-runtime.json
+else # GNU tar (Linux CI) has no --options; xz reads its level from XZ_OPT.
+  XZ_OPT=-9 tar -cJf "$out/$asset" -C "$stage" "$folder" cef-runtime.json
+fi
 sha="$(shasum -a 256 "$out/$asset" | awk '{print $1}')"
-size="$(stat -f %z "$out/$asset")"
+size="$(wc -c < "$out/$asset" | tr -d ' ')"
 write_pin "$sha" "$size" "$base_url/cef-runtime/$key/$asset" "$pin"
 install_pin
 echo "==> Chromium runtime $key: $out/$asset ($size bytes)"
