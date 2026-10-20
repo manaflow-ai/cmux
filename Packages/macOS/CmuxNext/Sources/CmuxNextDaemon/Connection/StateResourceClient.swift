@@ -167,6 +167,7 @@ extension StateResourceClient {
         var params: [String: JSONValue] = ["initial_content": .string(terminal ? "terminal" : "empty")]
         if let name { params["name"] = .string(name) }
         if ephemeral { params["ephemeral"] = .bool(true) }
+        if focus, daemonSupportsFocus { params["focus"] = .bool(true) }
         return params
     }
 

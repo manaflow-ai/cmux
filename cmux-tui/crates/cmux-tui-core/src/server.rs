@@ -450,6 +450,9 @@ pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";
 /// `needs-attention`, `review`, `done`): `task_status` on `workspace.update`
 /// (null is automatic) and the workspace snapshot's `extra.task_status`.
 pub const WORKSPACE_STATUS_CAPABILITY: &str = "workspace-status-v1";
+/// `workspace.create` takes `focus`: a created workspace becomes the focused
+/// one only with `focus: true` (the app sends it for the person's creations).
+pub const WORKSPACE_CREATE_FOCUS_CAPABILITY: &str = "workspace-create-focus-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
