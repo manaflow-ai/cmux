@@ -152,13 +152,20 @@ locked_version() { # package-dir name
             "$1/package-lock.json" "$2" 2>/dev/null || true
     fi
 }
-# vp is missing, or vite-plus or oxfmt differ from the lockfile CI installs.
 # Temporary files and a held install lock go away however the hook ends.
 RUSTFMT_DEFAULTS=""
 HELD_LOCK=""
 cleanup() {
     rm -f "${RUSTFMT_DEFAULTS:-}"
-    [[ -z "$HELD_LOCK" ]] || rm -rf "$HELD_LOCK"
+    release_install_lock
+}
+# Removes the lock only while it is still ours: a hook that ran past the
+# takeover age must not remove the lock its successor took.
+release_install_lock() {
+    if [[ -n "$HELD_LOCK" && "$(cat "$HELD_LOCK/pid" 2>/dev/null || true)" == "$$" ]]; then
+        rm -rf "$HELD_LOCK"
+    fi
+    HELD_LOCK=""
 }
 trap cleanup EXIT
 trap 'exit 143' TERM
@@ -183,6 +190,7 @@ take_install_lock() { # lock-dir
     printf '%s\n' "$$" >"$1/pid"
 }
 
+# vp is missing, or vite-plus or oxfmt differ from the lockfile CI installs.
 web_packages_stale() { # package-dir
     local name want have
     [[ -x "$1/node_modules/.bin/vp" ]] || return 0
@@ -215,7 +223,7 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
             # (up to two minutes) for that install.
             INSTALL_LOCK="$(git rev-parse --absolute-git-dir)/cmux-format-install-${package//\//-}.lock"
             if ! take_install_lock "$INSTALL_LOCK"; then
-                echo "pre-commit: another agent is installing $package packages; formatting with the current ones" >&2
+                echo "pre-commit: another agent is installing $package packages; using the current ones (waiting for them if vp is missing)" >&2
                 for ((wait_seconds = 0; wait_seconds < 120; wait_seconds++)); do
                     [[ ! -x "$PACKAGE_DIR/node_modules/.bin/vp" && -d "$INSTALL_LOCK" ]] || break
                     sleep 1
@@ -232,10 +240,7 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                 echo "pre-commit: installing $package packages for vp (npm ci --ignore-scripts)" >&2
                 (cd "$PACKAGE_DIR" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null 2>&1) || true
             fi
-            if [[ "$HELD_LOCK" == "$INSTALL_LOCK" ]]; then
-                rm -rf "$INSTALL_LOCK"
-                HELD_LOCK=""
-            fi
+            [[ "$HELD_LOCK" != "$INSTALL_LOCK" ]] || release_install_lock
         fi
         VP_BIN="$PACKAGE_DIR/node_modules/.bin/vp"
         if [[ ! -x "$VP_BIN" ]]; then

@@ -141,7 +141,15 @@ formatted=""
 held_lock=""
 cleanup() {
   rm -f "${defaults:-}" "${formatted:-}"
-  [ -z "$held_lock" ] || rm -rf "$held_lock"
+  release_install_lock
+}
+# Removes the lock only while it is still ours: a hook that ran past the
+# takeover age must not remove the lock its successor took.
+release_install_lock() {
+  if [ -n "$held_lock" ] && [ "$(cat "$held_lock/pid" 2>/dev/null || true)" = "$$" ]; then
+    rm -rf "$held_lock"
+  fi
+  held_lock=""
 }
 trap cleanup EXIT
 trap 'exit 143' TERM
@@ -242,8 +250,7 @@ for package in $web_packages; do
       :
     elif take_install_lock "$lock"; then
       (cd "$dir" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
-      rm -rf "$lock"
-      held_lock=""
+      release_install_lock
     else
       echo "warning: another agent is installing $package packages; formatting with the current ones" >&2
     fi
