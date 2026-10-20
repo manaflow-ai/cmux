@@ -5,13 +5,22 @@ description: "Ghostty submodule and GhosttyKit workflow rules for cmux. Use when
 
 # cmux Ghostty
 
+The repository has two Ghostty submodules:
+
+| Submodule | Fork | Used by |
+| --- | --- | --- |
+| `ghostty` | `manaflow-ai/ghostty` | the Mac app's `GhosttyKit.xcframework` |
+| `ghostty-next` | `manaflow-ai/ghostty-next` | cmux-tui's libghostty-vt (`cmux-tui/crates/ghostty-vt-sys/build.rs`) |
+
+The workflow below is written for `ghostty`; the same push-before-pointer rule
+applies to `ghostty-next`.
+
 ## GhosttyKit builds
 
-Always rebuild the xcframework with Release optimizations:
-
-```bash
-cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
-```
+Let `scripts/ensure-ghosttykit.sh` build the xcframework: it uses the Release
+flags the app expects (`-Doptimize=ReleaseFast`, universal xcframework, no
+macOS app, no i18n, no Sentry) and stamps the cache key. Building by hand with
+fewer flags gives a different artifact.
 
 ## Submodule workflow
 
@@ -49,7 +58,7 @@ git commit -m "Update ghostty submodule"
 
 ## Submodule safety
 
-For any submodule (ghostty, `homebrew-cmux`), push the submodule commit to its remote branch **before** committing the updated pointer in the parent repo. Never commit on a detached HEAD or a temporary branch: the parent then points at a SHA unreachable from any remote branch, and a future checkout or CI job fails to fetch it.
+For any submodule (`ghostty`, `ghostty-next`, `homebrew-cmux`), push the submodule commit to its remote branch **before** committing the updated pointer in the parent repo. Never commit on a detached HEAD or a temporary branch: the parent then points at a SHA unreachable from any remote branch, and a future checkout or CI job fails to fetch it.
 
 Verify the commit is reachable from the branch the pointer should track, using the remote you just pushed to:
 

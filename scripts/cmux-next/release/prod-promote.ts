@@ -23,8 +23,12 @@
  *       back across one, so that is fix forward, and for the Chief brain the off switch
  *       (backend.yml target=chief-off). Without --execute it prints the command and changes nothing.
  *       Refuses when production already serves a rollback (a re-run would redeploy what the first
- *       one removed) unless --force. After a rollback or the off switch, `gates` holds every
- *       automatic promote; only an exact-SHA promote (--candidate) moves production forward.
+ *       one removed) unless --force. From the Chief off switch it steps back past every off-switch
+ *       deployment (re-runs stack), so the brain comes back on; it refuses unless that lands on the
+ *       same source commit. `wrangler rollback` restores the target version's secrets too, so a
+ *       secret set after the target is undone. After a rollback or the off switch,
+ *       `gates` holds every automatic promote; only an exact-SHA promote (--candidate) moves
+ *       production forward.
  *   bun prod-promote.ts stale [--issue]
  *       Exit 1 = stale (no source tag, a staging-proven commit older than STALE_HOURS missing, or
  *       more than STALE_COMMITS backend commits behind); 0 = current, proven by at least one green
@@ -147,6 +151,9 @@ const gh = async (path: string, init: RequestInit = {}): Promise<any> => {
 const git = (...args: Array<string>) => execFileSync("git", args, { encoding: "utf8" }).trim()
 const fileAt = (sha: string, path: string) => git("show", `${sha}:${path}`)
 
+/** The Chief off switch's version message (deploy-worker.sh CMUX_DEPLOY_CHIEF_OFF: "source <sha> chief-off run <id>"). */
+const CHIEF_OFF = / chief-off( |$)/
+
 /**
  * The serving version of a Worker, its source commit (version tag, 12 hex) and when its code last
  * changed. A secret-only deployment (`wrangler secret put`) makes a new version of the same code
@@ -163,7 +170,7 @@ export const serving = async (script: string): Promise<{ version: string; source
   const tag = v?.annotations?.["workers/tag"] as string | undefined
   // An operator stepped production back (a rollback, or the Chief off switch): no automatic promote undoes it.
   const message = String(v?.annotations?.["workers/message"] ?? "")
-  const heldBack = code?.annotations?.["workers/triggered_by"] === "rollback" ? "production serves a rollback" : / chief-off( |$)/.test(message) ? "production serves the Chief off switch" : undefined
+  const heldBack = code?.annotations?.["workers/triggered_by"] === "rollback" ? "production serves a rollback" : CHIEF_OFF.test(message) ? "production serves the Chief off switch" : undefined
   return { version, ...(tag && /^[0-9a-f]{12}$/.test(tag) ? { sourceTag: tag } : {}), ...(code ? { codeDeployedAt: Date.parse(code.created_on) } : {}), ...(heldBack ? { heldBack } : {}) }
 }
 
@@ -178,23 +185,41 @@ export const rollbackPlan = async (script: string, force = false): Promise<{ fro
   if (!fromVersion) return { refused: `${script}: no single version at 100%` }
   const codeAt = deps.findIndex((d) => d.annotations?.["workers/triggered_by"] !== "secret")
   // A second rollback would step onto the version the first one left (a re-run must not redeploy the bad code).
-  if (!force && deps[codeAt]?.annotations?.["workers/triggered_by"] === "rollback") return { refused: `${script} already serves a rollback; roll forward with an exact-SHA promote, or pass --force to step back once more` }
+  if (!force && deps[codeAt]?.annotations?.["workers/triggered_by"] === "rollback") return { refused: `${script} already serves a rollback; roll forward with an exact-SHA promote, or pass --force to roll back onto the deployment that rollback replaced` }
   if (codeAt < 0 || codeAt + 1 >= deps.length) return { refused: `${script}: no deployment before the current code` }
-  const toVersion = single(deps[codeAt + 1])
+  const versionOf = (version: string) => cf(`/workers/scripts/${script}/versions/${version}`)
+  const chiefOff = async (d: any): Promise<boolean> => {
+    const v = single(d)
+    return v !== undefined && CHIEF_OFF.test(String((await versionOf(v))?.annotations?.["workers/message"] ?? ""))
+  }
+  const codeFrom = (i: number) => deps.findIndex((d, j) => j >= i && d.annotations?.["workers/triggered_by"] !== "secret")
+  let target = codeAt + 1
+  // From the off switch, step back past every off-switch deployment (a re-run of target=chief-off stacks
+  // another one), so the brain comes back on: the contract of target=rollback after target=chief-off.
+  const fromOff = await chiefOff(deps[codeAt])
+  if (fromOff) {
+    for (let c = codeFrom(target); c >= 0 && (await chiefOff(deps[c])); c = codeFrom(target)) target = c + 1
+    if (target >= deps.length) return { refused: `${script}: no deployment before the current code` }
+  }
+  const toVersion = single(deps[target])
   if (!toVersion) return { refused: `${script}: the deployment before the current code is not a single version at 100%` }
   const tagOf = async (version: string | undefined): Promise<string | undefined> => {
     if (!version) return undefined
-    const tag = (await cf(`/workers/scripts/${script}/versions/${version}`))?.annotations?.["workers/tag"] as string | undefined
+    const tag = (await versionOf(version))?.annotations?.["workers/tag"] as string | undefined
     return tag && /^[0-9a-f]{12}$/.test(tag) ? fullSha(tag) : undefined
   }
   // The target's code is the newest code deployment at or before it (it may be a secret-only deployment).
-  const toCode = deps.slice(codeAt + 1).find((d) => d.annotations?.["workers/triggered_by"] !== "secret")
+  const toCode = deps[codeFrom(target)]
   const fromSha = await tagOf(single(deps[codeAt]))
   const toSha = await tagOf(single(toCode))
+  // The off switch redeploys the serving commit, so undoing it is the same code with the brain on. Anything
+  // else (the walk crossed a rollback onto code that was rolled back) is refused.
+  if (fromOff && (!fromSha || toSha !== fromSha))
+    return { refused: `${script}: the version before the off switch (${toVersion}, ${toSha?.slice(0, 12) ?? "untagged"}) is not the code the off switch serves (${fromSha?.slice(0, 12) ?? "untagged"}); do not roll back onto it. Turn the brain on with an exact-SHA promote of a newer staging-proven commit (target=promote, candidate=<sha>), or by hand: wrangler rollback <a version of ${fromSha?.slice(0, 12) ?? "the serving commit"} with the brain on> --name ${script}` }
   return { fromVersion, toVersion, ...(fromSha ? { fromSha } : {}), ...(toSha ? { toSha } : {}) }
 }
 
-interface StagingRun { sha: string; at: number; green: boolean }
+export interface StagingRun { sha: string; at: number; green: boolean }
 
 /** Staging deploys of feat-cmux-next pushes, newest first: green = deploy-staging and its smoke step passed. */
 export const stagingRuns = async (limit = 30): Promise<Array<StagingRun>> => {
@@ -215,6 +240,9 @@ export const stagingRuns = async (limit = 30): Promise<Array<StagingRun>> => {
 /** G1: the newest green staging deploy at least SOAK_MINUTES old with no red staging deploy in its soak window. */
 export const pickCandidate = (runs: ReadonlyArray<StagingRun>, now: number): StagingRun | undefined =>
   runs.find((r) => r.green && now - r.at >= SOAK_MINUTES * 60_000 && !runs.some((x) => !x.green && x.at > r.at && x.at <= r.at + SOAK_MINUTES * 60_000))
+
+/** Exact SHA (--candidate or a one-shot hold): only that commit's green runs compete; every red run still counts against its soak window. */
+export const candidateRuns = (runs: ReadonlyArray<StagingRun>, want: string | undefined): ReadonlyArray<StagingRun> => (want ? runs.filter((r) => !r.green || r.sha === want) : runs)
 
 const isAncestor = (a: string, b: string) => {
   try {
@@ -270,8 +298,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     if (prod.codeDeployedAt && now - prod.codeDeployedAt < SPACING_HOURS * 3600_000) return hold("spacing", `production code changed less than ${SPACING_HOURS} h ago`)
     const prodSha = fullSha(prod.sourceTag)
     const runs = await stagingRuns()
-    // Exact SHA: only that commit's green runs compete; every red run still counts against its soak window.
-    const cand = pickCandidate(want ? runs.filter((r) => !r.green || r.sha === want) : runs, now)
+    const cand = pickCandidate(candidateRuns(runs, want), now)
     if (!cand) return hold("G1", want ? `${want.slice(0, 12)} has no green staging deploy (tests, push guard, deploy and smoke) older than ${SOAK_MINUTES} min without a red one after it, among the last ${runs.length} staging runs` : `no green staging deploy older than ${SOAK_MINUTES} min without a red one after it`)
     if (cand.sha === prodSha || isAncestor(cand.sha, prodSha)) return hold("none", `production ${prodSha.slice(0, 12)} already has the staging-proven ${cand.sha.slice(0, 12)}`)
     if (!isAncestor(prodSha, cand.sha)) return hold("lineage", `${cand.sha.slice(0, 12)} does not descend from production ${prodSha.slice(0, 12)}`)

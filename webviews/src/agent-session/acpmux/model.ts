@@ -36,6 +36,17 @@ export type AcpmuxCompaction = {
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
 
+/// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's
+/// `session_info_update._meta.claude`): drawn once, where the session started
+/// (conversation/SessionStartNote.tsx). `harness` and `cwd` are the chat's when the line came.
+export type AcpmuxSessionStart = {
+  agent: "claude";
+  version: string;
+  model?: string;
+  harness?: string;
+  cwd?: string;
+};
+
 export type QueuedPrompt = { id: string; prompt: string; next?: boolean };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
@@ -60,6 +71,8 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// A session start row's agent, version, model, route and folder.
+  sessionStart?: AcpmuxSessionStart;
   /// A suggested tasks card's offers (offer/SuggestedTasks.tsx): the offers of one group, in the
   /// order the agent made them, or one offer made without a group.
   offers?: AcpmuxSessionOffer[];
@@ -232,6 +245,8 @@ export type AcpmuxSnapshot = {
   sessions: AcpmuxSessionEntry[];
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
+  /// Each peer's transport by name: `ssh` for an `ssh://` peer, `cloud` for any other (environments.ts).
+  peerKinds?: Record<string, "ssh" | "cloud">;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   summary?: {
@@ -287,6 +302,9 @@ export type AcpmuxSnapshot = {
   /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
   /// so a remote browser still cannot answer.
   answersTrust?: boolean;
+  /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
+  /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
+  listedSessions?: true;
   sessionId?: string;
   isWorking: boolean;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
@@ -494,6 +512,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
+  // A session start: its facts line, and the compaction note under it until it is dismissed.
+  if (row.kind === "sessionStart") return 37 + 44;
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
   if (
