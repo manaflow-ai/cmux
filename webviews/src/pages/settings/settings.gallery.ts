@@ -451,6 +451,11 @@ Object.assign(variants, {
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
+  "search-results-theme": variant("general", {
+    allThemes: true,
+    steps: [input("[data-settings-search]", "theme")],
+    note: "Theme rows in search results use the Theme section's picker and accent popup.",
+  }),
   "search-empty": variant("general", { steps: [input("[data-settings-search]", "no-such-setting")] }),
   "reset-confirmation": variant("advanced", { steps: [click("[data-reset-all]"), wait("[data-confirm-reset-all]")] }),
   "theme-picker": variant("theme", {
@@ -806,6 +811,7 @@ export default settingsPageEntry({
   widths: { narrow: 480, normal: 1000, wide: 1440 },
   covers: [
     "page:cmux.settings",
+    "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
@@ -838,6 +844,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
+    "pages/settings/editors/AccentRowEditor.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",
     "pages/settings/editors/DomainListEditor.tsx",
@@ -848,6 +855,7 @@ export default settingsPageEntry({
     "pages/settings/editors/NumberEditor.tsx",
     "pages/settings/editors/NumberField.tsx",
     "pages/settings/editors/SearchTemplateEditor.tsx",
+    "pages/settings/editors/ThemeRowEditor.tsx",
     "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",
