@@ -684,18 +684,70 @@ class ShardsAndStatusJobs(unittest.TestCase):
     def test_a_status_job_with_no_failed_job_under_it_is_refused(self):
         self.add_status_jobs()
         del self.gh.jobs[1]
+        with self.assertRaisesRegex(excuse.Refused, "prints react-apps-check-shard: failure, which names no failed job"):
+            self.judge()
+        # Two status jobs naming only each other.
+        self.gh.jobs[2], self.gh.logs[2] = status_job(2, 10, HEAD, RAC, "web-status")
         with self.assertRaisesRegex(excuse.Refused, "every failed job of its run is a status job"):
             self.judge()
         del self.gh.jobs[3]
         with self.assertRaisesRegex(excuse.Refused, "has no failed job under web / to compare"):
             self.judge()
 
-    def test_a_status_line_beside_other_output_is_not_a_status_job(self):
-        job, status_log = status_job(2, 10, HEAD, RAC, "react-apps-check-shard")
-        self.assertEqual(excuse.aggregated(job, status_log), ["react-apps-check-shard"])
-        self.assertIsNone(excuse.aggregated(job, status_log + "\n" + log(RAC, "Check routed web jobs", "boom")))
-        cancelled = log(RAC, "Check routed web jobs", "react-apps-check-shard: cancelled")
-        self.assertIsNone(excuse.aggregated(job, cancelled))
+    def test_status_lines_name_failed_jobs_of_the_run(self):
+        _, status_log = status_job(2, 10, HEAD, RAC, "react-apps-check-shard")
+        self.assertEqual(excuse.reported_red(status_log), ["react-apps-check-shard"])
+        # Inside the echo of its script, or a cancelled job, is not a report of a red job.
+        echoed = log(RAC, "Check routed web jobs", "##[group]Run x", "web-tests: failure", "##[endgroup]",
+                     "react-apps-check-shard: cancelled")
+        self.assertEqual(excuse.reported_red(echoed), [])
+        under = [shard_job(1, 10, HEAD, 1), dict(shard_job(4, 10, HEAD, 1), name="web / Web tests (2/4)")]
+        self.assertEqual(excuse.reports_only(["react-apps-check-shard", "web-tests", "react-apps-check"], under), [])
+        self.assertEqual(excuse.reports_only(["migrations"], under), ["migrations"])
+        top = [dict(shard_job(5, 10, HEAD, 1), name="web / Web status")]
+        self.assertEqual(excuse.reports_only(["web"], top), [])
+
+    def test_gh_run_view_filing_every_line_under_unknown_step_still_finds_a_status_job(self):
+        # #22097's `web / react-apps-check` job 118426578476: the runner banner and the step's
+        # output all came back under UNKNOWN STEP.
+        self.add_status_jobs()
+        self.gh.logs[2] = log(RAC, "UNKNOWN STEP", "Current runner version: '2.329.0'",
+                              "Runner name: 'blacksmith-4vcpu-ubuntu-2404-3l7m7a67dykrgcxk'",
+                              "##[group]Run python3 - <<'PY'", '    "result": "failure",', "##[endgroup]",
+                              "react-apps-check-shard: failure", "##[error]Process completed with exit code 1.",
+                              "Cleaning up orphan processes")
+        self.base_shards(40, TIP)
+        self.assertIn(f"excused '{RAC}': it only reports react-apps-check-shard red", "\n".join(self.judge()))
+
+    def test_a_job_summing_up_its_own_failure_is_compared_not_excused_as_a_status_job(self):
+        # Review of #22140: a migrations job ending in `migrations: failure` beside a base-red shard.
+        self.gh.jobs[2] = dict(failed_job(2, 10, HEAD, name="web / web-db-migrations"),
+                               html_url=f"https://github.com/{REPO}/actions/runs/10/job/2")
+        self.gh.logs[2] = log("web / web-db-migrations", TEST_STEP, "##[group]Run migrate", "##[endgroup]",
+                              'ERROR relation "x" already exists', "migrations: failure")
+        self.base_shards(40, TIP)
+        with self.assertRaisesRegex(excuse.Refused, "prints migrations: failure, which names no failed job"):
+            self.judge()
+
+    def test_a_bun_test_file_that_died_loading_is_a_failure_of_its_own(self):
+        # Review of #22140: an unhandled error prints no `(fail)` line beside a base-red test.
+        self.gh.logs[1] = log(f"{RAC} (1)", SHARD_STEP, "FAIL test/markdown-table-keys.test.ts", TABLE,
+                              "FAIL test/new-thing.test.ts", "# Unhandled error between tests",
+                              "error: Cannot find module './NewThing'")
+        self.base_shards(40, TIP, lines=("FAIL test/markdown-table-keys.test.ts", TABLE))
+        with self.assertRaisesRegex(excuse.Refused, "test/new-thing.test.ts"):
+            self.judge()
+        self.gh.logs[1] = log(f"{RAC} (1)", SHARD_STEP, "FAIL test/markdown-table-keys.test.ts (limit 120s)", TABLE)
+        self.assertTrue(self.judge())
+
+    def test_a_green_base_tip_is_not_overruled_by_an_older_red_base_run(self):
+        # Review of #22140: a dispatched base run stays the newest run long after the base is fixed.
+        self.base_shards(40, TIP, red_shard=0)
+        self.gh.base_runs = [{"id": 20, "event": "workflow_dispatch", "conclusion": "failure"}]
+        self.base_shards(20, "7" * 40, red_shard=2, checks=False)
+        with self.assertRaisesRegex(excuse.Refused, f"green on base tip {TIP[:10]}") as caught:
+            self.judge()
+        self.assertNotIn("run 20", str(caught.exception))
 
 
 class Script(unittest.TestCase):
