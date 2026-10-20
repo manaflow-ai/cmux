@@ -564,7 +564,7 @@ fn server_pairing_native_cli_reports_pending_registration_without_mutating_it() 
 #[test]
 fn host_network_policy_reads_current_backend_identity_without_changing_pairing_or_starting_roles() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("identity.json");
+    let path = dir.path().join("pairing/identity.json");
     let api = Api::new(&path);
     let value = run(&api, &mut Vec::new()).unwrap();
     assert_eq!(value["state"], "paired");
@@ -606,7 +606,7 @@ fn host_network_policy_refuses_a_response_for_another_original_identity_or_netwo
         "/value/install_public_key",
     ] {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("identity.json");
+        let path = dir.path().join("pairing/identity.json");
         let api = Api::new(&path);
         run(&api, &mut Vec::new()).unwrap();
         let before = std::fs::read(&path).unwrap();
@@ -623,7 +623,7 @@ fn host_network_policy_refuses_a_response_for_another_original_identity_or_netwo
 #[test]
 fn host_network_policy_discards_a_reply_after_the_local_identity_is_removed() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("identity.json");
+    let path = dir.path().join("pairing/identity.json");
     let api = Api::new(&path);
     run(&api, &mut Vec::new()).unwrap();
     {
