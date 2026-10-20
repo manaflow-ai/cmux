@@ -3447,6 +3447,9 @@ function AcpmuxPane() {
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
+  // Only a New Tab page posts the chats it hears for the next one (newtab/warmSnapshot.ts).
+  const showsNewTabRef = useRef(newTab !== undefined);
+  showsNewTabRef.current = newTab !== undefined;
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
   // The spare's own handshake named the spare's start folder: the adopting tab's folder replaces it
   // (the host names a folder below home, AgentPaneStartFolders), so Cmd-T on a spare names the tab's
@@ -4198,7 +4201,11 @@ function AcpmuxPane() {
             if (!mock) {
               rememberRecentFolders(next);
               // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
-              publishWarmNewTab(next, (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined));
+              publishWarmNewTab(
+                next,
+                (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
+                showsNewTabRef.current,
+              );
             }
             setSnapshot((previous) => {
               if (
@@ -5131,7 +5138,6 @@ function AcpmuxPane() {
   }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
-  // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
   // The chats the page's context carried, while its own list has not arrived (newtab/warmSnapshot.ts):
   // the first frame lists what a page of this Mac listed last, and the live list changes rows in place.
   const warmSessions = useWarmNewTabSessions();
@@ -5140,6 +5146,7 @@ function AcpmuxPane() {
     () => (carriedSessions ? { ...composerSnapshot, sessions: carriedSessions } : composerSnapshot),
     [composerSnapshot, carriedSessions],
   );
+  // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
   const newTabChatsPending =
     !carriedSessions &&
     !composerSnapshot.listedSessions &&

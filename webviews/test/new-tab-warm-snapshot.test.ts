@@ -40,10 +40,12 @@ test("a device chats push the host already made wins over the carried ones", () 
 });
 
 test("the carried chats show only until the page's own list arrives", () => {
-  expect(shownNewTabSessions({ sessions: [] }, sessions)).toBe(sessions);
-  expect(shownNewTabSessions({ sessions: [], listedSessions: true }, sessions)).toBeUndefined();
-  expect(shownNewTabSessions({ sessions: sessions.slice(0, 1) }, sessions)).toBeUndefined();
-  expect(shownNewTabSessions({ sessions: [] }, [])).toBeUndefined();
+  expect(shownNewTabSessions({ sessions: [], connection: "connected" }, sessions)).toBe(sessions);
+  expect(
+    shownNewTabSessions({ sessions: [], listedSessions: true, connection: "connected" }, sessions),
+  ).toBeUndefined();
+  expect(shownNewTabSessions({ sessions: sessions.slice(0, 1), connection: "connected" }, sessions)).toBeUndefined();
+  expect(shownNewTabSessions({ sessions: [], connection: "connected" }, [])).toBeUndefined();
 });
 
 test("a local listed snapshot posts its newest chats once, coalesced", async () => {
@@ -63,4 +65,24 @@ test("a local listed snapshot posts its newest chats once, coalesced", async () 
   await Bun.sleep(500);
   expect(posts).toHaveLength(2);
   expect((posts[1] as { device: unknown[] }).device).toHaveLength(1);
+});
+
+// Review (#22261): a page whose daemon is down, or that reconnects, must not show the carried chats.
+test("a disconnected page shows no carried chats", () => {
+  expect(shownNewTabSessions({ sessions: [], connection: "disconnected" }, sessions)).toBeUndefined();
+  expect(shownNewTabSessions({ sessions: [], connection: "debug" }, sessions)).toBeUndefined();
+  expect(shownNewTabSessions({ sessions: [], connection: "connected" }, sessions)).toBe(sessions);
+});
+
+test("once the page's own connection lists, the carried chats are done for good", () => {
+  newTabHost({ newTab: { kind: "agent", warm: JSON.stringify({ sessions }) } });
+  expect(warmNewTabSessions()).toHaveLength(2);
+  // A chat page lists too, and posts nothing.
+  const posts: unknown[] = [];
+  publishWarmNewTab({ origin: "local", listedSessions: true, sessions }, (warm) => posts.push(warm), false);
+  expect(warmNewTabSessions()).toHaveLength(0);
+  // A later adoption's context does not bring them back for a reconnect's empty first snapshot.
+  newTabHost({ newTab: { kind: "agent", warm: JSON.stringify({ sessions }) } });
+  expect(warmNewTabSessions()).toHaveLength(0);
+  expect(posts).toHaveLength(0);
 });

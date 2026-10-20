@@ -161,7 +161,9 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
               w.__postWarm(request.params?.warm);
               return later(0, null);
             case "project.list":
-              return later(handshakeDelay, { projects: [`${context.home}/src/atlas`, `${context.home}/src/billing`] });
+              return later(handshakeDelay, {
+                projects: [`${String(context.home)}/src/atlas`, `${String(context.home)}/src/billing`],
+              });
             case "transport.gesture":
               return later(0, { ticket: "gesture" });
             default:

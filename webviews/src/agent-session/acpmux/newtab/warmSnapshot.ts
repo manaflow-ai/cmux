@@ -18,6 +18,9 @@ const POST_DELAY_MS = 400;
 type Sessions = AcpmuxSnapshot["sessions"];
 
 let warm: Sessions = [];
+/// The page's own connection has listed the chats once: a carried list never shows again, not
+/// after a reconnect (whose first snapshot lists nothing yet) or a later adoption.
+let listedOnce = false;
 const listeners = new Set<() => void>();
 
 /// Takes the context's `warm` (JSON text `{sessions, device}`) as the page's starting chats, and the
@@ -38,7 +41,7 @@ export function seedWarmNewTab(value: unknown): void {
       )
     : [];
   if (deviceChats().length === 0 && Array.isArray(parsed.device)) setDeviceChats(parsed.device);
-  if (sessions.length === 0) return;
+  if (sessions.length === 0 || listedOnce) return;
   warm = sessions;
   for (const listener of listeners) listener();
 }
@@ -58,10 +61,12 @@ function subscribe(listener: () => void): () => void {
 }
 
 /// The chats a page lists while its own list has not arrived: the context's, until then.
+/// A page whose daemon is down shows that, not chats it cannot open (or that were deleted since).
 export function shownNewTabSessions(
-  snapshot: Pick<AcpmuxSnapshot, "listedSessions" | "sessions">,
+  snapshot: Pick<AcpmuxSnapshot, "listedSessions" | "sessions" | "connection">,
   carried: Sessions,
 ): Sessions | undefined {
+  if (snapshot.connection === "disconnected" || snapshot.connection === "debug") return undefined;
   return !snapshot.listedSessions && snapshot.sessions.length === 0 && carried.length > 0 ? carried : undefined;
 }
 
@@ -71,13 +76,25 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let post: ((warm: { sessions: Sessions; device: DeviceChat[] }) => void) | undefined;
 let unsubscribe: (() => void) | undefined;
 
-/// Posts the newest chats of `snapshot`, a list this Mac's daemon sent, for the next New Tab page;
-/// also after each device chats push. Coalesced, and only when what would be posted changed.
+/// Each snapshot the page's connection makes. Once it has listed the chats, the carried ones are
+/// done. A New Tab page (`posts`: one is always alive, the prewarmed spare) then posts the newest
+/// chats of a list this Mac's daemon sent, for the next New Tab page, and again after each device
+/// chats push; coalesced, and only when what would be posted changed. Chat pages post nothing, so
+/// a streaming turn does not make every open page serialize the list.
 export function publishWarmNewTab(
   snapshot: Pick<AcpmuxSnapshot, "origin" | "listedSessions" | "sessions">,
   send: (warm: { sessions: Sessions; device: DeviceChat[] }) => void,
+  posts = true,
 ): void {
-  if (snapshot.origin !== "local" || !snapshot.listedSessions) return;
+  if (!snapshot.listedSessions) return;
+  if (!listedOnce) {
+    listedOnce = true;
+    if (warm.length > 0) {
+      warm = [];
+      for (const listener of listeners) listener();
+    }
+  }
+  if (snapshot.origin !== "local" || !posts) return;
   post = send;
   unsubscribe ??= subscribeDeviceChats(schedule);
   if (snapshot.sessions === listed) return;
@@ -103,6 +120,7 @@ function schedule(): void {
 /// A new page's start (tests).
 export function resetWarmNewTabForTests(): void {
   warm = [];
+  listedOnce = false;
   listed = undefined;
   posted = undefined;
   post = undefined;
