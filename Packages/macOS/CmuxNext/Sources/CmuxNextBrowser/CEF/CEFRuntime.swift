@@ -100,6 +100,9 @@ final class CEFRuntime {
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
     var builtInAdBlockerSetting: @MainActor () -> Bool = { true }
+    /// The managed preference domain Chromium reads Chrome enterprise policies
+    /// from, asked at start (the App supplies it); nil reads none.
+    var chromePolicyIDSetting: @MainActor () -> String? = { nil }
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -324,6 +327,11 @@ final class CEFRuntime {
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
+        // Chrome enterprise policies (URLBlocklist, ExtensionInstallForcelist, proxy, ...) Chromium enforces itself.
+        if let policyID = chromePolicyIDSetting(), !policyID.isEmpty {
+            policyID.withCString { shim.setChromePolicyID($0) }
+            logger.notice("chrome policy domain: \(policyID, privacy: .public)")
+        }
         // Pages use the theme color, never white or Chromium's #292929
         // (PageBackground); theme changes reach live tabs (fork API 12).
         shim.setBackgroundColor(PageBackground.appThemeARGB)

@@ -418,7 +418,7 @@ impl Brain {
             .home_view
             .as_ref()
             .and_then(crate::home_view::HomeView::read);
-        let ambient_requires_approval = home.is_some();
+        let ambient_requires_approval = self.settings.home_view.is_some();
         // The strictest origin wins. Paired-device work asks unless the owner
         // explicitly opted into auto-approval; another participant and
         // ambient Home text always ask.
@@ -432,18 +432,7 @@ impl Brain {
                     } | Source::Resume { remote: true, .. }
                 )
             });
-        let participant_requires_approval = items.iter().any(|i| {
-            matches!(
-                i.source,
-                Source::Message {
-                    requires_approval: true,
-                    ..
-                } | Source::Resume {
-                    requires_approval: true,
-                    ..
-                }
-            )
-        });
+        let participant_requires_approval = items.iter().any(Queued::requires_approval);
         self.turn_ask = participant_requires_approval
             || ambient_requires_approval
             || (self.turn_remote && !self.chief.remote_auto_approve);
@@ -1592,6 +1581,7 @@ fn item(queued: &Queued) -> Item {
         },
         Source::Spawn(r) => Item {
             spawn: Some(r.clone()),
+            requires_approval: r.requires_approval,
             images,
             ..Item::default()
         },

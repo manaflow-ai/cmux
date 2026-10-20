@@ -610,11 +610,15 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // without a host it goes to the system as before.
         let open = controller.onAppLink
         let opener = HomeAttachmentOpen(folder: HomeMedia.directory)
+        // Without a host, a received script, installer or HTML page is shown in Finder, never run.
+        let reveal = HomeAttachmentPolicy.revealsInsteadOfOpening(name: ref.name)
         // task-owner: one fetch; ends when the file opens
         Task {
             guard let url = try? await media.original(ref) else { return }
             if let open, let named = try? opener.namedCopy(of: url, name: ref.name, hash: ref.hash) {
                 open(named)
+            } else if reveal || HomeAttachmentPolicy.revealsInsteadOfOpening(name: url.lastPathComponent) {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
             } else {
                 NSWorkspace.shared.open(url)
             }
