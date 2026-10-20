@@ -72,6 +72,19 @@ export function SummaryCard({
   const popover = shown && !card.column;
   const edges = useScrollEdges();
   const close = card.close;
+  const closeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    // An explicit header click enters the panel, as Files does. Automatic summary content
+    // arriving during a turn must leave the person's composer focus alone.
+    if (shown && document.activeElement?.matches(".acpmux-summary-button"))
+      closeButton.current?.focus({ preventScroll: true });
+  }, [shown]);
+  const dismiss = () => {
+    // Inline details is a sibling of main, rather than a child of the stage.
+    const button = panel.current?.closest(".acpmux-shell")?.querySelector<HTMLElement>(".acpmux-summary-button");
+    card.close();
+    button?.focus({ preventScroll: true });
+  };
   // Closing the Subagents tab leaves focus on the Subagents title that opened it; on a folded
   // popover, where that title is not drawn, on the fold button, else on the card itself.
   const closeTab = () => {
@@ -99,11 +112,7 @@ export function SummaryCard({
     document.addEventListener("pointerdown", away, true);
     return () => document.removeEventListener("pointerdown", away, true);
   }, [close, popover]);
-  useEscapeCloses(popover && !gallery, () => {
-    const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
-    card.close();
-    button?.focus();
-  });
+  useEscapeCloses(shown && !gallery, dismiss);
   // Every hook runs before the hidden card returns: opening it must not add one (Lucas 2026-10-18).
   const threadDetails = useThreadTitle();
   if (!shown) {
@@ -201,22 +210,16 @@ export function SummaryCard({
           {!tab && card.column && counts.length > 0 && (
             <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
           )}
-          {!card.column && (
-            <button
-              type="button"
-              className="acpmux-summary-card__close"
-              aria-label={t("summary.close")}
-              title={t("summary.close")}
-              onClick={(event) => {
-                // The button goes with the card: focus moves to the header's summary button.
-                const pane = event.currentTarget.closest(".acpmux-stage");
-                card.close();
-                pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
-              }}
-            >
-              <Icon name="action.close" size={12} />
-            </button>
-          )}
+          <button
+            ref={closeButton}
+            type="button"
+            className="acpmux-summary-card__close"
+            aria-label={t("image.close")}
+            title={t("image.close")}
+            onClick={dismiss}
+          >
+            <Icon name="action.close" size={12} />
+          </button>
         </div>
         {open && onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>

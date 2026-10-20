@@ -17,16 +17,16 @@
 .acpmux-main[data-summary=inline]{min-width:0}
 /* Under the tab row when the header's tools sit in it (header/tabRow.ts). */
 .acpmux-header[data-tab-row]~.acpmux-summary-card{top:calc(var(--acpmux-tab-row-height) + 8px)}
-.acpmux-reviewing>.acpmux-summary-card,.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
-.acpmux-summary-card__head{flex:none;display:flex;align-items:center;gap:2px;padding:4px 4px 4px 6px}
+.acpmux-reviewing:has(>.acpmux-diff-panel)>.acpmux-summary-card,.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
+.acpmux-summary-card__head{box-sizing:border-box;flex:none;display:flex;align-items:center;gap:2px;padding:4px 4px 4px 6px}
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__head{height:28px;padding:0 2px 4px 4px}
 .acpmux-summary-card__fold{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:26px;padding:0 6px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .acpmux-summary-card__fold>svg{flex:none;color:var(--agent-muted)}
 .acpmux-summary-card__fold--icon{flex:none;justify-content:center;width:26px;padding:0}
 .acpmux-summary-card__fold--icon+.acpmux-summary-tabs{margin-left:0}
-.acpmux-summary-card__title{flex:none;font-weight:500}
+.acpmux-summary-card__title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .acpmux-summary-card__counts{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
-.acpmux-summary-card__close{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:7px;background:none;color:var(--agent-muted);cursor:default}
+.acpmux-summary-card__close{flex:none;display:grid;place-items:center;width:26px;height:26px;margin-left:auto;padding:0;border:0;border-radius:7px;background:none;color:var(--agent-muted);cursor:default}
 .acpmux-summary-card__fold,.acpmux-summary-card__close{transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-summary-card__fold:hover,.acpmux-summary-card__close:hover{background:var(--acpmux-menu-hover)}
 .acpmux-summary-card__close:hover{color:var(--agent-text)}

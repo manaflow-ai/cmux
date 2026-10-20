@@ -111,17 +111,17 @@ export function useSummaryCard(column: boolean, hasContent: boolean) {
   const reserve = column && !hidden && !hasContent && !explicit;
   const show = useCallback(() => {
     setCollapsed(false);
-    if (column) {
-      setExplicit(true);
-      setPanelHidden(false);
-    } else setPopover(true);
+    setExplicit(true);
+    setPanelHidden(false);
+    if (!column) setPopover(true);
   }, [column]);
   const close = useCallback(() => {
-    if (column) {
-      setExplicit(false);
-      setPanelHidden(true);
-    } else setPopover(false);
-  }, [column]);
+    // A fresh chat's popover can become a column after its first prompt. Clear both choices:
+    // opening Files switches back to popover placement, which must not revive the old open flag.
+    setPopover(false);
+    setExplicit(false);
+    setPanelHidden(true);
+  }, []);
   const toggle = useCallback(() => (shown ? close() : show()), [shown, close, show]);
   const fold = useCallback((next: boolean) => setCollapsed(next), []);
   return { shown, column, reserve, collapsed, toggle, show, close, fold };

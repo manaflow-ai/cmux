@@ -325,6 +325,11 @@ const DiffPanel = lazy(() => loadDiffPanel().then((module) => ({ default: module
 const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
 /// The chat's folder in the chat's viewer (labs `chatViewer`): loaded on its first open.
 const FilesView = lazy(() => import("./FilesView").then((module) => ({ default: module.FilesView })));
+/// The viewer column while its chunk loads: the column exists from the first frame, so the chat
+/// and Thread details move once, not twice (Lucas 2026-10-21, a new chat's first Files open).
+function ViewerShell({ files }: { files?: boolean }) {
+  return <section className={`acpmux-diff-panel acpmux-file-viewer${files ? " acpmux-files" : ""}`} aria-busy="true" />;
+}
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -6789,12 +6794,12 @@ function AcpmuxPane() {
                   </Suspense>
                 )}
                 {fileView && fileOpen && !diffView && (
-                  <Suspense fallback={null}>
+                  <Suspense fallback={<ViewerShell />}>
                     <FileViewer file={fileView} onClose={closeFile} onOpenFile={openChangedFile} />
                   </Suspense>
                 )}
                 {filesView && filesOpen && localCwd && !diffView && !(fileView && fileOpen) && (
-                  <Suspense fallback={null}>
+                  <Suspense fallback={<ViewerShell files />}>
                     <FilesView
                       root={localCwd}
                       folder={filesView.folder}

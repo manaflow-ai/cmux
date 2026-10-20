@@ -29,8 +29,9 @@
 /* Changes beside the transcript once the pane is wide enough for both, as in the Codex app; narrower, it covers the transcript. */
 .acpmux-stage{container-type:inline-size}
 @container (min-width:1160px){
-  .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:visible}
-  .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{margin-right:56%}
+  /* Only once a panel is there: Files asks first and draws a frame later (Lucas 2026-10-21, new-chat shift). */
+  .acpmux-reviewing:has(>.acpmux-diff-panel)>.acpmux-header,.acpmux-reviewing:has(>.acpmux-diff-panel)>.acpmux-scroll{visibility:visible}
+  .acpmux-reviewing:has(>.acpmux-diff-panel)>.acpmux-header,.acpmux-reviewing:has(>.acpmux-diff-panel)>.acpmux-scroll{margin-right:56%}
   .acpmux-reviewing>.acpmux-diff-panel{left:44%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
 }
 /* The chat's viewer (labs chatViewer, Lucas 2026-10-19): only Files and linked files sit beside the
