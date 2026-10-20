@@ -94,18 +94,34 @@ class ClassifyTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(risk.classify_path(path), ("high", "the risk gate itself"))
 
-    def test_docs_copy_locks_and_logs_are_low_even_in_a_high_directory(self):
+    def test_docs_copy_and_logs_are_low_even_in_a_high_directory(self):
         for path in (
             "docs/vm-identity-edge-auth.md", "docs/remote-tmux-reconnect-auth-acceptance.md",
             "cmux-tui/docs/chatgpt-auth-refresh-remote-lifecycle.md",
             "release-notes/next/highlights/browser-sign-in-and-certificate-warning.md",
             NEXT + "CmuxNextUpdater/Resources/Localizable.xcstrings",
             "services/iroh-relay-minter/README.md", "services/iroh-relay-minter/LICENSE",
-            "services/iroh-relay-minter/Cargo.lock", "web/services/auth/package-lock.json",
             "docs/iroh-v2/evidence/run-1/iroh-v2-auth-test.log",
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), "low")
+
+    def test_a_delete_moved_out_of_a_test_or_doc_is_still_new_in_product_code(self):
+        # The test-cleanup idiom moved into product code is how a new delete reaches users.
+        src = NEXT + "CmuxNextHistory/HistoryStore.swift"
+        line = "try? FileManager.default.removeItem(at: url)"
+        for other in ("Packages/macOS/CmuxNext/Tests/X/HistoryTests.swift", "docs/history.md", "scripts/clean.py"):
+            with self.subTest(other=other):
+                self.assertEqual(self.tier(src, other, patches={src: "+    " + line, other: "-    " + line}), "high")
+
+    def test_lockfiles_are_normal_even_in_a_high_directory(self):
+        for path in ("Cargo.lock", "web/package-lock.json", "bun.lock",
+                     "services/iroh-relay-minter/Cargo.lock", "web/services/auth/package-lock.json"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "normal")
+
+    def test_the_batch_lander_workflow_is_the_gate(self):
+        self.assertEqual(risk.classify_path(".github/workflows/cmux-next-batch.yml"), ("high", "the risk gate itself"))
 
     def test_a_top_level_migration_is_high(self):
         self.assertEqual(risk.classify_path("migrations/0002_sessions.sql")[0], "high")
