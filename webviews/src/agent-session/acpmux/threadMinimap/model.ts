@@ -226,8 +226,14 @@ export function replyPreview(markdown: string): ReplyBlock[] {
     if (paragraph.length) push("paragraph", paragraph.join(" "));
     paragraph = [];
   };
-  for (const raw of markdown.split("\n")) {
-    const line = raw.trim();
+  // A streaming reply previews again on every token: stop reading once the preview is full, and
+  // read line by line instead of splitting the whole reply.
+  for (let start = 0; start <= markdown.length; ) {
+    if (blocks.length >= PREVIEW_BLOCKS || chars >= PREVIEW_CHARS) break;
+    const newline = markdown.indexOf("\n", start);
+    const end = newline < 0 ? markdown.length : newline;
+    const line = markdown.slice(start, end).trim();
+    start = end + 1;
     if (/^(```|~~~)/.test(line)) {
       flush();
       fenced = !fenced;
