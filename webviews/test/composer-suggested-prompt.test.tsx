@@ -239,6 +239,18 @@ test("the chat folder's PR from the header's gh read is suggested when no sessio
     await header({ ...live, checks: { state: "passing", passed: 3, total: 3 } });
     await render(fresh([prChat({ sessionId: "busy", indicator: "working" }, { number: 77 })]));
     expect(shown()).toBe("Do anything");
+    // Greptile on #21882: live summaries name no PR, so a chat working or waiting in this checkout
+    // may be on the folder's PR: nothing is suggested. One in another folder, or one that is done,
+    // leaves it.
+    const noPr = (fields: Partial<AcpmuxSessionEntry>) => prChat({ pullRequest: undefined, ...fields });
+    await render(fresh([noPr({ sessionId: "busy", indicator: "working" })]));
+    expect(shown()).toBe("Do anything");
+    await render(fresh([noPr({ sessionId: "asking", indicator: "input" })]));
+    expect(shown()).toBe("Do anything");
+    await render(fresh([noPr({ sessionId: "elsewhere", cwd: "/elsewhere", indicator: "working" })]));
+    expect(shown()).toStartWith("Continue PR #77");
+    await render(fresh([noPr({ sessionId: "finished", indicator: "done" })]));
+    expect(shown()).toStartWith("Continue PR #77");
   } finally {
     await header(null);
   }

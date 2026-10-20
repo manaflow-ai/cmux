@@ -15,7 +15,7 @@ const TITLE_MAX = 60;
 export type LivePullRequest = { number: number; title: string; state: string; checks: string };
 
 /** The newest open or draft PR of another recent chat in `cwd`, else `live` (the folder's own PR) when
- * it is open or a draft, unless a chat is already on it. */
+ * it is open or a draft, unless a chat is already on it (for `live`, unless any chat in the checkout works). */
 export function promptSuggestion(
   sessions: readonly AcpmuxSessionEntry[] | undefined,
   here: { sessionId?: string; cwd?: string; branch?: string },
@@ -24,15 +24,18 @@ export function promptSuggestion(
 ): PromptSuggestion | undefined {
   if (!here.cwd) return undefined;
   sessions ??= [];
+  // Another chat in this checkout: a worktree chat's own folder is its cwd, and a known branch must agree.
+  const sameCheckout = (entry: AcpmuxSessionEntry) =>
+    entry.sessionId !== here.sessionId &&
+    !entry.archived &&
+    entry.cwd === here.cwd &&
+    (!entry.worktree || entry.worktree === here.cwd) &&
+    (!here.branch || !entry.branch || entry.branch === here.branch);
+  const working = (entry: AcpmuxSessionEntry) => entry.indicator === "working" || entry.indicator === "input";
   const source = sessions
     .filter(
       (entry) =>
-        entry.sessionId !== here.sessionId &&
-        !entry.archived &&
-        entry.cwd === here.cwd &&
-        // The same checkout: a worktree chat's own folder is its cwd, and a known branch must agree.
-        (!entry.worktree || entry.worktree === here.cwd) &&
-        (!here.branch || !entry.branch || entry.branch === here.branch) &&
+        sameCheckout(entry) &&
         (entry.pullRequest?.state === "open" || entry.pullRequest?.state === "draft") &&
         entry.updatedAt !== undefined &&
         now - entry.updatedAt <= RECENT_MS,
@@ -40,12 +43,11 @@ export function promptSuggestion(
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
   const pr = source?.pullRequest ?? (live && (live.state === "open" || live.state === "draft") ? live : undefined);
   if (!pr) return undefined;
-  // A chat already working on (or waiting about) this PR has it; a second agent would collide.
+  // A chat already working on (or waiting about) this PR has it; a second agent would collide. Live
+  // session summaries name no PR, so for the folder's own PR any working chat in this checkout may be
+  // on it: the suggestion stays quiet then.
   const busy = sessions.some(
-    (entry) =>
-      entry.pullRequest?.number === pr.number &&
-      entry.cwd === here.cwd &&
-      (entry.indicator === "working" || entry.indicator === "input"),
+    (entry) => sameCheckout(entry) && working(entry) && (pr === live || entry.pullRequest?.number === pr.number),
   );
   if (busy) return undefined;
   const title = pr.title.length > TITLE_MAX ? `${pr.title.slice(0, TITLE_MAX - 1).trimEnd()}…` : pr.title;
