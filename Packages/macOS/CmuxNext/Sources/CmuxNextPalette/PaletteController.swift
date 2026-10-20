@@ -104,7 +104,7 @@ public final class PaletteController {
     // MARK: Registry wiring
 
     /// Binds the palette's own catalog actions: Command Palette (toggle),
-    /// Go to Workspace and Search Keyboard Shortcuts. Go to Tab is Search
+    /// Go to Workspace (Cmd-P, which opens Search) and Search Keyboard Shortcuts. Go to Tab is Search
     /// Tabs, which the App binds (`tab.search`).
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
@@ -115,7 +115,9 @@ public final class PaletteController {
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
                     self?.sources.workspaces?.selectWorkspace(id: workspace)
-                } else {
+                } else if self?.show(scope: PaletteScopeID.search) != true {
+                    // Cmd-P opens the merged Search window (search-everything-DESIGN.md section 10);
+                    // its empty query lists the workspaces, as Go to Workspace did.
                     self?.show(.workspaces)
                 }
             })

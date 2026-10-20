@@ -9,8 +9,9 @@ nonisolated extension PaletteScopeID {
     public static let settings: PaletteScopeID = "settings"
     public static let shortcuts: PaletteScopeID = "shortcuts"
     public static let scopes: PaletteScopeID = "scopes"
-    /// Search (the sidebar's Search button, plans/cmux-next/sidebar-search.md):
-    /// every kind the other scopes and the App's contributed pages list, in one page.
+    /// Search (Cmd-P and the sidebar's Search button, plans/cmux-next/sidebar-search.md,
+    /// search-everything-DESIGN.md section 10): every kind the other scopes and the App's
+    /// contributed pages list, in one page.
     public static let search: PaletteScopeID = "search"
 }
 
@@ -28,7 +29,7 @@ nonisolated extension PaletteScopeDescriptor {
         // Search goes first in the scope list: it is the one that finds everything.
         var scopes: [PaletteScopeDescriptor] = [
             scope(PaletteScopeID.search, PaletteStrings.searchEverythingTitle, "magnifyingglass", PaletteStrings.searchEverythingPlaceholder,
-                  keywords: ["search", "everything", "all"]),
+                  keywords: ["search", "everything", "all"], openAction: "goToWorkspace"),
         ]
         if tabs {
             scopes.append(scope(PaletteScopeID.tabs, PaletteStrings.sectionTabs, "rectangle.on.rectangle", PaletteStrings.tabSearchPlaceholder,
@@ -36,7 +37,7 @@ nonisolated extension PaletteScopeDescriptor {
         }
         if workspaces {
             scopes.append(scope(PaletteScopeID.workspaces, PaletteStrings.sectionWorkspaces, "rectangle.stack", PaletteStrings.workspacesPlaceholder,
-                                prefix: "#", keywords: ["workspaces", "workspace"], openAction: "goToWorkspace"))
+                                prefix: "#", keywords: ["workspaces", "workspace"]))
         }
         scopes.append(scope(PaletteScopeID.commands, PaletteStrings.commandsTitle, "command", PaletteStrings.searchPlaceholder,
                             prefix: ">", keywords: ["commands", "actions"]))
