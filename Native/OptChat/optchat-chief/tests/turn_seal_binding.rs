@@ -25,7 +25,7 @@ fn serve(home: &Path, chief: Arc<ChiefTools>) -> PathBuf {
         optchat_chief::tools::Served {
             memory: open_chat(&home.join("memory")),
             orchestrator: None,
-            control: None,
+            control: Some(Arc::new(|_| Ok("owner-control".to_owned()))),
             inspector: None,
             chief: Some(chief),
             turn: Some(optchat_chief::turn_caller::TurnBinding {
@@ -37,6 +37,31 @@ fn serve(home: &Path, chief: Arc<ChiefTools>) -> PathBuf {
     )
     .unwrap();
     socket
+}
+
+fn settings(home: &Path, session: Option<&str>) -> Output {
+    let exe = env!("CARGO_BIN_EXE_optchat-chief");
+    let args = [
+        "settings".to_owned(),
+        "show".to_owned(),
+        "--mux-home".to_owned(),
+        home.display().to_string(),
+    ];
+    let mut command = match session {
+        Some(session) => {
+            let mut sh = Command::new("/bin/bash");
+            sh.args(["-c", "\"$@\"; status=$?; exit $status", "bash", exe])
+                .args(&args)
+                .env("ACPMUX_SESSION_NAME", session);
+            sh
+        }
+        None => {
+            let mut direct = Command::new(exe);
+            direct.args(&args);
+            direct
+        }
+    };
+    command.output().unwrap()
 }
 
 /// `optchat-chief chiefs` with `env`, as the child of a `/bin/bash` agent
@@ -135,4 +160,23 @@ fn a_non_turn_agent_with_the_valid_seal_is_refused() {
         );
         assert!(refused(&out), "turn, key {key:?}: {out:?}");
     }
+}
+
+#[test]
+fn a_subagent_cannot_reach_owner_controls_on_the_shared_socket() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("chief");
+    let socket = serve(&home, Arc::new(ChiefTools::none()));
+    assert!(socket.exists());
+
+    let subagent = settings(&home, Some("optchat-sub-home-a1"));
+    assert!(
+        !subagent.status.success()
+            && String::from_utf8_lossy(&subagent.stderr)
+                .contains("subagents have no owner controls"),
+        "subagent: {subagent:?}"
+    );
+    let owner = settings(&home, None);
+    assert!(owner.status.success(), "owner: {owner:?}");
+    assert!(String::from_utf8_lossy(&owner.stdout).contains("owner-control"));
 }

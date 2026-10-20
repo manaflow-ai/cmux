@@ -26,18 +26,22 @@ mod children;
 mod control;
 mod drafts;
 mod engine_control;
+pub mod files;
 mod image_fit;
 pub mod images;
 mod inbox;
+pub mod media;
 mod mux_ack;
 mod outbox;
 mod previews;
 mod prewarm;
 mod recover;
+mod replies;
 mod side;
 mod spawns;
 mod steer;
 mod turns;
+pub use replies::{REACTIONS, reaction, tapback};
 pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -110,6 +114,10 @@ pub enum Input {
     /// Section 9: a `spawn` asks for its spawn id and subagent ids.
     SpawnRegister {
         tasks: Vec<String>,
+        /// The env's acpmux peer (`OPTCHAT_SUBAGENT_PEER`); None: none.
+        peer: Option<String>,
+        /// `spawn(place)`: `cloud`, `local` or None (the saved default).
+        place: Option<String>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
     /// A queued subagent's launch, saved in its record.
@@ -154,14 +162,6 @@ pub enum Input {
         after_network: bool,
         online: bool,
     },
-    /// An agent CLI in a cmux terminal stopped on an error
-    /// (terminal_watch.rs): `[term_…] stopped: …`. Quiet ones (an
-    /// auto-resume is planned or done) are notices; the others reach the
-    /// Chief as a note.
-    TerminalStopped {
-        text: String,
-        quiet: bool,
-    },
     /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
     /// there is no such subagent or it has none yet.
     SubSession {
@@ -173,12 +173,34 @@ pub enum Input {
     TurnView {
         reply: Sender<Option<String>>,
     },
-    /// `tell(id, message, key)`.
+    /// `tell(id, message, key, queue)`.
     Tell {
         id: String,
         message: String,
         key: Option<String>,
+        /// Wait for the running turn instead of interrupting it.
+        queue: bool,
         reply: Sender<Result<String, String>>,
+    },
+    /// `react(id, reaction)` (replies.rs).
+    React {
+        id: u64,
+        reaction: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `reply(id, text)` (replies.rs): the answer goes to `reply`.
+    Reply {
+        id: u64,
+        text: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A tell's steer into subagent `id`'s running turn in `session` was
+    /// refused (its agent cannot steer now): the brain interrupts the turn
+    /// and sends `message` as its next prompt (spawns.rs `tell_unsteered`).
+    TellUnsteered {
+        id: String,
+        session: String,
+        message: String,
     },
     /// `control(action, ...)` (control.rs).
     Control {
@@ -345,6 +367,12 @@ pub struct Settings {
     pub home_view: Option<crate::home_view::HomeView>,
     /// Who this Chief is in the conversations and which messages wake it.
     pub membership: crate::membership::Membership,
+    /// Keep a Claude turn's Claude Code session after the turn and prompt it
+    /// again with only the next turn's new messages while the frozen view
+    /// holds (the Unii baseline's one process: no spawn, a fully cached
+    /// prefix). The session runs with Claude Code's own cache marks.
+    /// `CHIEF_KEEP_TURN_SESSION=0` turns it off.
+    pub keep_turn_session: bool,
 }
 
 /// The longest a turn waits for view lines that are still building
@@ -391,17 +419,36 @@ impl Queued {
     fn wakes(&self) -> bool {
         !matches!(&self.source, Source::Spawn(r) if r.quiet)
     }
+
+    fn requires_approval(&self) -> bool {
+        matches!(
+            self.source,
+            Source::Message {
+                requires_approval: true,
+                ..
+            } | Source::Resume {
+                requires_approval: true,
+                ..
+            } | Source::Spawn(crate::state::SpawnRef {
+                requires_approval: true,
+                ..
+            })
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Source {
     /// A human message of the Chief conversation; `remote` names the paired
     /// install that sent it (the relay's origin), None for a local one.
+    /// `requires_approval` is true for every author other than the Chief's
+    /// owner, even when the message is otherwise allowed to wake the Chief.
     Message {
         seq: u64,
         /// The message's id (a side floor's crash dedupe).
         id: String,
         remote: Option<String>,
+        requires_approval: bool,
     },
     /// A child's report; its record turns `Reported` with this floor when logged.
     Child { session_id: String, floor: u64 },
@@ -411,7 +458,11 @@ enum Source {
     Spawn(crate::state::SpawnRef),
     /// The note that resumes a turn a host stop cut (`HostState::resumes`),
     /// with the cut messages' full text for the turn's prompt.
-    Resume { remote: bool, cut: Vec<String> },
+    Resume {
+        remote: bool,
+        requires_approval: bool,
+        cut: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -494,6 +545,10 @@ pub struct Brain {
     /// Whether the pool was last hinted for a turn with our mark (Claude
     /// Code's own marks off, `session_dir::set_session_cache`).
     prewarm_ours: Option<bool>,
+    /// The turn session the last turn kept (`Settings::keep_turn_session`).
+    kept: Option<turns::KeptTurn>,
+    /// The running turn's keep check: its key and the session shape.
+    keep_pending: Option<(String, u64)>,
     /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
     ttl_stale: Arc<std::sync::atomic::AtomicBool>,
 
@@ -503,6 +558,12 @@ pub struct Brain {
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
+    /// B4: the VMs behind cloud peers, how long a peer idles before its VM
+    /// pauses, the peers paused by this host and since when each idles.
+    cloud_vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
+    cloud_idle: std::time::Duration,
+    cloud_paused: std::collections::BTreeSet<String>,
+    cloud_idle_since: std::collections::BTreeMap<String, u64>,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
     max_live: Option<usize>,
     /// A finished subagent's workspace closes instead of taking the done
@@ -559,8 +620,24 @@ pub struct Brain {
     /// id: `(thread_root, parent)` (`membership::thread_target`). In memory
     /// only: after a restart such a reply goes to the top level.
     reply_threads: HashMap<String, (String, String)>,
+    /// The seq of each user message of the Chief conversation, by id, and
+    /// the newest seq it has (any author): whether a reply would sit right
+    /// under the message it answers (`replies.rs`). In memory only: after a
+    /// restart an unknown message counts as not the newest.
+    message_seqs: HashMap<String, u64>,
+    newest_seq: u64,
+    /// The keys of the reactions this host posted (`react` dedupe, besides
+    /// the message's own reactions).
+    reacted: std::collections::HashSet<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
+    /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
+    /// `turns::MAX_CUTS` the next one fails as before, never a loop.
+    cuts: u32,
+    /// When a turn an upstream error cut may run again (None: now).
+    resume_at: Option<Instant>,
+    /// The waits before such a turn runs again (`turns::UPSTREAM_RESUME_BACKOFF`).
+    upstream_backoff: Vec<std::time::Duration>,
 }
 
 impl Brain {
@@ -620,6 +697,8 @@ impl Brain {
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
             prewarm_ours: None,
+            kept: None,
+            keep_pending: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_remote: false,
@@ -632,6 +711,10 @@ impl Brain {
             trace: crate::trace::Trace::off(),
             workspaces: None,
             sub_starter: None,
+            cloud_vms: None,
+            cloud_idle: std::time::Duration::from_secs(600),
+            cloud_paused: Default::default(),
+            cloud_idle_since: Default::default(),
             max_live: None,
             sub_close_on_finish: false,
             resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
@@ -654,7 +737,13 @@ impl Brain {
             mux_pending: HashMap::new(),
             side_member: HashMap::new(),
             reply_threads: HashMap::new(),
+            message_seqs: HashMap::new(),
+            newest_seq: 0,
+            reacted: std::collections::HashSet::new(),
             previewer: None,
+            cuts: 0,
+            resume_at: None,
+            upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -664,6 +753,7 @@ impl Brain {
                 text: recover::RESUMED.to_owned(),
                 source: Source::Resume {
                     remote: resume.remote,
+                    requires_approval: resume.requires_approval,
                     cut: resume.messages,
                 },
                 images: Vec::new(),
@@ -739,6 +829,17 @@ impl Brain {
         self.sub_starter = starter;
     }
 
+    /// The VMs behind cloud peers: resumed before a cloud subagent starts,
+    /// paused after `idle` with no cloud subagent on them (B4).
+    pub fn set_cloud_vms(
+        &mut self,
+        vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
+        idle: std::time::Duration,
+    ) {
+        self.cloud_vms = vms;
+        self.cloud_idle = idle;
+    }
+
     /// Caps the subagents at work at once (None: no cap, the default).
     pub fn set_max_live(&mut self, limit: Option<usize>) {
         self.max_live = limit;
@@ -780,7 +881,10 @@ impl Brain {
 
     /// When the outbox timer fires, if armed.
     pub fn next_timer(&self) -> Option<Instant> {
-        self.outbox_timer
+        match (self.outbox_timer, self.resume_at) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// Runs until a fatal error; returns it.
@@ -789,7 +893,7 @@ impl Brain {
             if let Some(fatal) = &self.fatal {
                 return fatal.clone();
             }
-            let input = match self.outbox_timer {
+            let input = match self.next_timer() {
                 Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                     Ok(input) => input,
                     Err(RecvTimeoutError::Timeout) => {
@@ -837,8 +941,15 @@ impl Brain {
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),
-            Input::SpawnRegister { tasks, reply } => {
-                let plan = self.register_spawn(&tasks);
+            Input::SpawnRegister {
+                tasks,
+                peer,
+                place,
+                reply,
+            } => {
+                let plan = self
+                    .spawn_peer(peer.as_deref(), place.as_deref())
+                    .and_then(|peers| self.register_spawn(&tasks, &peers));
                 let _ = reply.send(plan);
             }
             Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
@@ -851,13 +962,6 @@ impl Brain {
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
-            Input::TerminalStopped { text, quiet } => {
-                if quiet {
-                    self.notice(format!("notice:optchat:terminal-resume:{}", now_ms()), text);
-                } else {
-                    self.queue(text, Source::Note);
-                }
-            }
             Input::AutoResume {
                 id,
                 attempt,
@@ -876,16 +980,35 @@ impl Brain {
                 id,
                 message,
                 key,
+                queue,
                 reply,
             } => {
-                let answer = self.tell_keyed(&id, &message, key.as_deref());
+                let answer = self.tell_with(&id, &message, key.as_deref(), queue);
                 let _ = reply.send(answer);
             }
+            Input::React {
+                id,
+                reaction,
+                reply,
+            } => {
+                let _ = reply.send(self.react(id, &reaction));
+            }
+            Input::Reply { id, text, reply } => {
+                let _ = reply.send(self.reply_now(id, &text));
+            }
+            Input::TellUnsteered {
+                id,
+                session,
+                message,
+            } => self.tell_unsteered(&id, &session, &message),
             Input::Control { request, reply } => {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
             }
-            Input::SubTick => self.sub_tick(),
+            Input::SubTick => {
+                self.sub_tick();
+                self.cloud_tick();
+            }
             Input::Setting { key, value, reply } => {
                 let _ = reply.send(self.set_setting(&key, &value));
             }
@@ -1001,8 +1124,12 @@ impl Brain {
     }
 
     pub fn on_timer(&mut self) {
-        self.outbox_timer = None;
-        self.flush_outbox();
+        let now = Instant::now();
+        if self.outbox_timer.is_some_and(|at| at <= now) {
+            self.outbox_timer = None;
+            self.flush_outbox();
+        }
+        self.on_resume_timer();
     }
 
     fn save(&self) {
@@ -1027,7 +1154,20 @@ impl Brain {
     /// (an approved shell command reaches the host the same way). Turning
     /// it off is always allowed.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
-        use crate::chief_settings::{CACHE_TTL, REMOTE_AUTO_APPROVE, parse_bool, parse_ttl};
+        use crate::chief_settings::{
+            CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, parse_bool, parse_reply_threads,
+            parse_ttl,
+        };
+        if key == REPLY_THREADS {
+            let threads = parse_reply_threads(value)?;
+            let mut next = self.chief;
+            next.reply_threads = threads;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {}", threads.as_str()));
+            return Ok(format!("{key} = {}", threads.as_str()));
+        }
         if key == CACHE_TTL {
             // From the next turn on (the native engine: the next host start).
             let ttl = parse_ttl(value)?;
@@ -1044,7 +1184,7 @@ impl Brain {
         }
         if key != REMOTE_AUTO_APPROVE {
             return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL})"
+                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS})"
             ));
         }
         let on = parse_bool(value)?;

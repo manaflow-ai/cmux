@@ -40,6 +40,11 @@ public final class HomeChiefSettingsView: NSView {
     var shownName = ""
     /// Where the brain runs, under the name: this Mac or the paired server.
     let place = ThemedLabel(labelWithString: "")
+    /// "Switch to …": the same Chief on its other host (Lawrence 2026-10-19 replaced the floating
+    /// "Chief | Chief (Mac mini)" segmented control with this quiet link under where it runs).
+    let hostSwitch = NSButton(title: "", target: nil, action: nil)
+    /// The place line the app set (``setHost(place:switchTo:)``); nil keeps the engine's own line.
+    var hostPlace: String?
     let harness = ThemedPopUpButton(frame: .zero, pullsDown: false)
     let model = ThemedPopUpButton(frame: .zero, pullsDown: false)
     let effort = ThemedPopUpButton(frame: .zero, pullsDown: false)
@@ -64,10 +69,16 @@ public final class HomeChiefSettingsView: NSView {
     var source: any HomeChiefEngineSource
     /// Renames the Chief conversation (the daemon's set-title op).
     public var onRename: (String) -> Void = { _ in }
+    /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
+    /// registry for a Chief of this Mac (set by the header view); nil writes this panel's
+    /// mux home's files (a cloud Chief).
+    public var pictureStore: (avatars: HomeChiefAvatars, chief: String)?
     /// The Chief's avatar changed on disk (its picture): read it again.
     public var onAvatar: () -> Void = {}
     /// Show Memory: runs "Chief: Open Memory Inspector".
     public var onShowMemory: () -> Void = {}
+    /// "Switch to …" under where the Chief runs: the app moves the Chief tab to the other host.
+    public var onSwitchHost: () -> Void = {}
     /// The brain took a pick (harness, model or effort): the Home list reads the Chiefs' engines again.
     public var onEngineChanged: () -> Void = {}
     /// The content's height changed (the disclosure, a failure note, new stats):
@@ -173,8 +184,28 @@ public final class HomeChiefSettingsView: NSView {
             brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
         }
         for view in localViews { view.isHidden = !source.isLocal }
-        place.stringValue = source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? HomeEngineStrings.runsHere
+        place.stringValue = hostPlace ?? source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? HomeEngineStrings.runsHere
         return refresh()
+    }
+
+    /// Where this Chief runs and the other host it can switch to.
+    ///
+    /// - Parameters:
+    ///   - place: The line under the name ("Runs in the cloud"); nil keeps the engine's own line.
+    ///   - switchTo: The other host's label ("cmux20", "Cloud"); nil hides the switch.
+    public func setHost(place: String?, switchTo: String?) {
+        hostPlace = place
+        if let place { self.place.stringValue = place }
+        hostSwitch.title = switchTo.map { String(format: HomeEngineStrings.switchHostFormat, $0) } ?? ""
+        hostSwitch.setAccessibilityLabel(hostSwitch.title)
+        let hidden = switchTo == nil
+        guard hostSwitch.isHidden != hidden else { return }
+        hostSwitch.isHidden = hidden
+        onResize()
+    }
+
+    @objc func switchHost() {
+        onSwitchHost()
     }
 
     /// The conversation's title, shown in the name field.
@@ -223,22 +254,32 @@ public final class HomeChiefSettingsView: NSView {
         panel.canChooseDirectories = false
         let use = { [weak self] (response: NSApplication.ModalResponse) in
             guard response == .OK, let url = panel.url else { return }
-            self?.usePicture { try $0.writePicture(from: url) }
+            self?.usePicture(url)
         }
         if let window = pictureWindow() ?? window { panel.beginSheetModal(for: window, completionHandler: use) } else { use(panel.runModal()) }
     }
 
     @objc func useDefaultPicture() {
-        usePicture { $0.clearPicture() }
+        usePicture(nil)
     }
 
-    /// Writes the picture off the main actor, then has the header (and this
-    /// panel's avatar) read it; a picture that could not be used says so.
-    func usePicture(_ write: @escaping @Sendable (HomeChiefFiles) throws -> Void) {
-        let files = HomeChiefFiles(muxHome: muxHome)
-        // task-owner: one file write off the main actor, then the header reads it
+    /// Makes `source` the shown Chief's picture (nil: the default again) through
+    /// ``pictureStore`` (the daemon's registry for a Chief of this Mac, else its files),
+    /// then has the header (and this panel's avatar) read it; a picture that could not be
+    /// used says so.
+    func usePicture(_ source: URL?) {
+        let store = pictureStore ?? (avatars: HomeChiefAvatars(muxHome: muxHome), chief: HomeChiefAvatars.defaultChief)
+        // task-owner: one picture write (registry or files), then the header reads it
         Task { [weak self] in
-            let written = await Task.detached { (try? write(files)) != nil }.value
+            let written: Bool
+            do {
+                if let source { try await store.avatars.setPicture(from: source, chief: store.chief) } else {
+                    try await store.avatars.clearPicture(chief: store.chief)
+                }
+                written = true
+            } catch {
+                written = false
+            }
             guard let self else { return }
             failure.stringValue = written ? "" : HomeEngineStrings.pictureUnreadable
             failure.isHidden = written

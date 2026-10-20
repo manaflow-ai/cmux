@@ -182,7 +182,9 @@ public actor MockHomeSource: HomeSource {
             throw rejection
         }
         ledger[intent.key] = (intent.op, .success(result))
-        if case .sendMessage(let conversation, _, _, _) = intent.op { scheduleReplies(in: conversation) }
+        if case .sendMessage(let conversation, let parts, let threadRoot, let parent) = intent.op {
+            scheduleReplies(in: conversation, parts: parts, answering: parent ?? threadRoot)
+        }
         return result
     }
 
@@ -444,6 +446,12 @@ public actor MockHomeSource: HomeSource {
         _ = try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: .make())
     }
 
+    /// Publishes one draft item of an agent's running reply, as an owner streams a Chief turn (demos and the
+    /// DEBUG Home fixture's width sweep). Nothing is stored: the reply posts only through ``receive(_:from:in:)``.
+    public func streamDraft(_ update: HomeDraftUpdate) {
+        publish(.draft(update))
+    }
+
     // MARK: Owner logic
 
     private func apply(_ intent: HomeIntent) throws -> HomeOpResult {
@@ -564,6 +572,10 @@ public actor MockHomeSource: HomeSource {
             conversations[conversation] = summary
             publish(.message(list[index], rev: summary.rev))
             return HomeOpResult(rev: summary.rev)
+        case .setChiefReplies(let conversation, let policy):
+            guard conversations[conversation] != nil else { throw HomeRejection.invalid("unknown_conversation") }
+            guard conversations[conversation]?.kind(me: me.id) == .group else { throw HomeRejection.invalid("kind_forbids") }
+            return try updateHead(conversation) { $0.chiefReplies = policy }
         case .renameConversation(let conversation, let title):
             guard conversations[conversation]?.kind(me: me.id) == .group else { throw HomeRejection.invalid("kind_forbids") }
             let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -711,18 +723,25 @@ public actor MockHomeSource: HomeSource {
         return (person, InviteReceipt(contact: contact, channel: contact.isEmail ? .email : .sms, alreadyMember: false))
     }
 
-    private func scheduleReplies(in conversation: ConversationID) {
+    /// The Chiefs the owner's rule wakes for my message (``ChiefReplyPolicy``) answer it, one after another.
+    private func scheduleReplies(in conversation: ConversationID, parts: [MessagePart], answering: MessageID?) {
         guard let summary = conversations[conversation] else { return }
-        let chiefs = summary.participants.filter(\.isChief)
-        // In groups a Chief answers only when mentioned (multi-party rule); the mock answers with the first Chief.
-        guard let responder = chiefs.first else { return }
+        var mentioned: Set<ParticipantID> = []
+        for case .text(_, let mentions) in parts { mentioned.formUnion(mentions.map(\.participant)) }
+        let repliedTo = answering.flatMap { id in stored[conversation]?.first { $0.id == id }?.author }
+        let policy = summary.chiefReplies ?? .default
+        let ids = policy.responders(among: summary.participants, author: me.id, mentioned: mentioned, repliedTo: repliedTo)
+        let responders = ids.compactMap { id in summary.participants.first { $0.id == id } }
+        guard !responders.isEmpty else { return }
         let delay = options.replyDelay
         let clock = self.clock
         Task {
-            if delay > .zero { try? await clock.sleep(for: delay) }
-            self.typing(responder.id, in: conversation, on: true)
-            if delay > .zero { try? await clock.sleep(for: delay) }
-            self.reply(as: responder, in: conversation)
+            for responder in responders {
+                if delay > .zero { try? await clock.sleep(for: delay) }
+                self.typing(responder.id, in: conversation, on: true)
+                if delay > .zero { try? await clock.sleep(for: delay) }
+                self.reply(as: responder, in: conversation)
+            }
         }
     }
 

@@ -27,6 +27,17 @@
 //!
 //! Claude Code's own API route stays open when it is on this machine
 //! (`ANTHROPIC_BASE_URL` on a loopback host): that one port, nothing else.
+//! The route is the one Claude really uses (`Endpoint`): the profile's own
+//! (its env, or its route: the `cmux` harness reaches the cmux model router
+//! through the local relay), else the user's Claude settings (`env` in
+//! `~/.claude/settings.json`, which Claude applies over its process env),
+//! else the login environment's. The inline `--settings` pins it (a project
+//! file cannot move it), and a profile's own route skips the user settings
+//! source (`--setting-sources project,local`), whose env would otherwise
+//! replace the route's endpoint and key. `sr claude proxy` (`claude-sr`)
+//! starts its own proxy, which the sandbox never allows: a remote chain runs
+//! Claude Code straight to the subrouter server that proxy would use, as
+//! acpmux does when that launcher cannot run (`config/launchers.rs`).
 //!
 //! Refused as well, before any process starts: a platform without Seatbelt
 //! (every one but macOS), a session folder that is the home directory or
@@ -42,7 +53,7 @@ pub(super) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
 /// The identity of what a remote chain runs under: the profile and the env
 /// policy (bump `ENV_POLICY` when the child env rules change).
 pub(super) fn profile_id() -> String {
-    const ENV_POLICY: &str = "env-v1: credential by env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1";
+    const ENV_POLICY: &str = "env-v2: credential by env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
     crate::sha256::sha256_hex(format!("{PROFILE}\n{ENV_POLICY}").as_bytes())
 }
 
@@ -50,15 +61,86 @@ pub(super) fn profile_id() -> String {
 pub(super) const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 
 /// A remote chain's inline `--settings`: Claude's own Bash sandbox off (it
-/// cannot nest in the profile), and every acting tool asks.
-pub(super) fn claude_settings() -> String {
-    json!({
+/// cannot nest in the profile), every acting tool asks, and the API route
+/// the sandbox opens (`endpoint`) is the one Claude uses: flag settings
+/// come after the user, project and local ones, so none of them moves it.
+pub(super) fn claude_settings(endpoint: Option<&str>) -> String {
+    let mut v = json!({
         "sandbox": {"enabled": false, "autoAllowBashIfSandboxed": false},
         // Ask rules come before allow rules in every settings source, so the
         // user's own allow rules never skip the question in a remote chain.
         "permissions": {"disableBypassPermissionsMode": "disable", "ask": ASK_TOOLS},
-    })
-    .to_string()
+    });
+    if let Some(url) = endpoint {
+        v["env"] = json!({"ANTHROPIC_BASE_URL": url});
+    }
+    v.to_string()
+}
+
+/// Where a remote chain's Claude Code reaches its API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Endpoint {
+    pub(super) url: String,
+    /// The profile names it (its env or its route): the user settings
+    /// source is skipped, so its env neither moves the route nor replaces
+    /// the route's credential.
+    pub(super) own: bool,
+}
+
+/// The route Claude Code uses, in its own order: the profile's (or its
+/// route's) `ANTHROPIC_BASE_URL`, which acpmux makes win; else the user's
+/// Claude settings `env` (applied over the process env); else the login
+/// environment's.
+pub(super) fn endpoint(
+    profile: Option<&str>,
+    user_settings: Option<&str>,
+    login: Option<&str>,
+) -> Option<Endpoint> {
+    let set = |v: Option<&str>| v.map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned);
+    if let Some(url) = set(profile) {
+        return Some(Endpoint { url, own: true });
+    }
+    set(user_settings).or_else(|| set(login)).map(|url| Endpoint { url, own: false })
+}
+
+/// `env.ANTHROPIC_BASE_URL` of the user's Claude settings file
+/// (`<home>/.claude/settings.json`; a remote chain never runs with another
+/// `CLAUDE_CONFIG_DIR`, `REFUSED_ENV`).
+pub(super) fn user_settings_endpoint(home: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(home.join(".claude").join("settings.json")).ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    v.pointer("/env/ANTHROPIC_BASE_URL").and_then(Value::as_str).map(str::to_owned)
+}
+
+/// `sr claude proxy` for a remote chain: Claude Code itself (`claude`, the
+/// first word of acpmux's own Claude profile) on the subrouter server
+/// `route`, as `config/launchers.rs` routes it when the launcher cannot run.
+/// The proxy `sr` would start needs a loopback listener, which the sandbox
+/// refuses. `args` are the plan's, after `claude proxy`; a profile with any
+/// other `sr` word is refused.
+pub(super) fn subrouter_plan(
+    profile: &HarnessProfile,
+    args: Vec<String>,
+    claude: Option<String>,
+    route: Option<String>,
+) -> Result<(String, Vec<String>, HarnessProfile), String> {
+    if profile.argv.len() != 3 {
+        return Err("a remote chain runs `sr claude proxy` only without other sr options".into());
+    }
+    let route = route.ok_or(
+        "`sr claude proxy` starts its own proxy, which a remote chain may not, and no subrouter server is configured (SUBROUTER_URL or sr's default server)",
+    )?;
+    let claude = claude.ok_or(
+        "`sr claude proxy` needs acpmux's own Claude Code profile (`claude`) for a remote chain",
+    )?;
+    let args = args.into_iter().skip(2).collect();
+    let mut profile = profile.clone();
+    profile.argv = vec![claude.clone()];
+    profile.env.insert("ANTHROPIC_BASE_URL".into(), route);
+    // The server picks the pooled account and ignores the client token.
+    profile.env.insert("ANTHROPIC_AUTH_TOKEN".into(), "subrouter".into());
+    profile.env.insert("ANTHROPIC_CUSTOM_HEADERS".into(), "X-Subrouter-Agent: claude".into());
+    Ok((claude, args, profile))
 }
 
 /// Claude Code tools that act (run, write, fetch, delegate): in a remote
@@ -188,8 +270,9 @@ pub(super) struct Bound {
     /// transcript folder (`~/.claude/projects/<name>`).
     pub(super) claude_tmp_project: PathBuf,
     pub(super) claude_project: PathBuf,
-    /// Claude Code's own API route port (`ANTHROPIC_BASE_URL`), and whether
-    /// its host is a loopback one.
+    /// Claude Code's own API route (`Endpoint`).
+    pub(super) endpoint: Option<Endpoint>,
+    /// Its port, and whether its host is a loopback one.
     pub(super) api_port: Option<(u16, bool)>,
 }
 
@@ -284,7 +367,7 @@ impl Bound {
     pub(super) fn for_session(
         cwd: &Path,
         session_id: &str,
-        api_url: Option<&str>,
+        endpoint: Option<Endpoint>,
     ) -> Result<Self, String> {
         if !cfg!(target_os = "macos") {
             return Err(
@@ -335,7 +418,8 @@ impl Bound {
             home,
             claude_tmp_project,
             claude_project,
-            api_port: api_url.and_then(api_port),
+            api_port: endpoint.as_ref().and_then(|e| api_port(&e.url)),
+            endpoint,
         })
     }
     /// Off macOS a remote chain is refused (as the Unix build says on Linux).
@@ -343,7 +427,7 @@ impl Bound {
     pub(super) fn for_session(
         _cwd: &Path,
         _session_id: &str,
-        _api_url: Option<&str>,
+        _endpoint: Option<Endpoint>,
     ) -> Result<Self, String> {
         Err("a remote chain runs Claude Code only inside the macOS Seatbelt sandbox, and this platform has none".into())
     }
@@ -403,7 +487,11 @@ pub(super) fn wrap(
         return Err(format!("a remote chain never runs Claude Code with {bad} set"));
     }
     args.push("--settings".into());
-    args.push(claude_settings());
+    args.push(claude_settings(bound.endpoint.as_ref().map(|e| e.url.as_str())));
+    if bound.endpoint.as_ref().is_some_and(|e| e.own) {
+        args.push("--setting-sources".into());
+        args.push("project,local".into());
+    }
     args.push("--strict-mcp-config".into());
     args.push("--mcp-config".into());
     args.push(r#"{"mcpServers":{}}"#.into());
@@ -415,6 +503,11 @@ pub(super) fn wrap(
         out.push((*k).into());
     }
     out.push(format!("TMPDIR={}", bound.tmp.display()));
+    // Claude Code keeps its own temporary files (the Bash tool's working
+    // directory file `claude-<id>-cwd`, task output) under CLAUDE_CODE_TMPDIR,
+    // else the shared /tmp, which the profile never lets it write: every Bash
+    // command then failed with "operation not permitted: /tmp/claude-…-cwd".
+    out.push(format!("CLAUDE_CODE_TMPDIR={}", bound.tmp.display()));
     out.push(program);
     out.extend(args);
     Ok((exec.to_string_lossy().into_owned(), out))
@@ -534,6 +627,34 @@ impl Hub {
         if !session.meta().remote_origin {
             return Ok((plan, std::borrow::Cow::Borrowed(profile)));
         }
+        let refused = |why: String| {
+            RpcError::new(-32000, format!("remote chain refused: {why}"))
+                .with_data(json!({"reason": "remote.sandbox_refused"}))
+        };
+        let (plan, mut profile) = if crate::config::is_subrouter_proxy(&profile.argv) {
+            let claude = self
+                .config
+                .read()
+                .await
+                .harnesses
+                .get("claude")
+                .filter(|c| c.kind == crate::config::HarnessKind::ClaudeStdio)
+                .and_then(|c| c.argv.first().cloned());
+            let route = {
+                let servers = dirs::home_dir()
+                    .map(|home| home.join(".subrouter/codex/servers.json"))
+                    .unwrap_or_default();
+                let env = std::env::var("SUBROUTER_URL")
+                    .ok()
+                    .or_else(|| crate::login_env::var("SUBROUTER_URL"));
+                crate::config::subrouter_route(env.as_deref(), &servers)
+            };
+            let (program, args, routed) =
+                subrouter_plan(profile, plan.args, claude, route).map_err(refused)?;
+            (crate::claude_stdio::SpawnPlan { program, args }, routed)
+        } else {
+            (plan, profile.clone())
+        };
         // A remote chain never runs without the permission prompt: no switch
         // to bypassPermissions (its settings disable the mode as well).
         let mut plan = plan;
@@ -545,9 +666,16 @@ impl Hub {
         {
             plan.args[i + 1] = "default".into();
         }
+        // A dedicated agent VM (`vmHost`, off macOS): the VM is the sandbox.
+        // Bypass mode stays off (above); the session's permission policy
+        // answers Claude's prompts.
+        let vm_host = self.config.read().await.vm_host;
+        if vm_host_unsandboxed(vm_host, cfg!(target_os = "macos")) {
+            self.append(session, "mux", "remote_sandbox", json!({"vmHost": true}));
+            return Ok((plan, std::borrow::Cow::Owned(profile)));
+        }
         let (program, args) =
-            self.sandboxed_claude_plan(session, profile, plan.program, plan.args).await?;
-        let mut profile = profile.clone();
+            self.sandboxed_claude_plan(session, &profile, plan.program, plan.args).await?;
         profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), "1".into());
         let credential = claude_credential(&profile).await.map_err(|why| {
             RpcError::new(-32000, format!("remote chain refused: {why}"))
@@ -569,15 +697,15 @@ impl Hub {
         args: Vec<String>,
     ) -> Result<(String, Vec<String>), RpcError> {
         let exec = self.remote_sandbox_exec.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        // The route Claude reaches its API by: the profile's env, else this
-        // process's.
-        let api_url = profile
-            .env
-            .get("ANTHROPIC_BASE_URL")
-            .cloned()
-            .or_else(|| crate::chats::login_var("ANTHROPIC_BASE_URL"));
+        // The route Claude reaches its API by (`endpoint`).
+        let user_settings = dirs::home_dir().and_then(|home| user_settings_endpoint(&home));
+        let endpoint = endpoint(
+            profile.env.get("ANTHROPIC_BASE_URL").map(String::as_str),
+            user_settings.as_deref(),
+            crate::chats::login_var("ANTHROPIC_BASE_URL").as_deref(),
+        );
         let result = async {
-            let bound = Bound::for_session(&session.meta().cwd, &session.id, api_url.as_deref())?;
+            let bound = Bound::for_session(&session.meta().cwd, &session.id, endpoint)?;
             let plan = wrap(&exec, &bound, profile, program, args)?;
             canary(&exec, &bound).await?;
             Ok::<_, String>(plan)
@@ -604,5 +732,191 @@ impl Hub {
                     .with_data(json!({"reason": "remote.sandbox_refused"})))
             }
         }
+    }
+}
+
+/// Whether a remote chain's Claude Code runs without the Seatbelt sandbox:
+/// only on a `vmHost` machine that is not a Mac (a dedicated agent VM, where
+/// the VM boundary is the sandbox). A Mac always sandboxes.
+pub(crate) fn vm_host_unsandboxed(vm_host: bool, macos: bool) -> bool {
+    vm_host && !macos
+}
+
+/// Whether a new session with no asked policy runs approve-all: only on a
+/// `vmHost` machine that is not a Mac, and only for the owner's peer daemon
+/// (`Origin::Peer`, proven by the peer token over ssh); a Web client never.
+pub fn vm_host_peer_approves(vm_host: bool, macos: bool, from_peer: bool) -> bool {
+    vm_host_unsandboxed(vm_host, macos) && from_peer
+}
+
+#[cfg(test)]
+mod vm_host_tests {
+    use super::{vm_host_peer_approves, vm_host_unsandboxed};
+
+    #[test]
+    fn only_the_owner_peer_on_a_vm_host_gets_approve_all() {
+        assert!(vm_host_peer_approves(true, false, true));
+        assert!(!vm_host_peer_approves(true, false, false), "a Web client still asks");
+        assert!(!vm_host_peer_approves(true, true, true), "never on a Mac");
+        assert!(!vm_host_peer_approves(false, false, true), "off by default");
+    }
+
+    #[test]
+    fn only_a_vm_host_off_macos_runs_remote_claude_unsandboxed() {
+        assert!(vm_host_unsandboxed(true, false));
+        assert!(!vm_host_unsandboxed(true, true), "a Mac always sandboxes");
+        assert!(!vm_host_unsandboxed(false, false), "off by default");
+        assert!(!vm_host_unsandboxed(false, true));
+    }
+}
+
+#[cfg(test)]
+mod endpoint_tests {
+    use super::*;
+
+    fn profile(argv: &[&str], env: &[(&str, &str)]) -> HarnessProfile {
+        serde_json::from_value(json!({
+            "argv": argv,
+            "kind": "claude-stdio",
+            "env": env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<std::collections::BTreeMap<_, _>>(),
+        }))
+        .unwrap()
+    }
+
+    fn bound(endpoint: Option<Endpoint>) -> Bound {
+        Bound {
+            cwd: "/Users/p/proj".into(),
+            tmp: "/private/tmp/acpmux-remote-x".into(),
+            home: "/Users/p".into(),
+            claude_tmp_project: "/private/tmp/claude-501/x".into(),
+            claude_project: "/Users/p/.claude/projects/x".into(),
+            api_port: endpoint.as_ref().and_then(|e| api_port(&e.url)),
+            endpoint,
+        }
+    }
+
+    /// Claude's own order: the profile (or its route) wins, then the user's
+    /// Claude settings env (it replaces the process env), then the login env.
+    #[test]
+    fn the_endpoint_is_the_one_claude_uses() {
+        let relay = "http://127.0.0.1:41234";
+        let sub = "http://100.89.225.106:31415";
+        assert_eq!(
+            endpoint(Some(relay), Some(sub), Some("http://x:1")),
+            Some(Endpoint { url: relay.into(), own: true })
+        );
+        assert_eq!(
+            endpoint(None, Some(sub), Some("http://x:1")),
+            Some(Endpoint { url: sub.into(), own: false })
+        );
+        assert_eq!(
+            endpoint(Some(" "), None, Some("http://x:1")),
+            Some(Endpoint { url: "http://x:1".into(), own: false })
+        );
+        assert_eq!(endpoint(None, None, None), None);
+    }
+
+    #[test]
+    fn the_user_settings_endpoint_is_read_from_claudes_settings_file() {
+        let home = std::env::temp_dir().join(format!("acpmux-ep-{}", std::process::id()));
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        assert_eq!(user_settings_endpoint(&home), None);
+        std::fs::write(
+            home.join(".claude/settings.json"),
+            r#"{"env": {"ANTHROPIC_BASE_URL": "http://h:31415", "ANTHROPIC_AUTH_TOKEN": "t"}}"#,
+        )
+        .unwrap();
+        assert_eq!(user_settings_endpoint(&home).as_deref(), Some("http://h:31415"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A profile's own loopback route (the `cmux` harness through the local
+    /// relay): exactly that loopback port opens, the inline settings pin it,
+    /// and the user settings source (whose env would replace the route's
+    /// endpoint and key) is skipped.
+    #[test]
+    fn a_profiles_loopback_route_opens_only_its_port_and_wins_over_user_settings() {
+        let b = bound(Some(Endpoint { url: "http://127.0.0.1:41234".into(), own: true }));
+        let args = b.sandbox_args();
+        let sb = &args[1];
+        assert!(sb.contains("(allow network-outbound (remote ip \"localhost:41234\"))"), "{sb}");
+        let deny = sb.find("(deny network-outbound (remote ip \"localhost:*\"))").unwrap();
+        let allow = sb.find("(remote ip \"localhost:41234\")").unwrap();
+        assert!(allow > deny, "the loopback port must open after the loopback deny");
+        assert_eq!(sb.matches("localhost:4").count(), 1, "one loopback port only");
+        let p = profile(&["/bin/claude"], &[]);
+        let (_, out) =
+            wrap(Path::new("/usr/bin/sandbox-exec"), &b, &p, "/bin/claude".into(), vec![]).unwrap();
+        let at = out.iter().position(|a| a == "--settings").unwrap();
+        let settings: Value = serde_json::from_str(&out[at + 1]).unwrap();
+        assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://127.0.0.1:41234");
+        let sources = out.iter().position(|a| a == "--setting-sources").expect("--setting-sources");
+        assert_eq!(out[sources + 1], "project,local");
+    }
+
+    /// The user's own route (their Claude settings): pinned, opened, and the
+    /// user settings stay (they hold its credential).
+    #[test]
+    fn the_users_own_route_keeps_the_user_settings() {
+        let b = bound(Some(Endpoint { url: "http://100.89.225.106:31415".into(), own: false }));
+        let sb = &b.sandbox_args()[1];
+        assert!(sb.contains("(allow network-outbound (remote ip \"*:31415\"))"), "{sb}");
+        let p = profile(&["/bin/claude"], &[]);
+        let (_, out) =
+            wrap(Path::new("/usr/bin/sandbox-exec"), &b, &p, "/bin/claude".into(), vec![]).unwrap();
+        assert!(!out.iter().any(|a| a == "--setting-sources"), "{out:?}");
+        let at = out.iter().position(|a| a == "--settings").unwrap();
+        let settings: Value = serde_json::from_str(&out[at + 1]).unwrap();
+        assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://100.89.225.106:31415");
+        // No route at all: no env pin, no port.
+        let none = bound(None);
+        assert!(!none.sandbox_args()[1].contains("Claude Code's own API route"));
+        assert_eq!(serde_json::from_str::<Value>(&claude_settings(None)).unwrap().get("env"), None);
+    }
+
+    /// Claude Code's own temporary files go to this spawn's temporary folder,
+    /// the one the profile lets it write, never the shared /tmp.
+    #[test]
+    fn claude_codes_temporary_folder_is_the_spawns_own() {
+        let (_, out) = wrap(
+            Path::new("/usr/bin/sandbox-exec"),
+            &bound(None),
+            &profile(&["claude"], &[]),
+            "claude".into(),
+            vec![],
+        )
+        .unwrap();
+        let env_at = out.iter().position(|a| a == "/usr/bin/env").unwrap();
+        let program_at = out.iter().position(|a| a == "claude").unwrap();
+        let env = &out[env_at..program_at];
+        assert!(env.contains(&"TMPDIR=/private/tmp/acpmux-remote-x".to_string()), "{env:?}");
+        assert!(
+            env.contains(&"CLAUDE_CODE_TMPDIR=/private/tmp/acpmux-remote-x".to_string()),
+            "{env:?}"
+        );
+    }
+
+    /// `sr claude proxy` cannot start its proxy in the sandbox: Claude Code
+    /// runs straight to the subrouter server instead, or the chain is refused.
+    #[test]
+    fn sr_claude_proxy_runs_claude_on_the_subrouter_server() {
+        let sr = profile(&["/u/.local/bin/sr", "claude", "proxy"], &[]);
+        let args = vec!["claude".into(), "proxy".into(), "-p".into(), "--verbose".into()];
+        let (program, out, routed) = subrouter_plan(
+            &sr,
+            args.clone(),
+            Some("/u/.local/bin/claude".into()),
+            Some("http://100.89.225.106:31415".into()),
+        )
+        .unwrap();
+        assert_eq!(program, "/u/.local/bin/claude");
+        assert_eq!(out, vec!["-p".to_string(), "--verbose".into()]);
+        assert_eq!(routed.argv, vec!["/u/.local/bin/claude".to_string()]);
+        assert_eq!(routed.env["ANTHROPIC_BASE_URL"], "http://100.89.225.106:31415");
+        assert_eq!(routed.env["ANTHROPIC_AUTH_TOKEN"], "subrouter");
+        assert!(subrouter_plan(&sr, args.clone(), Some("c".into()), None).is_err());
+        assert!(subrouter_plan(&sr, args.clone(), None, Some("http://r:1".into())).is_err());
+        let extra = profile(&["/u/sr", "claude", "proxy", "--account"], &[]);
+        assert!(subrouter_plan(&extra, args, Some("c".into()), Some("http://r:1".into())).is_err());
     }
 }

@@ -43,7 +43,15 @@ public final class SidebarModel {
     /// scroll reveal, cx-ml98q).
     @ObservationIgnored public private(set) var userMoveRevision: UInt64?
     /// The user moved rows: the structural set that shows the move may reveal the active row.
-    public func noteUserMove() { userMoveRevision = sectionsRevision }
+    public func noteUserMove() {
+        userMoveRevision = sectionsRevision
+        noteUserIntent()
+    }
+    /// When this app's user last asked for a sidebar change (`noteUserIntent`): only a change
+    /// that follows within `userIntentWindow` moves rows on a spring (calm-sidebar-movement).
+    @ObservationIgnored var userIntentAt: ContinuousClock.Instant?
+    /// The clock `noteUserIntent` reads; tests inject a fixed instant.
+    @ObservationIgnored public var userIntentClock: @MainActor () -> ContinuousClock.Instant = { .now }
     /// True once: at the first structural set after the user's move.
     public func takeUserMove() -> Bool {
         guard let mark = userMoveRevision, mark != sectionsRevision else { return false }
@@ -146,6 +154,8 @@ public final class SidebarModel {
     public var expanded = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
     public var detailedStatus = false
+    /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
+    public var showsTimestamps = false
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
     public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
@@ -238,11 +248,15 @@ public final class SidebarModel {
     /// Selected ids in visual order.
     public var orderedSelection: [WorkspaceID] { SidebarEdits.treeOrder(selection, in: sections) }
 
-    /// What a close of `id` from its menu or a key closes: the whole selection, in row order,
-    /// when `id` is one of two or more selected rows; otherwise `id` alone.
-    public func closeTargets(for id: WorkspaceID) -> [WorkspaceID] {
+    /// What a row verb on `id` (Close, Pin, Duplicate, Move Up/Down, from its menu or a key) acts
+    /// on: the whole selection, in row order, when `id` is one of two or more selected rows;
+    /// otherwise `id` alone.
+    public func actionTargets(for id: WorkspaceID) -> [WorkspaceID] {
         selection.count > 1 && selection.contains(id) ? orderedSelection : [id]
     }
+
+    /// What a close of `id` from its menu or a key closes (``actionTargets(for:)``).
+    public func closeTargets(for id: WorkspaceID) -> [WorkspaceID] { actionTargets(for: id) }
 
     // MARK: Intents
 
@@ -272,7 +286,7 @@ public final class SidebarModel {
         case let .switchProfile(id):
             activeProfileID = id
         case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
-             .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard:
+             .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .toggleWorkspaceAudio:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
@@ -457,8 +471,18 @@ public final class SidebarModel {
     /// boundary or while filtering.
     @discardableResult
     public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
-        guard !locksReorder else { return false }
-        let ids = orderedSelection
+        move(orderedSelection, direction)
+    }
+
+    /// Move Up/Down on row `id`: moves ``actionTargets(for:)`` one slot as one block, as
+    /// Cmd-Opt-Up/Down does. Returns false at a boundary or while reordering is locked.
+    @discardableResult
+    public func moveActionTargets(of id: WorkspaceID, _ direction: KeyboardReorder.Direction) -> Bool {
+        move(actionTargets(for: id), direction)
+    }
+
+    private func move(_ ids: [WorkspaceID], _ direction: KeyboardReorder.Direction) -> Bool {
+        guard !locksReorder, !ids.isEmpty else { return false }
         if isFiltering, let docDrag {
             guard docDrag.keyboardMove(ids, up: direction == .up, model: self) else { return false }
             noteUserMove()
@@ -477,6 +501,7 @@ public final class SidebarModel {
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
+        showsTimestamps = preferences.showTimestamps
         hidesWorkspaces = !preferences.showProjects
         groupsByFolder = preferences.groupBy == .folder
         groupsByComputer = preferences.groupsByComputer
@@ -497,6 +522,7 @@ public final class SidebarModel {
         o.workspaceRow = workspaceRow
         (o.minimal, o.expanded) = (minimal, expanded)
         o.detailedStatus = detailedStatus
+        o.showsTimestamps = showsTimestamps
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {

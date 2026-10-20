@@ -29,6 +29,17 @@
 //! (chief_manage.rs); without it every write on another
 //! Chief is `chief_manage_denied`.
 //!
+//! `chief.profile.history` lists a Chief's kept revisions (every committed
+//! state, with who made it); `chief.profile.undo` makes the record equal to
+//! one of them again as a new revision, through the same rules as
+//! `chief.profile.update` with the fields that differ (capability
+//! `chief-profile-history-v1`). A record the person `locked` refuses every
+//! Chief's write (`chief_locked`); only the person sets `locked`, which is a
+//! gesture field for the page. A Chief's `engine` self_edit item covers its
+//! `harness`, `model` and `effort`, with the harness one of its own
+//! `harnesses`. A committed change of a record's engine is written into that
+//! Chief's brain engine file (chief_engine_mirror.rs).
+//!
 //! `chief.profile.avatar.set` / `.get` are thin aliases of
 //! `participant.avatar.*` for a Chief (participant_avatars.rs): the same
 //! store, the same rules, the result shapes of before. The picture's type
@@ -62,6 +73,8 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::ChiefProfileDelete
             | Op::ChiefProfileAvatarSet
             | Op::ChiefProfileAvatarGet
+            | Op::ChiefProfileHistory
+            | Op::ChiefProfileUndo
     )
 }
 
@@ -86,6 +99,13 @@ pub const CHIEF_EVENTS_CAPABILITY: &str = "chief-events-v1";
 /// `chief.profile.adopt`: the owner makes an existing agent participant a
 /// Chief record under its own id.
 pub const CHIEF_PROFILE_ADOPT_CAPABILITY: &str = "chief-profile-adopt-v1";
+
+/// `chief.profile.history`, `chief.profile.undo`, the record's `locked` and
+/// the `engine` self_edit item (u2586).
+pub const CHIEF_PROFILE_HISTORY_CAPABILITY: &str = "chief-profile-history-v1";
+
+/// Revisions `chief.profile.history` answers when the caller names no limit.
+const HISTORY_DEFAULT_LIMIT: i64 = 20;
 
 pub(super) fn handle(
     mux: &Arc<Mux>,
@@ -165,6 +185,21 @@ fn answer_locked(
                     Some(record) => Ok(chief_registry::wire(&record)),
                     None => Err(refused(operation, &Refusal::NotFound)),
                 }
+            }
+            Op::ChiefProfileHistory => {
+                let chief = chief_field(fields);
+                if store.get(chief).map_err(|e| internal(operation, &e))?.is_none() {
+                    return Err(refused(operation, &Refusal::NotFound));
+                }
+                let limit =
+                    fields.get("limit").and_then(Value::as_i64).unwrap_or(HISTORY_DEFAULT_LIMIT);
+                let revisions: Vec<Value> = store
+                    .history(chief, limit)
+                    .map_err(|e| internal(operation, &e))?
+                    .iter()
+                    .map(chief_registry::Revision::wire)
+                    .collect();
+                Ok(json!({"chief": chief, "revisions": revisions}))
             }
             Op::ChiefProfileAvatarGet => {
                 let chief = chief_field(fields);
@@ -292,7 +327,13 @@ fn mutate(
         .filter(|(k, _)| {
             !matches!(
                 k.as_str(),
-                "chief" | "expected_rev" | "media_type" | "data" | "clear" | "participant_id"
+                "chief"
+                    | "expected_rev"
+                    | "media_type"
+                    | "data"
+                    | "clear"
+                    | "participant_id"
+                    | "to_rev"
             )
         })
         .map(|(k, v)| (k.clone(), v.clone()))
@@ -302,46 +343,63 @@ fn mutate(
     }
     let chief = chief_field(fields).to_owned();
     let expected_rev = fields.get("expected_rev").and_then(Value::as_u64);
-    let avatar = match operation {
+    // The record before an edit: an edit that changes nothing keeps the rev
+    // (no chief-changed for it); only a changed name retitles (cx-di8pd);
+    // only a changed picture publishes; only a changed engine is mirrored.
+    let before = match operation {
+        Op::ChiefProfileUpdate | Op::ChiefProfileAvatarSet | Op::ChiefProfileUndo => {
+            store.get(&chief).map_err(|e| internal(operation, &e))?
+        }
+        _ => None,
+    };
+    let mut avatar = match operation {
         Op::ChiefProfileAvatarSet => Some(avatar_change(operation, fields)?),
         _ => None,
     };
-    // An edit that changes nothing keeps the rev: no chief-changed for it.
-    // The name before an update: only a changed name retitles (cx-di8pd).
-    let (rev_before, name_before) = match operation {
-        Op::ChiefProfileUpdate | Op::ChiefProfileAvatarSet => store
-            .get(chief_field(fields))
-            .map_err(|e| internal(operation, &e))?
-            .map_or((None, None), |record| (Some(record.rev), Some(record.display_name))),
-        _ => (None, None),
-    };
-    let picture_before = match operation {
-        Op::ChiefProfileAvatarSet => store
-            .get(chief_field(fields))
-            .map_err(|e| internal(operation, &e))?
-            .and_then(|record| record.avatar)
-            .map(|avatar| avatar.sha256),
-        _ => None,
-    };
+    // An undo is an update to a kept revision's fields: the same checks.
+    if operation == Op::ChiefProfileUndo {
+        let Some(current) = before.as_ref() else {
+            return Err(refused(operation, &Refusal::NotFound));
+        };
+        let (fields_back, picture_back) = undo_fields(store, operation, current, fields)?;
+        profile = fields_back;
+        avatar = picture_back;
+    }
+    let check_operation =
+        if operation == Op::ChiefProfileUndo { Op::ChiefProfileUpdate } else { operation };
+    // The rule checks see a picture change as the field `avatar`.
+    let mut checked = profile.clone();
+    if operation == Op::ChiefProfileUndo && avatar.is_some() {
+        checked.insert("avatar".into(), Value::Bool(true));
+    }
     // A Chief on itself keeps the person's self_edit rule; on another Chief
     // or a create, its `chiefs` grant and ceiling (chief_manage.rs).
     let manages = match caller {
         Caller::Chief(me)
-            if matches!(operation, Op::ChiefProfileUpdate | Op::ChiefProfileAvatarSet)
+            if matches!(check_operation, Op::ChiefProfileUpdate | Op::ChiefProfileAvatarSet)
                 && chief == *me =>
         {
-            self_edit_allowed(store, operation, me, &chief, &profile)?;
+            self_edit_allowed(store, check_operation, me, &chief, &checked)?;
             false
         }
         Caller::Chief(me) => {
-            super::chief_manage::check(store, operation, me, &chief, &mut profile)?;
+            super::chief_manage::check(store, check_operation, me, &chief, &mut checked)?;
+            // A create's grant defaults filled from the caller are written.
+            if operation == Op::ChiefProfileCreate {
+                profile = checked.clone();
+            }
             true
         }
         _ => false,
     };
+    let rev_before = before.as_ref().map(|record| record.rev);
+    let name_before = before.as_ref().map(|record| record.display_name.clone());
+    let picture_before =
+        before.as_ref().and_then(|record| record.avatar.as_ref()).map(|a| a.sha256.clone());
+    let engine_before = before.as_ref().map(|record| record.engine.clone());
     if *caller == Caller::Page
         && (matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileDelete)
-            || chief_registry::names_gesture_field(&profile))
+            || chief_registry::names_gesture_field(&checked))
     {
         return Err(crate::request_origin::forbidden(
             "creating or deleting a Chief, or changing its instructions, personality, tools, harnesses, engine or self-edit rights, needs the person's gesture in the cmux app",
@@ -376,13 +434,16 @@ fn mutate(
             Op::ChiefProfileAvatarSet => {
                 chief_registry::update(tx, &chief, expected_rev, &Map::new(), avatar)
             }
+            Op::ChiefProfileUndo => {
+                chief_registry::update(tx, &chief, expected_rev, &profile, avatar)
+            }
             _ => chief_registry::delete(tx, &chief, expected_rev),
         })
         .map_err(|e| internal(operation, &e))?;
     match outcome {
         Ok((record, replayed)) => {
             if !replayed
-                && operation == Op::ChiefProfileAvatarSet
+                && matches!(operation, Op::ChiefProfileAvatarSet | Op::ChiefProfileUndo)
                 && picture_before.as_deref() != record.avatar.as_ref().map(|a| a.sha256.as_str())
             {
                 super::participant_avatars::publish(mux, &record.id, record.avatar.as_ref());
@@ -397,7 +458,7 @@ fn mutate(
                     chief: record.id.clone(),
                     change,
                 })));
-                if operation == Op::ChiefProfileUpdate
+                if matches!(operation, Op::ChiefProfileUpdate | Op::ChiefProfileUndo)
                     && name_before.as_deref() != Some(record.display_name.as_str())
                 {
                     PENDING_RETITLE.with(|slot| {
@@ -405,6 +466,14 @@ fn mutate(
                             Some((record.id.clone(), record.display_name.clone(), record.rev));
                     });
                 }
+            }
+            let created = matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileAdopt);
+            let engine_changed = match &engine_before {
+                Some(engine) => *engine != record.engine,
+                None => created && record.engine != chief_registry::Engine::default(),
+            };
+            if !replayed && operation != Op::ChiefProfileDelete && engine_changed {
+                super::chief_engine_mirror::mirror(&record);
             }
             if !replayed
                 && let Some(pending) = mux.chiefs().brains.chief_written(
@@ -473,17 +542,85 @@ fn self_edit_allowed(
         .get(me)
         .map_err(|e| internal(operation, &e))?
         .ok_or_else(|| refused(operation, &Refusal::NotFound))?;
+    if record.locked {
+        return Err(ResourceError::operation_failed(
+            operation.wire_name(),
+            "chief_locked",
+            json!({"message": "the person locked this Chief; only they change it", "fields": []}),
+        ));
+    }
     let wanted: Vec<String> = match operation {
         Op::ChiefProfileAvatarSet => vec!["avatar".to_owned()],
         _ => profile.keys().cloned().collect(),
     };
-    let denied: Vec<String> =
-        wanted.into_iter().filter(|field| !record.self_edit.contains(field)).collect();
-    if denied.is_empty() {
-        Ok(())
-    } else {
-        deny(denied, "the person has not allowed this Chief to change these fields; ask them")
+    let denied: Vec<String> = wanted
+        .into_iter()
+        .filter(|field| {
+            !record.self_edit.iter().any(|item| item == chief_registry::self_edit_item(field))
+        })
+        .collect();
+    if !denied.is_empty() {
+        return deny(
+            denied,
+            "the person has not allowed this Chief to change these fields; ask them",
+        );
     }
+    // Its own engine: a harness among its own (an empty list is every one).
+    if let Some(harness) = profile.get("harness").and_then(Value::as_str)
+        && !harness.is_empty()
+        && harness != "default"
+        && !record.harnesses.is_empty()
+        && !record.harnesses.iter().any(|h| h == harness)
+    {
+        return deny(
+            vec!["harness".to_owned()],
+            "that harness is not one this Chief may use; the person grants harnesses",
+        );
+    }
+    Ok(())
+}
+
+/// `chief.profile.undo`'s fields: those that make `current` equal to kept
+/// revision `to_rev` (default: the one before the current), and the picture
+/// change when the pictures differ.
+fn undo_fields(
+    store: &ChiefStore,
+    operation: Op,
+    current: &chief_registry::ChiefRecord,
+    fields: &Map<String, Value>,
+) -> Result<(Map<String, Value>, Option<AvatarChange>), ResourceError> {
+    let revisions = store
+        .history(&current.id, chief_registry::HISTORY_PER_CHIEF)
+        .map_err(|e| internal(operation, &e))?;
+    let target = match fields.get("to_rev") {
+        Some(rev) => {
+            let rev = rev.as_u64().ok_or_else(|| {
+                ResourceError::validation_invalid(Some("to_rev"), "to_rev must be a revision")
+            })?;
+            revisions.iter().find(|r| r.rev == rev)
+        }
+        None => revisions.iter().find(|r| r.rev < current.rev),
+    };
+    let Some(target) = target else {
+        return Err(refused(operation, &Refusal::NoRevision));
+    };
+    let restored = chief_registry::fields_to_restore(current, &target.record);
+    let then = target.record.avatar.as_ref();
+    let picture = if current.avatar.as_ref().map(|a| &a.sha256) == then.map(|a| &a.sha256) {
+        None
+    } else {
+        match then {
+            None => Some(AvatarChange::Clear),
+            Some(avatar) => {
+                let bytes = store
+                    .avatar_bytes(&avatar.sha256)
+                    .map_err(|e| internal(operation, &e))?
+                    .ok_or_else(|| refused(operation, &Refusal::NoRevision))?;
+                Some(AvatarChange::Set { media_type: avatar.media_type.clone(), bytes })
+            }
+        }
+    };
+    Ok((restored, picture))
 }
 
 /// The avatar change of a request: `data` (base64; the type comes from the
@@ -620,6 +757,55 @@ fn own_conversation(
                     && c.participants.iter().all(|p| p.id == chief || person(p)))
         })
         .min_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)))
+}
+
+/// `chief.engine.set` on a Chief's brain committed `choice` (its engine.json):
+/// the record takes the same harness, model and effort, so the record stays
+/// the backend's one source (the brain already has the file, so nothing is
+/// mirrored back). The person's write (actor `user_local via chief.engine.set`),
+/// kept in the history. Best effort: a failure is logged.
+pub(super) fn record_brain_engine(mux: &Mux, chief: &str, choice: &Value) {
+    let text = |key: &str| choice.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+    let mut fields = Map::new();
+    for key in ["harness", "model", "effort"] {
+        fields.insert(key.into(), json!(text(key)));
+    }
+    if chief_registry::validate_fields(&fields).is_some() {
+        return;
+    }
+    let operation = Op::ChiefProfileUpdate;
+    let outcome = with_store(mux, operation, |store| {
+        let Some(before) = store.get(chief).map_err(|e| internal(operation, &e))? else {
+            return Ok(None);
+        };
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let key = format!("chief-engine-set-{chief}-{nanos}");
+        let body =
+            json!({"operation": "chief.engine.set", "fields": Value::Object(fields.clone())});
+        let actor = format!("{LOCAL_USER} via chief.engine.set");
+        let written = store
+            .mutate(&actor, &key, operation.wire_name(), &body, |tx| {
+                chief_registry::update(tx, chief, None, &fields, None)
+            })
+            .map_err(|e| internal(operation, &e))?;
+        Ok(match written {
+            Ok((record, _)) if record.rev != before.rev => Some(record),
+            _ => None,
+        })
+    });
+    match outcome {
+        Ok(Some(record)) => {
+            mux.emit(MuxEvent::Conversation(Arc::new(ConversationEvent::Chief {
+                chief: record.id.clone(),
+                change: "updated",
+            })));
+            mux.chiefs().brains.chief_written(&record, false, false);
+        }
+        Ok(None) => {}
+        Err(error) => eprintln!("cmux-tui: Chief {chief} engine into its record: {error:?}"),
+    }
 }
 
 /// Every Chief's current name by participant id, for the Home rows

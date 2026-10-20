@@ -49,6 +49,9 @@ struct AppEnvironment: Sendable {
     /// only the real app process sets it; without it nothing is read or
     /// written (tests that build `AppServices`).
     var sidebarSnapshotFile: SidebarSnapshotFile?
+    /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
+    /// it; without it templates live in memory only (tests that build `AppServices`).
+    var layoutTemplatesFile: URL?
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).

@@ -25,6 +25,9 @@ import Testing
         var observeError: DaemonError?
         /// The owner answers busy for this family (its key's original request still runs).
         var busy: Set<AgentCLIFamily> = []
+        /// The owner answers this family's key with a settled failure (`failCode`), the same on every replay.
+        var fail: Set<AgentCLIFamily> = []
+        var failCode = "operation.failed"
         var claudeChannel = "native"
         /// A reconnect advances the epoch; routes captured before it retire.
         var epoch = 0
@@ -57,6 +60,10 @@ import Testing
                                               code: "agent_cli_job.busy")
                 }
                 if self.loseReply { throw DaemonError.notConnected }
+                if self.fail.contains(cli) {
+                    throw DaemonError.command(cmd: "agent-cli-update-job", message: "agent update installation changed after preparation",
+                                              code: self.failCode)
+                }
                 return try self.receipt(cli)
             }, observe: { receipt in
                 self.observations += 1
@@ -363,5 +370,63 @@ import Testing
         #expect(owner.starts.count == replays + 1)
         #expect(owner.starts.last?.1 == owner.starts.first?.1)
         #expect(updates.state.arrayValue?.first?["terminal"]?.stringValue != nil)
+    }
+
+    /// The owner journals a failed creation under its key and answers every replay of that
+    /// key with the same failure, so such an answer settles the job: it neither stays
+    /// unknown nor blocks the CLI, and refresh does not replay it.
+    @Test(arguments: ["operation.failed", "mutation.indeterminate"])
+    func aStartTheOwnerAnswersWithASettledFailureLeavesNoBlockingJob(code: String) async throws {
+        let (owner, updates, registry) = make()
+        owner.fail = [.codex]
+        owner.failCode = code
+        do {
+            _ = try await updates.runSettings(id: "work-profile", context: page("failed-start"), registry: registry)
+            Issue.record("a failed start reported success")
+        } catch let error as PageError { #expect(error.message.contains("codex")) }
+        #expect(updates.state.arrayValue?.isEmpty == true)
+        await updates.refresh()
+        #expect(owner.starts.count == 1)
+        owner.fail = []
+        _ = try await updates.runSettings(id: "work-profile", context: page("after-failed-start"), registry: registry)
+        #expect(owner.starts.count == 2 && owner.starts.last?.1 == "after-failed-start")
+    }
+
+    @Test func aReplayedStartTheOwnerAnswersWithASettledFailureClearsTheLostJob() async throws {
+        let (owner, updates, registry) = make()
+        owner.loseReply = true
+        do { _ = try await updates.runSettings(id: "work-profile", context: page("lost-then-failed"), registry: registry) } catch {}
+        #expect(updates.state.arrayValue?.first?["state"] == "unknown")
+        owner.loseReply = false
+        owner.fail = [.codex]
+        await updates.refresh()
+        #expect(updates.state.arrayValue?.isEmpty == true)
+        let replays = owner.starts.count
+        await updates.refresh()
+        #expect(owner.starts.count == replays)
+        owner.fail = []
+        _ = try await updates.runSettings(id: "work-profile", context: page("after-failed-replay"), registry: registry)
+        #expect(owner.starts.last?.1 == "after-failed-replay")
+    }
+
+    /// A job that already ended never blocks the next update of its CLI, even when
+    /// nothing (such as Settings > Agents) refreshed in between.
+    @Test func aNewStartObservesAnEndedJobInsteadOfWaitingForARefresh() async throws {
+        let (owner, updates, registry) = make()
+        _ = try await updates.runSettings(id: "work-profile", context: page("first-palette-run"), registry: registry)
+        #expect(updates.state.arrayValue?.first?["state"] == "created")
+        owner.outcome = "exited"
+        _ = try await updates.runSettings(id: "work-profile", context: page("second-palette-run"), registry: registry)
+        #expect(owner.starts.count == 2 && owner.starts.last?.1 == "second-palette-run")
+        #expect(updates.state.arrayValue?.contains { $0["state"] == "exited" && $0["exit_code"] == 23 } == true)
+    }
+
+    @Test func aNewStartStillRefusesWhileTheEarlierJobRuns() async throws {
+        let (owner, updates, registry) = make()
+        _ = try await updates.runSettings(id: "work-profile", context: page("running"), registry: registry)
+        await #expect(throws: (any Error).self) {
+            _ = try await updates.runSettings(id: "work-profile", context: page("while-running"), registry: registry)
+        }
+        #expect(owner.starts.count == 1 && owner.observations == 1)
     }
 }
