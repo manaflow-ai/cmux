@@ -20,6 +20,8 @@ public final class TabStripModel {
     /// Groups of this strip. Members reference them through `TabItem.groupID`.
     public var groups: [TabGroupItem]
     public var selectedID: TabID?
+    public var multiSelection = TabMultiSelection()
+    public var allowsMultiSelection: Bool
     public var style: TabStripStyle
     public var showsNewTabButton: Bool
 
@@ -36,7 +38,8 @@ public final class TabStripModel {
         groups: [TabGroupItem] = [],
         selectedID: TabID? = nil,
         style: TabStripStyle = .chrome,
-        showsNewTabButton: Bool = true
+        showsNewTabButton: Bool = true,
+        allowsMultiSelection: Bool = true
     ) {
         self.stripID = stripID
         self.tabs = tabs
@@ -44,6 +47,7 @@ public final class TabStripModel {
         self.selectedID = selectedID
         self.style = style
         self.showsNewTabButton = showsNewTabButton
+        self.allowsMultiSelection = allowsMultiSelection
     }
 
     /// Display order: pinned tabs first, then unpinned tabs in `tabs` order

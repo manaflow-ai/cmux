@@ -148,6 +148,7 @@ public final class TabStripView: NSView {
     /// Tab torn out of this strip and handed to the App's drag session. Its
     /// slot stays collapsed until the model drops it or the App restores it.
     var detachedID: TabID?
+    var dragCompanions: Set<TabID> = []
     /// Display index of the phantom gap shown for an external drag.
     var dropPlaceholderIndex: Int?
     /// Pointer of the external drag, in view coordinates, for edge autoscroll.

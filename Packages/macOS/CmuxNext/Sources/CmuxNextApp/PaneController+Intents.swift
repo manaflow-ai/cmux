@@ -24,6 +24,7 @@ extension PaneController {
             CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id))
         case .reorder(let id, _, let to):
             StripOrder.reorder(id, to: to, in: self)
+        case .reorderTabs: break
         case .newTab(_, let opensWorkspace, let sameKind):
             StripNewTab.request(pane: paneKey, opensWorkspace: opensWorkspace, sameKind: sameKind) {
                 _ = services.registry.perform($0, invocation: $1)

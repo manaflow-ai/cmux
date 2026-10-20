@@ -20,6 +20,7 @@ final class TabCell {
             stateChanged(animated: false)
         }
     }
+    var isMultiSelected = false
     var isHovered = false { didSet { if oldValue != isHovered { stateChanged() } } }
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true, showing: isCloseHovered) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
