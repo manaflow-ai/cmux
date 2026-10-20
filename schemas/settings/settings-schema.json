@@ -357,6 +357,7 @@
               "workspaces.newPlacement",
               "sidebar.groupByComputer",
               "workspaces.autoName",
+              "sidebar.cloudGroup",
               "appearance.sidebarSurface",
               "sidebar.border",
               "sidebar.borderWidth",
@@ -5175,6 +5176,57 @@
       "title" : {
         "key" : "settings.workspaces.autoName",
         "text" : "Name Workspaces from Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.cloudGroup.help",
+        "text" : "A new Cloud workspace goes into the sidebar's Cloud group, unless you picked a group for it. A workspace you move out stays where you put it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.cloudGroup",
+      "keywords" : [
+        "sidebar",
+        "cloud",
+        "group",
+        "vm",
+        "machine",
+        "remote",
+        "workspace",
+        "new"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "cloudGroup"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.cloudGroup",
+        "text" : "Put Cloud Workspaces in a Cloud Group"
       },
       "validation" : "portable"
     },
