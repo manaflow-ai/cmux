@@ -212,7 +212,6 @@
         "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
         "CmuxNextResources",
-        "CmuxNextScreenshots",
         "CmuxNextServer",
         "CmuxNextServerHelper",
         "CmuxNextSettings",
@@ -267,7 +266,6 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDiff",
-        "CmuxNextFileGrid",
         "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -279,7 +277,6 @@
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteLocalhostService",
-        "CmuxNextScreenshots",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
@@ -653,12 +650,6 @@
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
-      "packages": []
-    },
-    "CmuxNextFileGrid": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid",
-      "targets": [],
       "packages": []
     },
     "CmuxNextFiles": {
@@ -1044,24 +1035,6 @@
         "CmuxNextWakeups"
       ],
       "packages": []
-    },
-    "CmuxNextScreenshots": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
-      "targets": [
-        "CmuxNextFileGrid"
-      ],
-      "packages": []
-    },
-    "CmuxNextScreenshotsTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests",
-      "targets": [
-        "CmuxNextFileGrid",
-        "CmuxNextScreenshots"
-      ],
-      "packages": [],
-      "reads": []
     },
     "CmuxNextServer": {
       "kind": "regular",
