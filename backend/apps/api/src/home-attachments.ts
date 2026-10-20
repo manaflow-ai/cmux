@@ -41,7 +41,7 @@ const L = homeConversation.ATTACHMENT_LIMITS
 const NO_STORE = { "cache-control": "private, no-store" }
 const EXTENSIONS: Readonly<Record<string, string>> = {
   "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp", "image/heic": "heic", "application/pdf": "pdf",
-  "text/plain": "txt", "text/markdown": "md", "text/csv": "csv", "application/json": "json", "application/zip": "zip",
+  "text/plain": "txt", "text/markdown": "md", "text/csv": "csv", "application/json": "json", "application/zip": "zip", "application/octet-stream": "bin",
   "video/mp4": "mp4", "video/quicktime": "mov", "audio/mp4": "m4a", "audio/mpeg": "mp3", "audio/aac": "aac", "audio/wav": "wav"
 }
 
