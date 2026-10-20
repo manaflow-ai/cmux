@@ -11,11 +11,12 @@ nonisolated enum TabSettingsSchema {
             help: SettingsText.keyed("settings.tabs.newTabPosition.help",
                                     "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
             kind: .choice([
-                SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
                 SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
+                SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
+                SettingChoice(NewTabPosition.start.rawValue, SettingsText.keyed("settings.choice.newTabPositionStart", "At the Start")),
             ]),
             default: .string(NewTabPosition.fallback.rawValue),
-            keywords: ["new tab", "cmd-t", "position", "order", "right", "end", "after", "insert"]
+            keywords: ["new tab", "cmd-t", "position", "order", "right", "end", "after", "start", "first", "beginning", "insert"]
         )
     }
 
@@ -27,6 +28,7 @@ nonisolated enum TabSettingsSchema {
             help: SettingsText.keyed("settings.tabs.newTabTemplate.help",
                                      "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."),
             kind: .choice([
+                SettingChoice(NewTabTemplate.cards.rawValue, SettingsText.keyed("settings.choice.newTabTemplateCards", "Cards")),
                 SettingChoice(NewTabTemplate.default.rawValue, SettingsText.keyed("settings.choice.newTabTemplateDefault", "Default")),
                 SettingChoice(NewTabTemplate.composer.rawValue, SettingsText.keyed("settings.choice.newTabTemplateComposer", "Composer")),
                 SettingChoice(NewTabTemplate.threads.rawValue, SettingsText.keyed("settings.choice.newTabTemplateThreads", "Threads")),
@@ -35,7 +37,7 @@ nonisolated enum TabSettingsSchema {
                 SettingChoice(NewTabTemplate.terminal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateTerminal", "Terminal")),
             ]),
             default: .string(NewTabTemplate.fallback.rawValue),
-            keywords: ["new tab", "template", "layout", "page", "terminal", "classic", "composer", "threads", "console"]
+            keywords: ["new tab", "template", "layout", "page", "terminal", "classic", "composer", "threads", "console", "cards", "search", "ask"]
         )
     }
 

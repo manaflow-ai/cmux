@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
-from cmux_next_push_attribution import MAX_COMMENTED_PRS, failed_jobs, last_green, should_comment  # noqa: E402
+from cmux_next_push_attribution import MAX_COMMENTED_PRS, failed_jobs, last_green, never_passed, should_comment  # noqa: E402
 from cmux_next_route import outputs, route  # noqa: E402
 
 PACKAGE = "Packages/macOS/CmuxNext"
@@ -288,6 +288,14 @@ class PushAttribution(unittest.TestCase):
 
     def test_no_pass_means_no_range(self):
         self.assertIsNone(last_green(["cmux-next swift test"], [("c1", {"cmux-next swift test": "failure"})]))
+
+    def test_a_job_that_never_passed_does_not_hide_the_others_range(self):
+        """The checks job ran on pushes from 10-19, red on the base; swift test's culprits still count."""
+        earlier = [("c1", {"cmux-next swift test": "success", "cmux-next checks": "failure"})]
+        failed = ["cmux-next checks", "cmux-next swift test"]
+        self.assertEqual(never_passed(failed, earlier), ["cmux-next checks"])
+        attributable = [name for name in failed if name not in never_passed(failed, earlier)]
+        self.assertEqual(last_green(attributable, earlier), "c1")
 
     def test_a_long_red_range_comments_on_nobody(self):
         """The first push on ae20394 would have named 22 PRs for one known crash."""

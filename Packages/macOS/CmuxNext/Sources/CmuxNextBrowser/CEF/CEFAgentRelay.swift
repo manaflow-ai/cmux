@@ -24,7 +24,12 @@ public final class CEFAgentRelay {
     /// bridge takes its own, and the browser's events stay on while it
     /// listens, relay or not.
     private lazy var media = tab.map { CEFMediaBridge(tab: $0) }
+    /// The email verification detector's binding reports (`CEFVerificationBridge`), on the same events.
+    private lazy var verification = tab.map { CEFVerificationBridge(tab: $0) }
     var mediaListens = false { didSet { updateWatch() } }
+    /// Design mode's binding posts (`CEFDesignModeBridge`), on the same events once the user turned it on.
+    private lazy var designMode = tab.map { CEFDesignModeBridge(tab: $0) }
+    var designModeListens = false { didSet { updateWatch() } }
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -40,7 +45,7 @@ public final class CEFAgentRelay {
     }
 
     private func updateWatch() {
-        if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, sink != nil || mediaListens ? 1 : 0) }
+        if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, sink != nil || mediaListens || designModeListens ? 1 : 0) }
     }
 
     /// Sends one raw DevTools message; its "id" must be a raw id (>= 2^30).
@@ -95,13 +100,24 @@ public final class CEFAgentRelay {
 
     func deliver(_ json: String) {
         if media?.handle(json) == true { return }
+        if verification?.handle(json) == true { return }
+        if designMode?.handle(json) == true { return }
         sink?(json)
+    }
+
+    /// Readies the page to post design mode messages (``CEFDesignModeBridge/prepare()``).
+    func prepareDesignMode() async throws {
+        guard let designMode else { throw BrowserTabError.closed }
+        try await designMode.prepare()
     }
 
     func browserAttached() {
         resumeWaiters(true)
-        if let browser = tab?.browserID { media?.attach(browser) }
-        if sink != nil || mediaListens { updateWatch() }
+        if let browser = tab?.browserID {
+            media?.attach(browser)
+            verification?.attach(browser)
+        }
+        if sink != nil || mediaListens || designModeListens { updateWatch() }
     }
 
     func resumeWaiters(_ created: Bool) {

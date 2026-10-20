@@ -36,6 +36,8 @@ public final class LayoutRootView: NSView {
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
+    /// What scroll-to-focus reads besides the model (`LayoutRootView+ScrollFocus`).
+    let scrollFocusSignals: ScrollFocusSignals
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -52,6 +54,11 @@ public final class LayoutRootView: NSView {
     /// When the edge under a held pointer arms (a new split); nil when none is pending. The
     /// drag session hit-tests again then, so a still pointer sees the split preview.
     public internal(set) var tabDragDwellDeadline: CFTimeInterval?
+    /// A URL dragged in from another app or a web page over a drop zone no pane content took
+    /// (`perform` false: may it drop on `target`, for the preview; true: open it there). Nil: the
+    /// layout takes no link drops. Links dragged out of a Home chat track the mouse themselves and
+    /// use ``updateTabDrag(_:locationInWindow:removing:edgeDwell:)`` instead.
+    public var linkDropHandler: ((_ url: URL, _ target: DropTarget, _ perform: Bool) -> Bool)?
     /// Overlay sync observers by id (`observeOverlaySync`).
     var overlaySyncObservers: [Int: () -> Void] = [:]
     var nextOverlaySyncObserver = 0
@@ -59,6 +66,14 @@ public final class LayoutRootView: NSView {
     /// syncs it once, before this turn's frame (`setNeedsOverlaySync`).
     var overlayIsStale = false
     var overlayFlushScheduled = false
+
+    /// A pane close is springing on some screen: the panes around it change size every frame, and
+    /// their terminals keep their grids (the PTY resizes once, at rest) until it lands
+    /// (plans/cmux-next/close-animation/DESIGN.md). Called with true when the first close starts
+    /// and false when the last one lands; the App holds `ResizeCoordinator` with it.
+    public var onTerminalGridHold: ((Bool) -> Void)?
+    /// Whether a pane close holds the terminals' grids now (``onTerminalGridHold``).
+    public var holdsTerminalGrids: Bool { !context.closingScreens.isEmpty }
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
@@ -74,14 +89,19 @@ public final class LayoutRootView: NSView {
         var attention: [PaneID: AttentionMark]
         var scrollbar: StripScrollbarMode
         var rowOps: Bool
+        var canvases: [ScreenID: CanvasScreen]
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
     /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
     /// tests inject a manual clock.
+    /// `scrollFocusSignals` feeds scroll-to-focus (`layout.focusPaneOnScroll`);
+    /// tests inject fixed values.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
-                scrollbarClock: any Clock<Duration> = ContinuousClock()) {
+                scrollbarClock: any Clock<Duration> = ContinuousClock(),
+                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals()) {
         self.model = model
+        self.scrollFocusSignals = scrollFocusSignals
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
         super.init(frame: .zero)
         wantsLayer = true
@@ -89,6 +109,7 @@ public final class LayoutRootView: NSView {
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
+        context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
         context.stripClipsDidChange = { [weak self] in
             guard let self else { return }
             planeHost?.paneShapesDidChange(overlayPlane)
@@ -96,7 +117,7 @@ public final class LayoutRootView: NSView {
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
-        registerForDraggedTypes([LayoutTabDrag.pasteboardType])
+        registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
         sync(snapshot())
         observe()
         #if DEBUG
@@ -155,7 +176,7 @@ public final class LayoutRootView: NSView {
     /// Displayed frame of `pane` in this view's coordinates (active screen only).
     public func frame(of pane: PaneID) -> CGRect? {
         guard let active = model.activeScreenID, let view = screenViews[active], let rect = view.displayedFrame(of: pane) else { return nil }
-        return rect.offsetBy(dx: view.frame.minX, dy: view.frame.minY)
+        return convert(rect, from: view)
     }
 
     // MARK: Observation
@@ -173,7 +194,8 @@ public final class LayoutRootView: NSView {
             centerMode: model.centerFocusedColumn,
             attention: model.attention,
             scrollbar: model.stripScrollbar,
-            rowOps: model.acceptsRowOps
+            rowOps: model.acceptsRowOps,
+            canvases: model.canvases
         )
     }
 
@@ -193,7 +215,8 @@ public final class LayoutRootView: NSView {
                     centerMode: model.centerFocusedColumn,
                     attention: model.attention,
                     scrollbar: model.stripScrollbar,
-                    rowOps: model.acceptsRowOps
+                    rowOps: model.acceptsRowOps,
+                    canvases: model.canvases
                 )
             }) {
                 guard let self else { return }
@@ -266,14 +289,18 @@ public final class LayoutRootView: NSView {
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
             let old = before[screen.id]
+            // A zoomed pane shows full size over its canvas (canvas-layout.md).
+            let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
             let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
-                || view.holdsRowDragPreview
+                || view.holdsRowDragPreview || canvas != (old?.zoomed == true ? nil : previous?.canvases[screen.id])
             if layoutChanged {
                 let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
                 // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
                 // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
                 let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
-                if view.update(layout: screen.layout, zoomed: screen.zoomed, animated: animated || reflows) { needsFrames = true }
+                if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas, animated: animated || reflows) {
+                    needsFrames = true
+                }
                 // The focus ring of a split's new pane appears with the pane.
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
                                   animated: chromeAnimated && !structureChanged)
@@ -325,12 +352,12 @@ public final class LayoutRootView: NSView {
     // MARK: Frames
 
     func advanceFrame(_ dt: Double) -> Bool {
-        model.flushPendingGestureIntents()
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.policy
         var moving = false
         for view in screenViews.values where !view.isHidden {
             if view.step(dt, policy: policy) { moving = true }
+            if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
         let screenSpring = policy.spring(.screen)
         for id in Array(screenFrames.keys) {
@@ -340,9 +367,9 @@ public final class LayoutRootView: NSView {
         if highlight.step(dt) { moving = true }
         updateVisibility()
         flushOverlaySync()
-        // A gesture requests frames on each pointer change (pending intents);
-        // an active gesture with a still pointer needs none.
-        return moving || model.hasPendingGestureIntents
+        // A gesture requests frames on each pointer change; an active
+        // gesture with a still pointer needs none.
+        return moving
     }
 
     func updateVisibility() {
@@ -438,6 +465,7 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
+        if !live { for view in screenViews.values { view.settleMotion() } }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
             self.planeHost = nil
@@ -450,7 +478,8 @@ public final class LayoutRootView: NSView {
                 host.adoptPlane(overlayPlane)
             }
             driver.attach(to: self)
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            if screenViews.values.contains(where: \.hasMotion) || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
                 self?.handleMonitored(event) ?? event
             }
         }

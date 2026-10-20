@@ -1,7 +1,7 @@
 // The composer footer's plain look (Debug Settings > Pages > "Agent composer: plain footer", the host's
 // `composer` event `plainFooter`, composerSettings.ts): the Claude Code desktop footer, text at rest.
-// The default model, effort and mode pills draw a resting fill (styles.css --acpmux-pill-fill);
-// the plain look takes that and the rest of the difference away:
+// Neither look draws a pill at rest (Leo 2026-10-19: the Claude app's chips). The plain look takes
+// the rest of the difference away:
 //   - the model's name is muted like effort and the permission mode;
 //   - the model's brand mark and the mode's lock are hidden (each comes back when the row's fit
 //     steps take the model's name or the mode's label away, so no chip is a bare chevron).
@@ -11,7 +11,7 @@
 // but the row's controls never overlap.
 //
 // It renders the real composer (the gallery's `agent-pane.composer-row` entry, `claude-auto`: Claude
-// Opus 5.5, Medium, Auto) in Chromium at three pane widths, light and dark, and turns the look on
+// Opus 5.5, Medium, Auto) in Chromium at three pane widths, light and dark, and turns the look off and on
 // through the host's own entry point (window.cmuxAcpmuxComposer, the old host's `composer` script).
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -43,9 +43,6 @@ type Row = {
   modelLabel: boolean;
   accessLabel: boolean;
   look: string;
-  /** The default pills' resting fill, resolved in the bar (styles.css: the model, effort and mode
-   *  pills' `background`). */
-  restingFill: string;
   content: { left: number; right: number };
   chips: Chip[];
   boxes: Chip[];
@@ -54,7 +51,11 @@ type Row = {
 await requireBrowserLane("composer-footer-plain.test.ts", async () => {
   /** Runs in the page: the footer's chips and every control's box. */
   function measure(): Row {
-    const bar = document.querySelector<HTMLElement>(".acpmux-composer-bar")!;
+    // The plain look moves the chips to the quiet row under the box (ComposerFoot.tsx); the other
+    // look keeps them in the box's row.
+    const bar =
+      document.querySelector<HTMLElement>(".acpmux-composer-foot") ??
+      document.querySelector<HTMLElement>(".acpmux-composer-bar")!;
     const shown = (element: Element) => {
       for (let node: Element | null = element; node && node !== bar; node = node.parentElement) {
         const css = getComputedStyle(node);
@@ -92,12 +93,6 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
         },
       ];
     };
-    // The pills' resting fill as styles.css writes it, resolved where the chips resolve it.
-    const probe = document.createElement("span");
-    probe.style.background = "var(--acpmux-pill-fill, color-mix(in srgb, var(--agent-text) 6%, transparent))";
-    bar.append(probe);
-    const restingFill = getComputedStyle(probe).backgroundColor;
-    probe.remove();
     const style = getComputedStyle(bar);
     const barRect = bar.getBoundingClientRect();
     const chips = [
@@ -115,7 +110,6 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
       modelLabel: [...bar.querySelectorAll('.acpmux-model [data-fit-part="model"]')].some(shown),
       accessLabel: [...bar.querySelectorAll('.acpmux-access-trigger [data-fit-part="access"]')].some(shown),
       look: bar.dataset.footerLook ?? "",
-      restingFill,
       content: {
         left: barRect.left + parseFloat(style.paddingLeft),
         right: barRect.right - parseFloat(style.paddingRight),
@@ -208,10 +202,36 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
     return problems;
   };
 
+  // The fit follows the row the look draws: turned off after the composer shows (the Debug toggle
+  // flipped live), the box's own row still steps down as the pane narrows (composerRowFit.ts).
+  test("off after mount, the box's row still fits as the pane narrows", async () => {
+    const page = await open(760, "light");
+    await plain(page, false);
+    const fit = () =>
+      page.evaluate(() => {
+        const bar = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-composer-bar")!;
+        return [...bar.attributes]
+          .filter(({ name }) => name.startsWith("data-fit-"))
+          .map(({ name, value }) => `${name}=${value}`)
+          .sort()
+          .join(" ");
+      });
+    const wide = await fit();
+    await page.setViewportSize({ width: 300, height: 300 });
+    await settle(page);
+    const narrow = await fit();
+    await page.close();
+    expect(narrow).not.toBe(wide);
+  });
+
   for (const width of [760, 480, 340])
     for (const scheme of ["light", "dark"]) {
-      test(`at ${width} px (${scheme}): off, the chips draw as today`, async () => {
+      test(`at ${width} px (${scheme}): plain by default; off, the chips draw as before`, async () => {
         const page = await open(width, scheme);
+        // The plain look is the default (#22050, DEFAULT_COMPOSER.plainFooter); the host's
+        // `composer` event turns it off.
+        const initial = await page.evaluate(measure);
+        await plain(page, false);
         const row = await page.evaluate(measure);
         await page.close();
         console.log(
@@ -224,15 +244,15 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
             chips: row.chips,
           }),
         );
+        expect(initial.look).toBe("plain");
         expect(row.look).toBe("");
         const model = chip(row, "model")!;
         expect(model.leadingIcon).toBe(true);
         expect(model.nameColor).not.toBe(chip(row, "effort")!.color);
         expect(chip(row, "mode")!.leadingIcon).toBe(true);
-        // Today's pills: the resting fill styles.css gives them.
-        expect(row.restingFill).not.toBe(CLEAR);
+        // No pill at rest in the default look either: the label and chevron only.
         for (const each of row.chips) {
-          expect(each.background).toBe(row.restingFill);
+          expect({ name: each.name, background: each.background }).toEqual({ name: each.name, background: CLEAR });
           expect(each.chevron).toBe(true);
         }
         expect(overlaps(row)).toEqual([]);
@@ -240,6 +260,7 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
 
       test(`at ${width} px (${scheme}): on, plain text at rest, same labels, no overlap`, async () => {
         const page = await open(width, scheme);
+        await plain(page, false);
         const before = await page.evaluate(measure);
         await plain(page, true);
         const row = await page.evaluate(measure);
@@ -297,14 +318,29 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
           await page.mouse.move(1, 1);
           await settle(page);
         }
-        // Keyboard focus: Tab from the + button reaches the model chip.
-        await page.focus(".acpmux-composer-plus .acpmux-picker-button");
-        await page.keyboard.press("Tab");
-        await settle(page);
-        const focused = await page.evaluate(() =>
-          document.activeElement?.matches(".acpmux-model .acpmux-picker-button:focus-visible"),
-        );
-        if (!focused) problems.push("Tab from + does not give the model chip keyboard focus");
+        // Keyboard focus: Tab from the prompt walks the box's controls, then the quiet row's, and
+        // reaches the model chip.
+        await page
+          .locator(".acpmux-composer-box [contenteditable='true'], .acpmux-composer-box textarea")
+          .first()
+          .focus();
+        const path: string[] = [];
+        let focused = false;
+        for (let step = 0; step < 10 && !focused; step++) {
+          await page.keyboard.press("Tab");
+          await settle(page);
+          const at = await page.evaluate(() => {
+            const active = document.activeElement as HTMLElement | null;
+            return {
+              model: active?.matches(".acpmux-model .acpmux-picker-button:focus-visible") === true,
+              name: active ? `${active.tagName.toLowerCase()}.${[...active.classList].join(".")}` : "none",
+            };
+          });
+          path.push(at.name);
+          focused = at.model;
+        }
+        if (!focused)
+          problems.push(`Tab from the prompt never gives the model chip keyboard focus: ${path.join(" → ")}`);
         else if ((await wash("model")).background === CLEAR) problems.push("model draws no wash with keyboard focus");
         // An open menu: the permission mode's.
         await page.click(".acpmux-access-trigger");

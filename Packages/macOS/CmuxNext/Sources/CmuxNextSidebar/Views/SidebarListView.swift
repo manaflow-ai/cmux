@@ -75,6 +75,11 @@ final class SidebarListView: NSView {
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
     var openingRows: [SidebarRowKey: CFTimeInterval] = [:] // Rows still opening their slot, by start time.
+    /// Whether the pointer is over the list's visible rows now (`showModelChange` holds a change then).
+    /// Tests inject an answer; the default asks the window where its pointer is.
+    var pointerIsOverList: @MainActor (SidebarListView) -> Bool = { $0.pointerIsOverVisibleRows }
+    /// A model change held while the pointer was over the list; it shows when the pointer leaves (`releaseHeldModelChange`).
+    var holdsModelChange = false
     /// Row patches held while a drag, its settle or its card's landing runs (`SidebarRowHold`).
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
@@ -93,12 +98,16 @@ final class SidebarListView: NSView {
     /// Main-thread milliseconds of the last drag move (`SidebarMotionFrame.dragWorkMs`).
     var lastDragWorkMs: Double = 0
     var external: ExternalDrag?
-    /// The active row the last reload laid out (close-focus.md: reveal on change).
+    /// The selection the last reload or selection patch revealed (`selectionRevealKey`; close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
     /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
     internal(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
+    /// The rect a list outside a scroll view shows (a space page, `SidebarSpacePaging`): rows are
+    /// realized for it only. Nil realizes the list's bounds, every row (space-switch-fast: a page
+    /// made every row view of its space, so a switch cost grew with the space's workspaces).
+    var pageViewport: NSRect?
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
@@ -117,6 +126,11 @@ final class SidebarListView: NSView {
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// Opens a menu a row's button asked for at `anchor` (the button's frame in `view`):
+    /// under the button, on the anchor's edge. Tests inject a recorder (popUp tracks modally).
+    var menuPresenter: (NSMenu, PopupAnchor, NSView) -> Void = { menu, anchor, view in
+        _ = menu.popUp(positioning: nil, at: anchor.menuOrigin(size: menu.size, flipped: view.isFlipped), in: view)
+    }
     init(model: SidebarModel) {
         self.model = model
         super.init(frame: .zero)
@@ -229,6 +243,7 @@ final class SidebarListView: NSView {
     override func mouseMoved(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {
+        releaseHeldModelChange()
         setHovered(nil)
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }

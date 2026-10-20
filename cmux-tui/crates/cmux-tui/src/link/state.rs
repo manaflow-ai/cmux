@@ -26,6 +26,9 @@ pub(super) struct LinkConfig {
     pub install: String,
     /// The UDP port the link binds on every interface.
     pub port: u16,
+    /// An explicitly selected private server enrollment; the key stays there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_identity: Option<PathBuf>,
 }
 
 pub(super) struct LinkState {
@@ -97,7 +100,19 @@ impl LinkState {
         if !cmux_link::stamp::valid_id(&config.install) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid install id"));
         }
-        if !self.key_path().exists() {
+        if config.server_identity.is_some() {
+            let _ = enrolled(config)?;
+            if self.key_path().symlink_metadata().is_ok()
+                || (self.has_config() && {
+                    let old = self.config()?;
+                    old.server_identity != config.server_identity || old.install != config.install
+                })
+            {
+                return Err(io::Error::other("server_link.identity_conflict"));
+            }
+        } else if self.has_config() && self.config()?.server_identity.is_some() {
+            return Err(io::Error::other("server_link.identity_conflict"));
+        } else if !self.key_path().exists() {
             let mut private = Zeroizing::new([0u8; 32]);
             getrandom::fill(&mut *private).map_err(io::Error::other)?;
             let secret = x25519_dalek::StaticSecret::from(*private);
@@ -190,6 +205,10 @@ impl LinkState {
     }
 
     pub(super) fn private_key(&self) -> io::Result<Zeroizing<[u8; 32]>> {
+        let config = self.config()?;
+        if config.server_identity.is_some() {
+            return Ok(enrolled(&config)?.wireguard_key());
+        }
         let text = Zeroizing::new(std::fs::read_to_string(self.key_path())?);
         let bytes = Zeroizing::new(
             STANDARD
@@ -202,6 +221,18 @@ impl LinkState {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "key is not 32 bytes"))?;
         Ok(Zeroizing::new(key))
     }
+}
+
+fn enrolled(config: &LinkConfig) -> io::Result<cmux_server::pairing::EnrolledIdentity> {
+    let path = config
+        .server_identity
+        .as_ref()
+        .ok_or_else(|| io::Error::other("server_link.not_enrolled"))?;
+    let identity = cmux_server::pairing::EnrolledIdentity::load(path).map_err(io::Error::other)?;
+    if identity.paired().install != config.install {
+        return Err(io::Error::other("server_link.identity_conflict"));
+    }
+    Ok(identity)
 }
 
 /// The WireGuard public key of `private`.

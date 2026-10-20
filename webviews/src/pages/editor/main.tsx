@@ -9,15 +9,17 @@ import { createRoot } from "react-dom/client";
 import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../../appearance";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings, type Strings } from "../shared/i18n";
+import { contentFocus, FOCUS_CONTENT_COMMAND } from "../shared/pageFocus";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { EditorEmptyState } from "../../viewer-empty/EditorEmptyState";
 import { viewerEmptyStrings } from "../../viewer-empty/strings";
 import table from "./generated/strings.json";
 import { EditorPage, StatusStore } from "./EditorPage";
-import { EDITOR_FLUSH_OP, EDITOR_KEY_SEQUENCE_OP, EDITOR_OPEN_LINK_OP } from "./host";
+import { APP_ACTION_RUN_OP, EDITOR_FLUSH_OP, EDITOR_KEY_SEQUENCE_OP, EDITOR_OPEN_LINK_OP } from "./host";
 import { isEditorCommand } from "./keys";
 import { applyEditorLook, PREFERENCE_KEYS, resolveEditorSettings } from "./settings";
 import { EditorStore } from "./store";
+import { EditorFind } from "./editorFind";
 import { EMPTY, L } from "./strings";
 import type { MonacoView, ViewLook } from "./view";
 // styles.css @imports the shared page base and the empty-state styles, so they are inlined into the
@@ -27,7 +29,7 @@ import "./styles.css";
 declare global {
   interface Window {
     /** Tests and the debug socket (`browser eval` runs in the page world in dev only). */
-    __cmuxEditor?: { store: EditorStore; view: () => MonacoView | null };
+    __cmuxEditor?: { store: EditorStore; view: () => MonacoView | null; find: EditorFind };
   }
 }
 
@@ -83,16 +85,23 @@ function fileName(path: string): string {
 export function mountEditorPage(root: HTMLElement, client: PageClient | null = createPageClient()): EditorStore {
   const store = new EditorStore(client);
   const status = new StatusStore();
+  // Cmd-F is the shared find pill (ui/FindPill.tsx), not Monaco's find widget.
+  const find = new EditorFind();
   const strings: Strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t(L.title);
   let view: MonacoView | null = null;
   let mounting: HTMLElement | null = null;
+  // The app gives the page the keyboard (pane click, Cmd-Opt-Arrow, tab switch, relaunch): Monaco
+  // takes it, also when it mounts after the request (pane-focus-DESIGN.md P1, P2).
+  const focus = contentFocus();
   const screenReader = () => store.getState().look.screenReader;
   const editorRef = (element: HTMLDivElement | null) => {
     if (!element) {
       mounting = null;
       store.attachView(null);
+      find.attach(null);
+      focus.mount(null);
       view?.dispose();
       view = null;
       status.set(null);
@@ -126,17 +135,33 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
         onKeySequence: (pending) => {
           if (client) void client.call(EDITOR_KEY_SEQUENCE_OP, { pending }).catch(() => undefined);
         },
+        // The one bridge from web code to the native palette: the app's action, run by the host.
+        openCommandPalette: () => {
+          if (client) void client.call(APP_ACTION_RUN_OP, { action: "commandPalette" }).catch(() => undefined);
+        },
+        find: (command, text) => {
+          if (command === "find") find.show(text);
+          else if (command === "findNext") find.next();
+          else if (command === "findPrevious") find.previous();
+          else if (command === "useSelectionForFind") find.useSelection();
+          else find.hide();
+          return true;
+        },
+        onContentChange: () => find.refresh(),
       });
       view = next;
       store.attachView(next);
+      find.attach(next.findTarget());
+      focus.mount(next);
       document.documentElement.dataset.cmuxEditorBoot = "ready";
     });
   };
-  window.__cmuxEditor = { store, view: () => view };
+  window.__cmuxEditor = { store, view: () => view, find };
   if (client) {
     // Cmd-S and the find chords are the app key dispatcher's page commands; the page never reads them.
     void subscribePageStreams(client, {
       onCommand: ({ command, text }) => {
+        if (command === FOCUS_CONTENT_COMMAND) return focus.request();
         if (command === "save") return void store.save({ format: true });
         if (isEditorCommand(command)) view?.command(command, text);
       },
@@ -158,6 +183,8 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
     const state = store.getState();
     document.documentElement.dataset.cmuxEditorPhase = state.phase;
     document.documentElement.dataset.cmuxEditorStatus = state.status;
+    // The document is shown: a focus request kept while Monaco loaded it applies now (P2).
+    if (state.phase === "ready") focus.retry();
     if (state.look === applied) return;
     applied = state.look;
     const settings = resolveEditorSettings(state.look.settings);
@@ -186,7 +213,14 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
       )
     : undefined;
   createRoot(root).render(
-    <EditorPage store={store} status={status} strings={strings} editorRef={editorRef} emptyState={emptyState} />,
+    <EditorPage
+      store={store}
+      status={status}
+      find={find}
+      strings={strings}
+      editorRef={editorRef}
+      emptyState={emptyState}
+    />,
   );
   void store.start();
   return store;

@@ -633,7 +633,15 @@
               "max_length": 64
             }
           },
-          "description": "The fields the Chief may change about itself without asking, sorted: a subset of avatar, display_name, instructions, personality, role."
+          "description": "The fields the Chief may change about itself without asking, sorted: a subset of avatar, display_name, engine, instructions, personality, role. The default Chief and a new Chief get all of them."
+        },
+        "locked": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The person's lock: while true no Chief changes the record; only the person sets it."
         },
         "is_default": {
           "required": true,
@@ -678,6 +686,83 @@
             "name": "ChiefBrainStart"
           },
           "description": "Only in the answer of chief.profile.create and chief.profile.adopt (not a replay): what happened to the new Chief's brain, from the daemon's brain supervisor."
+        }
+      },
+      "extra": false
+    },
+    "ChiefRevision": {
+      "kind": "object",
+      "fields": {
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The record's rev in this state."
+        },
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "RFC 3339 UTC with milliseconds: when this state was committed."
+        },
+        "actor": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          },
+          "description": "Who made it: user_local (with via page:<page> for a page), a Chief id, <agent id> via chief for a Chief's write on another, or daemon via migration."
+        },
+        "operation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "The operation that made it (chief.profile.create, chief.profile.update, chief.profile.undo, ...)."
+        },
+        "record": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ChiefRecord"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ChiefHistory": {
+      "kind": "object",
+      "fields": {
+        "chief": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "revisions": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ChiefRevision"
+            }
+          },
+          "description": "Newest first."
         }
       },
       "extra": false
@@ -2506,7 +2591,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set). name_source (user or auto) and name_revision (decimal) carry the name provenance (workspace-name-source-v1). Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set); key is the workspace key its terminals and agent chats carry as CMUX_WORKSPACE_ID. name_source (user or auto) and name_revision (decimal) carry the name provenance (workspace-name-source-v1). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -8286,6 +8371,179 @@
             "kind": "primitive",
             "name": "decimal"
           }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceChecklist": {
+      "kind": "object",
+      "fields": {
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "workspace"
+          }
+        },
+        "items": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "WorkspaceChecklistItem"
+            },
+            "max_items": 50
+          },
+          "description": "In list order."
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceChecklistItem": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "text": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 4096
+          }
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceChecklistItemState"
+          }
+        },
+        "origin": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceChecklistItemOrigin"
+          }
+        },
+        "attachments": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "WorkspaceChecklistAttachment"
+            },
+            "max_items": 20
+          }
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "updated_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceChecklistItemState": {
+      "kind": "enum",
+      "values": [
+        "todo",
+        "in_progress",
+        "done"
+      ]
+    },
+    "WorkspaceChecklistItemOrigin": {
+      "kind": "enum",
+      "values": [
+        "user",
+        "agent"
+      ]
+    },
+    "WorkspaceChecklistAttachment": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 4096
+          },
+          "description": "Absolute path of the image file."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceChecklistAttachmentInput": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "An attachment the item keeps (att_...)."
+        },
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 4096
+          },
+          "description": "Absolute path of the image file."
+        },
+        "name": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          },
+          "description": "Defaults to the path's file name."
         }
       },
       "extra": false
@@ -16265,7 +16523,7 @@
                 "max_length": 64
               }
             },
-            "description": "Names from avatar, display_name, instructions, personality, role; owner only. A new Chief without it gets avatar."
+            "description": "Names from avatar, display_name, engine, instructions, personality, role (engine: the Chief's own harness, model and effort, the harness among its harnesses); owner only. A new Chief without it gets all of them."
           },
           "harness": {
             "required": false,
@@ -16274,7 +16532,7 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "Owner only; empty or default clears it."
+            "description": "Owner, or the Chief itself with the engine self_edit item, or another Chief with the chiefs tool when the harness is one it may use; empty or default clears it. A committed change is written into that Chief's brain engine file (optchat/engine.json), which its next turn reads."
           },
           "model": {
             "required": false,
@@ -16283,7 +16541,7 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "Owner only; empty or default clears it."
+            "description": "Owner, or the Chief itself with the engine self_edit item, or another Chief with the chiefs tool when the harness is one it may use; empty or default clears it. A committed change is written into that Chief's brain engine file (optchat/engine.json), which its next turn reads."
           },
           "effort": {
             "required": false,
@@ -16292,7 +16550,15 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "Owner only; empty or default clears it."
+            "description": "Owner, or the Chief itself with the engine self_edit item, or another Chief with the chiefs tool when the harness is one it may use; empty or default clears it. A committed change is written into that Chief's brain engine file (optchat/engine.json), which its next turn reads."
+          },
+          "locked": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The person's lock: while true no Chief (the Chief itself included) changes the record (operation.failed details.reason chief_locked). Owner only; on the page a gesture field."
           }
         },
         "extra": false
@@ -16543,7 +16809,7 @@
                 "max_length": 64
               }
             },
-            "description": "Names from avatar, display_name, instructions, personality, role; owner only. A new Chief without it gets avatar."
+            "description": "Names from avatar, display_name, engine, instructions, personality, role (engine: the Chief's own harness, model and effort, the harness among its harnesses); owner only. A new Chief without it gets all of them."
           },
           "harness": {
             "required": false,
@@ -16552,7 +16818,7 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "Owner only; empty or default clears it."
+            "description": "Owner, or the Chief itself with the engine self_edit item, or another Chief with the chiefs tool when the harness is one it may use; empty or default clears it. A committed change is written into that Chief's brain engine file (optchat/engine.json), which its next turn reads."
           },
           "model": {
             "required": false,
@@ -16561,7 +16827,7 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "Owner only; empty or default clears it."
+            "description": "Owner, or the Chief itself with the engine self_edit item, or another Chief with the chiefs tool when the harness is one it may use; empty or default clears it. A committed change is written into that Chief's brain engine file (optchat/engine.json), which its next turn reads."
           },
           "effort": {
             "required": false,
@@ -16570,7 +16836,15 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "Owner only; empty or default clears it."
+            "description": "Owner, or the Chief itself with the engine self_edit item, or another Chief with the chiefs tool when the harness is one it may use; empty or default clears it. A committed change is written into that Chief's brain engine file (optchat/engine.json), which its next turn reads."
+          },
+          "locked": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The person's lock: while true no Chief (the Chief itself included) changes the record (operation.failed details.reason chief_locked). Owner only; on the page a gesture field."
           }
         },
         "extra": false
@@ -16707,6 +16981,58 @@
         "An unknown or deleted Chief is operation.failed details.reason chief_not_found."
       ]
     },
+    "chief.profile.history": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The Chief's id: agent_mux (the default Chief) or agent_ then 26 Crockford base32 characters. It is the Chief's conversation participant id."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "At most this many revisions, 1 to 100; default 20."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ChiefHistory"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
+        "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
+        "The kept revisions of a live Chief, newest first: every committed state of its record (the newest 100), with the actor and operation that made it. An unknown or deleted Chief is operation.failed details.reason chief_not_found (a deleted Chief's revisions are dropped with it)."
+      ]
+    },
     "chief.profile.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -16737,6 +17063,78 @@
       "constraints": [
         "Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
         "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused."
+      ]
+    },
+    "chief.profile.undo": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The Chief's id: agent_mux (the default Chief) or agent_ then 26 Crockford base32 characters. It is the Chief's conversation participant id."
+          },
+          "to_rev": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "The kept revision to restore; default: the newest one before the current rev."
+          },
+          "expected_rev": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "The rev the caller read; refused with rev_mismatch when the record changed."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChiefRecord"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
+        "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
+        "An unknown or deleted Chief is operation.failed details.reason chief_not_found.",
+        "Makes the record equal to the kept revision to_rev again, as a new rev: every profile, grant and engine field and the picture that differ. locked is never undone.",
+        "It is checked as chief.profile.update with the fields that differ: a Chief undoes only what it may change (its self_edit on itself, its chiefs grant on another), a locked record refuses a Chief, and on the page it needs the person's gesture.",
+        "No such revision (or none before the current) is operation.failed details.reason no_revision.",
+        "expected_rev, when given, must be the record's rev, else operation.failed details.reason rev_mismatch with extra.rev the current one.",
+        "The idempotency key is per caller (the last 256 keys of each caller are kept): the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict."
       ]
     },
     "chief.profile.update": {
@@ -16842,7 +17240,7 @@
                 "max_length": 64
               }
             },
-            "description": "Names from avatar, display_name, instructions, personality, role; owner only. A new Chief without it gets avatar."
+            "description": "Names from avatar, display_name, engine, instructions, personality, role (engine: the Chief's own harness, model and effort, the harness among its harnesses); owner only. A new Chief without it gets all of them."
           },
           "harness": {
             "required": false,
@@ -16851,7 +17249,7 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "Owner only; empty or default clears it."
+            "description": "Owner, or the Chief itself with the engine self_edit item, or another Chief with the chiefs tool when the harness is one it may use; empty or default clears it. A committed change is written into that Chief's brain engine file (optchat/engine.json), which its next turn reads."
           },
           "model": {
             "required": false,
@@ -16860,7 +17258,7 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "Owner only; empty or default clears it."
+            "description": "Owner, or the Chief itself with the engine self_edit item, or another Chief with the chiefs tool when the harness is one it may use; empty or default clears it. A committed change is written into that Chief's brain engine file (optchat/engine.json), which its next turn reads."
           },
           "effort": {
             "required": false,
@@ -16869,7 +17267,15 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "Owner only; empty or default clears it."
+            "description": "Owner, or the Chief itself with the engine self_edit item, or another Chief with the chiefs tool when the harness is one it may use; empty or default clears it. A committed change is written into that Chief's brain engine file (optchat/engine.json), which its next turn reads."
+          },
+          "locked": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The person's lock: while true no Chief (the Chief itself included) changes the record (operation.failed details.reason chief_locked). Owner only; on the page a gesture field."
           }
         },
         "extra": false
@@ -16897,11 +17303,12 @@
         "Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
         "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
         "An unknown or deleted Chief is operation.failed details.reason chief_not_found.",
-        "A Chief changes its own record only in the fields its self_edit lists (the person's rule; else operation.failed details.reason chief_self_edit_denied with extra.fields); its own tools, harnesses, engine fields and self_edit are the owner's only. A Chief whose tools hold chiefs may change another Chief within its own grant: the new values and the target's current grant within the caller's (grant_exceeds_caller, target_exceeds_caller), never the default Chief's grant (chief_default_grant), and on a Chief the person made only display_name, role and the picture (chief_person_made_fields); without chiefs every write on another Chief is chief_manage_denied. The ledger records such a write as <agent id> via chief. Nothing is written on a refusal.",
+        "A Chief changes its own record only in the fields its self_edit lists (engine names harness, model and effort, with the harness among its own harnesses; else operation.failed details.reason chief_self_edit_denied with extra.fields); its own tools, harnesses, self_edit and locked are the owner's only. A Chief whose tools hold chiefs may change every profile field of another Chief within its own grant: the new values and the target's current grant within the caller's (grant_exceeds_caller, target_exceeds_caller; the engine harness one the caller may use, model and effort free), never the default Chief's tools, harnesses or self_edit (chief_default_grant), never locked (chief_lock_person_only); without chiefs every write on another Chief is chief_manage_denied. A locked record refuses every Chief's write (chief_locked). The ledger records such a write as <agent id> via chief. Nothing is written on a refusal.",
         "The self_edit rule binds a Chief's bound connection. A Chief turn that has a shell runs as the same OS user as the person, so the rule guards against the model, not against the OS user; an owner connection is any unbound trusted local client, as for chief.engine.*.",
         "An absent field is unchanged; a change that leaves the record as it was keeps its rev.",
         "expected_rev, when given, must be the record's rev, else operation.failed details.reason rev_mismatch with extra.rev the current one.",
-        "The idempotency key is per caller (the last 256 keys of each caller are kept): the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict."
+        "The idempotency key is per caller (the last 256 keys of each caller are kept): the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict.",
+        "Every committed state is kept as a revision (chief.profile.history, the newest 100 per Chief) and can be restored with chief.profile.undo."
       ]
     },
     "chief.stop": {
@@ -22473,6 +22880,35 @@
               "name": "string"
             }
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new pane's terminal runs instead of a shell, so no empty shell tab is left. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new pane's terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Move focus to the new pane. Default false: the caller's focus stays where it is, like tab.create_terminal."
+          },
           "cols": {
             "required": false,
             "type": {
@@ -22502,7 +22938,9 @@
         "constraints": [
           "ratio is finite and greater than 0 and less than 1.",
           "viewport_width requires direction right and is finite and greater than or equal to 0.1 and less than or equal to 1.",
-          "cols and rows are paired."
+          "cols and rows are paired.",
+          "At most one of argv or shell is present; argv[0] is non-empty.",
+          "focus defaults to false: a programmatic split never moves the user's focus unless it asks."
         ]
       },
       "result": {
@@ -28323,6 +28761,17 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "webkit",
+                "cef"
+              ]
+            },
+            "description": "The engine the app renders the tab with when the tab becomes an app-rendered (frontend) tab. Absent is the person's browser.defaultEngine setting: webkit for webkit, else cef (Chromium, the setting's default). A cmux-browser provider renders its own tabs and ignores it."
+          },
           "width_px": {
             "required": false,
             "type": {
@@ -32287,6 +32736,34 @@
             },
             "description": "SF Symbol name or one emoji; null clears it."
           },
+          "description": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "workspace-description-v1: the person's notes for the workspace, 1-4096 characters (line breaks and tabs allowed, no other control characters); null clears it. Shown as the workspace's extra.description while set."
+          },
+          "task_status": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "todo",
+                  "working",
+                  "needs-attention",
+                  "review",
+                  "done"
+                ]
+              }
+            },
+            "description": "workspace-status-v1: the task lane the person pinned the workspace to; null makes it automatic again. Shown as the workspace's extra.task_status while set."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -32298,7 +32775,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of title, color, or icon is present."
+          "At least one of title, color, icon, description, or task_status is present."
         ]
       },
       "result": {
@@ -32308,6 +32785,281 @@
           {
             "kind": "ref",
             "name": "WorkspaceSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_checklist.add": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "Trimmed; at most 500 characters after trimming, not empty."
+          },
+          "state": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "WorkspaceChecklistItemState"
+            },
+            "description": "Defaults to todo."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "WorkspaceChecklistItemOrigin"
+            },
+            "description": "Defaults to agent for a process in a cmux terminal or an ACP session, else user."
+          },
+          "index": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Position in the list; defaults to last, clamped to the list."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A workspace checklist holds at most 50 items."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceChecklist"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_checklist.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "WorkspaceChecklist"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "workspace_checklist.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "item": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The item's id (chk_...)."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceChecklist"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_checklist.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "item": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The item's id (chk_...)."
+          },
+          "text": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "New text; trimmed, at most 500 characters, not empty."
+          },
+          "state": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "WorkspaceChecklistItemState"
+            }
+          },
+          "index": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Move the item to this position, clamped to the list."
+          },
+          "attachments": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "WorkspaceChecklistAttachmentInput"
+              },
+              "max_items": 20
+            },
+            "description": "Replaces the item's attachments: an entry with an id keeps that attachment, one without gets a new id."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "At least one of text, state, index, attachments."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceChecklist"
           }
         ]
       },

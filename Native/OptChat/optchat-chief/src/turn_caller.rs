@@ -84,6 +84,23 @@ impl TurnBinding {
     }
 }
 
+/// Whether `pid` is this process or runs under it (a native engine's tool
+/// child, such as its bash): such a caller acts for the Chief, not the owner.
+pub fn under_this_process(pid: i32) -> bool {
+    let me = std::process::id() as i32;
+    let mut current = pid;
+    for _ in 0..MAX_DEPTH {
+        if current == me {
+            return true;
+        }
+        match parent_pid(current) {
+            Some(parent) if parent > 1 => current = parent,
+            _ => return false,
+        }
+    }
+    false
+}
+
 /// The `ACPMUX_SESSION_NAME` of the nearest acpmux agent at or above `pid`.
 fn agent_session_name(pid: i32, agent_parent: &Path) -> Option<String> {
     let mut current = pid;
@@ -116,7 +133,7 @@ fn parent_pid(pid: i32) -> Option<i32> {
     // SAFETY: `info` is a writable proc_bsdinfo of `size` bytes.
     let read =
         unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
-    (read == size).then(|| info.pbi_ppid as i32)
+    (read == size).then_some(info.pbi_ppid as i32)
 }
 
 fn executable(pid: i32) -> Option<PathBuf> {

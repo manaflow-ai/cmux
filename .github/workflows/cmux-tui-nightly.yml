@@ -1,8 +1,9 @@
 name: cmux-tui nightly
 
 on:
-  # CI pause: the macOS Nightly and rolling iOS beta remain automatic; this
-  # separate TUI package build remains available on demand.
+  # Dispatch on nightly-next: that branch holds the promoted, green
+  # feat-cmux-next head and only the promote app can move it, so the npm-tui
+  # environment admits it. Packages publish under the `next` dist-tag.
   workflow_dispatch:
     inputs:
       include_windows:
@@ -20,7 +21,7 @@ concurrency:
 jobs:
   version:
     name: derive nightly versions
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
@@ -28,11 +29,11 @@ jobs:
       pypi_version: ${{ steps.version.outputs.pypi_version }}
       head_sha: ${{ steps.version.outputs.head_sha }}
     steps:
-      - name: Require main branch dispatch
+      - name: Require a nightly-next or main dispatch
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "Refusing to publish a TUI nightly from $GITHUB_REF; dispatch this workflow on main." >&2
+          if [[ "$GITHUB_REF" != "refs/heads/nightly-next" && "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Refusing to publish a TUI nightly from $GITHUB_REF; dispatch this workflow on nightly-next." >&2
             exit 1
           fi
 
@@ -90,15 +91,25 @@ jobs:
     with:
       retention_days: 30  # tui-publish-npm/pypi download these by run id
       version: ${{ needs.version.outputs.npm_version }}
-      pypi_version: ${{ needs.version.outputs.pypi_version }}
       package_npm: true
-      package_pypi: true
+      # PyPI's pypi-tui environment admits only cmux-tui-v* tags with a
+      # reviewer, so a main nightly can never publish there; tagged releases
+      # (tui-publish-pypi.yml) own PyPI.
+      package_pypi: false
       include_windows: ${{ inputs.include_windows == true }}
       attest_packages: true
       # Match stable native packages; the Cloudflare Worker deploys separately.
-      # On-demand nightly packages are off the PR critical path: build the
-      # macOS legs on the background lane. See docs/ci-runners.md.
-      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+      # Nightlies never use Blacksmith (user decision 2026-10-19): macOS legs
+      # build on the light-class minis' side lane (attempt 1), re-runs on
+      # ephemeral hosted macOS; Linux legs on GitHub-hosted Ubuntu. A literal
+      # light label, not vars.CI_SIDE_LANE_RUNNER: the std pools include the
+      # benchmark mini cmux11s, which nightlies must never reach (a153,
+      # 2026-10-20). See docs/ci-runners.md.
+      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-side-light-xcode-26.6' }}
+      macos_retry_runner: macos-15
+      linux_runner: ubuntu-24.04
+      linux_arm64_runner: ubuntu-24.04-arm
+      windows_runner: windows-2025
       # Pin the exact sha the version job resolved so every matrix leg builds
       # the same commit even if main advances mid-run.
       checkout_ref: ${{ needs.version.outputs.head_sha }}
@@ -150,12 +161,15 @@ jobs:
         run: npm install -g npm@11.5.1
 
       - name: Revalidate packed npm contract
+        env:
+          # Windows packages exist only when the dispatch asked for them.
+          WINDOWS_FLAG: ${{ inputs.include_windows == true && '--include-windows' || '' }}
         run: |
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
             --version "${{ needs.version.outputs.npm_version }}" \
             --notices-dir dist/package-notices \
-            --include-windows \
+            ${WINDOWS_FLAG:+"$WINDOWS_FLAG"} \
             --install-npm-package cmux-tui-linux-x64 \
             --install-npm-relay-package cmux-relay-linux-x64
 
@@ -178,13 +192,16 @@ jobs:
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-build-package.yml" \
               --deny-self-hosted-runners \
               --source-digest "$RELEASE_SHA" \
-              --source-ref "refs/heads/main"
+              --source-ref "$GITHUB_REF"
           done
 
       # cmux-relay packages are validated in the artifact contract above but
       # publish only through the cmux-relay-v* tag family
       # (relay-publish-npm.yml); nightlies never move relay dist-tags.
-      - name: Publish platform packages with nightly dist-tag
+      # Linux and macOS testers install `cmux@next`.
+      - name: Publish platform packages with next dist-tag
+        env:
+          INCLUDE_WINDOWS: ${{ inputs.include_windows == true }}
         run: |
           set -euo pipefail
           packages=(
@@ -192,60 +209,12 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
-            cmux-tui-win32-x64
           )
+          [[ "$INCLUDE_WINDOWS" != true ]] || packages+=(cmux-tui-win32-x64)
           for package in "${packages[@]}"; do
             echo "Publishing $package"
-            npm publish --provenance --tag nightly "dist/npm-packages/$package"
+            npm publish --provenance --tag next "dist/npm-packages/$package"
           done
 
-      - name: Publish launcher package with nightly dist-tag
-        run: npm publish --provenance --tag nightly dist/npm-packages/cmux
-
-  publish-pypi:
-    needs:
-      - version
-      - build-package
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    permissions:
-      contents: read
-      id-token: write
-    environment:
-      name: pypi-tui
-      url: https://pypi.org/p/cmux
-    steps:
-      - name: Checkout immutable nightly source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ needs.version.outputs.head_sha }}
-
-      - name: Download PyPI wheels
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: pypi-wheels
-          path: dist
-
-      - name: Download the generated third-party notices
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: package-notices
-          path: package-notices
-
-      - name: Revalidate PyPI wheel contract
-        run: |
-          python3 cmux-tui/dist/scripts/validate_package_contract.py \
-            --pypi-wheels dist \
-            --version "${{ needs.version.outputs.pypi_version }}" \
-            --notices-dir package-notices
-
-      - name: Publish nightly package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
-        with:
-          packages-dir: dist
-          attestations: true
-
-      - name: Verify every nightly PyPI wheel after upload
-        env:
-          VERSION: ${{ needs.version.outputs.pypi_version }}
-        run: bash cmux-tui/scripts/verify-pypi-tui-upload.sh dist "$VERSION"
+      - name: Publish launcher package with next dist-tag
+        run: npm publish --provenance --tag next dist/npm-packages/cmux

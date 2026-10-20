@@ -6,8 +6,12 @@ import QuartzCore
 extension SidebarListViewComponents {
     // MARK: - Reload
     /// Recomputes layout from the model and animates rows to their frames.
-    func reload(animated: Bool, adopt: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
+    /// `fromModel`: the model changed under the list (`showModelChange`); any other animated reload
+    /// is a user's gesture here, so the model change that follows it may animate too.
+    func reload(animated: Bool, adopt: Bool = false, fromModel: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
         SidebarPerfCounters.add(.listReloads, from: file, line: line)
+        if animated, !fromModel { model.noteUserIntent() }
+        holdsModelChange = false // this reload shows the model as it is now
         // No drag holds the rows: this reload shows every held patch (the model has them).
         if !holdsRowPatches { rowHold = SidebarRowHold() }
         workspaces = [:]
@@ -90,6 +94,8 @@ extension SidebarListViewComponents {
         return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter), height: row.height)
     }
     func realizationRect() -> NSRect {
+        // A space page never scrolls: the rows in its frame, no overscan.
+        if enclosingScrollView == nil, let pageViewport { return pageViewport }
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
@@ -119,13 +125,23 @@ extension SidebarListViewComponents {
         let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
         for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
+        // Without motion the rows that leave park first (as they would after the loop), so the rows that
+        // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
+        if !animate, !adopting {
+            for (key, view) in rowViews where layout.row(for: key) == nil {
+                rowViews[key] = nil
+                recycle(view)
+            }
+        }
         for row in layout.rows {
             let target = frame(for: row)
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
             keep.insert(row.key)
-            let view = existing ?? dequeue(row.key)
+            // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's
+            // does: a space's rows then make no new views once the pool holds some (space-switch-fast).
+            let view = existing ?? dequeue(row.key, rebinding: !animate && !adopting)
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
@@ -224,7 +240,9 @@ extension SidebarListViewComponents {
             view.configure(tab, row: row)
         case let (.group(id), view as GroupHeaderRowView):
             guard let group = groups[id] else { return }
-            view.configure(group, row: row, animated: animated)
+            var details = model.groupHeaderDetails
+            details.otherStates = model.detailedStatus
+            view.configure(group, row: row, details: details, animated: animated)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }

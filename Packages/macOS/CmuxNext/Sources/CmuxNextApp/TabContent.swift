@@ -44,6 +44,19 @@ enum TabContent {
         }
     }
 
+    /// The kind a timed tab switch reports (`debug.tab_switch`).
+    @MainActor var switchKind: String {
+        switch self {
+        case .terminal: "terminal"
+        case .browser(let entry): entry.tab.engineKind == .cef ? "chromium" : "webkit"
+        case .agent: "agent"
+        case .page: "page"
+        case .placeholder: "placeholder"
+        case .notice: "notice"
+        case .conversation: "conversation"
+        }
+    }
+
     /// A Ghostty terminal (it is ready on its first frame, not when shown).
     var isTerminal: Bool {
         if case .terminal = self { true } else { false }
@@ -83,6 +96,8 @@ final class TerminalEntry {
     let themeBinding: TerminalThemeBinding
     /// Tab `dead` and connection changes for this view.
     private var watch: TerminalLinkWatch
+    /// The TextBox composer under this terminal, made the first time a TextBox action runs on it.
+    var textBox: TextBoxController?
 
     // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
     // action runs; a main-actor deinit's hop traps there (cx-t7hu).
