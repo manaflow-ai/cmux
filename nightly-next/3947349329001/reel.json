@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "build": "3947349329001",
+  "notes": "notes/3947349329001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22352,
+      "title": "cmux NEXT: Esc stops a running agent turn on a double press",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21631,
+      "title": "feat(agent-pane): the running turn's line names the call in flight, with a working mark",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22143,
+      "title": "cmux-next: a new chat's slow start keeps the send's gesture for its first prompt (hq#2569 item 5)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22143/c722630e/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "c722630e",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 22533,
+      "title": "cmux-next Settings: the wallpaper card highlights a legacy backdropArt painting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22469,
+      "title": "capability-text lint: allow the version-handshake update hints in release.rs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22200,
+      "title": "feat(next): @ picker lists other chats, folders and files",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
