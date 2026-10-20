@@ -81,7 +81,7 @@ import PackageDescription
 //   CmuxNextTasks -> Design, Icons, CCmuxAppFFI (Tasks pane: list, board and inbox prototypes over a
 //     mirror + intent log of the Tasks owner, whose reducer previews pending intents over the FFI;
 //     no daemon; the App supplies the source; plans/cmux-next/tasks.md)
-//   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
+//   CmuxNextFeed -> Design, Wakeups (feed panel: list and inbox prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
 //   CmuxNextServer -> Design, Icons (server menubar panel, pairing, approver sheet and health prototypes
 //     over a projection of `server.status`; no daemon; the App supplies the source;
@@ -792,8 +792,8 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // Feed panel (plans/cmux-next/feed.md section 12): list, inbox and
-        // menu bar prototypes over a confirmed mirror + intent log of the
+        // Feed panel (plans/cmux-next/feed.md section 12): list and inbox
+        // prototypes over a confirmed mirror + intent log of the
         // feed owner; the App supplies the source.
         .target(
             name: "CmuxNextFeed",
