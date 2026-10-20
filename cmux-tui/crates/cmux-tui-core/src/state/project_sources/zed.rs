@@ -6,7 +6,7 @@
 
 use super::{
     Layout, MAX_SOURCE_ENTRIES, MAX_SOURCE_LIST_BYTES, MAX_SOURCE_PATH_BYTES,
-    MAX_SOURCE_TIMESTAMP_BYTES, SourceScan, open_read_only, utc_ms,
+    MAX_SOURCE_TIMESTAMP_BYTES, MAX_SOURCE_TOTAL_BYTES, SourceScan, open_read_only, utc_ms,
 };
 use crate::state::projects::Observation;
 
@@ -29,26 +29,31 @@ pub(crate) fn scan_zed(layout: &Layout) -> Option<SourceScan> {
              ) ORDER BY timestamp DESC",
         )
         .ok()?;
-    let rows = statement
-        .query_map(
-            rusqlite::params![
-                i64::try_from(MAX_SOURCE_LIST_BYTES + 1).ok()?,
-                i64::try_from(MAX_SOURCE_TIMESTAMP_BYTES + 1).ok()?,
-                i64::try_from(MAX_SOURCE_ENTRIES + 1).ok()?
-            ],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
+    let mut rows = statement
+        .query(rusqlite::params![
+            i64::try_from(MAX_SOURCE_LIST_BYTES + 1).ok()?,
+            i64::try_from(MAX_SOURCE_TIMESTAMP_BYTES + 1).ok()?,
+            i64::try_from(MAX_SOURCE_ENTRIES + 1).ok()?
+        ])
         .ok()?;
     let mut newest = std::collections::BTreeMap::<String, i64>::new();
     let mut order = Vec::new();
+    let mut row_count = 0_usize;
+    let mut retained_bytes = 0_usize;
     // A row that fails (busy mid-step) would make the list partial, and a
     // partial list sent as complete drops projects: report nothing instead.
-    let rows = rows.collect::<Result<Vec<_>, _>>().ok()?;
-    if rows.len() > MAX_SOURCE_ENTRIES {
-        return None;
-    }
-    for (paths, timestamp) in rows {
+    while let Some(row) = rows.next().ok()? {
+        row_count += 1;
+        if row_count > MAX_SOURCE_ENTRIES {
+            return None;
+        }
+        let paths = row.get::<_, String>(0).ok()?;
+        let timestamp = row.get::<_, String>(1).ok()?;
         if paths.len() > MAX_SOURCE_LIST_BYTES || timestamp.len() > MAX_SOURCE_TIMESTAMP_BYTES {
+            return None;
+        }
+        retained_bytes = retained_bytes.saturating_add(paths.len()).saturating_add(timestamp.len());
+        if retained_bytes > MAX_SOURCE_TOTAL_BYTES {
             return None;
         }
         let Some(used) = utc_ms(&timestamp) else { continue };

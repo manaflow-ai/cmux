@@ -20,6 +20,8 @@ pub(crate) use zed::scan_zed;
 /// A watched JSON source is small state, never an archive. The bounded read
 /// also defeats a grow-after-stat race.
 pub(super) const MAX_SOURCE_FILE_BYTES: usize = 32 * 1024 * 1024;
+/// Aggregate text retained from one SQLite source scan.
+pub(super) const MAX_SOURCE_TOTAL_BYTES: usize = 32 * 1024 * 1024;
 /// Matches the resource operation's complete-list ceiling.
 pub(super) const MAX_SOURCE_ENTRIES: usize = crate::state::projects_ops::MAX_OBSERVATIONS;
 /// Matches the project reducer's PATH_MAX ceiling.

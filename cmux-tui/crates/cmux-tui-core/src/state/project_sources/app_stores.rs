@@ -12,8 +12,8 @@
 use serde_json::Value;
 
 use super::{
-    Layout, MAX_SOURCE_ENTRIES, MAX_SOURCE_PATH_BYTES, MAX_SOURCE_TIMESTAMP_BYTES, SourceScan,
-    modified_ms, open_read_only, read_text_bounded, utc_ms,
+    Layout, MAX_SOURCE_ENTRIES, MAX_SOURCE_PATH_BYTES, MAX_SOURCE_TIMESTAMP_BYTES,
+    MAX_SOURCE_TOTAL_BYTES, SourceScan, modified_ms, open_read_only, read_text_bounded, utc_ms,
 };
 use crate::state::projects::Observation;
 
@@ -86,35 +86,42 @@ pub(crate) fn scan_conductor(layout: &Layout) -> Option<SourceScan> {
 fn query(db: &std::path::Path, sql: &str) -> Option<Vec<Observation>> {
     let connection = open_read_only(db)?;
     let mut statement = connection.prepare(sql).ok()?;
-    let rows = statement
-        .query_map(
-            rusqlite::params![
-                i64::try_from(MAX_SOURCE_PATH_BYTES + 1).ok()?,
-                i64::try_from(MAX_SOURCE_TIMESTAMP_BYTES + 1).ok()?,
-                i64::try_from(MAX_SOURCE_ENTRIES + 1).ok()?
-            ],
-            |row| Ok((text(row.get_ref(0)?), text(row.get_ref(1)?))),
-        )
-        .ok()?
-        .collect::<Result<Vec<_>, _>>()
+    let mut rows = statement
+        .query(rusqlite::params![
+            i64::try_from(MAX_SOURCE_PATH_BYTES + 1).ok()?,
+            i64::try_from(MAX_SOURCE_TIMESTAMP_BYTES + 1).ok()?,
+            i64::try_from(MAX_SOURCE_ENTRIES + 1).ok()?
+        ])
         .ok()?;
-    if rows.len() > MAX_SOURCE_ENTRIES {
-        return None;
-    }
-    Some(
-        rows.into_iter()
-            .filter_map(|(path, time)| Some((path?, time)))
-            .filter(|(path, time)| {
-                path.starts_with('/')
-                    && path.len() <= MAX_SOURCE_PATH_BYTES
-                    && time.as_ref().is_none_or(|time| time.len() <= MAX_SOURCE_TIMESTAMP_BYTES)
-            })
-            .map(|(path, time)| Observation {
+    let mut entries = Vec::new();
+    let mut row_count = 0_usize;
+    let mut retained_bytes = 0_usize;
+    while let Some(row) = rows.next().ok()? {
+        row_count += 1;
+        if row_count > MAX_SOURCE_ENTRIES {
+            return None;
+        }
+        let path = text(row.get_ref(0).ok()?);
+        let time = text(row.get_ref(1).ok()?);
+        let Some(path) = path else { continue };
+        if path.len() > MAX_SOURCE_PATH_BYTES
+            || time.as_ref().is_some_and(|time| time.len() > MAX_SOURCE_TIMESTAMP_BYTES)
+        {
+            return None;
+        }
+        retained_bytes = retained_bytes.saturating_add(path.len());
+        retained_bytes = retained_bytes.saturating_add(time.as_ref().map_or(0, |time| time.len()));
+        if retained_bytes > MAX_SOURCE_TOTAL_BYTES {
+            return None;
+        }
+        if path.starts_with('/') {
+            entries.push(Observation {
                 last_used_ms: time.as_deref().and_then(utc_ms).unwrap_or(1),
                 path,
-            })
-            .collect(),
-    )
+            });
+        }
+    }
+    Some(entries)
 }
 
 fn text(value: rusqlite::types::ValueRef<'_>) -> Option<String> {
