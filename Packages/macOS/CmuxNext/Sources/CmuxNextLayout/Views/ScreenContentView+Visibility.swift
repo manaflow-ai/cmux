@@ -65,6 +65,8 @@ extension ScreenContentView {
 
     /// The pane under `localPoint`: a docked column's pane above the strip.
     func pane(at localPoint: NSPoint) -> PaneID? {
+        // Canvas panes overlap: the front-most one under the point.
+        if let canvas = canvasState.canvas { return canvas.pane(at: localPoint) }
         if geometry.dock.contains(where: { $0.cover.contains(localPoint) }) {
             return geometry.panes.first { !geometry.scrolls(pane: $0.key) && $0.value.contains(localPoint) }?.key
         }
