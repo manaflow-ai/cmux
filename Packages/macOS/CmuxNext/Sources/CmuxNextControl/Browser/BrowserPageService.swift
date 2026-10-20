@@ -93,9 +93,24 @@ public struct BrowserPageService: Sendable {
             if let error = value["error"]?.stringValue {
                 throw ControlError(code: "not_found", message: error, data: ["selector": .string(selector)])
             }
+            if let input = Self.agentInput(element: name, answer: value, text: text) {
+                await engine.announce(input, tabID: tab.id)
+            }
             var result: [String: JSONValue] = Self.base(tab)
             result["value"] = value["value"] ?? .null
             return .object(result)
+        }
+    }
+
+    /// The agent input an element action made, for the agent cursor; nil
+    /// for the reads (`text`, `value`).
+    static func agentInput(element name: String, answer: JSONValue, text: String?) -> BrowserPageAgentInput? {
+        switch name {
+        case "click": .from(kind: .click, answer: answer)
+        case "focus": .from(kind: .focus, answer: answer)
+        case "fill": .from(kind: .type, answer: answer, text: text ?? "", replace: true)
+        case "type": .from(kind: .type, answer: answer, text: text ?? "")
+        default: nil
         }
     }
 

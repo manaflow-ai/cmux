@@ -1,7 +1,6 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
-import CmuxNextIcons
 import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
@@ -31,6 +30,8 @@ public final class HomeSidebarView: NSView {
     public var onNewMessage: () -> Void = {}
     /// The compose button's right-click menu (New Chief, Invite), or nil for none.
     public var composeMenu: () -> NSMenu? = { nil }
+    /// The Message Requests button was clicked (`showRequests`).
+    public var onOpenRequests: () -> Void = {}
 
     let list = CmuxSidebarView()
     /// The strip above the search field: a drag there moves the window, as
@@ -40,6 +41,8 @@ public final class HomeSidebarView: NSView {
     let compose = HomeComposeButton()
     /// A quiet line under the list (`HomeSidebarModel.note`).
     let noteLabel = ChromeLabel(labelWithString: "")
+    /// "Message Requests (2)" under the list while there are requests (DESIGN 2.3); hidden otherwise.
+    let requestsButton = NSButton(title: "", target: nil, action: nil)
     public private(set) var model = HomeSidebarModel(rows: [], pins: HomePins(), me: nil)
 
     public override init(frame: NSRect) {
@@ -52,7 +55,10 @@ public final class HomeSidebarView: NSView {
         addSubview(dragStrip)
         compose.bezelStyle = .accessoryBarAction
         compose.isBordered = false
-        compose.image = NSImage.icon(.agentChatNew, size: 15)
+        // Messages' compose button: square.and.pencil in a round grey button, the same as the filter button.
+        compose.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: HomeConversationStrings.newMessage)?
+            .withSymbolConfiguration(Self.roundGlyph)
+        compose.imagePosition = .imageOnly
         compose.setAccessibilityLabel(HomeConversationStrings.newMessage)
         compose.setAccessibilityIdentifier("cmux.home.sidebar.compose")
         compose.themedToolTip = HomeConversationStrings.newMessage
@@ -61,11 +67,27 @@ public final class HomeSidebarView: NSView {
         compose.owner = self
         addSubview(compose)
         noteLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        noteLabel.textColor = .secondaryLabelColor
         noteLabel.lineBreakMode = .byTruncatingTail
         noteLabel.isHidden = true
         noteLabel.setAccessibilityIdentifier("cmux.home.sidebar.note")
         addSubview(noteLabel)
+        requestsButton.bezelStyle = .accessoryBarAction
+        requestsButton.isBordered = false
+        requestsButton.alignment = .left
+        requestsButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        requestsButton.image = NSImage(systemSymbolName: "tray", accessibilityDescription: nil)
+        requestsButton.imagePosition = .imageLeading
+        requestsButton.target = self
+        requestsButton.action = #selector(openRequests)
+        requestsButton.isHidden = true
+        requestsButton.setAccessibilityIdentifier("cmux.home.sidebar.requests")
+        addSubview(requestsButton)
+        // No system blue in the list: a neutral grey selection and grey pinned names, as Messages'
+        // pinned grid; the filter button is the compose button's round twin.
+        list.neutralSelection = true
+        list.roundFilterSide = Self.roundSide
+        list.filterButton.wantsLayer = true
+        compose.wantsLayer = true
         list.onSelect = { [weak self] id in if let id { self?.onSelect(ConversationID(id)) } }
         list.onSetPinned = { [weak self] on, id in self?.onSetPinned(on, ConversationID(id)) }
         list.onPlacePinned = { [weak self] id, index in self?.onPlacePinned(ConversationID(id), index) }
@@ -119,7 +141,7 @@ public final class HomeSidebarView: NSView {
         CmuxSidebarEntry(id: item.id.rawValue, title: item.title,
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
-                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar))
+                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.backendBadge)
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text
@@ -134,6 +156,19 @@ public final class HomeSidebarView: NSView {
     }
 
     @objc func newMessage() { onNewMessage() }
+    @objc func openRequests() { onOpenRequests() }
+
+    /// Shows the Message Requests button for `count` open requests; none hides it.
+    public func showRequests(_ count: Int) {
+        let title = count > 0 ? HomeConversationStrings.requestsBar(count) : ""
+        guard requestsButton.title != title || requestsButton.isHidden != (count == 0) else { return }
+        requestsButton.title = title
+        requestsButton.setAccessibilityLabel(title)
+        if requestsButton.isHidden != (count == 0) {
+            requestsButton.isHidden = count == 0
+            needsLayout = true
+        }
+    }
 
     /// A context-menu item for `menuItems` that runs `handler`.
     public static func menuItem(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
@@ -147,10 +182,33 @@ public final class HomeSidebarView: NSView {
     }
 
     /// The unread dot uses the app's theme accent (sent bubbles alone are
-    /// iMessage blue); the column lays the theme's legibility scrim.
+    /// iMessage blue); the column lays the theme's legibility scrim; the
+    /// selection is neutral grey, never the system blue.
     func applyColors() {
         list.unreadColor = performWithTheme { Palette.accent }
+        noteLabel.textColor = performWithTheme { Palette.textSecondary }
+        requestsButton.contentTintColor = performWithTheme { Palette.textSecondary }
+        // The menu ring and an active filter's glyph: the label colour, not the system accent.
+        list.selectionColor = .labelColor
         layer?.backgroundColor = performWithTheme { Palette.legibilityScrim.cgColor }
+        compose.contentTintColor = .secondaryLabelColor
+        for button in [compose, list.filterButton] { applyRoundStyle(button) }
+    }
+
+    /// The round buttons' side (the search field's height) and glyph.
+    static let roundSide: CGFloat = 30
+    static let roundGlyph = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+
+    /// A round grey button over the column (Messages' toolbar buttons): a faint label-colour
+    /// fill with a hairline rim, so it reads on the window's material and on a light or dark
+    /// theme alike.
+    func applyRoundStyle(_ button: NSButton) {
+        guard let layer = button.layer else { return }
+        layer.cornerRadius = Self.roundSide / 2
+        layer.masksToBounds = true
+        layer.backgroundColor = performWithTheme { NSColor.labelColor.withAlphaComponent(0.08).cgColor }
+        layer.borderWidth = 0.5
+        layer.borderColor = performWithTheme { NSColor.labelColor.withAlphaComponent(0.12).cgColor }
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -169,13 +227,17 @@ public final class HomeSidebarView: NSView {
     public override func layout() {
         super.layout()
         // The search field starts `stripHeight` down; the button sits centered in that strip.
-        let side: CGFloat = 28
+        let side = Self.roundSide
         dragStrip.frame = NSRect(x: 0, y: bounds.height - Self.stripHeight, width: bounds.width, height: Self.stripHeight)
         // The note's strip at the bottom; the list ends above it.
+        // The note's and the requests button's strips at the bottom; the list ends above them.
         let note: CGFloat = noteLabel.isHidden ? 0 : 30
-        list.frame = NSRect(x: 0, y: note, width: bounds.width, height: bounds.height - note)
+        let requests: CGFloat = requestsButton.isHidden ? 0 : 30
+        list.frame = NSRect(x: 0, y: note + requests, width: bounds.width, height: bounds.height - note - requests)
         noteLabel.frame = NSRect(x: 14, y: 8, width: max(0, bounds.width - 28), height: 16)
-        compose.frame = NSRect(x: bounds.width - side - 12, y: bounds.height - 26 - side / 2, width: side, height: side)
+        requestsButton.frame = NSRect(x: 10, y: note + 4, width: max(0, bounds.width - 20), height: 22)
+        // Right-aligned with the filter button under it (the list's search inset, 10 pt).
+        compose.frame = NSRect(x: bounds.width - side - 10, y: (bounds.height - 26 - side / 2).rounded(), width: side, height: side)
     }
 
 }

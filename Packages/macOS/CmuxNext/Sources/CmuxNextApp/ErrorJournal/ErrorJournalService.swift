@@ -58,8 +58,12 @@ final class ErrorJournalService {
         // A fixed-interval background harvest, cancelled by stop() (CLAUDE.md Clock.sleep carve-out:
         // the delay is the intended cadence; nothing waits on it).
         harvesting = Task.detached(priority: .utility) {
+            // concurrency-allow: a detached utility task, never the main thread; each pass awaits a harvest, then the cancellable cadence sleep
+            // wakeup-allow: one harvest every 300 s (harvestInterval) while the app runs, ended by stop()
             while !Task.isCancelled {
                 await journal.harvest(sources)
+                // concurrency-allow: async cadence sleep on the detached harvest task; cancelled by stop(), blocks no thread
+                // wakeup-allow: the 300 s harvest cadence; nothing waits on it
                 guard (try? await ContinuousClock().sleep(for: interval)) != nil else { return }
             }
         }

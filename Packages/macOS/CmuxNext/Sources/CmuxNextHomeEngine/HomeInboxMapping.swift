@@ -20,7 +20,9 @@ struct HomeInboxMapping {
         for row in owned {
             guard var mapped = byID[ConversationID(row.id)] else { continue }
             mapped.kind = Self.kind(row.kind)
-            mapped.title = row.name
+            // The owner's name wins only when it is a name: an untitled DM row carries no name
+            // (or, from an older daemon, its peer's raw id), and then the people's names stay.
+            if !row.name.isEmpty, !row.name.isHomeInternalID { mapped.title = row.name }
             mapped.unread = row.unread
             mapped.isPinned = row.pinned
             mapped.summary.muted = row.muted ?? mapped.summary.muted
