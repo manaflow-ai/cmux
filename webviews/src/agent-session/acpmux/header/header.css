@@ -36,7 +36,7 @@
 }
 /* The chat's viewer (labs chatViewer, Lucas 2026-10-19): only Files and linked files sit beside the
    transcript from an ordinary pane width. Changes keeps the production layout above. */
-/* About Thread details' width (300px), a little more for code (Lucas 2026-10-19). */
+/* The right column's one width: Files, a file and Thread details (Lucas 2026-10-21; 320 leaves room for code). */
 .acpmux-main{container-type:inline-size;--acpmux-viewer-width:320px}
 @container (min-width:820px){
   html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-header,html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-scroll{visibility:visible;margin-right:var(--acpmux-viewer-width)}
