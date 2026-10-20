@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 
 use super::app::{self, ActionName};
 use super::app_focus;
-use super::command::{CommandPlan, RequestPlan, ResponseView, WireOperation};
+use super::command::{CommandPlan, RequestPlan, Resolve, ResponseView, WireOperation};
 use super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::{GlobalArgs, OutputMode, Surface, UsageError, parse_globals, wire};
 
@@ -355,6 +355,9 @@ fn run_resource<B: Backend>(
         }
         Err(error) => return Err(AgentFailure::Usage(error.0)),
     };
+    // The MCP transport sends plain unary requests: its `current` is still
+    // the focused object, as for every MCP tool.
+    plan.resolve.retain(|step| *step != Resolve::Caller);
     if plan.operation.class() == OperationClass::Mutation {
         plan.idempotency_key = Some(change_key(idempotency_key)?);
     }

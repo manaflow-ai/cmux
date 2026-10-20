@@ -101,6 +101,15 @@ impl Selectors {
         Ok(())
     }
 
+    /// Whether a structural scope is `caller` or `current`, which the CLI
+    /// resolves against the caller before it sends the request
+    /// ([`Resolve::Caller`]).
+    fn names_caller_or_current(&self) -> bool {
+        CALLER_SCOPES.iter().any(|scope| {
+            self.values.get(scope).is_some_and(|value| value == "caller" || value == "current")
+        })
+    }
+
     fn params(&self) -> Map<String, Value> {
         self.values
             .iter()
@@ -1872,7 +1881,13 @@ fn request(
         validate_decimal("--expected-revision", &revision)?;
         params.insert("expected_revision".into(), Value::String(revision));
     }
-    finalize_request(WireOperation::Typed(operation), Value::Object(params), flags)
+    let mut plan = finalize_request(WireOperation::Typed(operation), Value::Object(params), flags)?;
+    if let CommandPlan::Protocol(plan) = &mut plan
+        && selectors.names_caller_or_current()
+    {
+        plan.resolve.push(Resolve::Caller);
+    }
+    Ok(plan)
 }
 
 const fn correlated_creation(operation: ResourceOperation) -> bool {
@@ -1929,6 +1944,9 @@ fn finalize_request(
         view: ResponseView::Full,
     })))
 }
+
+/// The scopes a `caller` selector names, outermost first.
+pub(super) const CALLER_SCOPES: [&str; 5] = ["workspace", "screen", "pane", "tab", "terminal"];
 
 fn structural_ancestors(scope: &str) -> &'static [&'static str] {
     match scope {

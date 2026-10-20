@@ -114,21 +114,12 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
     let caller_route = global.socket.is_none() && global.session.is_none();
-    // A browser tab in a session a cmux app owns is the app's to render.
-    #[cfg(unix)]
-    if let Some(code) = super::frontend_browser::run_in_app(
-        global,
-        &plan,
-        &request,
-        &mut reader,
-        &socket,
-        caller_route,
-        &key_report,
-    ) {
-        return code;
-    }
     if !plan.resolve.is_empty() {
-        let route = super::resolve::SocketRoute { path: &socket, derived: socket_is_derived };
+        let route = super::resolve::SocketRoute {
+            path: &socket,
+            derived: socket_is_derived,
+            app: app_socket(global, &socket),
+        };
         if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route, &route) {
             // A browser tab's page zoom: the app hosts the page and owns it.
             #[cfg(unix)]
@@ -150,6 +141,21 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
             Ok(encoded) => encoded,
             Err(code) => return code,
         };
+    }
+    // A browser tab in a session a cmux app owns is the app's to render. It
+    // runs after the lookups, so a `caller` or `current` pane is already
+    // the caller's own.
+    #[cfg(unix)]
+    if let Some(code) = super::frontend_browser::run_in_app(
+        global,
+        &plan,
+        &request,
+        &mut reader,
+        &socket,
+        caller_route,
+        &key_report,
+    ) {
+        return code;
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
@@ -1036,3 +1042,15 @@ pub(super) use socket::{RESOLVE_FAILURE_EXIT, resolve_failure, resolve_socket_or
 
 #[cfg(test)]
 mod tests;
+
+/// The control socket of the app that owns the daemon at `socket`, for a
+/// lookup that only the app answers (an agent session's place).
+#[cfg(unix)]
+pub(super) fn app_socket(global: &GlobalArgs, socket: &Path) -> Option<std::path::PathBuf> {
+    super::frontend_browser::owning_app_socket(global, socket)
+}
+
+#[cfg(not(unix))]
+pub(super) fn app_socket(_global: &GlobalArgs, _socket: &Path) -> Option<std::path::PathBuf> {
+    None
+}

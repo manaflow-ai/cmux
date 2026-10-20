@@ -77,6 +77,12 @@ pub(in crate::cli) enum Resolve {
     /// caller's own terminal (`CMUX_TUI_TERMINAL_ID`). With `--socket` or
     /// `--session` the target is that session's `current` workspace.
     CallerWorkspace { terminal: String },
+    /// The command names a structural scope `caller`, or `current`: each
+    /// becomes the caller's own object at that scope (its terminal's tab,
+    /// pane, screen and workspace, or an agent session's, as
+    /// `system.identify` reports). `current` stays the focused object when
+    /// no caller is known or the request routes to another session.
+    Caller,
     /// `field` names a state record (room or group) by id or exact name; a
     /// unique name becomes that record's id.
     StateName { field: &'static str, list: ResourceOperation },

@@ -308,7 +308,8 @@ output modes, and exit codes. It never sends private protocol commands.
 All `-t` values are cmux selectors. They do not interpret tmux numeric indexes,
 `%pane`, `@window`, or `session:window.pane` targets. Capture/input also accept a
 full `pane_…` ID, selecting its current tab's terminal. An omitted target uses
-`current` in the selected session, not a remembered client or shell.
+`current` in the selected session (the caller's own object inside cmux), not a
+remembered client or shell.
 
 Explicit selector paths take precedence over shorthand actions. Use `name:` for
 names that collide with command words. Names, option values, key payloads, and
@@ -331,12 +332,27 @@ screen inside the selected session's workspace.
 An instance selector accepts:
 
 - a typed opaque ID such as `ws_…`, `pane_…`, or `term_…`;
+- `caller`, for a workspace, screen, pane, tab or terminal;
 - `current`;
 - an exact name.
 
+`caller` is the object the command runs in: the caller's terminal
+(`CMUX_TUI_TERMINAL_ID`) and the tab, pane, screen and workspace that hold it,
+or for an agent session (`CMUX_AGENT_SESSION`) the place of its chat that the
+app's `system.identify` reports. The CLI resolves it to ids before it sends the
+request. It fails with `selector.not_found` when no caller is known and with
+`selector.invalid` under `--socket` or `--session`, which name another session.
+
+`current` is the caller's object as well when a caller is known and the
+request routes to the caller's own session, so an agent never acts on the
+workspace or pane the person is looking at. It is the session's focused object
+when no caller is known (a shell outside cmux), under `--socket` or
+`--session`, below an explicit parent that is not the caller's, and for a
+browser target. The daemon itself only knows `current` as focused.
+
 Names may be empty, contain Unicode or whitespace, and need not be unique.
 `name:<value>` forces name interpretation and is required for names equal to
-`current`, names containing `_`, reserved command words, and ID-shaped names.
+`current` or `caller`, names containing `_`, reserved command words, and ID-shaped names.
 An ambiguous name returns `selector.ambiguous` with every candidate ID. It
 never chooses one or changes state.
 

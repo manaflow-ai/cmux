@@ -182,7 +182,8 @@ fn wait(global: &GlobalArgs, wait: &WaitPlan) -> i32 {
         .and_then(|stream| {
             let _ = stream.set_read_timeout(Some(ANSWER_TIMEOUT));
             let mut reader = BufReader::new(stream);
-            let route = SocketRoute { path: &socket, derived };
+            let app = wire::app_socket(global, &socket);
+            let route = SocketRoute { path: &socket, derived, app };
             if !plan.resolve.is_empty() {
                 resolve::apply(&mut reader, &mut plan, caller_route, &route)?;
             }
