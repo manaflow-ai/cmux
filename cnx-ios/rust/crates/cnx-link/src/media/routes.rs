@@ -216,8 +216,7 @@ impl Table {
         let Some(rank) = self.route(id).map(|r| r.rank) else { return false };
         // Only a route with a floor below it stalls away: the floor (the
         // tunnel) carries on whatever its feedback says.
-        let _ = rank;
-        let fallback = self.routes.iter().any(|r| r.id != id && r.alive() && *r.health.borrow());
+        let fallback = self.routes.iter().any(|r| r.id != id && r.rank > rank && r.alive() && *r.health.borrow());
         let Some(route) = self.route_mut(id) else { return false };
         let state = *route.state.borrow();
         let waiting = Duration::from_micros(state.feedback_wait_us);
