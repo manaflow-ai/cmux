@@ -26,6 +26,7 @@ import {
   defaultSelection,
   isAddress,
   inlineCompletion,
+  needsYouCards,
   recentChatCards,
   screenRows,
   shellEntry,
@@ -37,6 +38,7 @@ import {
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
 import { WidgetCards } from "./WidgetCards";
+import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
@@ -169,6 +171,9 @@ export function NewTabScreen(props: Props) {
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
   const template = props.template ?? "default";
   const sections = screenSections(template);
+  // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
+  // at the foot, the environment and suggestions cards over it.
+  const stage = sections.stage;
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
@@ -263,6 +268,11 @@ export function NewTabScreen(props: Props) {
     : project && project !== props.cwd
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // The environment card checks the project the chat starts in: the chip's folder, else the tab's
+  // own project (never the home ~ or a private agent-home folder it inherited).
+  const envFolder = none
+    ? undefined
+    : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string) => {
@@ -347,6 +357,13 @@ export function NewTabScreen(props: Props) {
   // the cards keep only the chats that are running or need the user.
   const allChats = sections.allChats && !!props.loadChatsPage && !!props.onOpenChat;
   const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
+  // The stage layout's suggested actions start with the chats waiting on the user: one asking for
+  // input, or one that hit an error or lost its agent. Picked from every chat, not the trimmed
+  // recent cards (needsYouCards).
+  const needsYou = useMemo(
+    () => (stage ? needsYouCards(snapshot.sessions, at, t) : []),
+    [stage, snapshot.sessions, at, t],
+  );
   const openCard = (id: string) => {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
     if (key && props.onOpenChat) return props.onOpenChat(key);
@@ -378,7 +395,8 @@ export function NewTabScreen(props: Props) {
   const [composer, setComposer] = useState<HTMLDivElement | null>(null);
   const anchor = split ? (composer ?? box) : box;
   useEscapingPopup(host, shown, () => anchor, {
-    side: "bottom",
+    // At the foot of the page (the stage layout) the rows open over the composer.
+    side: stage ? "top" : "bottom",
     align: "start",
     gap: UI_ANCHOR_GAP,
     kind: "list",
@@ -835,16 +853,57 @@ export function NewTabScreen(props: Props) {
       </span>
     </span>
   );
-  return (
-    <div
-      ref={screen}
-      className="nt-screen"
-      data-shell={shell || undefined}
-      data-template={template}
-      data-pill={pill || undefined}
-      data-mode={mode}
-      data-all-chats={allChats || undefined}
-    >
+  // The page's lists: the widget view (Debug Settings), the open tabs to move here, Recently Closed
+  // and the recent chats. In the stage layout they sit under the cards, over the composer.
+  const lists = (
+    <>
+      {props.widgets && (
+        <WidgetCards
+          sessions={snapshot.sessions}
+          projects={props.projects ?? []}
+          {...(askFolder ? { folder: askFolder } : {})}
+          {...(props.cwd ? { inherited: props.cwd } : {})}
+          attention={!allChats}
+          {...(props.machineName ? { machineName: props.machineName } : {})}
+          onProject={pickProject}
+          onOpen={openCard}
+        />
+      )}
+      {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
+      {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
+      {sections.chats !== "none" && !allChats && (
+        <ChatCards
+          cards={cards}
+          variant={sections.chats}
+          onOpen={openCard}
+          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
+          onShowAll={props.onShowAll}
+        />
+      )}
+      {allChats && props.loadChatsPage && props.onOpenChat && (
+        <AllChatsList
+          load={props.loadChatsPage}
+          onOpen={props.onOpenChat}
+          active={activeCards.map((card) => ({
+            id: card.sessionId,
+            title: card.title,
+            ...(card.harness ? { harness: card.harness } : {}),
+            state: card.state,
+            label:
+              card.state === "failed"
+                ? t("header.failed")
+                : nt(`card.${card.state as "input" | "running" | "error" | "unread"}`),
+          }))}
+          onOpenActive={openCard}
+          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
+          {...(now !== undefined ? { now } : {})}
+        />
+      )}
+    </>
+  );
+  // The composer: in the stage layout at the foot of the page, else at its top.
+  const composerCard = (
+    <>
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
@@ -935,6 +994,98 @@ export function NewTabScreen(props: Props) {
           </div>
         )}
       </div>
+    </>
+  );
+  return (
+    <div
+      ref={screen}
+      className="nt-screen"
+      data-shell={shell || undefined}
+      data-template={template}
+      data-pill={pill || undefined}
+      data-mode={mode}
+      data-all-chats={allChats || undefined}
+      data-layout={stage ? "stage" : undefined}
+    >
+      {stage ? (
+        <>
+          {/* Claude Code desktop's new-session screen (Leo 2026-10-19): the free space over the
+              composer holds, centered, the environment card and the suggested actions card, then the
+              recent chats; it scrolls on its own, so nothing in it ever moves the composer. */}
+          <div className="nt-stage">
+            <div className="nt-stage-cards">
+              <EnvironmentCard
+                projects={props.projects ?? []}
+                {...(envFolder ? { current: envFolder } : {})}
+                noProject={none}
+                {...(props.machineName ? { machineName: props.machineName } : {})}
+                onPick={(cwd) => pickProject(cwd)}
+                onNoProject={() => pickProject(undefined)}
+                {...(browseProject ? { onBrowse: browseProject } : {})}
+              />
+              <SuggestionsCard
+                attention={needsYou}
+                onOpen={openCard}
+                {...(props.onCreate ? { onCreate: create } : {})}
+                onChat={startChat}
+              />
+            </div>
+            {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
+            {lists}
+          </div>
+          {composerCard}
+          {props.notice}
+        </>
+      ) : (
+        <>
+          {composerCard}
+          {props.notice}
+          {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
+              browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
+              Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
+          {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
+              New Chat stay in the palette and the pane's + menu. With the split too, not only the pill. */}
+          {!allChats && template !== "cards" && (
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+            <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
+              {props.onCreate && (
+                <>
+                  <button
+                    type="button"
+                    className="nt-tool ui-ghost"
+                    data-create="terminal"
+                    onClick={() => create("terminal")}
+                  >
+                    <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                      <Icon name="terminal" size={14} />
+                    </span>
+                    <span>{nt("create.terminal")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="nt-tool ui-ghost"
+                    data-create="browser"
+                    onClick={() => create("browser")}
+                  >
+                    <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                      <Icon name="browser" size={14} />
+                    </span>
+                    <span>{nt("create.browser")}</span>
+                  </button>
+                </>
+              )}
+              <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
+                <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                  <Icon name="agent.chat" size={14} />
+                </span>
+                <span>{nt("create.chat")}</span>
+              </button>
+            </div>
+          )}
+          {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
+          {lists}
+        </>
+      )}
       {rows.length > 0 && anchor && (
         <Popover
           open
@@ -942,6 +1093,7 @@ export function NewTabScreen(props: Props) {
           // never closes itself.
           onOpenChange={() => undefined}
           anchor={anchor}
+          side={stage ? "top" : "bottom"}
           label={nt("suggestions")}
           className="nt-popover"
           initialFocus={false}
@@ -987,92 +1139,6 @@ export function NewTabScreen(props: Props) {
             ))}
           </div>
         </Popover>
-      )}
-      {props.notice}
-      {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
-          browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
-          Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
-      {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
-          New Chat stay in the palette and the pane's + menu. With the split too, not only the pill. */}
-      {!allChats && template !== "cards" && (
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
-          {props.onCreate && (
-            <>
-              <button
-                type="button"
-                className="nt-tool ui-ghost"
-                data-create="terminal"
-                onClick={() => create("terminal")}
-              >
-                <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                  <Icon name="terminal" size={14} />
-                </span>
-                <span>{nt("create.terminal")}</span>
-              </button>
-              <button
-                type="button"
-                className="nt-tool ui-ghost"
-                data-create="browser"
-                onClick={() => create("browser")}
-              >
-                <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                  <Icon name="browser" size={14} />
-                </span>
-                <span>{nt("create.browser")}</span>
-              </button>
-            </>
-          )}
-          <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
-            <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-              <Icon name="agent.chat" size={14} />
-            </span>
-            <span>{nt("create.chat")}</span>
-          </button>
-        </div>
-      )}
-      {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
-      {props.widgets && (
-        <WidgetCards
-          sessions={snapshot.sessions}
-          projects={props.projects ?? []}
-          {...(askFolder ? { folder: askFolder } : {})}
-          {...(props.cwd ? { inherited: props.cwd } : {})}
-          attention={!allChats}
-          {...(props.machineName ? { machineName: props.machineName } : {})}
-          onProject={pickProject}
-          onOpen={openCard}
-        />
-      )}
-      {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
-      {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
-      {sections.chats !== "none" && !allChats && (
-        <ChatCards
-          cards={cards}
-          variant={sections.chats}
-          onOpen={openCard}
-          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
-          onShowAll={props.onShowAll}
-        />
-      )}
-      {allChats && props.loadChatsPage && props.onOpenChat && (
-        <AllChatsList
-          load={props.loadChatsPage}
-          onOpen={props.onOpenChat}
-          active={activeCards.map((card) => ({
-            id: card.sessionId,
-            title: card.title,
-            ...(card.harness ? { harness: card.harness } : {}),
-            state: card.state,
-            label:
-              card.state === "failed"
-                ? t("header.failed")
-                : nt(`card.${card.state as "input" | "running" | "error" | "unread"}`),
-          }))}
-          onOpenActive={openCard}
-          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
-          {...(now !== undefined ? { now } : {})}
-        />
       )}
     </div>
   );
