@@ -375,6 +375,7 @@ public final class HomeNativeTranscriptView: NSView {
             if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
         }
         guard let window else { return }
+        if attachmentPreparer != nil { HomeAttachmentPanel.warmWhenIdle() }  // the "+" opens without making a panel
         let nc = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification] {
