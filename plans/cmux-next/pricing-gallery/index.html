@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cmux-next pricing · design gallery (proposal)</title>
+<style>
+  :root { --bg:#fafafa; --fg:#171717; --muted:#707070; --border:#e5e5e5; --card:#fff; --blue:#0073d9; --soft:#f2f2f2; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0a0a0a; --fg:#ededed; --muted:#a3a3a3; --border:#262626; --card:#111; --blue:#0091ff; --soft:#171717; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 -apple-system, BlinkMacSystemFont, "Geist", "Inter", sans-serif; background:var(--bg); color:var(--fg); }
+  header.top { position:sticky; top:0; z-index:5; background:var(--bg); border-bottom:1px solid var(--border); padding:14px 28px; display:flex; gap:18px; align-items:baseline; flex-wrap:wrap; }
+  header.top h1 { font-size:15px; margin:0; font-weight:600; }
+  header.top a { color:var(--muted); text-decoration:none; font-size:13px; }
+  header.top a:hover { color:var(--fg); }
+  main { max-width:1180px; margin:0 auto; padding:28px; }
+  .note { border:1px dashed var(--border); padding:10px 14px; color:var(--muted); font-size:13px; }
+  section.variant { margin-top:44px; }
+  .vhead { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+  .vhead h2 { font-size:17px; margin:0; font-weight:600; }
+  .tag { font-size:11px; font-weight:600; padding:2px 8px; border:1px solid var(--border); border-radius:999px; color:var(--muted); }
+  .tag.rec { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+  .why { color:var(--muted); margin:0 0 14px; max-width:820px; }
+  .frame { border:1px solid var(--border); background:var(--card); border-radius:10px; overflow:hidden; }
+  .chrome { height:28px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:6px; padding:0 10px; font-size:11px; color:var(--muted); }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--border); }
+  .page { padding:28px 32px 32px; }
+  .eyebrow { font-size:12px; color:var(--muted); font-weight:500; }
+  .h1 { font-size:26px; font-weight:600; letter-spacing:-.02em; margin:4px 0 8px; }
+  .lede { color:var(--muted); max-width:640px; margin:0; }
+  .grid { display:grid; gap:12px; }
+  .g3 { grid-template-columns:repeat(3,1fr); } .g4 { grid-template-columns:repeat(4,1fr); } .g2 { grid-template-columns:repeat(2,1fr); }
+  .card { border:1px solid var(--border); padding:16px; position:relative; }
+  .card.hl { border-color:var(--fg); }
+  .card .name { font-weight:600; font-size:13px; }
+  .card .price { font-size:24px; font-weight:600; margin-top:6px; font-variant-numeric:tabular-nums; }
+  .card .price small { font-size:12px; color:var(--muted); font-weight:400; }
+  .inc { border-left:2px solid var(--fg); padding-left:9px; margin:10px 0; font-size:12.5px; }
+  .inc span { display:block; color:var(--muted); font-size:11.5px; }
+  ul.f { list-style:none; margin:8px 0 0; padding:0; font-size:12.5px; }
+  ul.f li { padding:3px 0 3px 16px; position:relative; }
+  ul.f li:before { content:"✓"; position:absolute; left:0; color:var(--muted); }
+  .btn { display:inline-block; padding:6px 12px; font-size:12.5px; border:1px solid var(--fg); margin-top:8px; }
+  .btn.p { background:var(--fg); color:var(--bg); }
+  .pill { position:absolute; right:12px; top:12px; font-size:10.5px; border:1px solid var(--border); padding:1px 6px; }
+  .calc { border:1px solid var(--border); display:grid; grid-template-columns:1fr 1fr; margin-top:16px; }
+  .calc > div { padding:16px; }
+  .calc > div:first-child { border-right:1px solid var(--border); }
+  .slider { margin:8px 0; font-size:12.5px; }
+  .slider .row { display:flex; justify-content:space-between; color:var(--muted); }
+  .slider .row b { color:var(--fg); }
+  .bar { height:4px; background:var(--soft); margin-top:5px; position:relative; }
+  .bar i { position:absolute; inset:0 auto 0 0; background:var(--fg); }
+  .kv { display:grid; grid-template-columns:1fr auto; gap:4px 16px; font-size:12.5px; font-variant-numeric:tabular-nums; }
+  .kv dt { color:var(--muted); } .kv dd { margin:0; text-align:right; }
+  .opt { border:1px solid var(--border); padding:8px 10px; margin-top:6px; display:flex; justify-content:space-between; font-size:12.5px; }
+  .opt.sel { border-color:var(--fg); }
+  .pillars { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:18px 0; }
+  .pillars div { border-left:1px solid var(--border); padding-left:10px; font-size:12.5px; }
+  .pillars b { display:block; font-size:12.5px; }
+  .pillars span { color:var(--muted); }
+  .big { font-size:44px; font-weight:600; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th, td { border-bottom:1px solid var(--border); padding:6px 8px; text-align:left; }
+  th { color:var(--muted); font-weight:400; }
+  /* In-app (macOS) */
+  .mac { background:var(--soft); padding:22px; }
+  .win { background:var(--card); border:1px solid var(--border); border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.08); overflow:hidden; max-width:860px; margin:0 auto; }
+  .winbar { height:34px; display:flex; align-items:center; gap:7px; padding:0 12px; border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); }
+  .winbar .t { margin-left:auto; margin-right:auto; font-weight:600; color:var(--fg); }
+  .r { width:11px; height:11px; border-radius:50%; } .r1{background:#ff5f57}.r2{background:#febc2e}.r3{background:#28c840}
+  .settings { display:grid; grid-template-columns:180px 1fr; min-height:380px; }
+  .side { border-right:1px solid var(--border); padding:10px; font-size:12.5px; }
+  .side div { padding:5px 8px; border-radius:6px; color:var(--muted); }
+  .side div.on { background:var(--soft); color:var(--fg); font-weight:500; }
+  .pane { padding:18px 22px; }
+  .group { border:1px solid var(--border); border-radius:10px; margin-top:12px; }
+  .group .row { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-bottom:1px solid var(--border); font-size:12.5px; }
+  .group .row:last-child { border-bottom:0; }
+  .meter { height:8px; background:var(--soft); border-radius:4px; overflow:hidden; display:flex; margin-top:8px; }
+  .meter i { display:block; height:100%; }
+  .legend { display:flex; gap:14px; font-size:11.5px; color:var(--muted); margin-top:6px; }
+  .legend b { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+  .mbtn { border:1px solid var(--border); border-radius:6px; padding:3px 10px; font-size:12px; background:var(--card); }
+  .mbtn.p { background:var(--blue); color:#fff; border-color:var(--blue); }
+  .chat { padding:18px; display:grid; gap:10px; font-size:13px; }
+  .msg { max-width:70%; padding:8px 12px; border-radius:16px; }
+  .me { justify-self:end; background:var(--blue); color:#fff; }
+  .them { background:var(--soft); }
+  .oc { border:1px solid var(--border); border-radius:12px; padding:14px; max-width:520px; background:var(--card); }
+  .oc h4 { margin:0 0 4px; font-size:13.5px; }
+  .oc p { margin:0 0 10px; color:var(--muted); font-size:12.5px; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .kbd { font-size:10.5px; color:var(--muted); border:1px solid var(--border); border-radius:4px; padding:0 4px; margin-left:4px; }
+  .composer { border-top:1px solid var(--border); padding:10px 14px; color:var(--muted); font-size:12.5px; display:flex; justify-content:space-between; }
+  .sheet { position:relative; }
+  .floating { position:absolute; left:50%; top:24px; transform:translateX(-50%); width:420px; background:var(--card); border:1px solid var(--border); border-radius:14px; box-shadow:0 18px 50px rgba(0,0,0,.18); padding:16px; }
+  @media (max-width: 900px) { .g3,.g4,.g2,.calc,.pillars,.settings { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>cmux-next pricing · design gallery</h1>
+  <a href="#a">A · Chief-first (Recommended)</a>
+  <a href="#b">B · Calculator-first</a>
+  <a href="#c">C · Credits store</a>
+  <a href="#d">D · One plan + usage</a>
+  <a href="#e">E · Settings › Billing</a>
+  <a href="#f">F · Out of credits</a>
+  <a href="#g">G · Sandbox cost hint</a>
+</header>
+<main>
+  <p class="note">Proposed prices, not for sale. Numbers come from <code>web/services/billing/chiefPricing.ts</code> and <code>plans/cmux-next/pricing-DESIGN.md</code>: Free $0 ($3 credits, hard stop) · Pro $50 ($25) · Max $200 ($100) · Team $60/seat ($25/seat) · Enterprise custom. Tokens at provider cost; sandboxes $0.045/vCPU-h + $0.0145/GB-h (2 vCPU / 4 GB ≈ $0.148/h).</p>
+
+  <!-- A -->
+  <section class="variant" id="a">
+    <div class="vhead"><h2>A · Chief-first plans + calculator</h2><span class="tag rec">Recommended · built</span></div>
+    <p class="why">Chief is the headline, the plans keep today's Stripe prices (no repricing for 93+ existing subscribers), and each card says what the included credits buy in open-model tokens or sandbox hours. The calculator sits right under the cards. This is the one built at <code>/next/pricing</code>.</p>
+    <div class="frame"><div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; cmux.com/next/pricing</div>
+    <div class="page">
+      <div class="eyebrow">cmux-next</div>
+      <div class="h1">Pay for Chief, not for seats of software</div>
+      <p class="lede">Chief runs Claude Code, Codex and open-model agents, starts cloud sandboxes and reports back. One credit balance pays for its tokens and its sandboxes.</p>
+      <div class="pillars">
+        <div><b>Included Chief credits</b><span>Open models go about 4x further.</span></div>
+        <div><b>Tokens at cost</b><span>No markup, or bring your own subscription.</span></div>
+        <div><b>Sandboxes by the hour</b><span>Paused when idle; storage only.</span></div>
+      </div>
+      <div class="grid g3">
+        <div class="card"><div class="name">Free</div><div class="price">$0</div><span class="btn p">Download cmux</span>
+          <div class="inc">$3 Chief credits / month<span>≈ 6M Kimi tokens or 20 sandbox hours</span></div>
+          <ul class="f"><li>Chief on open models</li><li>Hard stop, no card</li><li>Unlimited with your own Claude Code / Codex</li><li>1 sandbox, 2 vCPU / 4 GB</li></ul></div>
+        <div class="card hl"><span class="pill">Most popular</span><div class="name">Pro</div><div class="price">$50<small> /mo · $40 yearly</small></div><span class="btn p">Get Pro</span>
+          <div class="inc">$25 Chief credits / month<span>≈ 53M Kimi tokens or 168 sandbox hours</span></div>
+          <ul class="f"><li>Frontier models from credits</li><li>Pay as you go above</li><li>5 sandboxes, up to 8 vCPU / 16 GB</li></ul></div>
+        <div class="card"><div class="name">Max</div><div class="price">$200<small> /mo · $160 yearly</small></div><span class="btn">Get Max</span>
+          <div class="inc">$100 Chief credits / month<span>≈ 213M Kimi tokens or 675 sandbox hours</span></div>
+          <ul class="f"><li>4x the included credits</li><li>20 sandboxes, up to 32 vCPU / 64 GB</li></ul></div>
+      </div>
+      <div class="grid g2" style="margin-top:12px">
+        <div class="card"><div class="name">Team</div><div class="price">$60<small> /seat/mo</small></div><div class="inc">$25 / seat, pooled</div></div>
+        <div class="card"><div class="name">Enterprise</div><div class="price">Custom</div><div class="inc">Committed credits at volume rates</div></div>
+      </div>
+      <div class="calc">
+        <div>
+          <b>Estimate your month</b>
+          <div class="slider"><div class="row">Chief turns per day <b>40</b></div><div class="bar"><i style="width:13%"></i></div></div>
+          <div class="slider"><div class="row">Tokens per turn <b>60,000</b></div><div class="bar"><i style="width:26%"></i></div></div>
+          <div class="slider"><div class="row">Model <b>Kimi K2.7 Code</b></div></div>
+          <div class="slider"><div class="row">Sandbox hours per day <b>2</b></div><div class="bar"><i style="width:8%"></i></div></div>
+        </div>
+        <div>
+          <b>Best fit: Pro</b>
+          <dl class="kv" style="margin-top:8px"><dt>Tokens</dt><dd>52.8M</dd><dt>Model tokens</dt><dd>$24.82</dd><dt>Sandboxes (44 h)</dt><dd>$6.51</dd><dt>Usage</dt><dd>$31.33</dd></dl>
+          <div class="opt">Free <span>—  can't run this</span></div>
+          <div class="opt sel">Pro <b>$56.33</b></div>
+          <div class="opt">Max <span>$200</span></div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- B -->
+  <section class="variant" id="b">
+    <div class="vhead"><h2>B · Calculator-first</h2><span class="tag">Variant</span></div>
+    <p class="why">The page opens on three sliders and one big number; plans appear as the answer. Best for buyers who think in usage. Weaker for skimmers who want the plan list first.</p>
+    <div class="frame"><div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; cmux.com/next/pricing</div>
+    <div class="page">
+      <div class="h1">What will Chief cost you?</div>
+      <div class="grid g2" style="margin-top:16px; align-items:center">
+        <div>
+          <div class="slider"><div class="row">How much do you use Chief? <b>Most of the day</b></div><div class="bar"><i style="width:55%"></i></div></div>
+          <div class="slider"><div class="row">Which brain? <b>Open models</b></div><div class="bar"><i style="width:25%"></i></div></div>
+          <div class="slider"><div class="row">Cloud machines <b>2 h/day</b></div><div class="bar"><i style="width:10%"></i></div></div>
+        </div>
+        <div style="text-align:center">
+          <div class="big">$56</div><div style="color:var(--muted)">per month on <b style="color:var(--fg)">Pro</b> · $50 plan + $6 usage</div>
+          <span class="btn p">Get Pro</span>
+        </div>
+      </div>
+      <div class="grid g4" style="margin-top:22px">
+        <div class="card"><div class="name">Free</div><div class="price">$0</div></div>
+        <div class="card hl"><div class="name">Pro</div><div class="price">$50</div></div>
+        <div class="card"><div class="name">Max</div><div class="price">$200</div></div>
+        <div class="card"><div class="name">Team</div><div class="price">$60<small>/seat</small></div></div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- C -->
+  <section class="variant" id="c">
+    <div class="vhead"><h2>C · Credits store</h2><span class="tag">Variant</span></div>
+    <p class="why">No tiers on the front: buy Chief credits in packs, bigger packs get bonus credits; a plan only unlocks limits. Simple, like Replit or Warp top-ups, but bonus credits break the "at cost" promise and push margin onto breakage.</p>
+    <div class="frame"><div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; cmux.com/next/credits</div>
+    <div class="page">
+      <div class="h1">Chief credits</div>
+      <p class="lede">$1 = 1 credit. Tokens at cost, sandboxes by the hour.</p>
+      <div class="grid g4" style="margin-top:16px">
+        <div class="card"><div class="name">Starter</div><div class="price">$10</div><div class="inc">10 credits</div><span class="btn">Buy</span></div>
+        <div class="card"><div class="name">Builder</div><div class="price">$50</div><div class="inc">52 credits<span>+4% bonus</span></div><span class="btn">Buy</span></div>
+        <div class="card hl"><div class="name">Studio</div><div class="price">$100</div><div class="inc">108 credits<span>+8% bonus</span></div><span class="btn p">Buy</span></div>
+        <div class="card"><div class="name">Fleet</div><div class="price">$500</div><div class="inc">560 credits<span>+12% bonus</span></div><span class="btn">Buy</span></div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- D -->
+  <section class="variant" id="d">
+    <div class="vhead"><h2>D · One plan + usage</h2><span class="tag">Variant</span></div>
+    <p class="why">One paid plan ($20/mo platform fee, $10 included) plus metered usage, like E2B or Daytona. Cheapest entry, easiest story; but it drops Max/annual revenue and would mean repricing today's $50 Pro subscribers.</p>
+    <div class="frame"><div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; cmux.com/next/pricing</div>
+    <div class="page">
+      <div class="grid g2">
+        <div class="card"><div class="name">Free</div><div class="price">$0</div><ul class="f"><li>$3 Chief credits</li><li>Your own Claude / Codex: unlimited</li></ul></div>
+        <div class="card hl"><div class="name">cmux Chief</div><div class="price">$20<small> /mo + usage</small></div><ul class="f"><li>$10 included</li><li>Tokens at cost · sandboxes $0.148/h</li><li>Spend limit you set</li></ul></div>
+      </div>
+      <table style="margin-top:14px"><tr><th>Meter</th><th>Rate</th></tr><tr><td>Kimi K2.7 Code (Chief blend)</td><td>$0.47 / 1M</td></tr><tr><td>Claude Opus 5.5 (Chief blend)</td><td>$1.97 / 1M</td></tr><tr><td>Sandbox 2 vCPU / 4 GB</td><td>$0.148 / h</td></tr></table>
+    </div></div>
+  </section>
+
+  <!-- E -->
+  <section class="variant" id="e">
+    <div class="vhead"><h2>E · Settings › Billing (in app)</h2><span class="tag rec">Recommended in-app design</span></div>
+    <p class="why">One balance, split by what spent it (open models, frontier models, sandboxes), the included bar for this month, top-up packs that match <code>CHIEF_CREDITS_TOPUP_USD</code> (10/20/50/100), and the spend limit. Rows reuse the Settings group style.</p>
+    <div class="mac"><div class="win">
+      <div class="winbar"><span class="r r1"></span><span class="r r2"></span><span class="r r3"></span><span class="t">Settings</span></div>
+      <div class="settings">
+        <div class="side"><div>General</div><div>Appearance</div><div>Chiefs</div><div class="on">Billing &amp; credits</div><div>Accounts</div><div>Keyboard</div></div>
+        <div class="pane">
+          <div style="display:flex; justify-content:space-between; align-items:baseline"><div><div style="font-size:12px;color:var(--muted)">Pro · renews Nov 1</div><div style="font-size:26px;font-weight:600">$18.40 <span style="font-size:13px;color:var(--muted);font-weight:400">credits left</span></div></div><span class="mbtn">Manage plan</span></div>
+          <div class="meter"><i style="width:34%;background:#0a84ff"></i><i style="width:12%;background:#bf5af2"></i><i style="width:8%;background:#30d158"></i></div>
+          <div class="legend"><span><b style="background:#0a84ff"></b>Open models $8.10</span><span><b style="background:#bf5af2"></b>Frontier $3.00</span><span><b style="background:#30d158"></b>Sandboxes $1.90 (12.8 h)</span><span>of $25 included</span></div>
+          <div class="group">
+            <div class="row"><span>Default Chief model</span><span class="mbtn">Kimi K2.7 Code ▾</span></div>
+            <div class="row"><span>Use my Claude / ChatGPT subscription when this Mac is on</span><span class="mbtn">On</span></div>
+            <div class="row"><span>Monthly spend limit above included</span><span class="mbtn">$50 ▾</span></div>
+            <div class="row"><span>Pause idle sandboxes after</span><span class="mbtn">10 min ▾</span></div>
+          </div>
+          <div class="group">
+            <div class="row"><span>Add credits</span><span style="display:flex;gap:6px"><span class="mbtn">$10</span><span class="mbtn">$20</span><span class="mbtn p">$50</span><span class="mbtn">$100</span></span></div>
+            <div class="row"><span>Usage by Chief</span><span style="color:var(--muted)">Default Chief $9.20 · Release Chief $3.80 ›</span></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- F -->
+  <section class="variant" id="f">
+    <div class="vhead"><h2>F · Out of credits: inline card in the Chief chat</h2><span class="tag rec">Recommended in-app design</span></div>
+    <p class="why">When the model gateway returns <code>credits_exhausted</code>, Chief posts one card (once per conversation, as today) instead of a plain link. Three ways forward, each one key: top up (opens the signed checkout link), switch this chat to open models, or hand the turn to your own Claude Code on this Mac. Free users see "Upgrade to Pro" instead of top up.</p>
+    <div class="mac"><div class="win">
+      <div class="winbar"><span class="r r1"></span><span class="r r2"></span><span class="r r3"></span><span class="t">Home · Default Chief</span></div>
+      <div class="chat">
+        <div class="msg me">Run the full test suite on a 16 GB sandbox and fix what fails</div>
+        <div class="msg them">Starting sandbox (8 vCPU / 16 GB, ≈ $0.59/h)…</div>
+        <div class="oc">
+          <h4>You're out of Chief credits</h4>
+          <p>This turn needs about $0.40. Your $25 included credits reset Nov 1. Pick how to keep going:</p>
+          <div class="chips"><span class="mbtn p">Add $20 credits<span class="kbd">↩</span></span><span class="mbtn">Use open models (4x cheaper)<span class="kbd">⌘1</span></span><span class="mbtn">Use my Claude Code<span class="kbd">⌘2</span></span></div>
+        </div>
+      </div>
+      <div class="composer"><span>Chief is paused until you choose</span><span>Esc to dismiss</span></div>
+    </div></div>
+  </section>
+
+  <!-- G -->
+  <section class="variant" id="g">
+    <div class="vhead"><h2>G · Sandbox cost hint when Chief starts one</h2><span class="tag">In-app design</span></div>
+    <p class="why">Chief starting a sandbox is the new cost driver, so the floating card that announces it shows size, hourly price and the idle pause. No confirm needed below the spend limit; above it, Approve/Deny with Enter/Esc (same pattern as the pairing card).</p>
+    <div class="mac"><div class="win sheet" style="min-height:220px">
+      <div class="winbar"><span class="r r1"></span><span class="r r2"></span><span class="r r3"></span><span class="t">cmux</span></div>
+      <div class="floating">
+        <div style="font-weight:600;font-size:13.5px">Chief wants a sandbox</div>
+        <div style="color:var(--muted);font-size:12.5px;margin:4px 0 10px">8 vCPU / 16 GB · $0.59 per running hour · pauses after 10 min idle · this would pass your $50 limit</div>
+        <div style="display:flex;gap:6px;justify-content:flex-end"><span class="mbtn">Deny<span class="kbd">esc</span></span><span class="mbtn p">Approve<span class="kbd">↩</span></span></div>
+      </div>
+    </div></div>
+  </section>
+</main>
+</body>
+</html>
