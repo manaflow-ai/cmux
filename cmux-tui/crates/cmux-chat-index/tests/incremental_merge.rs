@@ -77,6 +77,9 @@ fn one_transcript_write_merges_one_chat() {
     // A deleted transcript removes that chat only.
     std::fs::remove_file(&file).unwrap();
     let changes = index.paths_changed(&[file]);
-    assert!(matches!(changes.as_slice(), [cmux_chat_index::ChatChange::Removed { .. }]), "{changes:?}");
+    assert!(
+        matches!(changes.as_slice(), [cmux_chat_index::ChatChange::Removed { .. }]),
+        "{changes:?}"
+    );
     assert_eq!(index.chats().len(), CHATS);
 }
