@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::*;
+use optchat_chief::brain::Input;
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 use optchat_chief::tools::{ControlCall, Orchestrator};
 
@@ -235,6 +236,59 @@ fn a_queued_line_names_the_env_cap() {
         "{spawned}"
     );
     assert!(spawned.contains("control cap 0"), "{spawned}");
+}
+
+/// The session id of the first subagent (`a1`).
+fn sub_session(h: &Harness) -> String {
+    let inner = h.agents.inner.lock().unwrap();
+    let k = inner
+        .specs
+        .iter()
+        .position(|s| s.tags.contains_key("optchat.subagent"))
+        .expect("a subagent session");
+    format!("s{}", k + 1)
+}
+
+fn idle(session: &str) -> cmux_chief::acp::SessionSummary {
+    serde_json::from_value(serde_json::json!({
+        "sessionId": session, "name": "a1", "status": "idle", "harness": "claude",
+    }))
+    .unwrap()
+}
+
+/// Tell interrupts by default (user 2026-10-20: "We need a default behavior
+/// for you to interrupt instead of queuing."): a running subagent whose
+/// agent cannot steer has its turn stopped, and the message is its next
+/// prompt, not one queued behind an hour-long turn.
+#[test]
+fn a_tell_to_a_running_subagent_that_cannot_steer_interrupts_it() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["long job".into()], None)).unwrap();
+    wait_for(&mut h, |h| !sub_prompts(h).is_empty());
+    let session = sub_session(&h);
+    let a = sp.clone();
+    let told = run(&mut h, move || a.tell("a1", "stop and fix the build")).unwrap();
+    assert!(told.starts_with("outcome: done."), "{told}");
+    wait_for(&mut h, |h| {
+        !h.agents.inner.lock().unwrap().cancels.is_empty()
+    });
+    assert_eq!(
+        h.agents.inner.lock().unwrap().cancels,
+        vec![session.clone()]
+    );
+    // Nothing waits in the queue behind the running turn.
+    assert_eq!(sub_prompts(&h).len(), 1, "{:?}", sub_prompts(&h));
+    // The cut turn ends: the message goes in as the next prompt.
+    h.agents.hold(false);
+    h.brain.step(Input::from(
+        optchat_chief::acpmux::AgentEvent::SessionChanged(idle(&session)),
+    ));
+    wait_for(&mut h, |h| sub_prompts(h).len() >= 2);
+    let prompts = sub_prompts(&h);
+    assert!(prompts[1].contains("stop and fix the build"), "{prompts:?}");
 }
 
 #[test]
