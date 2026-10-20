@@ -52,6 +52,7 @@ on:
       - scripts/ci/cmux-tui-darwin-builder
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
+      - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
@@ -258,6 +259,7 @@ on:
       - scripts/ci/cmux-tui-darwin-builder
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
+      - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
@@ -713,11 +715,18 @@ jobs:
           # branch. Pull requests may fall back to the base tree; a missing own
           # tree fails closed because this checked-out revision cannot dispatch.
           # A scheduled DEV run likewise owns its exact SHA without mutation
-          # authority; only trusted controls may start a publisher.
+          # authority; only trusted controls may start a publisher. Its probe
+          # looks once (read-only) for its push's artifacts run or a same-tree
+          # run and defers to it; dev-daily-tree-wait then waits.
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
+          # A same-repository PR with its own merge tree waits (read-only, the
+          # script's 90s default) for the artifacts run main's
+          # cmux-next-pr-merge-tree.yml starts on cmux-tui-pin-<sha12>. That
+          # workflow skips forks, so a fork PR looks once.
+          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '' }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
@@ -790,8 +799,8 @@ jobs:
         id: tree-final
         if: steps.marker-upload.outcome == 'success'
         env:
-          # A scheduled DEV run owns its exact SHA. A cold tree fails closed;
-          # this checked-out revision never starts a publisher.
+          # A scheduled DEV run owns its exact SHA. A cold tree with no active
+          # publisher fails closed; this checked-out revision never starts one.
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -1291,6 +1300,7 @@ jobs:
           bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
             bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
+            bash scripts/cmux-next/tests/check-switch-fetches.test.sh
             bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
             python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
             bash scripts/cmux-next/tests/check-app-size.test.sh
@@ -1722,9 +1732,11 @@ jobs:
 
   # The build fleet's compile verdict for the Swift canary. Opt-in: with the
   # CI_COMPILE_CHECK_GATEWAY variable set (a tailnet gateway runner label), a
-  # same-repository run hands `cmux-ci compile-check` the commit and the
-  # CmuxNext package; the fleet compiles the whole package and its tests (a
-  # superset of the canary's changed targets) and answers. A pass lets the
+  # same-repository run hands `cmux-ci compile-check --app` the commit; the
+  # fleet compiles and links the app executable, which covers every
+  # production target the app links (the canary's targets are production
+  # targets only), and answers. The two production targets the app does not
+  # link go straight to the Mac canary. A pass lets the
   # canary below report it from a small Linux runner instead of taking a Mac.
   # A red, an unavailable fleet or a timeout runs the Mac canary as before,
   # which prints the errors: this job never fails a run itself.
@@ -1749,10 +1761,22 @@ jobs:
         id: check
         env:
           REF: ${{ github.sha }}
+          SWIFT_CANARY_TARGETS: ${{ needs.path_route.outputs.swift_canary_targets }}
         run: |
           set -uo pipefail
+          # Production targets of Packages/macOS/CmuxNext that the app
+          # executable does not link (ci-target-graph.json: not reachable from
+          # CmuxNextApp). The app check cannot vouch for them.
+          for target in $SWIFT_CANARY_TARGETS; do
+            case "$target" in
+              CmuxNextAppPermissions|CmuxNextServerHelperDaemon)
+                echo "::notice title=Build fleet compile check::$target is not linked into the app; the Mac canary runs."
+                echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
+                exit 0 ;;
+            esac
+          done
           status=0
-          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" compile-check --ref "$REF" --package CmuxNext \
+          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" compile-check --ref "$REF" --app \
             --timeout 1200 --queue-timeout 300 2>"$RUNNER_TEMP/compile-check.stderr" || status=$?
           case "$status" in
             0) verdict=pass ;;
@@ -1791,11 +1815,11 @@ jobs:
       - name: Report the build fleet compile verdict
         if: ${{ needs.swift-canary-fleet.outputs.verdict == 'pass' }}
         run: |
-          echo "The build fleet compiled CmuxNext and its tests at this commit; the Mac canary was not needed."
+          echo "The build fleet compiled and linked the cmux-next app at this commit; the Mac canary was not needed."
           {
             echo "### Swift canary"
             echo
-            echo "The build fleet compiled CmuxNext and its tests at this commit (swift-canary-fleet), so this canary did not take a Mac."
+            echo "The build fleet compiled and linked the cmux-next app at this commit (swift-canary-fleet), so this canary did not take a Mac."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Clear stale git locks (self-hosted reused workspace)

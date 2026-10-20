@@ -31,6 +31,8 @@ import { TaskCheckbox } from "../../../ui/TaskCheckbox";
 import { githubReferences } from "../../../githubReferences";
 import { openingFence, closesFence } from "./markdownFence";
 import { acpmuxPerf } from "../perf";
+import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
+import { splitMentions } from "../started/startedSessions";
 import { entranceAllowed } from "../../shared/pageReveal";
 
 export type Align = "left" | "center" | "right" | null;
@@ -276,6 +278,8 @@ export type InlineOptions = {
   githubRepository?: string;
   /** Link GitHub references in prose; labels of an outer link disable this. */
   linkGithubReferences?: boolean;
+  /** The chats the open chat started, whose names draw as chips (started/startedSessions.ts). */
+  started?: StartedMentions;
 };
 
 export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
@@ -395,6 +399,23 @@ function linkedGithubText(text: string, key: string, repository?: string, enable
   return out;
 }
 
+/// Plain prose: a started chat's name is its chip; the rest links GitHub references and URLs.
+function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] {
+  const pieces = opts.started?.mentions.length ? splitMentions(text, opts.started.mentions) : [text];
+  return pieces.flatMap((piece, index): ReactNode[] =>
+    typeof piece === "string"
+      ? linkedGithubText(piece, `${key}-${index}`, opts.githubRepository, opts.linkGithubReferences !== false)
+      : [
+          <StartedSessionChip
+            key={`${key}-${index}`}
+            mention={piece.mention}
+            text={piece.text}
+            onOpen={opts.started!.open}
+          />,
+        ],
+  );
+}
+
 // Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a
 // paragraph (not prose, words and punctuation, beside a space, so the shell's "echo $$ and $$"
 // and "echo $$ prints the shell's PID, and echo $$" stay text while
@@ -414,17 +435,11 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   let last = 0;
   let k = 0;
   for (const m of text.matchAll(INLINE_RE)) {
-    if (m.index! > last)
-      out.push(
-        ...linkedGithubText(
-          text.slice(last, m.index),
-          `t${k++}`,
-          opts.githubRepository,
-          opts.linkGithubReferences !== false,
-        ),
-      );
+    if (m.index! > last) out.push(...proseText(text.slice(last, m.index), `t${k++}`, opts));
     const t = m[0];
-    if (m[1]) {
+    const named = m[1] ? opts.started?.mentions.find((mention) => mention.text === t.slice(1, -1)) : undefined;
+    if (named) out.push(<StartedSessionChip key={k++} mention={named} text={named.text} onOpen={opts.started!.open} />);
+    else if (m[1]) {
       const path = codePath(t.slice(1, -1));
       out.push(
         path ? (
@@ -445,9 +460,13 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // A local path is a path chip; a link the pane will not open draws as its text; a web
       // link is a chip with its site's mark (chips/LinkChips.tsx).
       const path = linkPath(lm[2]);
-      const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
+      const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
+      // A link to a session (`cmux://session/<id>`) the open chat started opens that chat.
+      const linked = /^[a-z][\w+.-]*:\/\/session\/([\w-]+)$/i.exec(lm[2])?.[1];
+      const named = linked ? opts.started?.mentions.find((mention) => mention.sessionId === linked) : undefined;
       const app = href ? undefined : appHref(lm[2]);
-      if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
+      if (named) out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
+      else if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
       else if (app)
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
         out.push(
@@ -498,10 +517,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
     }
     last = m.index! + t.length;
   }
-  if (last < text.length)
-    out.push(
-      ...linkedGithubText(text.slice(last), `t${k++}`, opts.githubRepository, opts.linkGithubReferences !== false),
-    );
+  if (last < text.length) out.push(...proseText(text.slice(last), `t${k++}`, opts));
   return out;
 }
 
@@ -541,7 +557,7 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
     return <OversizedImage alt={alt} opts={opts} />;
   if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
-  const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
+  const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
   const href = safeHref(src);
   const fallback = !href ? (
     <span className="cv-link is-image">
@@ -969,6 +985,8 @@ export function Markdown({
   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
   const overBudget = useMemo(() => dataUrlsOverBudget(budgetSource), [budgetSource]);
   const notePrefix = useId();
+  const startedContext = useStartedMentions();
+  const started = startedContext.mentions.length ? startedContext : undefined;
   const opts = useMemo<InlineOptions>(() => {
     const ids = noteIds ? noteIds.split(" ") : [];
     const numbers = new Map(ids.map((id, index) => [id, index + 1]));
@@ -977,8 +995,9 @@ export function Markdown({
       githubRepository,
       notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` },
       overBudget,
+      ...(started ? { started } : {}),
     };
-  }, [githubRepository, linkIcon, noteIds, notePrefix, overBudget]);
+  }, [githubRepository, linkIcon, noteIds, notePrefix, overBudget, started]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;

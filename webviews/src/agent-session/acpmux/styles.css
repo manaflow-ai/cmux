@@ -76,12 +76,12 @@
 .acpmux-picker-button{display:flex;align-items:center;gap:4px;min-width:0;height:28px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);white-space:nowrap}
 .acpmux-picker-button>span{overflow:hidden;text-overflow:ellipsis}
 .acpmux-picker-button[aria-expanded=true]{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}@media (hover:hover) and (pointer:fine){.acpmux-picker-button:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
-.acpmux-picker-button:focus-visible,.acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
+.acpmux-picker-button:focus-visible,:where(button).acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
 .acpmux-mode .acpmux-picker-button{gap:6px;padding:0 8px 0 6px;color:var(--agent-muted)}
-.acpmux-plan{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default;white-space:nowrap}
-.acpmux-plan:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
+:where(button).acpmux-plan{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default;white-space:nowrap}
+:where(button).acpmux-plan:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 /* Plan on is accent ink with no pill at rest (Leo 2026-10-19); hover, focus and a press draw the chips' soft pill. */
-.acpmux-plan[aria-pressed=true]{color:var(--agent-accent,var(--agent-text))}
+:where(button).acpmux-plan[aria-pressed=true]{color:var(--agent-accent,var(--agent-text))}
 .acpmux-separator{flex:none;width:1px;height:18px;margin:0 4px;background:var(--acpmux-composer-edge)}
 .acpmux-chips>.acpmux-plan+.acpmux-chips-spacer,.acpmux-chips>.acpmux-mode+.acpmux-chips-spacer{margin-left:0}
 /* Full access draws in the chip's own color, like Claude's mode label: the shield's mark names the risk and the menu marks its icon (Leo 2026-10-18). */

@@ -8,6 +8,7 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { expandPrompt } from "./promptCollapse";
 import { ChatSessionContext } from "./viewIdentity";
+import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -20,9 +21,16 @@ const SEARCHED_KINDS = new Set(["user", "assistant"]);
 
 /** What a tool call or thought draws: a thought's text, or a call's command (else its title) and
  * output. Group and run summaries are not counted, so they are not highlighted (`data-find-skip`). */
+/// An MCP call draws its pretty request and response (McpCallRows.tsx); other output draws
+/// without the context a host injects into it, as ToolRow does.
 function drawnText(item: AcpmuxActivity): string {
   const tool = item.tool;
-  return (tool ? [tool.command || tool.title, tool.output] : [item.text]).filter(Boolean).join("\n");
+  if (!tool) return item.text;
+  const call = mcpCall(tool);
+  if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
+  const shell = tool.kind === "execute" && Boolean(tool.command);
+  const output = shell || !tool.output ? tool.output : cleanText(tool.output);
+  return [tool.command || tool.title, output].filter(Boolean).join("\n");
 }
 
 /** A call's edits' new text, which draws in @pierre/diffs' shadow root, past the page's highlights. */

@@ -6,6 +6,7 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
+import type { IncomingPrompt } from "./conversation/incomingMessage";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -14,6 +15,7 @@ import { isThoughtNote } from "./conversation/thoughtStyle";
 import type { ComposerAttachment } from "./attachments";
 import { labOn } from "./labs";
 import { PROMPT_LINES, promptExpanded } from "./conversation/promptCollapse";
+import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -39,6 +41,31 @@ export type AcpmuxCompaction = {
 
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
+
+/// A message to this chat that acpmux holds while its pair is paused (`agent_pair_held`).
+export type AcpmuxHeldMessage = { promptId: string; text: string };
+
+/// acpmux paused messages between this chat and another agent's (an `agent_pair_paused` record,
+/// conversation/agentPairs.ts): why, what it still holds, what it settled, and whether it resumed.
+export type AcpmuxAgentPair = {
+  peer: string;
+  peerName: string;
+  /// Back and forth without progress, the same message again, more than the cap within
+  /// `windowSecs`, or a held message acpmux could not deliver after a resume.
+  reason: "alternating" | "repeating" | "cap" | "release_failed";
+  count: number;
+  windowSecs?: number;
+  /// Why a release failed (`release_failed`).
+  error?: string;
+  /// Messages still held, once each, in the order acpmux held them; a re-pause takes over what an
+  /// earlier pause with the same peer still held.
+  held: AcpmuxHeldMessage[];
+  /// Held messages acpmux delivered (`agent_pair_released`).
+  released: number;
+  /// Held messages it gave up on (`agent_pair_dropped`).
+  dropped: number;
+  resumed?: boolean;
+};
 
 /// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's
 /// `session_info_update._meta.claude`): drawn once, where the session started
@@ -79,6 +106,8 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// An agent pair row's pause (conversation/AgentPairNote.tsx).
+  agentPair?: AcpmuxAgentPair;
   /// A session start row's agent, version, model, route and folder.
   sessionStart?: AcpmuxSessionStart;
   /// A suggested tasks card's offers (offer/SuggestedTasks.tsx): the offers of one group, in the
@@ -86,6 +115,17 @@ export type AcpmuxRow = {
   offers?: AcpmuxSessionOffer[];
   /// A prompt acpmux sent this chat with a suggested task's result (offer/SuggestedTasks.tsx).
   received?: AcpmuxOfferResult;
+  /// A prompt that is not the person's: another agent's message, or harness bookkeeping
+  /// (conversation/incomingMessage.ts).
+  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "hidden" }>;
+  /// The prompt as the agent got it, when the row shows something else (an incoming message's
+  /// body): what Retry sends again.
+  resend?: string;
+  /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
+  /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
+  untyped?: boolean;
+  /// A started sessions row's chats, oldest first (started/StartedSessionCard.tsx).
+  started?: StartedSession[];
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -130,6 +170,8 @@ export type AcpmuxRow = {
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
+  /// A todo list whose turn has ended: a step left in progress no longer spins (conversation/turns.ts).
+  turnEnded?: boolean;
   /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
   merged?: string[];
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
@@ -520,6 +562,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === SUBAGENT_OF) return 44;
   // The 27px disclosure line, and the live status lines in its place.
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
+  // The activity line: one 24px line with 4px above and 8px below (conversation/ActivityLine.tsx).
+  if (row.kind === ACTIVITY_LINE) return 36;
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return 36;
   // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
@@ -536,10 +580,18 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
+  // A turn's started chats (started/StartedSessionCard.tsx): one card, its 1px edges, a 34px row
+  // for each, 50px with its status line, 1px hairlines between, in 8px of row padding.
+  if (row.kind === STARTED_SESSIONS && row.started)
+    return (
+      8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 50 : 34), 0) + (row.started.length - 1)
+    );
+  // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
+  if (row.kind === "agentPair") return row.agentPair?.resumed ? 37 : 37 + 24;
   // A session start: its facts line, and the compaction note under it until it is dismissed.
   if (row.kind === "sessionStart") return 37 + 44;
-  // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
-  if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
+  // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
+  if (row.kind === "plan" && row.plan) return 40 + row.plan.length * 24;
   if (
     row.kind === "turnSummary" ||
     row.kind === "notice" ||
@@ -673,6 +725,23 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   if (row.received) return 26 + 16;
   // A note between steps drawn as a closed thought line, as a one-call tool row.
   if (isThoughtNote(row)) return 36;
+  // Another agent's message: its route line over two lines of the message; a notice is a tool
+  // row's line (conversation/IncomingMessageCard.tsx).
+  // Its images' 72px row with 6px below, and a steer's status line, as under a bubble.
+  if (row.incoming?.kind === "message")
+    return (
+      32 +
+      2 * 19 +
+      7 +
+      8 +
+      (row.incoming.message.text.length > 140 ? 12 : 0) +
+      (row.images?.length ? 78 : 0) +
+      (row.steer ? USER_STATUS_HEIGHT : 0)
+    );
+  if (row.incoming?.kind === "notice") return 26 + 8;
+  // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
+  if (row.incoming?.kind === "hidden") return 0;
+  // A preview row's text is its address, not prose: the card's height is fixed.
   if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width);
   if (row.kind === "user" && labOn("promptCollapse")) {
     const contentWidth = Math.max(80, USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES);
@@ -837,7 +906,7 @@ import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { PREVIEW_FRAME_HEIGHT, previewFrameHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
-import { DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
+import { ACTIVITY_LINE, DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";

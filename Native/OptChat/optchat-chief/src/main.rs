@@ -21,8 +21,11 @@ optchat-chief usage backfill [--force] [--mux-home DIR]   convert old traces int
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
-optchat-chief settings [show | set remote.autoApprove true|false | set replies.thread auto|always|never | set show.afterReport true|false] [--mux-home DIR]
-                                                           per-Chief settings (on only from the Mac, outside a remote-origin turn)
+optchat-chief settings [show | set remote.ask true|false | set home.ask true|false | set remote.autoApprove true|false
+                       | set replies.thread auto|always|never | set show.afterReport true|false] [--mux-home DIR]
+                                                           per-Chief settings; remote.ask: ask before acting on requests from
+                                                           other devices; home.ask: ask in turns that read Home (both default
+                                                           false; loosened only from the Mac, outside a remote-origin turn)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
@@ -222,11 +225,18 @@ fn main() -> std::process::ExitCode {
                         let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
                         if let Some((key, value)) = set {
                             use optchat_chief::chief_settings::{
-                                CACHE_TTL, REMOTE_AUTO_APPROVE, parse_bool, parse_ttl,
+                                CACHE_TTL, HOME_ASK, REMOTE_ASK, REMOTE_AUTO_APPROVE, parse_bool,
+                                parse_ttl,
                             };
                             match key {
                                 REMOTE_AUTO_APPROVE => s.remote_auto_approve = parse_bool(value)?,
+                                REMOTE_ASK => s.remote_ask = parse_bool(value)?,
+                                HOME_ASK => s.home_ask = parse_bool(value)?,
                                 CACHE_TTL => s.cache_ttl = Some(parse_ttl(value)?),
+                                optchat_chief::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS => {
+                                    s.cloud_auto_pause_idle_secs =
+                                        optchat_chief::chief_settings::parse_idle_secs(value)?
+                                }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }
                             s.save(&file)

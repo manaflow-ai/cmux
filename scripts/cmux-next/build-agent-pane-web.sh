@@ -79,7 +79,7 @@ cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/planProgress.css" "$SRC/acpmux/shortcutsHelp.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$SRC/acpmux/offer/suggestedTasks.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
+cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$SRC/acpmux/offer/suggestedTasks.css" "$SRC/acpmux/started/startedSessions.css" "$SRC/acpmux/started/sessionHover.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
 # Every sheet the pane imports ships: a missing one renders its component unstyled in the app
 # only (the dev server loads imports), as New Tab's tools did.
 while IFS= read -r sheet; do
