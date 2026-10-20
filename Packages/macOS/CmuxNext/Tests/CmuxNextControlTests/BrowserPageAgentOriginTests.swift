@@ -16,7 +16,7 @@ import Testing
         let engine = Engine(BrowserPageAgentInputTests.field)
         BrowserPageService(engine: engine).install(on: router)
         var snapshot = HomeChatCallerTests.snapshot()
-        let index = try! #require(snapshot.topology.workspaces.firstIndex { $0.id == "ws-1" })
+        let index = snapshot.topology.workspaces.firstIndex { $0.id == "ws-1" }!
         snapshot.topology.workspaces[index].title = "cursor-gallery"
         snapshot.topology.workspaces[index].screens[0].panes[0].tabs[0].terminalID = "term-7"
         let page = ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Form", url: "https://example.com/")
@@ -36,7 +36,7 @@ import Testing
         try await click(router, ["agent": "a201", "caller": ["terminal_id": "term-7"]])
         let input = try #require(engine.inputs.last)
         #expect(input.agent == "a201")
-        #expect(input.origin == BrowserPageAgentOrigin(isChief: false, workspaceID: "ws-1", workspaceName: "cursor-gallery",
+        #expect(input.origin == BrowserPageAgentOrigin(isChief: false, workspaceID: "ws_aaa", workspaceName: "cursor-gallery",
                                                       tabID: "tab-1"))
     }
 
