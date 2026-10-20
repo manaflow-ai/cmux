@@ -26,6 +26,8 @@ pub const CLOUD_OP_KINDS: &[&str] = &[
     "reaction.remove",
     "read_cursor.set",
     "title.set",
+    // A group's "Chiefs Reply" setting (wake_policy), owner only (chief-group-chats-DESIGN.md).
+    "conversation.settings.set",
     "thread.update",
     "invite.create",
     // Message requests (home-messaging-invites DESIGN 2.3): the invited
