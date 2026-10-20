@@ -247,6 +247,17 @@ fn pinned_column_survives_pane_close_screen_close_and_a_split() {
     });
     assert_eq!(dock_panes, 1, "no pane joined the pinned column");
 
+    // A second screen keeps the workspace open (closing its last screen closes the workspace,
+    // which is not a removal; the store's home workspace refuses that itself, `home_not_closable`).
+    let workspace_id = wire.mux.with_state(|state| state.workspaces[0].id);
+    wire.mux
+        .new_screen_with_spec(
+            Some(workspace_id),
+            crate::TerminalSpawnOptions::new(None, Vec::new()),
+            None,
+            crate::ScreenSpec::default(),
+        )
+        .unwrap();
     let (workspace, screen) = wire.mux.with_state(|state| {
         let workspace = &state.workspaces[0];
         (workspace.public_id.to_string(), workspace.screens[0].public_id.to_string())
