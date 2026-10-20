@@ -51,6 +51,8 @@ mod steer_only;
 mod stop;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
+#[path = "hub_integration/tell_delivery.rs"]
+mod tell_delivery;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
 

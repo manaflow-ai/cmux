@@ -17,7 +17,7 @@ use std::time::Instant;
 /// agent that ignores the cancel is given (`hub/cancel.rs`), so a pass means it was stopped.
 const PROMPT_STOP_BUDGET: Duration = Duration::from_secs(5);
 
-fn text_prompt(id: &str, text: &str, prompt_id: &str, extra: Value) -> Value {
+pub(super) fn text_prompt(id: &str, text: &str, prompt_id: &str, extra: Value) -> Value {
     let mut meta = json!({"promptId": prompt_id});
     if let (Some(m), Some(extra)) = (meta.as_object_mut(), extra.as_object()) {
         m.extend(extra.clone());
@@ -25,7 +25,7 @@ fn text_prompt(id: &str, text: &str, prompt_id: &str, extra: Value) -> Value {
     json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": meta}})
 }
 
-fn hub_with(profile: HarnessProfile, edit: impl FnOnce(&mut Config)) -> Arc<Hub> {
+pub(super) fn hub_with(profile: HarnessProfile, edit: impl FnOnce(&mut Config)) -> Arc<Hub> {
     let mut cfg = Config {
         harnesses: BTreeMap::from([("h".to_owned(), profile)]),
         default_harness: Some("h".into()),
@@ -60,7 +60,7 @@ fn profile(
 }
 
 /// The three harness kinds: (name, profile, the prompt that runs until stopped).
-fn harnesses() -> Vec<(&'static str, HarnessProfile, &'static str)> {
+pub(super) fn harnesses() -> Vec<(&'static str, HarnessProfile, &'static str)> {
     let fake_agent = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
     let fake_codex = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_codex_app_server.py");
@@ -104,7 +104,7 @@ fn harnesses() -> Vec<(&'static str, HarnessProfile, &'static str)> {
     ]
 }
 
-async fn client(hub: &Arc<Hub>) -> TestClient {
+pub(super) async fn client(hub: &Arc<Hub>) -> TestClient {
     connect(hub).await
 }
 

@@ -6,7 +6,10 @@ field. `model/list` answers in two pages; `thread/start` makes one thread and
 FAKE_CODEX=unauth refuses `model/list` as a signed-out Codex does;
 FAKE_CODEX=hang never answers; FAKE_DELAY waits before each answer.
 A prompt with "until-interrupt" streams "working" and completes its turn
-(interrupted) only on `turn/interrupt`.
+(interrupted) only on `turn/interrupt`. "long-tool" starts a command that runs
+for 30 s; `turn/steer` into it is accepted at once and answered "read: <text>"
+in order (Codex takes steered input at once), and the turn completes after the
+command.
 
 Background terminals (unified exec): a prompt with "bg-codex" runs `npm run
 dev` (process 1001), whose item is still open when the turn completes, `ls`
@@ -159,6 +162,11 @@ for line in sys.stdin:
             sys.exit(1)
         reply({"id": rid, "result": {"turn": {"id": turn, "status": "inProgress", "items": []}}})
         reply({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": turn, "status": "inProgress", "items": []}}})
+        if "long-tool" in text:
+            reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": "running a long tool\n"}})
+            item_event("started", thread, turn, exec_item("call_long", "sleep 30", "4001", os.getcwd()))
+            open_turns[turn] = thread
+            continue
         if "until-interrupt" in text:
             reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": "working"}})
             open_turns[turn] = thread
@@ -168,6 +176,16 @@ for line in sys.stdin:
         reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": "ok"}})
         status = "interrupted" if "bg-codex-interrupt" in text else "completed"
         reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": status, "items": []}}})
+    elif method == "turn/steer":
+        params = message.get("params", {})
+        turn = params.get("expectedTurnId")
+        thread = params.get("threadId")
+        if turn not in open_turns:
+            reply({"id": rid, "error": {"code": -32600, "message": "no active turn"}})
+            continue
+        reply({"id": rid, "result": {"turnId": turn}})
+        said = " ".join(i.get("text") or "" for i in params.get("input") or [] if isinstance(i, dict))
+        reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m-steer", "delta": "read: " + said + "\n"}})
     elif method == "turn/interrupt":
         params = message.get("params", {})
         turn = params.get("turnId")
