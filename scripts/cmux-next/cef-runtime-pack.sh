@@ -69,7 +69,8 @@ wrapper="$product Chromium.app"
 plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true; }
 bundle_id="$(plist "$app/Contents/Info.plist" CFBundleIdentifier)"
 [[ -n "$bundle_id" ]] || die "no CFBundleIdentifier in $app/Contents/Info.plist"
-team="$(/usr/bin/codesign -dv "$frameworks/$FRAMEWORK" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+# An unsigned engine (tests) makes codesign fail: no team.
+team="$( { /usr/bin/codesign -dv "$frameworks/$FRAMEWORK" 2>&1 || true; } | sed -n 's/^TeamIdentifier=//p')"
 [[ "$team" == "not set" ]] && team=""
 binary="$frameworks/$FRAMEWORK/Chromium Embedded Framework"
 archs="$( { /usr/bin/lipo -archs "$binary" 2>/dev/null || echo unknown; } | tr ' ' '\n' | sort | tr '\n' ' ')"
@@ -150,20 +151,13 @@ stage="$(mktemp -d "${TMPDIR:-/tmp}/cef-runtime-pack.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 contents="$stage/$wrapper/Contents"
 mkdir -p "$contents/Frameworks"
-cat > "$contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleIdentifier</key><string>$bundle_id</string>
-  <key>CFBundleName</key><string>$product Chromium</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>$cef_version</string>
-  <key>CFBundleVersion</key><string>$cef_version</string>
-  <key>LSUIElement</key><true/>
-</dict>
-</plist>
-PLIST
+/usr/bin/python3 - "$contents/Info.plist" "$bundle_id" "$product Chromium" "$cef_version" <<'PY'
+import plistlib, sys
+path, bundle_id, name, version = sys.argv[1:]
+with open(path, "wb") as f:
+    plistlib.dump({"CFBundleIdentifier": bundle_id, "CFBundleName": name, "CFBundlePackageType": "APPL",
+                   "CFBundleShortVersionString": version, "CFBundleVersion": version, "LSUIElement": True}, f)
+PY
 # mv keeps the signatures (and their extended attributes) as sign-cef.sh wrote them.
 mv "$frameworks/$FRAMEWORK" "$frameworks/$SHIM" "$contents/Frameworks/"
 for helper in "${helpers[@]}"; do mv "$helper" "$contents/Frameworks/"; done

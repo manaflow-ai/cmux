@@ -57,12 +57,15 @@ asset="$work/out/cef-runtime-$key.tar.xz"
 [[ -z "$(field "$pin" team_id)" ]] || fail "an unsigned pack has no team"
 [[ "$(field "$pin" schema)" == 1 && -n "$(field "$pin" shim_abi)" && -n "$(field "$pin" cef)" ]] || fail "pin fields"
 cmp -s "$pin" "$app/Contents/Resources/cef-runtime.json" || fail "the app's pin differs"
-entries="$(tar -tf "$asset")"
-grep -qvE '^(cmux TEST Chromium\.app/|cef-runtime\.json$)' <<<"$entries" && fail "unexpected entries: $(grep -vE '^(cmux TEST Chromium\.app/|cef-runtime\.json$)' <<<"$entries" | head -3)"
+# A file, not a here-string: grep reads it directly.
+tar -tf "$asset" > "$work/entries"
+if grep -vE '^(cmux TEST Chromium\.app/|cef-runtime\.json$)' "$work/entries" > "$work/unexpected"; then
+  fail "unexpected entries: $(head -3 "$work/unexpected")"
+fi
 for want in "Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Chromium Embedded Framework" \
             "Contents/Frameworks/libcmux_cef_shim.dylib" "Contents/Frameworks/cmux TEST Helper.app/Contents/MacOS/cmux TEST Helper" \
             "Contents/Frameworks/cmux TEST Helper (GPU).app/" "Contents/Info.plist"; do
-  grep -qF "cmux TEST Chromium.app/$want" <<<"$entries" || fail "missing $want"
+  grep -qF "cmux TEST Chromium.app/$want" "$work/entries" || fail "missing $want"
 done
 mkdir "$work/x" && tar -xf "$asset" -C "$work/x"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$work/x/cmux TEST Chromium.app/Contents/Info.plist")" == com.cmuxterm.app.test ]] \
