@@ -400,6 +400,25 @@ extension DockSplitStore {
             (autoResumeAgentSessions &&
                 (agentWasRunning || shouldAutoResumeNormallyEndedClaude || legacySubrouterBinding)) &&
             !suppressesResumeForBackgroundSession
+        // A crash snapshot can contain the same checkpoint in more than one
+        // window.  Claim automatic startup once for the whole restore pass;
+        // later panels retain their snapshot and binding for manual recovery
+        // but must not launch a second writer.
+        let ownsRestorePassCheckpoint = if shouldAutoResumeAgent,
+           restorableAgentCanAutoResume,
+           hibernation == nil,
+           !suppressesResumeForBackgroundSession,
+           let restorableAgent {
+            SurfaceResumeRunPromptBatch.shared.claimAgentRestore(
+                kind: restorableAgent.kind.rawValue,
+                sessionID: restorableAgent.sessionId
+            )
+        } else {
+            true
+        }
+        let duplicateRestoreOwner = shouldAutoResumeAgent &&
+            restorableAgentCanAutoResume &&
+            !ownsRestorePassCheckpoint
         let usesExecutionAdmission = terminalSnapshot.isRemoteTerminal != true &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
@@ -535,7 +554,9 @@ extension DockSplitStore {
             ? nil
             : (compatibilityBindingOwnsStartup || legacySubrouterResumeInput != nil
                 ? nil
-                : unresolvedBindingLaunch)
+                : (resumeBinding?.isAgentHookBinding == true && !ownsRestorePassCheckpoint
+                    ? nil
+                    : unresolvedBindingLaunch))
         // Process-detected bindings already describe the shell command that
         // owns this terminal (for example, `tmux attach-session`). Re-entering
         // through `cmux restore` would rediscover the same binding and can
@@ -567,7 +588,8 @@ extension DockSplitStore {
             restoreStartupBlocked: restoreStartupBlocked,
             liveSessionOwner: liveSessionOwner
         )
-        let agentLaunch = shouldAutoResumeAgent && restorableAgentCanAutoResume &&
+        let agentLaunch = shouldAutoResumeAgent && ownsRestorePassCheckpoint &&
+            restorableAgentCanAutoResume &&
             hibernation == nil && legacySubrouterResumeInput == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
             ? restorableAgent?.resumeStartupInput(
@@ -579,6 +601,7 @@ extension DockSplitStore {
         // ordinary shell instead of waiting behind deferred admission.
         let deferredAgentResumeCandidateInput: String? = if
             !compatibilityBindingOwnsStartup,
+            ownsRestorePassCheckpoint,
             (restoreStartupBlocked || liveSessionOwner != nil || legacySubrouterResumeInput != nil),
             hibernation == nil,
             restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
@@ -694,6 +717,15 @@ extension DockSplitStore {
             internallySeededInput: initialInput
         )
         terminal.restoreRecovery.restore(from: terminalSnapshot.restoreRecovery)
+        if duplicateRestoreOwner,
+           let restorableAgent {
+            terminal.restoreRecovery.state = .failed(
+                reason: "duplicate-restore-owner",
+                recoveryInput: restorableAgent.resumeStartupInput(
+                    restoringWorkingDirectory: resumeSessionWorkingDirectory
+                )
+            )
+        }
         if willRunAgentInput {
             // Keep the typed resume selector so the shell-state handler can
             // replay it if the login shell drops the typeahead.
@@ -726,6 +758,7 @@ extension DockSplitStore {
             resumeWorkingDirectory: resumeSessionWorkingDirectory,
             agentSessionAlreadyActive: liveSessionOwner != nil ||
                 suppressesResumeForBackgroundSession ||
+                duplicateRestoreOwner ||
                 (deferredAgentResumeAdmission
                     ? true
                     : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),

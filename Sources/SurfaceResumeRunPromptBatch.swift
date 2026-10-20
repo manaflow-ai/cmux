@@ -11,11 +11,27 @@ final class SurfaceResumeRunPromptBatch {
 
     private(set) var stickyDecision: StickyDecision?
     private var activePassDepth = 0
+    private var claimedAgentRestoreKeys: Set<String> = []
 
     private init() {}
 
     var effectiveDecision: StickyDecision? {
         activePassDepth > 0 ? stickyDecision : nil
+    }
+
+    var hasActiveRestorePass: Bool { activePassDepth > 0 }
+
+    /// Claims one structured agent checkpoint for the current restore pass.
+    /// The first panel carrying an identity owns automatic startup; duplicate
+    /// panels remain recoverable without launching a second writer.
+    func claimAgentRestore(kind: String, sessionID: String) -> Bool {
+        guard activePassDepth > 0 else { return true }
+        let normalizedKind = kind.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = normalizedKind + "\u{1f}" + ManagedAgentSessionIdentity.canonicalSessionID(
+            kind: normalizedKind,
+            sessionID: sessionID
+        )
+        return claimedAgentRestoreKeys.insert(key).inserted
     }
 
     func beginRestorePass() {
@@ -27,6 +43,7 @@ final class SurfaceResumeRunPromptBatch {
         if activePassDepth <= 0 {
             activePassDepth = 0
             stickyDecision = nil
+            claimedAgentRestoreKeys.removeAll(keepingCapacity: false)
         }
     }
 
@@ -38,5 +55,6 @@ final class SurfaceResumeRunPromptBatch {
     func reset() {
         activePassDepth = 0
         stickyDecision = nil
+        claimedAgentRestoreKeys.removeAll(keepingCapacity: false)
     }
 }
