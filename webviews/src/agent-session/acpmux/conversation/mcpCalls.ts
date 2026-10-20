@@ -194,12 +194,12 @@ const TRAILING_BLOCK = new RegExp(`\\s*${BLOCK}\\s*$`);
 export function cleanText(text: string): string {
   if (!text.includes("<")) return text;
   let out = text;
-  for (let found = true; found; ) {
+  for (let found = true; found;) {
     const next = out.replace(LEADING_BLOCK, "");
     found = next !== out;
     out = next;
   }
-  for (let found = true; found; ) {
+  for (let found = true; found;) {
     const end = TRAILING_BLOCK.exec(out);
     found = Boolean(end);
     if (end) out = `${out.slice(0, end.index)}${/\n\s*$/.test(end[0]) ? "\n" : ""}`;
