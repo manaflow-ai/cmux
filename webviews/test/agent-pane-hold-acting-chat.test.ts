@@ -2,6 +2,8 @@
 // attach is in), the client already names the next chat as selected. Stop pressed on the chat the
 // pane still draws went to the hidden chat and cancelled its turn. An action goes to the chat on
 // screen.
+// #22264 review: a chat's own answer during that hold (its model options) must not land on the
+// chat opening, and a grouped permission answer from the drawn chat must not leave an error on it.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -25,6 +27,8 @@ afterAll(() => {
   }
 });
 
+const GROUP_OPS = ["_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke"];
+
 type Message = { id?: number; method: string; params?: Record<string, unknown> };
 
 const summary = (sessionId: string) => ({
@@ -45,6 +49,11 @@ class HoldingSocket {
   onmessage: ((message: { data: string }) => void) | null = null;
   sent: Message[] = [];
   holdB = true;
+  /** Holds chat B's permission groups read: B's attach is in, the hold is not released yet. */
+  holdGroupsB = false;
+  private heldGroupsB?: Message;
+  private groupsB?: () => void;
+  readonly readingGroupsB = new Promise<void>((resolve) => (this.groupsB = resolve));
   private heldB?: Message;
   private attachedB?: () => void;
   readonly attachingB = new Promise<void>((resolve) => (this.attachedB = resolve));
@@ -65,6 +74,11 @@ class HoldingSocket {
       this.attachedB?.();
       return;
     }
+    if (message.method === "_acpmux/permission_groups" && message.params?.sessionId === SESSION_B && this.holdGroupsB) {
+      this.heldGroupsB = message;
+      this.groupsB?.();
+      return;
+    }
     queueMicrotask(() => this.reply(message));
   }
 
@@ -76,21 +90,47 @@ class HoldingSocket {
     if (this.heldB) this.reply(this.heldB);
   }
 
+  releaseGroupsB(): void {
+    if (this.heldGroupsB) this.fail(this.heldGroupsB);
+  }
+
+  private fail(message: Message): void {
+    const error = { code: -32603, message: "unavailable" };
+    this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, error }) });
+  }
+
   private reply(message: Message): void {
     const sessionId = String(message.params?.sessionId ?? "");
     const result =
       message.method === "initialize"
-        ? { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } }
+        ? { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: GROUP_OPS } } }
         : message.method === "_acpmux/watch"
           ? { sessions: [summary(SESSION_A), summary(SESSION_B)] }
           : message.method === "_acpmux/attach"
             ? { session: summary(sessionId), lastSeq: 0, events: [] }
             : message.method === "_acpmux/events"
               ? { events: [], hasMore: false, lastSeq: 0 }
-              : {};
+              : message.method === "session/set_config_option"
+                ? { configOptions: [{ id: "model", currentValue: `${sessionId}-model`, options: [] }] }
+                : {};
+    if (message.method === "_acpmux/permission_groups") return this.fail(message);
     this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) });
   }
 }
+
+const connect = (socket: HoldingSocket) =>
+  AcpmuxDirectClient.connect(
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://hold.invalid/",
+      token: "t",
+      sessionId: SESSION_A,
+    },
+    () => undefined,
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
 
 test("Stop during a switch's hold cancels the chat on screen, not the chat opening", async () => {
   const socket = new HoldingSocket();
@@ -113,6 +153,42 @@ test("Stop during a switch's hold cancels the chat on screen, not the chat openi
     await client.cancel();
     const cancels = socket.sent.filter((message) => message.method === "session/cancel");
     expect(cancels.map((message) => message.params?.sessionId)).toEqual([SESSION_A]);
+    socket.releaseB();
+    await switching;
+  } finally {
+    client.close();
+  }
+});
+
+test("a model pick answered during a switch's hold stays the chat on screen's, not the chat opening's", async () => {
+  const socket = new HoldingSocket();
+  socket.holdB = false;
+  socket.holdGroupsB = true;
+  const client = await connect(socket);
+  try {
+    const switching = client.select(SESSION_B);
+    // B's attach is in (its summary is the client's), its permissions read is not: still held on A.
+    await socket.readingGroupsB;
+    await client.setConfig("model", "next");
+    socket.releaseGroupsB();
+    await switching;
+    const options = (client as unknown as { summary?: { configOptions?: { currentValue?: string }[] } }).summary
+      ?.configOptions;
+    expect(options?.map((option) => option.currentValue) ?? []).not.toContain(`${SESSION_A}-model`);
+  } finally {
+    client.close();
+  }
+});
+
+test("a grouped permission answer during a switch's hold leaves no error on the chat opening", async () => {
+  const socket = new HoldingSocket();
+  const client = await connect(socket);
+  try {
+    const switching = client.select(SESSION_B);
+    await socket.attachingB;
+    await expect(client.permissionGroup("group-a", 1, "allow_once")).rejects.toThrow();
+    expect(client.permissions.state.error).toBeUndefined();
+    expect(socket.sent.filter((message) => message.method === "_acpmux/permission_group_respond")).toHaveLength(0);
     socket.releaseB();
     await switching;
   } finally {

@@ -21,6 +21,10 @@
 #                              sidecar handshake, and the workflow runs
 #                              scripts/verify-diff-sidecar-artifact.sh again
 #                              after the keychain is deleted.
+#   CMUX_NEXT_CEF_ON_DEMAND    "1" moves the signed Chromium engine into a runtime
+#                              pack (scripts/cmux-next/cef-runtime-pack.sh) written to
+#                              CMUX_NEXT_CEF_RUNTIME_OUT, pinned to
+#                              CMUX_NEXT_CEF_RUNTIME_BASE_URL, before the app is signed
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
 #                              flow uses all-except-computer-use while Apple's
@@ -40,7 +44,8 @@
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
 #   4. The embedded Chromium engine (CEF framework, its libraries, the shim
 #      and the five helper apps with their own entitlements) through
-#      scripts/cmux-next/sign-cef.sh, then every other nested framework under
+#      scripts/cmux-next/sign-cef.sh, the remote browser host under
+#      Contents/Helpers (rbh_sign), then every other nested framework under
 #      Contents/Frameworks/* with --deep (covers Sparkle's XPCServices and
 #      Updater.app, and Iroh).
 #   5. The main app bundle with the effective app-level entitlements,
@@ -160,7 +165,26 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
     if [[ -d "$APP_PATH/Contents/Frameworks/$CEF_FRAMEWORK_NAME" ]]; then
       echo "==> signing the Chromium engine (CEF framework, shim, helpers)"
       "$SCRIPT_DIR/cmux-next/sign-cef.sh" "$APP_PATH" "$IDENTITY"
+      # Chromium on demand (plans/cmux-next/bundle-size-DESIGN.md 6.6): the
+      # signed engine leaves the app for a runtime pack, and the app gets its
+      # pin (Contents/Resources/cef-runtime.json) before step 5 seals it.
+      if [[ "${CMUX_NEXT_CEF_ON_DEMAND:-}" == 1 ]]; then
+        echo "==> moving the Chromium engine into its on-demand runtime pack"
+        "$SCRIPT_DIR/cmux-next/cef-runtime-pack.sh" split "$APP_PATH" \
+          "${CMUX_NEXT_CEF_RUNTIME_OUT:?CMUX_NEXT_CEF_ON_DEMAND=1 needs CMUX_NEXT_CEF_RUNTIME_OUT}" \
+          --base-url "${CMUX_NEXT_CEF_RUNTIME_BASE_URL:?CMUX_NEXT_CEF_ON_DEMAND=1 needs CMUX_NEXT_CEF_RUNTIME_BASE_URL}" \
+          --reuse-published
+      fi
     fi
+    # The remote browser host (Contents/Helpers, embed-remote-browser-host.sh), after
+    # the app's CEF framework, which it links through a symlink: its five helper apps
+    # with CEF's per-helper entitlements (allow-jit for GPU and Renderer), then the host
+    # app, all with the hardened runtime and a secure timestamp (rbh_sign).
+    for rb_host in "$APP_PATH/Contents/Helpers/"*.app; do
+      [[ -d "$rb_host" ]] || continue
+      echo "==> signing the remote browser host $(basename "$rb_host")"
+      ( source "$SCRIPT_DIR/cmux-next/remote-browser-host-layout.sh" && rbh_sign "$rb_host" "$IDENTITY" )
+    done
     while IFS= read -r -d '' framework; do
       case "$(basename "$framework")" in
         "$CEF_FRAMEWORK_NAME"|libcmux_cef_shim.dylib|*" Helper.app"|*" Helper ("*").app") continue ;;

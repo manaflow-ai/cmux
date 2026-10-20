@@ -33,6 +33,15 @@ public final class DaemonService {
     public let recovery = DaemonRecovery()
     public private(set) var connection: DaemonConnection?
     public private(set) var windowState: WindowStateStore?
+    /// The colors this app paints the daemon's terminals with, sent at every
+    /// connect and on every change so the daemon answers OSC 10/11/12 queries
+    /// with them (DaemonService+TerminalColors). Nil until the app knows them.
+    public var terminalDefaultColors: TerminalDefaultColors? {
+        didSet { if terminalDefaultColors != oldValue { pushTerminalDefaultColors() } }
+    }
+    /// The running push of `terminalDefaultColors`, and whether a newer value waits for it.
+    @ObservationIgnored var terminalColorsPush: Task<Void, Never>?
+    @ObservationIgnored var terminalColorsPending = false
     /// The current (or last) daemon's identity. The store owns it and
     /// replaces it on every handshake, so capabilities follow a daemon that
     /// restarted or was handed off to a newer build after the first connect.
@@ -108,6 +117,9 @@ public final class DaemonService {
     @ObservationIgnored public private(set) var remoteEndpoint: DaemonConnection.EndpointProvider?
     /// Hands an owner without `ws-listen-v1` off to the bundled build (DaemonService+PageListener).
     @ObservationIgnored var pageListenerHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
+    /// Hands the local daemon off for a confirmed server-update restart (`restartForUpdate`); nil
+    /// for a remote or test service.
+    @ObservationIgnored var updateHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
@@ -141,6 +153,7 @@ public final class DaemonService {
             retryWake.watch(file: socket, companions: [socket + ".websocket.json"])
         }
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapabilities.shared.wsListen, identity: $1, using: $0) }
+        updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
@@ -313,6 +326,7 @@ public final class DaemonService {
         startupDeadlineTimer = nil
         lastStartupError = nil
         startup = .connected
+        pushTerminalDefaultColors()
         relaunchKeptLayoutIfNeeded(connection)
     }
 

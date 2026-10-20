@@ -454,12 +454,7 @@ body {
   border-radius: 50%;
   border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
   border-top-color: var(--cmux-diff-fg);
-  animation: base-picker-spin 0.7s linear infinite;
-}
-@keyframes base-picker-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
 }
 /* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
 @media (prefers-reduced-motion: reduce) {
@@ -1208,13 +1203,10 @@ body[data-loading="true"] #status::before {
   border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
   border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
   border-radius: 50%;
-  animation: cmuxDiffPendingSpin 800ms linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
 }
 #status[data-error="true"] {
   color: var(--cmux-diff-deletion-fg);
-}
-@keyframes cmuxDiffPendingSpin {
-  to { transform: rotate(360deg); }
 }
 @media (prefers-reduced-motion: reduce) {
   #status[data-pending="true"]::before,
@@ -1417,7 +1409,8 @@ body[data-loading="true"] #status::before {
   overflow-wrap: anywhere;
 }
 
-/* Find in diff (Cmd+F) */
+/* Find in diff (Cmd+F): the shared find pill (ui/findPill.css), at the top right where every
+   pane's find pill sits (FindPillMetrics.inset). */
 #diff-find-anchor {
   position: absolute;
   top: 0;
@@ -1426,43 +1419,7 @@ body[data-loading="true"] #status::before {
   pointer-events: none;
 }
 #diff-find-bar {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin: 10px 22px 0 0;
-  padding: 5px 6px;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
-  border-radius: 8px;
-  background: var(--cmux-diff-bg);
-  box-shadow: var(--elevation-2);
-}
-#diff-find-input {
-  width: 180px;
-  padding: 3px 7px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
-  color: var(--cmux-diff-fg);
-  font-family: var(--cmux-diff-ui-font-family);
-  font-size: var(--cmux-diff-ui-font-size);
-  outline: none;
-}
-#diff-find-input:focus-visible {
-  border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
-}
-#diff-find-count {
-  min-width: 40px;
-  text-align: right;
-  padding: 0 4px;
-  color: var(--cmux-diff-text-muted);
-  font-family: var(--cmux-diff-ui-font-family);
-  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
-  font-variant-numeric: tabular-nums;
-}
-#diff-find-bar .toolbar-icon:disabled {
-  opacity: 0.4;
-  cursor: default;
+  margin: var(--find-pill-inset, 10px) var(--find-pill-inset, 10px) 0 0;
 }
 
 /* The find match ::highlight() rules live in src/find/highlight.ts: they

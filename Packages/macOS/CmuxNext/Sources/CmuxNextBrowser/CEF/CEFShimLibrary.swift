@@ -34,6 +34,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setExtensionDeveloperMode: @convention(c) (Int32) -> Void
     /// Chromium's default search provider in every profile (`CEFDefaultSearch`).
     let setDefaultSearch: @convention(c) (UnsafePointer<CChar>?) -> Void
+    /// The managed preference domain Chromium reads Chrome policies from (`CEFRuntime.chromePolicyIDSetting`).
+    let setChromePolicyID: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setBackgroundColor: @convention(c) (UInt32) -> Void
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
     let initialize: @convention(c) (
@@ -84,6 +86,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
     let devToolsSetFocus: @convention(c) (Int32, Int32) -> Void
+    /// Opens DevTools on one frontend panel (`network`, `timeline`); 0 when gone or invalid.
+    let devToolsShowPanel: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
 
     let extActions: @convention(c) (Int32, Int32) -> UnsafeMutablePointer<CChar>?
     let extActionRun: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
@@ -255,6 +259,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         prepareApplication = try r("cmux_shim_prepare_application")
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
         setDefaultSearch = try r("cmux_shim_set_default_search")
+        setChromePolicyID = try r("cmux_shim_set_chrome_policy_id")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         initialize = try r("cmux_shim_initialize")
@@ -285,6 +290,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsCommand = try r("cmux_shim_devtools_command")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
         devToolsSetFocus = try r("cmux_shim_devtools_set_focus")
+        devToolsShowPanel = try r("cmux_shim_devtools_show_panel")
         extActions = try r("cmux_shim_ext_actions")
         extActionRun = try r("cmux_shim_ext_action_run")
         extActionHidePopup = try r("cmux_shim_ext_action_hide_popup")

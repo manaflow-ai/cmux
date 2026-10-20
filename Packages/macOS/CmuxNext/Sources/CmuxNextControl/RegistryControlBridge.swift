@@ -82,8 +82,8 @@ public final class RegistryControlBridge: ControlActionExecutor {
     /// Runs `request` and collects the daemon work its handler started.
     public func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun {
         var outcome = ControlActionOutcome.disabled
-        let work = registry.capturingWork { outcome = performAction(request) }
-        return ControlActionRun(outcome: outcome, work: work)
+        let captured = registry.capturingRun { outcome = performAction(request) }
+        return ControlActionRun(outcome: outcome, work: captured.work, results: captured.results)
     }
 
     /// Runs `request` through the registry. Main actor only.
@@ -109,6 +109,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         invocation.callerApp = request.callerApp
         invocation.besideCaller = request.besideCaller
         invocation.newColumnBeside = request.newColumnBeside
+        invocation.opensInBackground = request.background
         invocation.callerAgentSession = request.callerAgentSession
         invocation.callerTerminal = request.callerTerminal
         guard registry.isAvailable(id, for: invocation) else { return .unavailable }
@@ -232,5 +233,6 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.signedOut, "signedOut"),
         (.cloudWorkspace, "cloudWorkspace"),
         (.homeChannelsEnabled, "homeChannelsEnabled"),
+        (.webViewFocused, "webViewFocused"),
     ]
 }

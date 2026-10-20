@@ -16,17 +16,24 @@ public import Foundation
 /// the new key wins when both are set, and Settings writes only the new key. External rules
 /// match as classic matched them (`BrowserExternalURLPatternMatcher`): plain text is a
 /// substring, `*`/`?` are wildcards, `re:` is a bounded regex.
+///
+/// `browser.enabled` (classic's Disable cmux Browser switch, on by default) turns the cmux browser
+/// off: every link goes to the system whatever the other keys, and no browser tab opens for a web
+/// page (``browserEnabled``).
 public nonisolated struct LinkRouting: Sendable, Hashable {
     public var opensInCmuxBrowser: Bool
     public var embeddedHosts: [String]
     public var externalRules: [String]
+    /// `browser.enabled`: false turns the cmux browser off (no web browser tab, every link to the system).
+    public var browserEnabled: Bool
 
     public static let fallback = LinkRouting(opensInCmuxBrowser: true, embeddedHosts: [], externalRules: [])
 
-    public init(opensInCmuxBrowser: Bool, embeddedHosts: [String], externalRules: [String]) {
+    public init(opensInCmuxBrowser: Bool, embeddedHosts: [String], externalRules: [String], browserEnabled: Bool = true) {
         self.opensInCmuxBrowser = opensInCmuxBrowser
         self.embeddedHosts = embeddedHosts
         self.externalRules = externalRules
+        self.browserEnabled = browserEnabled
     }
 
     /// Where one link goes.
@@ -38,6 +45,8 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
     }
 
     public static let openPath = ["browser", "openLinksInCmuxBrowser"]
+    /// `browser.enabled`, the Settings row Enable cmux Browser.
+    public static let enabledPath = ["browser", "enabled"]
     /// Classic's key, read when ``openPath`` is absent (``EffectiveSettings`` copies it over).
     public static let legacyOpenPath = ["browser", "openTerminalLinksInCmuxBrowser"]
     static let hostsPath = ["browser", "hostsToOpenInEmbeddedBrowser"]
@@ -49,18 +58,18 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
     /// click that picked a cmux browser profile (the toggle does not apply, the rules do).
     public func target(for url: URL, otherTarget: Bool = false, explicit: Bool = false) -> Target {
         let scheme = url.scheme?.lowercased()
-        guard scheme == "http" || scheme == "https" else { return .system }
+        guard browserEnabled, scheme == "http" || scheme == "https" else { return .system }
         let cmux = opensInCmux(url, explicit: explicit)
         guard otherTarget else { return cmux ? .cmuxBrowser : .system }
         return cmux || Self.normalizedHost(url.host ?? "") == nil ? .system : .cmuxBrowser
     }
 
     /// True when this http(s) link opens in a cmux browser tab, false when it
-    /// goes to the default browser: the setting is off (unless `explicit`, a
+    /// goes to the default browser: the cmux browser is off, the setting is off (unless `explicit`, a
     /// click that picked a cmux browser profile), an external rule matches,
     /// the host is unusable, or the host list is set and misses the host.
     public func opensInCmux(_ url: URL, explicit: Bool = false) -> Bool {
-        guard opensInCmuxBrowser || explicit else { return false }
+        guard browserEnabled, opensInCmuxBrowser || explicit else { return false }
         if !externalRules.isEmpty, BrowserExternalURLPatternMatcher(patterns: externalRules).matches(url.absoluteString) {
             return false
         }
@@ -107,6 +116,13 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
         var setting = fallback
         var diagnostics: [SettingsDiagnostic] = []
         guard case .object(let browser)? = root["browser"] else { return (setting, diagnostics) }
+        if let value = browser[enabledPath[1]] {
+            if let flag = value.boolValue {
+                setting.browserEnabled = flag
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: enabledPath.joined(separator: "."), message: "expected true or false"))
+            }
+        }
         // The new key wins; classic's is read only without it.
         let path = browser[openPath[1]] != nil ? openPath : legacyOpenPath
         if let value = browser[path[1]] {
