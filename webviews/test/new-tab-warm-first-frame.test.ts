@@ -45,6 +45,8 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
   // Hours old, so no age label turns over while a test runs.
   const now = Date.now();
   const hours = (count: number) => now - count * 3_600_000 - 600_000;
+  // Two sessions and a device chat: the Cards page (what an unset template shows, templates.ts)
+  // has three chat cards, sessions first, so a third session would leave the device chat off.
   const sessions = [
     {
       sessionId: "s-atlas",
@@ -63,15 +65,6 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
       turnCount: 1,
       updatedAt: hours(3),
       title: "Invoice rounding",
-    },
-    {
-      sessionId: "s-docs",
-      cwd: ATLAS,
-      harness: "claude",
-      status: "idle",
-      turnCount: 2,
-      updatedAt: hours(5),
-      title: "Write the API docs",
     },
   ];
   // The chat index's device chats the host pushes after the handshake (AgentPaneDeviceChat).
