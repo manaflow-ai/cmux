@@ -74,6 +74,8 @@ def main() -> int:
             raise SystemExit("Native pending-policy process chain did not execute")
         if "ROOT_BOUNDARY_EXECUTED native_encrypted_daemon_chain" not in output:
             raise SystemExit("Native encrypted daemon process chain did not execute")
+        if "ROOT_BOUNDARY_EXECUTED native_private_process_inspection" not in output:
+            raise SystemExit("Native private process inspection boundary did not execute")
     return 0
 
 

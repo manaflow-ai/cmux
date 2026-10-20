@@ -55,6 +55,10 @@ struct Daemon {
 
 impl Daemon {
     fn start(host: &Host) -> Self {
+        Self::with_capability(host, Capability::NativeReceiver)
+    }
+
+    fn with_capability(host: &Host, capability: Capability) -> Self {
         let home = cmux_unix_socket::short_test_dir("nroot");
         chown(home.path(), Some(WORK_UID), Some(WORK_UID)).unwrap();
         let session = home.path().join("s.sock");
@@ -79,7 +83,7 @@ impl Daemon {
         let child = host.spawn(&mut command, WORK_UID).unwrap();
         let daemon = Self { child, home, session };
         drop(command);
-        drive_until(host, |_| host.capability() == Some(Capability::NativeReceiver));
+        drive_until(host, |_| host.capability() == Some(capability));
         daemon
     }
 }
@@ -249,3 +253,6 @@ fn receiver_root_privileged_native_chain_cancels_a_pending_original_policy_read(
 
 #[path = "receiver_native_root/encrypted.rs"]
 mod encrypted;
+
+#[path = "receiver_native_root/inspection.rs"]
+mod inspection;
