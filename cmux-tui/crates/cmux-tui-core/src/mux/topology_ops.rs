@@ -88,7 +88,7 @@ impl Mux {
         extra_fields: Map<String, Value>,
     ) -> anyhow::Result<Arc<Surface>> {
         if let Some(dock) = pane
-            && self.with_state(|state| crate::mux::lone_pinned_dock_taking_no_tabs(state, dock))
+            && self.with_state(|state| lone_pinned_dock_taking_no_tabs(state, dock))
         {
             return self.new_browser_column_beside_lone_dock(actor, url, dock, size, extra_fields);
         }
@@ -695,15 +695,15 @@ impl Mux {
         mut fields: Map<String, Value>,
     ) -> anyhow::Result<Arc<Surface>> {
         let background =
-            fields.remove(super::browser_tab_create::ACTIVATE_FIELD) == Some(Value::Bool(false));
-        fields.remove(super::browser_tab_create::AFTER_FIELD);
-        fields.insert(crate::mux::PANE_BROWSER_URL_FIELD.into(), Value::String(url));
+            fields.remove(browser_tab_create::ACTIVATE_FIELD) == Some(Value::Bool(false));
+        fields.remove(browser_tab_create::AFTER_FIELD);
+        fields.insert(PANE_BROWSER_URL_FIELD.into(), Value::String(url));
         let focused = self.with_state(|state| state.active_pane());
         let surface = self.split_browser_pane_with_fields_as(
             actor,
             dock,
             "right",
-            Some(crate::mux::LONE_DOCK_NEIGHBOR_WIDTH),
+            Some(LONE_DOCK_NEIGHBOR_WIDTH),
             fields,
             size,
         )?;

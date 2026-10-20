@@ -185,6 +185,13 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onOpenLink = newValue }
     }
 
+    /// cmux: where an attachment opens and what its right-click menu offers (held weakly).
+    /// Nil: the system opens it ("Open in Default App").
+    public var fileHost: HomeFileHost? {
+        get { controller.fileHost }
+        set { controller.fileHost = newValue }
+    }
+
     /// A click (or Space/Return with the keyboard) on the header's name
     /// pill: cmux shows the Chief's settings popover under it.
     public var onNamePill: () -> Void {

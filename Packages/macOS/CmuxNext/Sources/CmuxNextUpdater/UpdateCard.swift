@@ -2,10 +2,11 @@ import Foundation
 
 /// The update status the sidebar's notice card shows (Lawrence 2026-10-09:
 /// the shared card for messages to the user, one model for every state).
-/// A check the user asked for shows its progress and result; a found update
-/// that waits for a click (`updates.downloadAutomatically` off) shows
-/// without a check. A staged or installing update is never this card: the
-/// staged update card owns it (UPDATE-CARD).
+/// A check the user asked for shows its progress and result; a scheduled
+/// (background) check shows nothing (Lawrence 2026-10-20). A found update
+/// that waits for a click shows without a check only when the person turned
+/// `updates.downloadAutomatically` off. A staged or installing update is
+/// never this card: the staged update card owns it (UPDATE-CARD).
 nonisolated public enum UpdateCard: Equatable, Sendable {
     /// The user asked to check.
     case checking
