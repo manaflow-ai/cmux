@@ -4,12 +4,11 @@
 import { expect, test } from "bun:test";
 import { detailsFloat } from "../src/agent-session/acpmux/chatViewerPanels";
 
-test("Thread details floats while the chat's viewer is open, and only with the viewer lab on", () => {
-  expect(detailsFloat(true, { diff: false, file: false, files: false })).toBe(false);
-  expect(detailsFloat(true, { diff: false, file: false, files: true })).toBe(true);
-  expect(detailsFloat(true, { diff: false, file: true, files: false })).toBe(true);
-  expect(detailsFloat(true, { diff: true, file: false, files: false })).toBe(false);
-  expect(detailsFloat(false, { diff: true, file: true, files: true })).toBe(false);
+test("Thread details floats while the chat's viewer is open", () => {
+  expect(detailsFloat({ diff: false, file: false, files: false })).toBe(false);
+  expect(detailsFloat({ diff: false, file: false, files: true })).toBe(true);
+  expect(detailsFloat({ diff: false, file: true, files: false })).toBe(true);
+  expect(detailsFloat({ diff: true, file: false, files: false })).toBe(false);
 });
 
 // Lucas 2026-10-19: Files opened from Thread details left the details behind it, back once Files

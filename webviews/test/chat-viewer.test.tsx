@@ -1,4 +1,4 @@
-// The chat's viewer (labs chatViewer, Lucas 2026-10-19): a path chip's click goes to the viewer the
+// The chat's viewer (Lucas 2026-10-19): a path chip's click goes to the viewer the
 // App registers instead of the app's tab over the chat, and the viewer shows the file with a way
 // back and the app's own tab or editor one click away.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
@@ -160,7 +160,8 @@ test("the viewer shows the file, says when it is cut, and leaves only by an expl
     ),
   );
   expect(host.querySelector(".acpmux-file-viewer-name")?.textContent).toBe("notes.txt");
-  expect(host.textContent).toContain("second line");
+  const renderedCode = host.querySelector("diffs-container")?.shadowRoot?.textContent ?? host.textContent;
+  expect(renderedCode).toContain("second line");
   expect(host.querySelector(".acpmux-file-viewer-note")?.textContent).toContain("2000000");
   const [tab, editor] = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-diff-tool")];
   await act(async () => tab!.click());
@@ -499,12 +500,10 @@ for (const operation of ["file.list", "file.search"]) {
   }
 }
 
-async function changesHarness(chatViewer: boolean, ran = true, failFileOpen = false, surface = "pane") {
+async function changesHarness(ran = true, failFileOpen = false, surface = "pane", remote = false) {
   const { createRoot } = await import("react-dom/client");
   const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
-  const { configureLabs } = await import("../src/agent-session/acpmux/labs");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
-  configureLabs({ labs: { chatViewer } });
   configureQuickActions({ quickActions: ["changes", "files"] });
   const calls: [string, Record<string, unknown>][] = [];
   window.webkit = {
@@ -513,7 +512,14 @@ async function changesHarness(chatViewer: boolean, ran = true, failFileOpen = fa
         postMessage: async ({ method, params }: { method: string; params: Record<string, unknown> }) => {
           calls.push([method, params]);
           if (method === "file.open" && failFileOpen) return { ok: false, error: { userMessage: "pathInvalid" } };
-          const value = method === "ready" ? { protocolVersion: 1, surface } : method === "pane.action" ? { ran } : {};
+          const value =
+            method === "ready"
+              ? { protocolVersion: 1, surface }
+              : method === "pane.action"
+                ? { ran }
+                : method === "link.readPath"
+                  ? { kind: "text", path: params.path, text: "note", bytes: 4, truncated: false }
+                  : {};
           return { ok: true, value };
         },
       },
@@ -526,7 +532,14 @@ async function changesHarness(chatViewer: boolean, ran = true, failFileOpen = fa
       type: "snapshot",
       protocolVersion: 1,
       sessionId: "A",
-      summary: { sessionId: "A", cwd: "/chat", title: "Changes regression", harness: "claude", status: "idle" },
+      summary: {
+        sessionId: "A",
+        cwd: "/chat",
+        ...(remote ? { peer: "remote-host" } : {}),
+        title: "Changes regression",
+        harness: "claude",
+        status: "idle",
+      },
       rows: [
         { id: "prompt", kind: "user", text: "Edit note", version: 1, at: 1 },
         {
@@ -562,58 +575,54 @@ async function changesHarness(chatViewer: boolean, ran = true, failFileOpen = fa
   return calls;
 }
 
-for (const chatViewer of [false, true]) {
-  test(`header Changes runs the production action with chatViewer ${chatViewer ? "on" : "off"}`, async () => {
-    const calls = await changesHarness(chatViewer);
-    const changes = host.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Changes"]');
-    expect(changes).not.toBeNull();
-    await act(async () => changes!.click());
-    expect(calls.filter(([method]) => method === "pane.action")).toEqual([
-      ["pane.action", { id: "openDiffViewer", cwd: "/chat", mode: "toggle" }],
-    ]);
-    expect(host.querySelector(".acpmux-diff-panel")).toBeNull();
-    expect(changes!.getAttribute("aria-pressed")).toBe("false");
-  });
+test("header Changes runs the production action", async () => {
+  const calls = await changesHarness();
+  const changes = host.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Changes"]');
+  expect(changes).not.toBeNull();
+  await act(async () => changes!.click());
+  expect(calls.filter(([method]) => method === "pane.action")).toEqual([
+    ["pane.action", { id: "openDiffViewer", cwd: "/chat", mode: "toggle" }],
+  ]);
+  expect(host.querySelector(".acpmux-diff-panel")).toBeNull();
+  expect(changes!.getAttribute("aria-pressed")).toBe("false");
+});
 
-  test(`transcript View changes opens the production diff with chatViewer ${chatViewer ? "on" : "off"}`, async () => {
-    const calls = await changesHarness(chatViewer);
-    const changes = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "View changes",
-    );
-    expect(changes).toBeDefined();
-    await act(async () => changes!.click());
-    expect(calls.filter(([method]) => method === "pane.action")).toEqual([
-      ["pane.action", { id: "openDiffViewer", cwd: "/chat", mode: "open" }],
-    ]);
-    expect(host.querySelector(".acpmux-diff-panel")).toBeNull();
-  });
-}
+test("transcript View changes opens the production diff", async () => {
+  const calls = await changesHarness();
+  const changes = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "View changes",
+  );
+  expect(changes).toBeDefined();
+  await act(async () => changes!.click());
+  expect(calls.filter(([method]) => method === "pane.action")).toEqual([
+    ["pane.action", { id: "openDiffViewer", cwd: "/chat", mode: "open" }],
+  ]);
+  expect(host.querySelector(".acpmux-diff-panel")).toBeNull();
+});
 
-for (const chatViewer of [false, true]) {
-  test(`unsupported host falls back to the turn diff and opens files in a tab with chatViewer ${chatViewer ? "on" : "off"}`, async () => {
-    const calls = await changesHarness(chatViewer, false);
-    const changes = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "View changes",
-    )!;
-    await act(async () => changes.click());
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(host.querySelector(".acpmux-diff-panel")).not.toBeNull();
-    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="More actions for note.txt"]')!.click());
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-      (item) => item.textContent === "Open file in a tab",
-    );
-    expect(item).toBeDefined();
-    await act(async () => item!.click());
-    expect(calls.filter(([method]) => method === "file.open")).toEqual([
-      ["file.open", { path: "/chat/note.txt", where: "tab" }],
-    ]);
-    expect(host.querySelector(".acpmux-file-viewer")).toBeNull();
-  });
-}
+test("unsupported host falls back to the turn diff and opens files in a tab", async () => {
+  const calls = await changesHarness(false);
+  const changes = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "View changes",
+  )!;
+  await act(async () => changes.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(host.querySelector(".acpmux-diff-panel")).not.toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="More actions for note.txt"]')!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent === "Open file in a tab",
+  );
+  expect(item).toBeDefined();
+  await act(async () => item!.click());
+  expect(calls.filter(([method]) => method === "file.open")).toEqual([
+    ["file.open", { path: "/chat/note.txt", where: "tab" }],
+  ]);
+  expect(host.querySelector(".acpmux-file-viewer")).toBeNull();
+});
 
 test("Changes shows its existing failed-open message when the host cannot open a changed file", async () => {
-  const calls = await changesHarness(true, false, true);
+  const calls = await changesHarness(false, true);
   const changes = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
     (button) => button.textContent === "View changes",
   )!;
@@ -632,28 +641,28 @@ test("Changes shows its existing failed-open message when the host cannot open a
   expect(host.querySelector(".acpmux-diff-panel")).not.toBeNull();
 });
 
-for (const chatViewer of [false, true]) {
-  test(`Quick Chat path links open through the host with chatViewer ${chatViewer ? "on" : "off"}`, async () => {
-    const calls = await changesHarness(chatViewer, true, false, "quick");
-    const { openPathChip } = await import("../src/agent-session/acpmux/chips/host");
-    expect(host.querySelector('[data-surface="quick"]')).not.toBeNull();
-    await act(async () => openPathChip("/chat/note.txt"));
-    expect(calls.filter(([method]) => method === "link.openPath" || method === "link.readPath")).toEqual([
-      ["link.openPath", { path: "/chat/note.txt" }],
-    ]);
-    expect(host.querySelector(".acpmux-file-viewer")).toBeNull();
-  });
-}
+test("Quick Chat path links open through the host", async () => {
+  const calls = await changesHarness(true, false, "quick");
+  const { openPathChip } = await import("../src/agent-session/acpmux/chips/host");
+  expect(host.querySelector('[data-surface="quick"]')).not.toBeNull();
+  await act(async () => openPathChip("/chat/note.txt"));
+  expect(calls.filter(([method]) => method === "link.openPath" || method === "link.readPath")).toEqual([
+    ["link.openPath", { path: "/chat/note.txt" }],
+  ]);
+  expect(host.querySelector(".acpmux-file-viewer")).toBeNull();
+});
 
-test("Thread title keeps a dedicated header when the native tab row is offered", async () => {
-  const { configureThreadTitle } = await import("../src/agent-session/acpmux/header/threadTitleSetting");
+test("a fresh layout shows the editable thread title and Thread details with a native tab row", async () => {
   const { setTabRow } = await import("../src/agent-session/acpmux/header/tabRow");
-  configureThreadTitle(undefined);
-  const calls = await changesHarness(true);
+  const calls = await changesHarness();
   try {
+    await act(async () => window.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
+    expect(host.querySelector(".acpmux-thread-title__project")?.textContent).toBe("chat");
+    expect(host.querySelector(".acpmux-summary-button")?.getAttribute("aria-label")).toBe("Thread details");
+    await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-summary-button")!.click());
+    expect(host.querySelector(".acpmux-summary-card")?.getAttribute("aria-label")).toBe("Thread details");
+    expect(host.querySelector(".acpmux-thread-details")).not.toBeNull();
     await act(async () => setTabRow({ height: 32, trailingInset: 30 }));
-    expect(host.querySelector(".acpmux-header[data-tab-row]")).not.toBeNull();
-    await act(async () => configureThreadTitle({ threadTitle: true }));
     expect(host.querySelector(".acpmux-header[data-tab-row]")).toBeNull();
     await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-thread-title__name")!.click());
     const field = host.querySelector<HTMLInputElement>(".acpmux-thread-title__field")!;
@@ -663,16 +672,13 @@ test("Thread title keeps a dedicated header when the native tab row is offered",
     expect(calls.filter(([method]) => method === "pane.rename")).toEqual([["pane.rename", { name: "Renamed thread" }]]);
   } finally {
     await act(async () => {
-      configureThreadTitle(undefined);
       setTabRow(undefined);
     });
   }
 });
 
 test("switching threads resets the title draft and pending optimistic name", async () => {
-  const { configureThreadTitle } = await import("../src/agent-session/acpmux/header/threadTitleSetting");
-  await act(async () => configureThreadTitle({ threadTitle: true }));
-  const calls = await changesHarness(true);
+  const calls = await changesHarness();
   const switchThread = async (sessionId: string) => {
     await act(async () =>
       window.cmuxAcpmuxBridge!.receive({
@@ -698,18 +704,47 @@ test("switching threads resets the title draft and pending optimistic name", asy
       await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     return field;
   };
-  try {
-    await edit("Only A", true);
-    expect(host.querySelector(".acpmux-thread-title__name")?.textContent).toBe("Only A");
-    await switchThread("B");
-    expect(host.querySelector(".acpmux-thread-title__name")?.textContent).toBe("Changes regression");
-    const draft = await edit("B draft", false);
-    await switchThread("C");
-    expect(host.querySelector(".acpmux-thread-title__field")).toBeNull();
-    expect(host.querySelector(".acpmux-thread-title__name")?.textContent).toBe("Changes regression");
-    expect(draft.isConnected).toBe(false);
-    expect(calls.filter(([method]) => method === "pane.rename")).toEqual([["pane.rename", { name: "Only A" }]]);
-  } finally {
-    await act(async () => configureThreadTitle(undefined));
-  }
+  await edit("Only A", true);
+  expect(host.querySelector(".acpmux-thread-title__name")?.textContent).toBe("Only A");
+  await switchThread("B");
+  expect(host.querySelector(".acpmux-thread-title__name")?.textContent).toBe("Changes regression");
+  const draft = await edit("B draft", false);
+  await switchThread("C");
+  expect(host.querySelector(".acpmux-thread-title__field")).toBeNull();
+  expect(host.querySelector(".acpmux-thread-title__name")?.textContent).toBe("Changes regression");
+  expect(draft.isConnected).toBe(false);
+  expect(calls.filter(([method]) => method === "pane.rename")).toEqual([["pane.rename", { name: "Only A" }]]);
+});
+
+test("a fresh layout opens Files and linked files inside the chat without labs", async () => {
+  const calls = await changesHarness();
+  await act(async () => window.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('.acpmux-header button[aria-label="Chat actions"]')!.click(),
+  );
+  const files = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.includes("Files"),
+  );
+  expect(files).toBeDefined();
+  await act(async () => files!.click());
+  expect(host.querySelector(".acpmux-files")).not.toBeNull();
+  expect(calls.some(([method]) => method === "file.list")).toBe(true);
+  expect(calls.some(([method]) => method === "pane.action")).toBe(false);
+  const { openPathChip } = await import("../src/agent-session/acpmux/chips/host");
+  await act(async () => openPathChip("/chat/note.txt"));
+  expect(calls.filter(([method]) => method === "link.readPath")).toEqual([
+    ["link.readPath", { path: "/chat/note.txt" }],
+  ]);
+  expect(host.querySelector(".acpmux-file-viewer-name")?.textContent).toBe("note.txt");
+  expect(calls.some(([method]) => method === "link.openPath")).toBe(false);
+});
+
+test("remote chat without local Files opens path links through the host", async () => {
+  const calls = await changesHarness(true, false, "pane", true);
+  const { openPathChip } = await import("../src/agent-session/acpmux/chips/host");
+  await act(async () => openPathChip("/chat/note.txt"));
+  expect(calls.filter(([method]) => method === "link.openPath" || method === "link.readPath")).toEqual([
+    ["link.openPath", { path: "/chat/note.txt" }],
+  ]);
+  expect(host.querySelector(".acpmux-file-viewer")).toBeNull();
 });

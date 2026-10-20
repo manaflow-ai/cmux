@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// `file.list` (labs chatViewer, Lucas 2026-10-19): the chat's Files view reads one folder's children
+/// `file.list` (Lucas 2026-10-19): the chat's Files view reads one folder's children
 /// through the session host's `git.files.list`, only in the chat's folder or a folder inside it.
 struct AgentPaneFilesListTests {
     private actor FolderHost: AgentPaneHostProviding {

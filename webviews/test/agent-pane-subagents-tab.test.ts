@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The summary card's Subagents tab (cx-x62ev, after the ChatGPT desktop app's right pane): the
-// Subagents section's title opens a "Subagents" tab beside the card's Summary tab, listing the
+// Subagents section's title opens a "Subagents" tab beside the card's Thread details tab, listing the
 // chat's subagents under "Active · N" and "Done · N" with the transcript's own subagent row
 // (subagents/SubagentGroup.tsx SubagentListRow); a row shows that subagent, and the tab's close
 // button goes back to the summary.
@@ -174,7 +174,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await page.goto(url());
     await page.getByText("The notes are tidy.").waitFor();
   };
-  const panel = (page: Page) => page.getByRole("complementary", { name: "Chat summary" });
+  const panel = (page: Page) => page.getByRole("complementary", { name: "Thread details" });
 
   test("the Subagents title opens a tab of active and done subagents, and its rows open them", async () => {
     const context = await browser!.newContext({ viewport: { width: 1600, height: 800 } });
@@ -188,7 +188,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     const tab = (name: string) => tabs.getByRole("button", { name, exact: true });
     await tabs.waitFor({ timeout: 5_000 });
     expect(await tab("Subagents").getAttribute("aria-pressed")).toBe("true");
-    expect(await tab("Summary").getAttribute("aria-pressed")).toBe("false");
+    expect(await tab("Thread details").getAttribute("aria-pressed")).toBe("false");
     // The tabs take the head's row: its counts (the tab lists them) leave room for them.
     expect(await panel(page).locator(".acpmux-summary-card__counts").count()).toBe(0);
     // Its own list in the card's place: no summary sections under it.
@@ -215,7 +215,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await context.close();
   });
 
-  test("the Summary tab goes back without closing the Subagents tab", async () => {
+  test("the Thread details tab goes back without closing the Subagents tab", async () => {
     const context = await browser!.newContext({ viewport: { width: 1600, height: 800 } });
     const page = await context.newPage();
     await open(page);
@@ -223,9 +223,9 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
     const tab = (name: string) =>
       panel(page).locator(".acpmux-summary-tabs").getByRole("button", { name, exact: true });
-    await tab("Summary").click();
+    await tab("Thread details").click();
     await panel(page).getByRole("region", { name: "Outputs" }).waitFor({ timeout: 5_000 });
-    expect(await tab("Summary").getAttribute("aria-pressed")).toBe("true");
+    expect(await tab("Thread details").getAttribute("aria-pressed")).toBe("true");
     await tab("Subagents").click();
     await panel(page).getByRole("region", { name: "Active · 1" }).waitFor({ timeout: 5_000 });
     await context.close();
@@ -277,10 +277,10 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await panel(page).getByRole("button", { name: "Collapse summary" }).click();
     await panel(page).getByRole("button", { name: "Expand summary" }).waitFor({ timeout: 5_000 });
     expect(await panel(page).getByRole("region", { name: "Active · 1" }).count()).toBe(0);
-    // The Summary tab shows the summary, not a folded header.
-    await tab("Summary").click();
+    // The Thread details tab shows the summary, not a folded header.
+    await tab("Thread details").click();
     await panel(page).getByRole("region", { name: "Outputs" }).waitFor({ timeout: 5_000 });
-    expect(await tab("Summary").getAttribute("aria-pressed")).toBe("true");
+    expect(await tab("Thread details").getAttribute("aria-pressed")).toBe("true");
     // Folded again, the Subagents tab shows its list.
     await panel(page).getByRole("button", { name: "Collapse summary" }).click();
     await panel(page).getByRole("button", { name: "Expand summary" }).waitFor({ timeout: 5_000 });
@@ -295,7 +295,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
     await open(page);
-    if (!(await panel(page).isVisible())) await page.getByRole("button", { name: "Chat summary" }).click();
+    if (!(await panel(page).isVisible())) await page.getByRole("button", { name: "Thread details" }).click();
     await panel(page).waitFor({ timeout: 5_000 });
     expect(await panel(page).getAttribute("data-placement")).toBe("popover");
     await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();

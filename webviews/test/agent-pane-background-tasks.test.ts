@@ -250,7 +250,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
 
   test("clicking a background task in the summary opens its terminal, a running one included", async () => {
     const page = await recordingPage();
-    await page.getByRole("button", { name: "Chat summary" }).click();
+    await page.getByRole("button", { name: "Thread details" }).click();
     const section = page.getByRole("region", { name: "Background tasks" });
     await section.waitFor({ timeout: 5_000 });
     await section.getByRole("button", { name: /cargo watch -x test/ }).click();
@@ -265,7 +265,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Dev server stopped.").waitFor();
-    await page.getByRole("button", { name: "Chat summary" }).click();
+    await page.getByRole("button", { name: "Thread details" }).click();
     const section = page.getByRole("region", { name: "Background tasks" });
     await section.waitFor({ timeout: 5_000 });
     const rows = await section

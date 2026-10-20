@@ -114,7 +114,7 @@ await requireBrowserLane("chat-viewer-layout.test.tsx", async () => {
               ],
             };
           }, entry === "new tab");
-          await page.goto(`${base}/?data-thread-title=on`);
+          await page.goto(`${base}/`);
           if (entry === "new tab") await page.locator(".nt-field").waitFor();
           await page.waitForFunction(() => !!window.cmuxAcpmuxActions?.["chat.new"]);
           await page.evaluate(() => window.cmuxAcpmuxDebug!.newChat("claude", "/chat"));
@@ -233,7 +233,7 @@ await requireBrowserLane("chat-viewer-layout.test.tsx", async () => {
         const page = await browser!.newPage({ viewport: { width: viewport, height: 900 } });
         try {
           await page.addInitScript(() => localStorage.setItem("cmux.acpmux.summaryPanel", "hidden"));
-          await page.goto(`${base}/?mock&data-thread-title=on`);
+          await page.goto(`${base}/?mock`);
           await page.locator(".acpmux-row.acpmux-assistant").first().waitFor();
           await page.locator(".acpmux-composer-box").waitFor();
           if (session) {

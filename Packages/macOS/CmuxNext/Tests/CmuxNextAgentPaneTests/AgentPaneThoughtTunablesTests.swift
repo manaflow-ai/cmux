@@ -10,21 +10,21 @@ struct AgentPaneThoughtTunablesTests {
         #expect(AgentPaneTunables.thoughtHeader.descriptor.key == "agentPane.debug.thoughtHeader")
         #expect(AgentPaneTunables.thoughtHeader.defaultValue == .duration)
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, thoughtHeader: .duration)
-            == ["lab-chat-viewer": "on", "fold-long-thoughts": "on"])
+            == ["fold-long-thoughts": "on"])
     }
 
     @Test func previewHeaderSetsItsAttribute() {
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, thoughtHeader: .preview)
-            == ["lab-chat-viewer": "on", "fold-long-thoughts": "on", "thought-header": "preview"])
+            == ["fold-long-thoughts": "on", "thought-header": "preview"])
     }
 
     @Test func liveViewportIsOnByDefaultAndOffSetsItsAttribute() {
         #expect(AgentPaneTunables.liveThoughtViewport.descriptor.key == "agentPane.debug.liveThoughtViewport")
         #expect(AgentPaneTunables.liveThoughtViewport.defaultValue == true)
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, liveThoughtViewport: true)
-            == ["lab-chat-viewer": "on", "fold-long-thoughts": "on"])
+            == ["fold-long-thoughts": "on"])
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, liveThoughtViewport: false)
-            == ["lab-chat-viewer": "on", "fold-long-thoughts": "on", "live-thought-viewport": "off"])
+            == ["fold-long-thoughts": "on", "live-thought-viewport": "off"])
     }
 
     @Test func foldIsOnByDefault() {
@@ -37,9 +37,9 @@ struct AgentPaneThoughtTunablesTests {
         #expect(AgentPaneTunables.thoughtFoldThreshold.descriptor.key == "agentPane.debug.thoughtFoldThreshold")
         #expect(AgentPaneTunables.thoughtFoldThreshold.defaultValue == .viewport)
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, thoughtFoldThreshold: .viewport)
-            == ["lab-chat-viewer": "on", "fold-long-thoughts": "on"])
+            == ["fold-long-thoughts": "on"])
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, thoughtFoldThreshold: .codex)
-            == ["lab-chat-viewer": "on", "fold-long-thoughts": "on", "thought-fold-threshold": "codex"])
+            == ["fold-long-thoughts": "on", "thought-fold-threshold": "codex"])
     }
 
     @Test func listedInDebugSettings() {

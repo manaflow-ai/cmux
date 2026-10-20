@@ -7,14 +7,14 @@ import Testing
 struct AgentPaneTopStripStyleTests {
     @Test func defaultSetsNoAttribute() {
         #expect(AgentPaneTunables.topStripStyle.descriptor.key == "agentPane.debug.topStripStyle")
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default) == ["lab-chat-viewer": "on"])
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default) == [:])
     }
 
     @Test(arguments: [AgentPaneTopStripStyle.bump, .plain, .tray])
     func variantSetsItsAttribute(style: AgentPaneTopStripStyle) {
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: style) == ["lab-chat-viewer": "on", "top-strip": style.rawValue])
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: style) == ["top-strip": style.rawValue])
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: style)
-            == ["lab-chat-viewer": "on", "top-strip": style.rawValue, "fold-long-thoughts": "on"])
+            == ["top-strip": style.rawValue, "fold-long-thoughts": "on"])
     }
 
     @Test func listedInDebugSettings() {

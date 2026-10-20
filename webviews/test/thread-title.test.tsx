@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture titles, not shipped UI.
-// The thread's project and title at the header's start (header/ThreadTitle.tsx, layout.json
-// threadTitle, Lucas 2026-10-17): the project is a label; the title turns into a field, Return renames
+// The thread's project and title at the header's start (header/ThreadTitle.tsx,
+// Lucas 2026-10-17): the project is a label; the title turns into a field, Return renames
 // (shown at once), Escape puts it back.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";

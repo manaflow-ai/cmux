@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// `link.readPath` (labs chatViewer, Lucas 2026-10-19): a path chip's file as text for the chat's
+/// `link.readPath` (Lucas 2026-10-19): a path chip's file as text for the chat's
 /// viewer, behind the same checks as `link.openPath`.
 struct AgentPaneReplyReadPathTests {
     @Test func refusesAFinalComponentSwappedToAnOutsideSymlink() throws {

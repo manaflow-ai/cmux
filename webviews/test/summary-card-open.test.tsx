@@ -98,9 +98,7 @@ for (const column of [false, true]) {
       const { SummaryCard } = await import("../src/agent-session/acpmux/summary/SummaryCard");
       const { SummaryButton } = await import("../src/agent-session/acpmux/summary/SummaryButton");
       const { useSummaryCard, resetSummaryCards } = await import("../src/agent-session/acpmux/summary/cardState");
-      const { configureThreadTitle } = await import("../src/agent-session/acpmux/header/threadTitleSetting");
       const { translate } = await import("../src/agent-session/acpmux/i18n");
-      configureThreadTitle({ threadTitle: true });
       resetSummaryCards();
       const element = dom.window.document.getElementById("root")!;
       const root = createRoot(element);
@@ -149,7 +147,6 @@ for (const column of [false, true]) {
         expect(dom.window.document.activeElement).toBe(opener);
       } finally {
         await act(async () => root.unmount());
-        configureThreadTitle({ threadTitle: false });
         resetSummaryCards();
       }
     });
