@@ -32537,7 +32537,7 @@
       },
       "help" : {
         "key" : "settings.deviceHub.url.help",
-        "text" : "The device hub this build signs its devices in to, for Mac Screen sharing between your devices. Empty turns it off."
+        "text" : "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."
       },
       "kept_on_reset_all" : false,
       "key" : "deviceHub.url",
