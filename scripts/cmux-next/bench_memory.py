@@ -211,12 +211,16 @@ class App:
         except ValueError:
             return {"error": (out.stdout + out.stderr).strip()[:300]}
 
-    def action(self, action: str, **args) -> dict:
+    def action(self, action: str, *, focus: bool = False, **args) -> dict:
         """`action.run` over the socket itself: the CLI reads `--session`
         as its own option, so an action argument of that name never reaches
-        the app through it."""
+        the app through it. `focus` moves the app's focus to what the action
+        opens or selects, as the user's shortcut would; without it a new tab
+        opens in the background and does not load until it is shown."""
         params = {"action": action, "args": args, "wait": True, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
+        if focus:
+            params["focus"] = True
         reply = b""
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:

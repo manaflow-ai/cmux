@@ -5,6 +5,7 @@
 /// that hides the keyboard (an interactive dismissal, a drawer, a presented
 /// picker) ends with the same check, made once, when UIKit reports the
 /// keyboard hidden.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationKeyboardFocusPolicy {
     /// What the conversation knows when the keyboard finished hiding.
     public struct KeyboardHidden: Equatable, Sendable {

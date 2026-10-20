@@ -122,7 +122,7 @@ export default componentEntry<Props>({
     },
   },
   styles: () => import("../styles.css"),
-  covers: ["find/FindBar.tsx#FindBar"],
+  covers: ["find/FindBar.tsx#FindBar", "ui/FindPill.tsx#FindPill"],
   load: async () => GalleryFindBar,
   variants: {
     empty: { props: { initialQuery: "", initialMatches: 3, requestToken: 1 } },

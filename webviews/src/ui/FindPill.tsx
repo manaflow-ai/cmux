@@ -19,6 +19,20 @@ export type FindPillLabels = {
   matchCase?: string;
 };
 
+/** The replace row (the code editor's Replace, Opt-Cmd-F). */
+export type FindPillReplace = {
+  /** The row shows. */
+  open: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  onReplace: () => void;
+  onReplaceAll: () => void;
+  /** The chevron before the field shows or hides the row; absent: no chevron. */
+  onToggle?: () => void;
+  labels: { field: string; replace: string; replaceAll: string; toggle: string };
+  inputRef?: Ref<HTMLInputElement>;
+};
+
 export type FindPillProps = {
   query: string;
   onQueryChange: (query: string) => void;
@@ -38,6 +52,8 @@ export type FindPillProps = {
   inputRef?: Ref<HTMLInputElement>;
   /** Cmd-G in the field steps (default); false where a document-level handler already does. */
   commandGSteps?: boolean;
+  /** Where the search can also replace (the code editor). */
+  replace?: FindPillReplace;
   /** Ids kept for callers that address the parts (tests, keyboard scopes). */
   ids?: { root?: string; field?: string; count?: string };
   className?: string;
@@ -60,12 +76,21 @@ export function FindPill(props: FindPillProps) {
     }
   };
   const toggles = labels.matchCase !== undefined && props.onMatchCaseChange !== undefined;
-  return (
-    <search
-      id={ids?.root}
-      className={props.className ? `find-pill ${props.className}` : "find-pill"}
-      aria-label={labels.placeholder}
+  const replace = props.replace;
+  const toggle = replace?.onToggle ? (
+    <button
+      type="button"
+      className="find-pill__button find-pill__toggle"
+      aria-label={replace.labels.toggle}
+      title={replace.labels.toggle}
+      aria-expanded={replace.open}
+      onClick={replace.onToggle}
     >
+      {icon(replace.open ? "next" : "previous")}
+    </button>
+  ) : null;
+  const findRow = (
+    <>
       <span className="find-pill__icon" aria-hidden="true">
         {icon("search")}
       </span>
@@ -99,7 +124,6 @@ export function FindPill(props: FindPillProps) {
             type="button"
             className="find-pill__button find-pill__button--text"
             aria-label={labels.matchCase}
-            title={labels.matchCase}
             aria-pressed={props.matchCase ? "true" : "false"}
             onClick={() => props.onMatchCaseChange?.(!props.matchCase)}
           >
@@ -137,6 +161,68 @@ export function FindPill(props: FindPillProps) {
       >
         {icon("close")}
       </button>
+    </>
+  );
+  const onReplaceKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (event.metaKey || event.altKey) replace?.onReplaceAll();
+      else replace?.onReplace();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      props.onClose();
+    }
+  };
+  const rootClass = ["find-pill", replace?.open ? "find-pill--replace" : "", props.className ?? ""]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <search id={ids?.root} className={rootClass} aria-label={labels.placeholder}>
+      {replace ? (
+        <>
+          <div className="find-pill__row">
+            {toggle}
+            {findRow}
+          </div>
+          {replace.open ? (
+            <div className="find-pill__row find-pill__replace">
+              <input
+                ref={replace.inputRef}
+                className="find-pill__field"
+                type="text"
+                value={replace.value}
+                placeholder={replace.labels.field}
+                aria-label={replace.labels.field}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                onChange={(event) => replace.onChange(event.target.value)}
+                onKeyDown={onReplaceKeyDown}
+              />
+              <button
+                type="button"
+                className="find-pill__button find-pill__button--text find-pill__replace-one"
+                disabled={!props.canStep}
+                onClick={replace.onReplace}
+              >
+                {replace.labels.replace}
+              </button>
+              <button
+                type="button"
+                className="find-pill__button find-pill__button--text find-pill__replace-all"
+                disabled={!props.canStep}
+                onClick={replace.onReplaceAll}
+              >
+                {replace.labels.replaceAll}
+              </button>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        findRow
+      )}
     </search>
   );
 }
