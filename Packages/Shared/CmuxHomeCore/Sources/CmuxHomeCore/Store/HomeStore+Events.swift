@@ -113,6 +113,10 @@ extension HomeStore {
             }
             if state == .online, !wasOnline {
                 backoffAttempts.removeAll()
+                // Typing went with the connection: a turn still running shows its dots again from the
+                // owner's live runs (`typists(in:)`), read again for every conversation on screen or
+                // with a run this client kept (a run that ended meanwhile leaves the snapshot).
+                for id in Set(pager.viewers.keys).union(live.keys).sorted(by: { $0.rawValue < $1.rawValue }) { requestLive(id) }
                 enqueueResends(log.takeResends())
                 resumeInterruptedUploads()
                 for stream in mirror.stale { scheduleRefetch(stream) }
