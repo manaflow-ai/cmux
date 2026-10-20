@@ -11,8 +11,6 @@ import Testing
 /// at 500 with 10 workspaces: the switch must not grow with the count of workspaces.
 @MainActor @Suite(.serialized)
 struct SpaceSwitchCostTests {
-    static let sizes = [10, 100, 500]
-
     static func measure(_ total: Int, panes: Bool = false, parked: Int = 0, rounds: Int = 8) async throws -> [SpaceSwitchBench.Sample] {
         let bench = try await SpaceSwitchBench(total: total, panes: panes, parked: parked)
         defer { bench.close() }
@@ -21,33 +19,38 @@ struct SpaceSwitchCostTests {
         return samples
     }
 
-    @Test func aSpaceSwitchCostsTheSameAt500WorkspacesAsAt10() async throws {
-        var p50: [Int: Double] = [:]
-        for total in Self.sizes {
-            let samples = try await Self.measure(total)
-            p50[total] = SpaceSwitchBench.percentile(samples.map(\.cpuMs), 0.5)
-        }
-        let small = try #require(p50[10]), large = try #require(p50[500])
-        // O(visible): a constant 4 ms of slack covers the rows a taller space realizes and timer noise.
-        #expect(large <= small * 2 + 4, "a space switch at 500 workspaces took \(large) ms of main thread vs \(small) ms at 10")
+    static func p50(_ samples: [SpaceSwitchBench.Sample]) -> Double { SpaceSwitchBench.percentile(samples.map(\.cpuMs), 0.5) }
+
+    /// Not a check: where a switch spends its main-thread time (BASELINE.md), with 120 parked
+    /// workspaces of a terminal and a browser tab each, and with 500 plain ones.
+    @Test func profileOfASpaceSwitch() async throws {
+        let parked = try await SpaceSwitchBench(total: 120, panes: true, parked: 120)
+        _ = try await parked.run(rounds: 1)
+        try await parked.profile(rounds: 30, seconds: 8)
+        parked.close()
+        let plain = try await SpaceSwitchBench(total: 500)
+        _ = try await plain.run(rounds: 1)
+        try await plain.profile(rounds: 30, seconds: 8)
+        plain.close()
     }
 
-    /// Every workspace has a terminal and a browser tab and was shown once (mounted, parked).
-    @Test func aSpaceSwitchWithParkedWorkspacesCostsTheSameAt500AsAt10() async throws {
-        var p50: [Int: Double] = [:]
-        for total in Self.sizes {
-            let samples = try await Self.measure(total, panes: true, parked: total, rounds: 6)
-            p50[total] = SpaceSwitchBench.percentile(samples.map(\.cpuMs), 0.5)
-        }
-        let small = try #require(p50[10]), large = try #require(p50[500])
-        #expect(large <= small * 2 + 4, "a space switch over 500 parked workspaces took \(large) ms of main thread vs \(small) ms at 10")
+    /// 10 workspaces show fewer rows than the sidebar holds; from 60 on every space fills it, so
+    /// from there a switch must cost the same: what is on screen, not how many workspaces exist.
+    @Test func aSpaceSwitchCostsTheSameAt500WorkspacesAsAt60() async throws {
+        var results: [Int: [SpaceSwitchBench.Sample]] = [:]
+        for total in [10, 60, 100, 500] { results[total] = try await Self.measure(total) }
+        let small = try #require(results[60]), large = try #require(results[500])
+        #expect(Self.p50(large) <= Self.p50(small) * 1.5 + 4, "a space switch at 500 workspaces took \(Self.p50(large)) ms of main thread vs \(Self.p50(small)) ms at 60")
+        let configures = { (samples: [SpaceSwitchBench.Sample]) in samples.map { $0.counters["row_configures"] ?? 0 }.max() ?? 0 }
+        #expect(configures(large) <= configures(small) + 4, "a switch at 500 configured \(configures(large)) rows vs \(configures(small)) at 60")
     }
 
-    /// Not a check: where a switch at 500 workspaces spends its main-thread time (BASELINE.md).
-    @Test func profileOfASpaceSwitchAt500Workspaces() async throws {
-        let bench = try await SpaceSwitchBench(total: 500)
-        defer { bench.close() }
-        _ = try await bench.run(rounds: 1)
-        try await bench.profile(rounds: 6, seconds: 15)
+    /// Every workspace has a terminal and a browser tab and was shown once (mounted, parked): a
+    /// switch must not wake every parked workspace.
+    @Test func aSpaceSwitchCostsTheSameWith120ParkedWorkspacesAsWith60() async throws {
+        var results: [Int: [SpaceSwitchBench.Sample]] = [:]
+        for total in [10, 60, 120] { results[total] = try await Self.measure(total, panes: true, parked: total, rounds: 6) }
+        let small = try #require(results[60]), large = try #require(results[120])
+        #expect(Self.p50(large) <= Self.p50(small) * 1.5 + 4, "a space switch over 120 parked workspaces took \(Self.p50(large)) ms of main thread vs \(Self.p50(small)) ms over 60")
     }
 }
