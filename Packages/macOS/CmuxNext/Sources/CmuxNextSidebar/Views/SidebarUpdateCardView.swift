@@ -39,6 +39,7 @@ final class SidebarUpdateCardView: NSView {
             if let notesPanel {
                 // Its close must not park the new page or close the new popup.
                 notesPanel.onClosed = nil
+                notesPanel.onDismiss = nil
                 notesPanel.host.onPointerExit = nil
                 notesPanel.host.onPointerEnter = nil
                 cancelNotesClose()
@@ -92,6 +93,8 @@ final class SidebarUpdateCardView: NSView {
     var notesCloseTimer = DemandTimer(owner: "sidebar.update-card.notes-close")
     /// How long the pending close has already waited (capped at ``notesCorridorLimit``).
     var notesCloseWaited: Duration = .zero
+    /// How many close checks ran (tests wait on it instead of a fixed number of yields).
+    var notesCloseChecks = 0
     /// The popup closed while the pointer was still on the card (Hide, an
     /// action, the app resigning active): moves over the card do not reopen it
     /// until the pointer leaves and comes back.

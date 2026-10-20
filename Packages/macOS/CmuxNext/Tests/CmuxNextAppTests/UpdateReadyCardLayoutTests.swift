@@ -139,15 +139,17 @@ import Testing
         return clock
     }
 
-    /// One close wait passes: waits for the timer to sleep, moves the clock past it, and lets its fire run.
-    func passCloseDelay(_ clock: ManualClock) async throws {
+    /// One close wait passes: waits for the timer to sleep, moves the clock past it, and waits
+    /// until the card's close check (a hop to the main actor) has run.
+    func passCloseDelay(_ clock: ManualClock, _ h: Harness) async throws {
         try await clock.waitForSleeper()
+        let checks = h.card.notesCloseChecks
         clock.advance(by: SidebarUpdateCardView.notesCloseDelay)
-        for _ in 0..<20 { await Task.yield() }
+        try #require(await eventually { h.card.notesCloseChecks > checks }, "the popup's close check never ran")
     }
 
-    /// A move over the card with no enter before it (the pointer already there): the card's own
-    /// move tracking, not the hover owner's refresh, has to open the popup.
+    /// A move over the card with no enter before it (the pointer already there, and the hover
+    /// owner not told): the card's own move tracking asks the hover owner again and opens the popup.
     func moveOver(_ h: Harness, to point: (screen: CGPoint, window: CGPoint)) {
         h.card.screenPointer = { point.screen }
         PointerHover.debugPointers[ObjectIdentifier(h.window)] = PointerHover.DebugPointer(point: point.window, mouse: NSEvent.mouseLocation)
@@ -175,7 +177,7 @@ import Testing
             #expect(h.card.notesAreShown, "a move at \(fraction) of the card's width opened no popup")
             h.card.screenPointer = { CGPoint(x: -50_000, y: -50_000) }
             PointerHover.setDebugPointer(nil, in: h.window)
-            try await passCloseDelay(clock)
+            try await passCloseDelay(clock, h)
             #expect(await eventually { !h.card.notesAreShown }, "the popup stayed open after the pointer left the card")
         }
     }
@@ -211,19 +213,19 @@ import Testing
         let between = CGPoint(x: x, y: y)
         h.card.screenPointer = { between }
         PointerHover.setDebugPointer(h.window.convertPoint(fromScreen: between), in: h.window)
-        try await passCloseDelay(clock)
+        try await passCloseDelay(clock, h)
         #expect(h.card.notesAreShown, "the popup closed while the pointer crossed to it at \(between)")
         // On the popup: it stays, and no close is pending.
         let inside = CGPoint(x: surface.midX, y: surface.midY)
         h.card.screenPointer = { inside }
-        try await passCloseDelay(clock)
+        try await passCloseDelay(clock, h)
         #expect(h.card.notesAreShown, "the popup closed with the pointer on it")
         #expect(!h.card.notesCloseTimer.isScheduled, "a close is still pending with the pointer on the popup")
         // Away from both: it closes after the delay, not at once.
         h.card.screenPointer = { CGPoint(x: card.minX - 400, y: card.minY - 400) }
         h.card.pointerLeftNotes()
         #expect(h.card.notesAreShown, "the popup closed at once instead of after the delay")
-        try await passCloseDelay(clock)
+        try await passCloseDelay(clock, h)
         #expect(await eventually { !h.card.notesAreShown }, "the popup stayed open after the pointer left it")
     }
 
@@ -255,10 +257,10 @@ import Testing
         PointerHover.setDebugPointer(h.window.convertPoint(fromScreen: parked), in: h.window)
         let waits = Int((SidebarUpdateCardView.notesCorridorLimit / SidebarUpdateCardView.notesCloseDelay).rounded(.up))
         for _ in 0..<(waits - 1) {
-            try await passCloseDelay(clock)
+            try await passCloseDelay(clock, h)
             #expect(h.card.notesAreShown, "the popup closed before the corridor's limit")
         }
-        try await passCloseDelay(clock)
+        try await passCloseDelay(clock, h)
         #expect(await eventually { !h.card.notesAreShown }, "the popup stayed open past the corridor's limit")
     }
 

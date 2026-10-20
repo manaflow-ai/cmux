@@ -56,11 +56,13 @@ extension SidebarUpdateCardView {
         panel.host.onPointerExit = { [weak self] in self?.pointerLeftNotes() }
         panel.host.onPointerEnter = { [weak self] in self?.cancelNotesClose() }
         // The close finished: the highlights page goes back to wait in the card.
-        panel.onClosed = { [weak self] in
-            guard let self else { return }
-            if self.isHovered { self.notesDismissedWhileHovered = true }
-            self.parkHighlights()
+        // A close under the pointer (Hide, an action, the app resigning) is noted as it
+        // starts, so a move during its animation does not reopen it.
+        panel.onDismiss = { [weak self] in
+            guard let self, self.isHovered else { return }
+            self.notesDismissedWhileHovered = true
         }
+        panel.onClosed = { [weak self] in self?.parkHighlights() }
         highlights.onHeightChange = { [weak self, weak panel, weak highlights] in
             guard let self, let panel, let highlights, highlights.contentHeight > 0 else { return }
             panel.resize(height: self.notesHeight(for: highlights.contentHeight))
@@ -119,6 +121,9 @@ extension SidebarUpdateCardView {
     /// One wait passed: stay (pointer on the card or inside the popup), wait
     /// again (on the way, under the cap), or close.
     func notesCloseFired() {
+        // DemandTimer can still run a check that was cancelled after it claimed its fire: harmless,
+        // it re-reads the pointer; it only counts one more wait toward the limit.
+        notesCloseChecks &+= 1
         notesCloseWaited += Self.notesCloseDelay
         if isHovered && !isHiddenOrHasHiddenAncestor { return }
         if let panel = notesPanel, panel.isPresented, panel.cardFrame.contains(screenPointer()) { return }
