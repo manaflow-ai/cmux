@@ -92,6 +92,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
     readonly teams: ReadonlyArray<string> | null;
   }> = [];
   const members = new Map<string, Set<string>>();
+  /** Stack server_metadata per team, as the server API returns it. */
+  const stackMetadata = new Map<string, unknown>();
   /** Team admins (Stack team_admin), per tenant. */
   const admins = new Map<string, Set<string>>();
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
@@ -120,7 +122,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     const user = url.searchParams.get("user_id") ?? "";
     stackMembershipCalls.push(user);
     if (stackFailing.has(user)) return Response.json({ message: "injected failure" }, { status: 500 });
-    const items = [...members].filter(([, users]) => users.has(user)).map(([team]) => ({ id: team }));
+    const items = [...members].filter(([, users]) => users.has(user)).map(([team]) => ({ id: team, server_metadata: stackMetadata.get(team) ?? null }));
     return Response.json({ items });
   };
   const membershipCache = makeMemoryMembershipCache();
@@ -469,6 +471,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
           body,
         }),
       );
+    },
+    /** Sets a team's Stack server_metadata (for example the cmux VM personal-tenant marker). */
+    setStackMetadata(tenant: string, metadata: unknown) {
+      stackMetadata.set(tenant, metadata);
     },
     addMember(tenant: string, user: string) {
       const set = members.get(tenant) ?? new Set<string>();
