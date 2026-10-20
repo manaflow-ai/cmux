@@ -95,7 +95,7 @@ final class SidebarListView: NSView {
     var external: ExternalDrag?
     /// The active row the last reload laid out (close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
-    /// The selection the last top reveal saw (`revealTopForSelection`): it scrolls once per change.
+    /// The selection the last reload or patch took (`takeTopReveal`): the top reveal scrolls once per change.
     var revealedSelection: SidebarItem?
     /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
     internal(set) var selectedRowKey: SidebarRowKey?
