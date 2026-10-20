@@ -74,6 +74,6 @@ nonisolated struct HTTPSUpgradeFallback {
     }
 }
 
-private extension String {
+private nonisolated extension String {
     var trimmingSlash: String { hasSuffix("/") ? String(dropLast()) : self }
 }
