@@ -1230,3 +1230,171 @@ mark {
   overflow: visible;
   padding-left: 36px;
 }
+
+/* Settings > Appearance > Density (DensityCard): tiles that draw each density at its own sizes.
+   The --density-* sizes come from the density's tokens (density.ts), set inline per preview. */
+.density-help {
+  margin: 0 0 10px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.density-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.density-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.density-tile[data-on] {
+  border-color: var(--text);
+}
+
+.density-name {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.density-name small {
+  color: var(--muted-text);
+  font-weight: 400;
+}
+
+.density-preview {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.density-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--density-strip);
+  padding: 0 var(--density-inset);
+  border-bottom: 1px solid var(--border);
+}
+
+.density-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--density-tab);
+  padding: 0 var(--density-inset);
+  border-radius: var(--density-radius);
+  background: var(--accent-soft);
+  font-size: var(--density-body);
+  white-space: nowrap;
+}
+
+.density-tab:not([data-on]) {
+  background: transparent;
+}
+
+.density-list {
+  padding: 4px var(--density-inset);
+}
+
+.density-item {
+  display: flex;
+  align-items: center;
+  gap: var(--density-inset);
+  height: var(--density-row);
+  padding: 0 var(--density-inset);
+  overflow: hidden;
+  border-radius: var(--density-radius);
+  font-size: var(--density-body);
+  white-space: nowrap;
+}
+
+.density-item[data-selected] {
+  background: var(--accent-soft);
+}
+
+.density-group {
+  color: var(--muted-text);
+  font-weight: 600;
+}
+
+.density-icon {
+  flex: none;
+  width: var(--density-icon);
+  height: var(--density-icon);
+  border-radius: 3px;
+  background: var(--border-strong);
+}
+
+.density-caption {
+  padding: 2px var(--density-inset) 6px;
+  color: var(--muted-text);
+  font-size: var(--density-caption);
+}
+
+.density-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.density-notice {
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.density-import {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.density-import textarea {
+  flex: 1;
+  min-height: 72px;
+  font-family: ui-monospace, monospace;
+}
+
+.density-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 300px);
+  gap: 16px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.density-field {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.density-field > span {
+  color: var(--muted-text);
+}
+
+.density-field output {
+  color: var(--muted-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

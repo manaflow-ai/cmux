@@ -162,12 +162,12 @@ nonisolated enum AppearanceSettingsSchema {
                 CustomDensitySelectionSetting().configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.customDensity", "Custom Density"),
                 kind: .text, default: nil, keywords: ["density", "custom"]
-            ).hiddenFromSettingsPage("the Density card picks it; a custom density's id from appearance.customDensities"),
+            ).hiddenFromPalette("the Density card and the palette's density rows pick it"),
             SettingDescriptor(
                 CustomDensitiesSetting().configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.customDensities", "Custom Densities"),
                 kind: .text, default: nil, keywords: ["density", "custom"]
-            ).hiddenFromSettingsPage("the Density card edits them: a list of density objects"),
+            ).hiddenFromPalette("the Density card edits them: a list of density objects"),
             SettingDescriptor(
                 uiScale.configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),
