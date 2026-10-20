@@ -242,6 +242,29 @@ async fn the_latest_pick_is_the_start_mode_of_every_new_chat_after_a_restart() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// acp-chief-issues.md #15 (2026-10-19 u1976): the Chief asked a headless
+/// `acpmux new --mode bypassPermissions` (then auto, acceptEdits) for a
+/// nightly job; each was refused with person_required, and the refusal
+/// sent it to the app or a preset, so it gave up. A script can still start
+/// a chat headless with no mode at all: it then runs in the person's own
+/// start mode. The refusal must say so, and that start must work.
+#[tokio::test]
+async fn a_refused_headless_mode_start_names_the_start_without_a_mode() {
+    let dir = home("headless", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut script = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let params = json!({"cwd": dir.join("work"), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "claude", "mode": "bypassPermissions"}}});
+    let r = script.call("session/new", params).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    let message = r["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains("without --mode"), "{message}");
+    // That start, with no mode, works headless in the person's start mode.
+    let (_, mode) = script.chat(&dir, "claude").await;
+    assert_eq!(mode, "bypassPermissions");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[tokio::test]
 async fn the_setting_chooses_ask_or_the_harness_own_mode() {
     let dir = home("ask", json!({"defaultPermissionMode": "ask"}));

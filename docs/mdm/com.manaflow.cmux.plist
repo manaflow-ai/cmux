@@ -927,6 +927,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns.</string>
+			<key>pfm_name</key>
+			<string>layout.scrollAreas</string>
+			<key>pfm_title</key>
+			<string>Scroll Areas</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>200</integer>
 			<key>pfm_name</key>
 			<string>layout.minimumPaneWidth</string>
@@ -1823,7 +1835,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Show the wallpaper grid and live appearance tuner while they are being integrated.</string>
+			<string>Applies Hue and Saturation to the window's tint. Off, they have no effect.</string>
 			<key>pfm_name</key>
 			<string>appearance.experimentalControls</string>
 			<key>pfm_title</key>
@@ -4392,6 +4404,140 @@
 			<string>Workspace Card History Lines</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A summary card opens when the pointer rests on a workspace group's header.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.workspaceGroups</string>
+			<key>pfm_title</key>
+			<string>Cards on Workspace Groups</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A summary card opens when the pointer rests on a tab group's chip.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.tabGroups</string>
+			<key>pfm_title</key>
+			<string>Cards on Tab Groups</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>600</integer>
+			<key>pfm_description</key>
+			<string>How long the pointer rests on a group before its summary card opens.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.delay</string>
+			<key>pfm_range_max</key>
+			<real>5000</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Group Card Delay</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>status</string>
+			<key>pfm_description</key>
+			<string>Which part of a group's card comes first.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.order</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>status</string>
+				<string>members</string>
+				<string>activity</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Group Card Leads With</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>8</integer>
+			<key>pfm_description</key>
+			<string>The most members a group's card lists by name.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.maxMembers</string>
+			<key>pfm_range_max</key>
+			<real>50</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Group Card Members</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Show how many members work, wait, failed or have unread items.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.sections.status</string>
+			<key>pfm_title</key>
+			<string>Group Card: Status</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Show the member count and the members' names.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.sections.members</string>
+			<key>pfm_title</key>
+			<string>Group Card: Members</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Show the member that changed last, and when.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.sections.activity</string>
+			<key>pfm_title</key>
+			<string>Group Card: Latest Activity</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Show the members' git branches.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.sections.git</string>
+			<key>pfm_title</key>
+			<string>Group Card: Branches</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Show the members' listening ports.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.sections.ports</string>
+			<key>pfm_title</key>
+			<string>Group Card: Ports</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

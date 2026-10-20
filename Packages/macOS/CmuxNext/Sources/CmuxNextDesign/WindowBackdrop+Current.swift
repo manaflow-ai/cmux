@@ -22,6 +22,7 @@ public extension ThemeScope {
     /// the theme's opacity, or over a background picture the tint the picture and the legibility
     /// floor resolve (an unset slider sat at Ghostty's 100% while the window showed the work's 35%).
     var shownWindowOpacity: Double {
+        _ = BackdropRevision.shared.value // Observed: re-read when the picture changes.
         guard backdropSelection != nil else { return input.backgroundOpacity }
         let backdrop = WindowBackdrop(tokens, art: backdropArt, selection: backdropSelection,
                                       tuning: appearanceTuning, tintOpacity: backdropTintOpacity)
@@ -32,6 +33,7 @@ public extension ThemeScope {
     /// starts: over a background picture the legibility floor (a lower value paints the same
     /// tint, so the slider's low end moved nothing); nil without a picture (0 works).
     var windowOpacityFloor: Double? {
+        _ = BackdropRevision.shared.value // Observed: Settings' host lists re-send with the new floor.
         guard backdropSelection != nil else { return nil }
         let backdrop = WindowBackdrop(tokens, art: backdropArt, selection: backdropSelection,
                                       tuning: appearanceTuning, tintOpacity: backdropTintOpacity)
