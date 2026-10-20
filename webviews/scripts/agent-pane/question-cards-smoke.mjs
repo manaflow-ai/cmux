@@ -49,7 +49,7 @@ try {
     }
   }
   // Keys: the card takes an idle keyboard on arrival, arrows move the highlight (and the
-  // preview), Escape skips the ask and hands the keyboard back.
+  // preview), Escape hands the keyboard back to the composer and never answers.
   await page.goto(`http://127.0.0.1:${port}/?fixture=question-pending-with-preview`);
   await card().waitFor();
   assert.equal(await page.evaluate(() => !!document.activeElement?.closest(".acpmux-question")), true);

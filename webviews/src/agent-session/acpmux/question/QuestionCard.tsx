@@ -61,12 +61,13 @@ const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 /// pill that folds it, the question as its header, radio or checkbox options with their
 /// descriptions, a preview of the highlighted option, an inline Other answer, Skip and Submit.
 /// Bare keys work while focus is inside the card, and it takes the keyboard on arrival only when
-/// nothing else has it or the composer is empty. ⌘↩ submits; Escape skips (in the Other field it
-/// only leaves the field, and in an ask of several questions it only hands the keyboard back, so
-/// the answers given so far are kept; Skip still declines). Skipping on Escape is this card's choice, after the Claude app's; the shared
-/// reducer (and the Mac card) still read Escape as "give the keyboard back". Only a person's click
-/// or key sends an answer.
-export function QuestionCard({ question, onReply }: { question: AgentQuestion; onReply(reply: QuestionReply): void }) {
+/// nothing else has it or the composer is empty. ⌘↩ submits, and one click on the last
+/// single-choice question sends it. Escape never answers (plans/cmux-next/agent-questions.md §6):
+/// it hands the keyboard back to the composer, keeps every answer given so far, and is left to the
+/// pane, so its double-press Esc still sees it; in the Other field it only leaves the field. Skip
+/// declines. A reply acpmux refuses shows its error on the card, which takes input again for a
+/// retry. Only a person's click or key sends an answer.
+export function QuestionCard({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
   if (question.state.kind === "answered")
     return <AnsweredQuestion question={question} answer={question.state.answer} />;
   if (question.state.kind === "cancelled") return <CancelledQuestion question={question} />;
@@ -74,9 +75,12 @@ export function QuestionCard({ question, onReply }: { question: AgentQuestion; o
   return <PendingAsk key={question.id} question={question} onReply={onReply} />;
 }
 
+/// Hands the host a reply. A promise that rejects means the reply was refused and the ask stays.
+type ReplyHandler = (reply: QuestionReply) => void | Promise<unknown>;
+
 /// The pill over a pending card. Folding hides the card but keeps it mounted, so the person's
 /// picks and Other text survive; the ask stays pending until answered or skipped.
-function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply(reply: QuestionReply): void }) {
+function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
   const t = useT();
   const cardId = useId();
   const [open, setOpen] = useState(true);
@@ -127,7 +131,7 @@ function PendingQuestion({
   id: string;
   hidden: boolean;
   question: AgentQuestion;
-  onReply(reply: QuestionReply): void;
+  onReply: ReplyHandler;
 }) {
   const t = useT();
   const legendId = useId();
@@ -135,8 +139,10 @@ function PendingQuestion({
   const group = useRef<HTMLFieldSetElement>(null);
   const [stored, setStored] = useState(() => cardState(question));
   // The ask a person already answered: the owner clears it a moment later, and until then a
-  // second click or key must not answer it again.
+  // second click or key must not answer it again. A refused reply clears it for a retry.
   const [sentFor, setSentFor] = useState<string | undefined>();
+  // Why the last reply was refused (the host's message, when it gave one), shown until the next try.
+  const [refused, setRefused] = useState<{ reason?: string } | undefined>();
   // A new snapshot of the same ask keeps the person's choices; another ask starts fresh.
   let state = stored;
   if (stored.question !== question) {
@@ -150,7 +156,13 @@ function PendingQuestion({
   const send = (sentReply: QuestionReply | undefined) => {
     if (!sentReply || sent) return;
     setSentFor(question.id);
-    onReply(sentReply);
+    setRefused(undefined);
+    const askId = question.id;
+    Promise.resolve(onReply(sentReply)).catch((error: unknown) => {
+      // The ask stays pending: say why on the card and take input again.
+      setSentFor((current) => (current === askId ? undefined : current));
+      setRefused({ reason: error instanceof Error && error.message ? error.message : undefined });
+    });
   };
   /// Gives the keyboard back: the composer claims an idle keyboard on this event (composerFocus.ts).
   const resign = () => {
@@ -220,15 +232,17 @@ function PendingQuestion({
     if (event.shiftKey) return;
     const input = inputForKey(event.key);
     if (!input) return;
+    // Escape never answers. Outside the Other field it hands the keyboard to the composer (in one
+    // press, even with an Other answer left open) and keeps every answer, and the key is not
+    // consumed: the pane's own Esc handling (the double press that stops a turn) still sees it.
+    if (input.type === "escape" && !inOther) {
+      if (!event.repeat) resign();
+      return;
+    }
     event.preventDefault();
     if (event.repeat && !REPEATS.has(event.key)) return;
-    // Escape skips a one-question ask. In the Other field the reducer only leaves the field, and in
-    // an ask of several questions it gives the keyboard back, so answers given are not thrown away.
-    // It gives the keyboard back directly, so one press works even with Other left open.
-    if (input.type === "escape" && !inOther) {
-      if (state.question.items.length === 1) skip();
-      else resign();
-    } else dispatch(input);
+    // In the Other field the reducer's Escape only leaves the field.
+    dispatch(input);
   };
   // The keys reach the card from its focused rows, field and buttons, so it listens natively
   // (PermissionCard does the same): the fieldset is a group, not a control of its own. It runs
@@ -353,14 +367,15 @@ function PendingQuestion({
           </section>
         )}
       </div>
+      {refused && (
+        <p className="acpmux-question-error" role="alert">
+          {t("question.replyFailed")}
+          {refused.reason && " "}
+          {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
+        </p>
+      )}
       <div className="acpmux-question-actions">
-        <button
-          type="button"
-          className="acpmux-question-skip"
-          aria-keyshortcuts="Escape"
-          disabled={sent}
-          onClick={skip}
-        >
+        <button type="button" className="acpmux-question-skip" disabled={sent} onClick={skip}>
           {t("question.skip")}
         </button>
         <button

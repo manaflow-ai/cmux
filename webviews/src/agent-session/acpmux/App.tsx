@@ -2518,9 +2518,10 @@ export function VirtualTranscript({
 const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
   void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
 
-/// Sends a question card's reply: the harness's option (absent cancels) and its answers.
+/// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
+/// shows a refusal (the promise rejects) and takes input again for a retry.
 const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) =>
-  void callNative("chat.permission", {
+  callNative("chat.permission", {
     permissionId: permission.permissionId,
     ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
     ...(sent.answers === undefined ? {} : { answers: sent.answers }),

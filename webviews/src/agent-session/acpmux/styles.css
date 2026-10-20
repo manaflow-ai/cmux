@@ -646,6 +646,9 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-preview{flex:1 1 280px;display:flex;flex-direction:column;gap:6px;min-width:0;margin:10px 0;padding:10px;border-radius:10px;background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg,var(--acpmux-base)))}
 .acpmux-question-preview-label{color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .acpmux-question-preview pre{margin:0;overflow:auto;white-space:pre;font:var(--text-detail)/1.45 var(--font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);color:var(--agent-text)}
+/* A refused reply: why, above Skip and Submit, which work again for a retry. */
+.acpmux-question-error{margin:0;padding:8px 14px 0;color:var(--agent-danger,var(--agent-warning));font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
+.acpmux-question-error-reason{color:var(--agent-muted)}
 .acpmux-question-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 12px;box-shadow:inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-question-edge)}
 .acpmux-question-skip{padding:5px 10px;border:0;border-radius:8px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-question-skip:hover:not(:disabled){background:var(--acpmux-question-hover);color:var(--agent-text)}
