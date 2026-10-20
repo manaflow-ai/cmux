@@ -488,6 +488,20 @@ class PathRoutingStructure(unittest.TestCase):
                 self.assertIn("web-bundles", needs)
                 self.assertIn("needs.web-bundles.result == 'skipped'", jobs[job_id]["if"])
 
+    def test_web_bundles_job_only_produces_the_bundles(self):
+        """swift test, daemon tests and generated files run only when web-bundles succeeds. Its
+        script self-tests ran last in that job: on 2026-10-20 the key-inputs test went red on
+        feat-cmux-next, every PR's web-bundles failed after the bundles were cached, and the three
+        Mac tiers were skipped (a skip reads as passing), so #22455 landed a test that did not
+        compile. The self-tests are checks-job steps; the producer runs no test script."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        runs = [step.get("run", "") for step in jobs["web-bundles"]["steps"]]
+        self.assertFalse([run for run in runs if "tests/" in run], runs)
+        check_runs = " ".join(step.get("run", "") for step in jobs["checks"]["steps"])
+        for script in ("tests/test_web_bundle_key_inputs.sh", "tests/test_build_web_bundles_from.sh"):
+            with self.subTest(script=script):
+                self.assertIn(script, check_runs)
+
     def test_stale_generated_files_fail_with_the_regenerate_hint_and_no_autofix(self):
         """The autofix job's App (glaeda route) has no contents: write, so "Mint the autofix
         token" failed on every stale PR; it is removed, not widened. A stale generated file
