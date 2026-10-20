@@ -242,6 +242,18 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "chat replies",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
+            // Pin or unpin a conversation in the Home sidebar's pinned grid (pinning-DESIGN.md): the
+            // row's Pin/Unpin, a tile dragged out of the grid, the palette, `cmux home pin-unpin` and
+            // MCP run it. `pinned` sets the state; without it the action toggles.
+            ActionDescriptor(
+                id: "home.togglePin", title: t("action.home.togglePin", "Pin/Unpin Conversation"),
+                keywords: ["home", "pin", "unpin", "pinned", "favorite", "top", "conversation", "chief", "dm", "group"],
+                category: .window, symbol: "pin", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            ActionArgument(name: "pinned", title: t("argument.home.pinned", "Pinned"), kind: .bool, isRequired: false)],
+                cliName: "home pin-unpin",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             // `cmux home send --conversation <id> --text "…"`: a message as me, in a DM or group.
             ActionDescriptor(
                 id: "home.sendMessage", title: t("action.home.sendMessage", "Send Message…"),
