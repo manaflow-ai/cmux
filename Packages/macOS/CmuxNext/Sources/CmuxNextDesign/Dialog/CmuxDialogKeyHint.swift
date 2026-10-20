@@ -1,4 +1,4 @@
-import Foundation
+public import AppKit
 
 /// The key that presses one dialog button, as the button shows it (u2647: every
 /// dialog button says which key presses it, "Cancel ⎋", "Change ↩", "Don't Save ⌘D").
@@ -46,5 +46,32 @@ public nonisolated enum CmuxDialogKeyHint: Equatable, Sendable {
     public var modifiers: CmuxDialogKeys.Modifiers {
         if case .command = self { return .command }
         return []
+    }
+
+    /// The button key equivalent that presses it (`NSButton.keyEquivalent`).
+    public var keyEquivalent: String {
+        switch self {
+        case .return: "\r"
+        case .escape: "\u{1b}"
+        case .command(let character): String(character)
+        }
+    }
+
+    /// The modifier mask held with ``keyEquivalent``.
+    public var modifierMask: NSEvent.ModifierFlags {
+        if case .command = self { return .command }
+        return []
+    }
+
+    /// `title` then this keycap, the keycap smaller and in the secondary text color, as
+    /// macOS menus draw their keys. Call inside the view's theme scope (`performWithTheme`).
+    @MainActor
+    public func attributedTitle(_ title: String, font: NSFont, color: NSColor) -> NSAttributedString {
+        let text = NSMutableAttributedString(string: title, attributes: [.foregroundColor: color, .font: font])
+        text.append(NSAttributedString(string: "  " + glyph, attributes: [
+            .foregroundColor: Palette.textSecondary,
+            .font: Typography.caption,
+        ]))
+        return text
     }
 }

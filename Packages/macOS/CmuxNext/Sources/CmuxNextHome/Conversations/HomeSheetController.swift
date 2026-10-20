@@ -56,10 +56,10 @@ public class HomeSheetController: NSViewController {
         stack.addArrangedSubview(statusLabel)
         cancelButton.target = self
         cancelButton.action = #selector(cancel(_:))
-        cancelButton.keyEquivalent = "\u{1b}"
+        cancelButton.keyHint = .escape
         primaryButton.target = self
         primaryButton.action = #selector(primary(_:))
-        primaryButton.keyEquivalent = "\r"
+        primaryButton.keyHint = .return
         primaryButton.setAccessibilityIdentifier("cmux.home.sheet.primary")
         buttons.orientation = .horizontal
         buttons.spacing = Metrics.space3
