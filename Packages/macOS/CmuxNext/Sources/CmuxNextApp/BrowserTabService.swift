@@ -2,7 +2,6 @@ import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextDaemon
 import CmuxNextDaemonService
-
 import CmuxNextSettings
 import Foundation
 
