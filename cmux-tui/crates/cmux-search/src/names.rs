@@ -312,9 +312,7 @@ impl NameEntry {
 
 /// One range as a list (the shape every match returns).
 fn one(range: Range<usize>) -> Vec<Range<usize>> {
-    let mut ranges = Vec::with_capacity(1);
-    ranges.push(range);
-    ranges
+    std::iter::once(range).collect()
 }
 
 fn next_char_end(text: &str, start: usize) -> usize {
