@@ -93,7 +93,7 @@ impl SearchEngine {
             let file = File::open(&path)?;
             segments.push(Segment::Sealed(Sealed::open(id, Store::File { file, path }, deleted)?));
         }
-        segments.push(Segment::Live(Live::new(manifest.next_segment)));
+        segments.push(Segment::Live(std::sync::Arc::new(Live::new(manifest.next_segment))));
         engine.next_segment = manifest.next_segment + 1;
         engine.segments = segments;
         engine.keyed = manifest

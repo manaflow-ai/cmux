@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::trigram;
 
@@ -144,7 +145,12 @@ pub(crate) struct Sealed {
 }
 
 pub(crate) enum Segment {
-    Live(Live),
+    /// Takes appends. Only the engine holds its `Arc` (so `Arc::get_mut`
+    /// always succeeds) until it is frozen.
+    Live(Arc<Live>),
+    /// Full and being sealed off the engine's lock: read-only, shared with a
+    /// `SealJob`, its own deleted bits (a keyed replace can hit it).
+    Frozen(Arc<Live>, Vec<u64>),
     Sealed(Sealed),
 }
 
@@ -252,8 +258,7 @@ impl Live {
     }
 
     /// The sealed image of this segment.
-    pub fn encode(&self, scratch: &mut LiveScratch) -> Vec<u8> {
-        scratch.clear();
+    pub fn encode(&self) -> Vec<u8> {
         let mut entries: Vec<(&u32, &Vec<u32>)> = self.postings.iter().collect();
         entries.sort_unstable_by_key(|(key, _)| **key);
         let mut data = Vec::new();
@@ -404,28 +409,28 @@ impl Sealed {
 impl Segment {
     pub fn id(&self) -> u64 {
         match self {
-            Self::Live(live) => live.id,
+            Self::Live(live) | Self::Frozen(live, _) => live.id,
             Self::Sealed(sealed) => sealed.id,
         }
     }
 
     pub fn doc_count(&self) -> usize {
         match self {
-            Self::Live(live) => live.docs.len(),
+            Self::Live(live) | Self::Frozen(live, _) => live.docs.len(),
             Self::Sealed(sealed) => sealed.doc_count as usize,
         }
     }
 
     pub fn blocks(&self) -> &[BlockMeta] {
         match self {
-            Self::Live(live) => &live.blocks,
+            Self::Live(live) | Self::Frozen(live, _) => &live.blocks,
             Self::Sealed(sealed) => &sealed.blocks,
         }
     }
 
     pub fn text_len(&self) -> usize {
         match self {
-            Self::Live(live) => live.text.len(),
+            Self::Live(live) | Self::Frozen(live, _) => live.text.len(),
             Self::Sealed(sealed) => sealed.text_len as usize,
         }
     }
@@ -433,7 +438,7 @@ impl Segment {
     /// Postings, doc and block tables, wherever they live (not the text).
     pub fn index_bytes(&self) -> usize {
         match self {
-            Self::Live(live) => {
+            Self::Live(live) | Self::Frozen(live, _) => {
                 live.docs.len() * DOC_RECORD
                     + live.blocks.len() * BLOCK_RECORD
                     + live.postings.values().map(|ids| ids.len() * 2).sum::<usize>()
@@ -448,7 +453,7 @@ impl Segment {
     /// Bytes this segment holds in process memory (the page cache aside).
     pub fn resident_bytes(&self) -> usize {
         match self {
-            Self::Live(live) => {
+            Self::Live(live) | Self::Frozen(live, _) => {
                 live.text.capacity()
                     + live.docs.capacity() * size_of::<DocMeta>()
                     + live.blocks.capacity() * size_of::<BlockMeta>()
@@ -475,6 +480,7 @@ impl Segment {
     pub fn deleted_bits(&self) -> &[u64] {
         match self {
             Self::Live(live) => &live.deleted,
+            Self::Frozen(_, deleted) => deleted,
             Self::Sealed(sealed) => &sealed.deleted,
         }
     }
@@ -487,7 +493,11 @@ impl Segment {
 
     pub fn delete(&mut self, doc: u32) {
         let bits = match self {
-            Self::Live(live) => &mut live.deleted,
+            Self::Live(live) => match Arc::get_mut(live) {
+                Some(live) => &mut live.deleted,
+                None => return,
+            },
+            Self::Frozen(_, deleted) => deleted,
             Self::Sealed(sealed) => &mut sealed.deleted,
         };
         let index = (doc >> 6) as usize;
@@ -508,7 +518,7 @@ impl Segment {
         out.docs.clear();
         out.text.clear();
         match self {
-            Self::Live(live) => {
+            Self::Live(live) | Self::Frozen(live, _) => {
                 let docs = live.docs.get(block.first_doc as usize..block.end_doc as usize);
                 let text = live.text.get(block.text_start as usize..end as usize);
                 let (Some(docs), Some(text)) = (docs, text) else {
@@ -550,7 +560,7 @@ impl Segment {
             return Ok(None);
         }
         match self {
-            Self::Live(live) => {
+            Self::Live(live) | Self::Frozen(live, _) => {
                 let mut lists: Vec<&Vec<u32>> = Vec::with_capacity(keys.len());
                 for key in keys {
                     match live.postings.get(key) {
