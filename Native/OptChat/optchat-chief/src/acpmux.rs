@@ -818,6 +818,9 @@ pub fn new_session(
     if !spec.env.is_empty() {
         meta["env"] = json!(spec.env);
     }
+    if let Some(peer) = &spec.peer {
+        meta["peer"] = json!(peer);
+    }
     let request = |meta: &Value| {
         client.request(
             "session/new",
@@ -890,6 +893,8 @@ impl AgentPort for Acpmux {
                     "the acpmux preset {name} is not installed, and this session never starts without it"
                 ));
             }
+            // A peer session: this daemon's presets do not exist there.
+            None if spec.peer.is_some() => None,
             None => self
                 .preset
                 .as_ref()
