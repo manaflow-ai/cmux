@@ -242,6 +242,13 @@ pub(crate) fn create_dir_all(dir: &Path) -> io::Result<()> {
 /// Makes `dir` owner-only, or checks an existing one: a wider folder is
 /// refused (mode 0700 and the uid check on Unix).
 pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
+    private_dir_after_open(dir, || Ok(()))
+}
+
+fn private_dir_after_open(
+    dir: &Path,
+    after_open: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
     create_dir_all(dir)?;
     use std::os::windows::fs::MetadataExt;
     let opened = open_directory(dir)?;
@@ -253,6 +260,7 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
             format!("{} is not a private directory", dir.display()),
         ));
     }
+    after_open()?;
     // Normalize even an owner-only but read-only legacy DACL: state
     // directories must let this user create, replace and delete children.
     restrict(dir)?;
@@ -388,4 +396,43 @@ fn wider(path: &Path, rights: u32) -> io::Result<Option<String>> {
         }
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn grant_everyone(path: &Path) {
+        let output = std::process::Command::new("icacls")
+            .arg(path)
+            .args(["/grant", "*S-1-1-0:(OI)(CI)F"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    #[test]
+    fn private_dir_normalizes_the_opened_directory_not_a_replacement_path() {
+        let root = std::env::temp_dir().join(format!(
+            "acpmux-owner-handle-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let checked = root.join("checked");
+        let moved = root.join("moved");
+        std::fs::create_dir_all(&checked).unwrap();
+        grant_everyone(&checked);
+
+        private_dir_after_open(&checked, || {
+            std::fs::rename(&checked, &moved)?;
+            std::fs::create_dir(&checked)?;
+            grant_everyone(&checked);
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(only_owner_reads(&moved).unwrap(), "the checked object stayed wide");
+        assert!(!only_owner_reads(&checked).unwrap(), "the replacement path was changed");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
