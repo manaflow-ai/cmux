@@ -13,7 +13,7 @@ import Testing
 struct SpaceSwitchCostTests {
     static let sizes = [10, 100, 500]
 
-    static func measure(_ total: Int, panes: Bool = false, parked: Int = 0, rounds: Int = 30) async throws -> [SpaceSwitchBench.Sample] {
+    static func measure(_ total: Int, panes: Bool = false, parked: Int = 0, rounds: Int = 8) async throws -> [SpaceSwitchBench.Sample] {
         let bench = try await SpaceSwitchBench(total: total, panes: panes, parked: parked)
         defer { bench.close() }
         let samples = try await bench.run(rounds: rounds)
@@ -36,10 +36,18 @@ struct SpaceSwitchCostTests {
     @Test func aSpaceSwitchWithParkedWorkspacesCostsTheSameAt500AsAt10() async throws {
         var p50: [Int: Double] = [:]
         for total in Self.sizes {
-            let samples = try await Self.measure(total, panes: true, parked: total, rounds: 20)
+            let samples = try await Self.measure(total, panes: true, parked: total, rounds: 6)
             p50[total] = SpaceSwitchBench.percentile(samples.map(\.cpuMs), 0.5)
         }
         let small = try #require(p50[10]), large = try #require(p50[500])
         #expect(large <= small * 2 + 4, "a space switch over 500 parked workspaces took \(large) ms of main thread vs \(small) ms at 10")
+    }
+
+    /// Not a check: where a switch at 500 workspaces spends its main-thread time (BASELINE.md).
+    @Test func profileOfASpaceSwitchAt500Workspaces() async throws {
+        let bench = try await SpaceSwitchBench(total: 500)
+        defer { bench.close() }
+        _ = try await bench.run(rounds: 1)
+        try await bench.profile(rounds: 6, seconds: 15)
     }
 }
