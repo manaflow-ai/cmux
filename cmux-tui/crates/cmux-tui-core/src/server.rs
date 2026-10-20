@@ -392,6 +392,9 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `terminal-resume-command`: a person's resume command for one
+/// terminal, typed on the new prompt when the terminal is respawned.
+pub const RESUME_COMMAND_CAPABILITY: &str = "resume-command";
 /// Advertised only while this owner's unplaced-terminal reaper runs (the
 /// owner was started with `--terminal-reap-grace-seconds`). Without it a
 /// detached terminal lives until it is ended or the session ends, so a
@@ -683,6 +686,8 @@ impl DetachNotice {
     }
 }
 
+// Variant names are the wire command names (`terminal-resume-command`).
+#[allow(clippy::enum_variant_names)]
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
@@ -1068,6 +1073,18 @@ enum Command {
         #[serde(default)]
         terminal_id: Option<String>,
         keep: bool,
+    },
+    /// Read, set (a string) or clear (null) the resume command of one hosted
+    /// terminal, named by exactly one of a PTY `surface` or a stable
+    /// `terminal_id`. A respawn of the terminal types the command on its new
+    /// prompt without a newline. An absent `command` only reads it.
+    TerminalResumeCommand {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal_id: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        command: Option<Option<String>>,
     },
     /// New tab in a pane (default: the active pane).
     NewTab {
