@@ -202,6 +202,11 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: reasoningChat(),
     },
+    "reasoning-chip-stage": {
+      note: "The Default template's stage layout before any chat: the model and Reasoning chips are the quiet footer's under the box, text at rest, the soft pill only on the hovered one.",
+      ready: newTab({ template: "default" }),
+      snapshot: reasoningChat(),
+    },
     // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
     // same chips, pills, caret and rim (test/composer-caret-focus.test.ts).
     ...Object.fromEntries(

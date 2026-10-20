@@ -96,6 +96,15 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       box: ".nt-box",
       row: ".nt-pickers",
     },
+    // The Default template's stage layout: the chips are the footer's under the box.
+    {
+      name: "New Tab stage composer",
+      entry: "agent-pane.new-tab",
+      variant: "reasoning-chip-stage",
+      field: ".nt-field",
+      box: ".nt-box",
+      row: ".nt-footer",
+    },
   ];
   const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer, .acpmux-fast)";
   const TRANSPARENT = "rgba(0, 0, 0, 0)";
