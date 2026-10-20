@@ -15,11 +15,6 @@ final class AgentPaneLaunchImages {
     /// Released pages' last frames (AgentPageHibernation), in memory as JPEGs: a page built
     /// again draws its old frame until it paints, as at launch.
     private var held: [String: (data: Data, size: NSSize, appearance: NSAppearance.Name?)] = [:]
-    /// A New Tab page's first frame this run, with the pane size and appearance it drew at: a
-    /// New Tab page that has not painted draws it, so a Cmd-N right after launch shows the
-    /// page's frame, never an empty pane, while its page loads (cx-ec99).
-    private var newTabFrame: (image: NSImage, size: NSSize, appearance: NSAppearance.Name?)?
-
     init(directory: URL?) {
         self.directory = directory
     }
@@ -64,16 +59,6 @@ final class AgentPaneLaunchImages {
     /// The tab closed or showed its live page: its held frame goes.
     func drop(_ key: String) {
         held[key] = nil
-    }
-
-    /// The New Tab frame drawn at `size` (zero: a pane not laid out yet) and `appearance`.
-    func newTabFrame(size: NSSize, appearance: NSAppearance.Name?) -> NSImage? {
-        guard let frame = newTabFrame, frame.appearance == appearance, size == .zero || size == frame.size else { return nil }
-        return frame.image
-    }
-
-    func rememberNewTabFrame(_ image: NSImage, size: NSSize, appearance: NSAppearance.Name?) {
-        newTabFrame = (image, size, appearance)
     }
 
     /// Replaces the saved pages with `images` (by tab key).

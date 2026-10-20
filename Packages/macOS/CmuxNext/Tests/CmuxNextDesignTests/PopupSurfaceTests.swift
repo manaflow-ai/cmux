@@ -3,17 +3,27 @@ import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
 
-/// Leo, 2026-10-12: popovers, hover cards, the palette and the find bars were glass, so the text
-/// under them showed through and read as text on text. Every overlay that carries text is the
-/// one solid popup surface (the theme's opaque overlay fill), whatever this Mac's transparency
-/// setting, and pages get the same color (`--cmux-popup-surface`) for their menus and tooltips.
+/// Leo, 2026-10-18: overlays that carry text (popovers, hover cards, the palette, the find bars)
+/// are themed Liquid Glass, like iOS's menus, replacing the solid surface of 2026-10-12. Under
+/// Reduce Transparency they are the one solid popup surface (the theme's opaque overlay fill), and
+/// pages get the same color (`--cmux-popup-surface`) for their menus and tooltips.
 @MainActor @Suite(.serialized) struct PopupSurfaceTests {
     /// A see-through theme (60% background opacity): the window under a popup is translucent, the
     /// popup surface must not be.
     private let input = ThemeInput(background: ThemeRGB(hex: 0x2B1650), foreground: ThemeRGB(hex: 0xF4E3FF),
                                    backgroundOpacity: 0.6)
 
-    @Test func overlayPanelsAreTheOpaquePopupSurface() throws {
+    @Test func overlayPanelsFollowThisMacsMaterial() {
+        let panel = Glass.makeOverlayPanel(content: NSTextField(labelWithString: "Find"))
+        #expect(panel.materialOverride == nil)
+        #expect(panel.material == OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
+                                                        reduceTransparency: ReduceTransparency.shared.isEnabled))
+    }
+
+    @Test func overlayPanelsAreTheOpaquePopupSurfaceUnderReduceTransparency() throws {
+        let pinned = ReduceTransparency.shared.override
+        ReduceTransparency.shared.override = true
+        defer { ReduceTransparency.shared.override = pinned }
         let scope = ThemeScope(level: .room)
         scope.setOverride(try #require(ThemeSpec("Stress Purple")), input: input, animated: false)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],

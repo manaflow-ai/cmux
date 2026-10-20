@@ -28,6 +28,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/vm-health",
+      "schedule": "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
+    },
+    {
       "path": "/api/cron/coderouter-alerts",
       "schedule": "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
     },
@@ -70,6 +74,10 @@
     {
       "path": "/api/cron/model-catalog",
       "schedule": "19 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-usage-analytics",
+      "schedule": "5 * * * *"
     }
   ]
 }

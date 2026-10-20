@@ -15,6 +15,7 @@ nonisolated enum Strings {
     static var bookmarkEdit: String { String(localized: "browser.bookmark.edit", defaultValue: "Edit Bookmark", bundle: .module) }
     static var extensions: String { String(localized: "browser.toolbar.extensions", defaultValue: "Extensions", bundle: .module) }
     static var extensionMoreFormat: String { String(localized: "browser.extensions.moreFormat", defaultValue: "More Actions for %@", bundle: .module) }
+    static var builtInAdBlocker: String { String(localized: "browser.extensions.builtInAdBlocker", defaultValue: "uBlock Origin (full) is built in", bundle: .module) }
     static var noExtensions: String { String(localized: "browser.extensions.none", defaultValue: "No extensions installed", bundle: .module) }
 
     static func extensionMenuTitle(_ operation: ExtensionMenuOperation) -> String {
@@ -54,6 +55,8 @@ nonisolated enum Strings {
     static var pasteAndSearch: String { String(localized: "browser.omnibar.pasteAndSearch", defaultValue: "Paste and Search", bundle: .module) }
     static var newTab: String { String(localized: "browser.tab.new", defaultValue: "New Tab", bundle: .module) }
     static var notSecure: String { String(localized: "browser.address.notSecure", defaultValue: "Not Secure", bundle: .module) }
+    /// Accessibility label of a popup window's read-only address field.
+    static var popupAddress: String { String(localized: "browser.popup.address", defaultValue: "Address", bundle: .module) }
 
     // Find
     static var findPlaceholder: String { String(localized: "browser.find.placeholder", defaultValue: "Find in page", bundle: .module) }

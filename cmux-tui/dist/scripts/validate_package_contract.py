@@ -162,13 +162,27 @@ def _pack_npm_packages(
             launcher = install_dir / "node_modules" / ".bin" / "cmux"
             if not launcher.is_file():
                 raise PackageContractError(f"npm install did not create launcher: {launcher}")
-            _run([str(launcher), "--version"], env=env)
+            version_result = _run([str(launcher), "--version"], env=env)
+            _require_release_version(version_result.stdout, version, "cmux --version")
         if install_relay_package is not None:
             _smoke_relay_launcher(
                 install_dir,
                 env,
                 temp_root,
             )
+
+
+def _require_release_version(output: str, version: str, label: str) -> None:
+    """The binary must name the release it ships in: `cmux X.Y.Z` or `cmux X.Y.Z (...)`.
+
+    Tester bug reports quote this line; the 0.13.4 binary printed `cmux 0.1.0`.
+    """
+    first = output.strip().splitlines()[0] if output.strip() else ""
+    if first != f"cmux {version}" and not first.startswith(f"cmux {version} ("):
+        raise PackageContractError(
+            f"{label} must report release {version}: found {first!r} "
+            "(stamp CMUX_TUI_DISTRIBUTION_VERSION into the build)"
+        )
 
 
 def _smoke_relay_launcher(

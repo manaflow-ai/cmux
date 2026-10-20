@@ -71,7 +71,6 @@ export const EDITOR_ACTIONS: ReadonlySet<string> = new Set([
   "editor.action.smartSelect.shrink",
   "editor.action.expandLineSelection",
   "editor.action.triggerSuggest",
-  "editor.action.quickCommand",
   "editor.action.gotoLine",
   "editor.action.startFindReplaceAction",
   "editor.fold",
@@ -91,6 +90,12 @@ export const EDITOR_ACTIONS: ReadonlySet<string> = new Set([
   "cursorUndo",
   "cursorRedo",
 ]);
+
+/**
+ * Monaco's own command palette. It is not an `EDITOR_ACTIONS` id: the editor hands it to the app's
+ * native command palette (view.ts), and no page command may open Monaco's widget.
+ */
+export const MONACO_QUICK_COMMAND = "editor.action.quickCommand";
 
 export function isEditorAction(id: string): boolean {
   return EDITOR_ACTIONS.has(id);

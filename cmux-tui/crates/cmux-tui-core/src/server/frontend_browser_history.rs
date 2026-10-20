@@ -95,7 +95,7 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
                 record,
                 size,
                 &key,
-                crate::mux::FrontendTabPlacement { activate, after },
+                crate::mux::FrontendTabPlacement { activate, after, index: None },
             )?;
             (outcome.surface, outcome.replayed)
         }
@@ -105,7 +105,7 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
                 pane,
                 record,
                 size,
-                crate::mux::FrontendTabPlacement { activate, after },
+                crate::mux::FrontendTabPlacement { activate, after, index: None },
             )?,
             false,
         ),

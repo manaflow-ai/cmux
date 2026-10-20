@@ -13,7 +13,9 @@ public import Foundation
 /// (granted only when the person invokes the extension). Fail closed: an
 /// unreadable manifest or a pattern this rule cannot parse counts as access.
 /// Paths of patterns are ignored (Chrome ignores them for host permissions;
-/// for content scripts this over-counts, which is the safe side).
+/// for content scripts this over-counts, which is the safe side). The
+/// cmux-shipped uBlock Origin (exact bundled path, pinned manifest hash) does
+/// not count; a copy the person installed does.
 public nonisolated struct AgentExtensionAccess {
     let manifest: (String) -> [String: Any]?
 
@@ -33,7 +35,9 @@ public nonisolated struct AgentExtensionAccess {
     public func blockers(_ extensions: [BrowserExtensionInfo], url: URL?) -> [BrowserExtensionInfo] {
         guard let url, let scheme = url.scheme?.lowercased(), Self.pageSchemes.contains(scheme) else { return [] }
         return extensions.filter { info in
-            guard info.isEnabled else { return false }
+            // The cmux-shipped, pinned uBlock Origin is part of cmux, not a
+            // third-party extension (CEFBuiltInExtensions.isTrustedBuiltIn).
+            guard info.isEnabled, !CEFBuiltInExtensions.isTrustedBuiltIn(info) else { return false }
             guard let manifest = manifest(info.path) else { return true }
             return Self.patterns(manifest).contains { matches($0, url) }
         }

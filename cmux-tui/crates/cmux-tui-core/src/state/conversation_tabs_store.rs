@@ -163,6 +163,15 @@ fn token(value: &str, max: usize, extra: &[u8]) -> bool {
         && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || extra.contains(&byte))
 }
 
+/// An agent kind (`claude`, `codex`): 1 to 64 letters, digits or `_ . -`.
+pub(crate) fn validate_harness(harness: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        token(harness, 64, b"_.-"),
+        "bad request: harness must be 1 to 64 letters, digits or '_', '.', '-'"
+    );
+    Ok(())
+}
+
 pub(crate) fn validate_session(session: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         token(session, 128, b"_.:-"),
@@ -205,10 +214,7 @@ impl ConversationTabRecord {
                     validate_session(session)?;
                 }
                 if let Some(harness) = harness {
-                    anyhow::ensure!(
-                        token(harness, 64, b"_.-"),
-                        "bad request: harness must be 1 to 64 letters, digits or '_', '.', '-'"
-                    );
+                    validate_harness(harness)?;
                 }
                 if let Some(host_name) = host_name {
                     anyhow::ensure!(
@@ -366,17 +372,19 @@ impl crate::workspace_registry::WorkspaceRegistry {
     }
 }
 
-/// The session of agent tab `browser_id`: `None` when it is no agent
-/// session tab, `Some(None)` before its session is bound.
-pub(crate) fn agent_session_of(
+/// The session and harness of agent tab `browser_id`: `None` when it is no
+/// agent session tab; the session is `None` before it is bound.
+type AgentSessionColumns = (Option<String>, Option<String>);
+
+fn agent_session_of(
     connection: &Connection,
     browser_id: &str,
-) -> anyhow::Result<Option<Option<String>>> {
+) -> anyhow::Result<Option<AgentSessionColumns>> {
     Ok(connection
         .query_row(
-            "SELECT session FROM agent_session_tabs WHERE browser_id = ?1",
+            "SELECT session, harness FROM agent_session_tabs WHERE browser_id = ?1",
             [browser_id],
-            |row| row.get::<_, Option<String>>(0),
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
         )
         .optional()?)
 }
@@ -394,34 +402,46 @@ impl std::fmt::Display for AgentSessionUnchanged {
 impl std::error::Error for AgentSessionUnchanged {}
 
 /// Set the session of agent tab `browser_id` to `session` when its current
-/// session is `expected` (None: unbound), in the caller's transaction. A
-/// tab that already has `session` fails with [`AgentSessionUnchanged`], so
-/// the caller commits nothing; another current session is
+/// session is `expected` (None: unbound), in the caller's transaction, and
+/// its harness to `harness` when one is given (the agent that session runs,
+/// as its machine's acpmux reports it; without one the recorded harness
+/// stays). A tab that already has `session` and that harness (or no harness
+/// given) fails with [`AgentSessionUnchanged`], so the caller commits
+/// nothing; a tab that already has `session` with another harness takes the
+/// harness alone, whatever `expected` says. Another current session is
 /// `conversation_tab.session_conflict`.
 pub(crate) fn swap_agent_session(
     transaction: &Transaction<'_>,
     browser_id: &str,
     session: &str,
     expected: Option<&str>,
+    harness: Option<&str>,
 ) -> anyhow::Result<()> {
     validate_session(session)?;
     if let Some(expected) = expected {
         validate_session(expected)?;
     }
-    let current = agent_session_of(transaction, browser_id)?
-        .ok_or_else(|| anyhow::anyhow!("bad request: the tab has no agent session source"))?;
-    if current.as_deref() == Some(session) {
-        return Err(AgentSessionUnchanged.into());
+    if let Some(harness) = harness {
+        validate_harness(harness)?;
     }
-    if current.as_deref() != expected {
+    let (current, current_harness) = agent_session_of(transaction, browser_id)?
+        .ok_or_else(|| anyhow::anyhow!("bad request: the tab has no agent session source"))?;
+    let harness_changes =
+        harness.is_some_and(|harness| current_harness.as_deref() != Some(harness));
+    if current.as_deref() == Some(session) {
+        if !harness_changes {
+            return Err(AgentSessionUnchanged.into());
+        }
+    } else if current.as_deref() != expected {
         anyhow::bail!(
             "conversation_tab.session_conflict: current session is {}",
             current.as_deref().unwrap_or("null")
         );
     }
     transaction.execute(
-        "UPDATE agent_session_tabs SET session = ?1 WHERE browser_id = ?2",
-        params![session, browser_id],
+        "UPDATE agent_session_tabs SET session = ?1, harness = COALESCE(?2, harness)
+         WHERE browser_id = ?3",
+        params![session, harness, browser_id],
     )?;
     Ok(())
 }

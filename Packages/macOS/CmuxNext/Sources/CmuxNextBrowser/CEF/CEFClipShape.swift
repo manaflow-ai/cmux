@@ -16,11 +16,13 @@ nonisolated enum CEFClipShape {
     /// corner, or a square clip that does not hold all of `bounds`), or nil
     /// when none does (the page is a plain rectangle and the fork's
     /// visible-rect clip is enough). A page clipped away entirely gets an
-    /// empty shape, so it shows nowhere.
-    static func path(bounds: CGRect, clips: [RoundedRect]) -> CGPath? {
+    /// empty shape, so it shows nowhere. `cutouts` are left out of it (a pane
+    /// in front covering a corner of this one, `cutouts(around:)`).
+    static func path(bounds: CGRect, clips: [RoundedRect], cutouts: [CGRect] = []) -> CGPath? {
         guard !bounds.isEmpty else { return nil }
         let cutting = clips.filter { cutsCorner(of: $0, into: bounds) || cutsSide(of: $0, into: bounds) }
-        guard !cutting.isEmpty else { return nil }
+        let holes = cutouts.map { $0.intersection(bounds) }.filter { !$0.isNull && $0.width > 0.01 && $0.height > 0.01 }
+        guard !cutting.isEmpty || !holes.isEmpty else { return nil }
         var shape = CGPath(rect: bounds, transform: nil)
         for clip in cutting {
             guard !clip.rect.intersection(bounds).isEmpty else { return CGPath(rect: .zero, transform: nil) }
@@ -28,6 +30,7 @@ nonisolated enum CEFClipShape {
             let rounded = CGPath(roundedRect: clip.rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
             shape = shape.intersection(rounded)
         }
+        for hole in holes { shape = shape.subtracting(CGPath(rect: hole, transform: nil)) }
         return shape.boundingBoxOfPath.isEmpty ? CGPath(rect: .zero, transform: nil) : shape
     }
 
@@ -59,6 +62,23 @@ nonisolated enum CEFClipShape {
             let overlap = corner.intersection(bounds)
             return !overlap.isNull && overlap.width > 0.01 && overlap.height > 0.01
         }
+    }
+
+    /// The cutouts the column strip's mask carries on an ancestor
+    /// (`StripClipMaskLayer.cutouts`, `PaneHostView.setStripClip`), in
+    /// `view`'s coordinates.
+    @MainActor
+    static func cutouts(around view: NSView) -> [CGRect] {
+        var result: [CGRect] = []
+        var ancestor = view.superview
+        while let current = ancestor {
+            if let mask = current.layer?.mask, mask.name == CALayer.cmuxStripClipName,
+               let rects = (mask as? StripClipMaskLayer)?.cutouts {
+                result += rects.map { view.convert($0, from: current) }
+            }
+            ancestor = current.superview
+        }
+        return result
     }
 
     /// Radius of a window's own corners (`NSWindow.frameCornerRadius`).

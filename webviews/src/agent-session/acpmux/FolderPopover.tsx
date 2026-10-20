@@ -27,6 +27,8 @@ export function FolderPopover({
   onPick,
   onBrowse,
   onNewWorktree,
+  onNoProject,
+  noProject = false,
   localName,
   peers,
 }: {
@@ -42,6 +44,10 @@ export function FolderPopover({
   onBrowse?(): void;
   /// New Worktree of the current folder.
   onNewWorktree?(): void;
+  /// Do not work in a project (Leo 2026-10-18, as ChatGPT and Claude Code offer): the chat starts
+  /// in no project. Checked while `noProject`.
+  onNoProject?(): void;
+  noProject?: boolean;
   localName?: string;
   peers?: string[];
 }) {
@@ -72,6 +78,7 @@ export function FolderPopover({
   const typedPath = /^(?:\/|~\/)/.test(typed) && !shown.some((folder) => folder.id === typed) ? typed : undefined;
   // The actions follow the folders in the same list, so the arrows reach them from the field.
   const actions: { value: string; text: string; run(): void }[] = [
+    ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noProject"), run: onNoProject }] : []),
     ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
     ...(onBrowse
       ? [
@@ -107,24 +114,25 @@ export function FolderPopover({
           data-first={action === actions[0] ? "" : undefined}
           data-choose={action.value === ACTION + "browse" ? "" : undefined}
         >
-          <span className="acpmux-location-check" aria-hidden="true" />
           <span className="acpmux-menu-label">{action.text}</span>
+          {action.value === ACTION + "none" && (
+            <span className="acpmux-location-check" aria-hidden="true">
+              {noProject && <CheckIcon />}
+            </span>
+          )}
         </span>
       );
     const folder = folders.find((candidate) => candidate.id === value);
     if (!folder)
       return (
-        <span className="acpmux-location-row" title={value}>
-          <span className="acpmux-location-check" aria-hidden="true" />
+        <span className="acpmux-location-row">
           <span className="acpmux-menu-label">{t("project.usePath", { path: value })}</span>
         </span>
       );
     const suffix = suffixes.get(folder.id);
     return (
+      // tooltip-allow: the row shows the folder's name; the tooltip is its full path
       <span className="acpmux-location-row" title={folder.id} data-current={folder.id === current ? "" : undefined}>
-        <span className="acpmux-location-check" aria-hidden="true">
-          {folder.id === current && <CheckIcon />}
-        </span>
         <ProjectBadge project={{ cwd: folder.id, label: folder.label }} />
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{folder.label}</span>
@@ -138,12 +146,15 @@ export function FolderPopover({
             </>
           )}
         </span>
+        <span className="acpmux-location-check" aria-hidden="true">
+          {folder.id === current && <CheckIcon />}
+        </span>
       </span>
     );
   };
 
   return (
-    <span ref={control} className="acpmux-location-picker" title={current}>
+    <span ref={control} className="acpmux-location-picker">
       <button
         ref={trigger}
         type="button"

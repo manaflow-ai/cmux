@@ -39,10 +39,10 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-pull-request[role=alert]{white-space:normal;color:var(--acpmux-del)}
 .acpmux-pull-request a{color:var(--agent-accent);text-decoration:none}
 .acpmux-pull-request a:hover{text-decoration:underline}
-.acpmux-branch-pill{display:inline-flex;align-items:center;max-width:100%;height:29px;box-sizing:border-box;padding:0 12px;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 .5px var(--acpmux-pill-edge);white-space:nowrap}
+.acpmux-branch-pill{display:inline-flex;align-items:center;max-width:100%;height:29px;box-sizing:border-box;padding:0 12px;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge);white-space:nowrap}
 .acpmux-branch-from,.acpmux-branch-to{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-branch-arrow{flex:none;margin:0 10px;color:var(--agent-muted)}
-.acpmux-changes-banner{display:flex;align-items:center;gap:12px;align-self:stretch;padding:12px 14px;border-radius:16px;border-left:2px solid var(--acpmux-warning);background:color-mix(in srgb,var(--acpmux-warning) 6%,var(--agent-page-bg,var(--acpmux-base)));box-shadow:inset 0 0 0 .5px var(--agent-border)}
+.acpmux-changes-banner{display:flex;align-items:center;gap:12px;align-self:stretch;padding:12px 14px;border-radius:16px;border-left:2px solid var(--acpmux-warning);background:color-mix(in srgb,var(--acpmux-warning) 6%,var(--agent-page-bg,var(--acpmux-base)));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--agent-border)}
 .acpmux-changes-banner-icon{flex:none;color:var(--acpmux-warning)}
 .acpmux-changes-banner-text{flex:1;min-width:0}
 .acpmux-changes-banner-title{font-weight:600}
@@ -69,7 +69,7 @@ button.acpmux-diff-scope:active,.acpmux-changes-retry:active,.acpmux-changes-ban
 .acpmux-file-menu-item:active{background:var(--acpmux-step-pressed)}
 button.acpmux-edited-file:active{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
 .acpmux-file-menu-item[aria-disabled="true"]:active{background:none}
-.acpmux-edited-more:hover{background:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg))}
+.acpmux-edited-more:hover{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
 button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:-1.5px}
 /* The file filter is a field: its edge darkens on hover and takes the accent while typing. */
 .acpmux-diff-filter:hover{border-color:color-mix(in srgb,var(--agent-text) 22%,transparent)}

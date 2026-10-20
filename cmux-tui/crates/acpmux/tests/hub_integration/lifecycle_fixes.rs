@@ -82,7 +82,10 @@ async fn an_npx_package_launch_is_resolved_once_and_never_spawned_through_npx() 
     std::fs::create_dir_all(&dir).unwrap();
     let log = dir.join("npx.log");
     let bin = dir.join("fake-acp");
-    write_executable(&bin, format!("#!/bin/sh\nexec python3 {fake}\n"));
+    write_executable(
+        &bin,
+        format!("#!/bin/sh\nexec python3 {}\n", crate::daemon_env::sh_quote(fake)),
+    );
     // `npx -y -p PKG -c 'command -v fake-acp'` prints the bin; any other
     // use is a launch through npx.
     let npx = dir.join("npx");
@@ -90,8 +93,9 @@ async fn an_npx_package_launch_is_resolved_once_and_never_spawned_through_npx() 
         &npx,
         format!(
             "#!/bin/sh\ncase \" $* \" in *\" -c \"*) echo resolve >> {log}; echo {bin}; exit 0;; esac\necho run >> {log}\nexec python3 {fake}\n",
-            log = log.display(),
-            bin = bin.display(),
+            log = crate::daemon_env::sh_quote(log.display()),
+            bin = crate::daemon_env::sh_quote(bin.display()),
+            fake = crate::daemon_env::sh_quote(fake),
         ),
     );
     let mut agents = BTreeMap::new();

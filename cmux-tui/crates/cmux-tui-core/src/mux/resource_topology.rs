@@ -22,7 +22,11 @@ use crate::workspace_registry::{
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 use cmux_layout_reducer::LayoutOpKind;
 
+#[cfg(unix)]
+mod agent_cli_job;
 mod effect_fields;
+#[cfg(unix)]
+pub(crate) use agent_cli_job::AgentCLIJobBusy;
 use effect_fields::created_identity_kind;
 use effect_fields::effect_cell_size;
 use effect_fields::effect_command;
@@ -250,6 +254,15 @@ pub(super) struct TerminalExitDetachEffects {
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
     empty_revision: Option<u64>,
+    /// The typed end each `SurfaceExited` carries.
+    end: Option<Arc<Value>>,
+}
+
+impl TerminalExitDetachEffects {
+    pub(super) fn with_end(mut self, end: Option<Arc<Value>>) -> Self {
+        self.end = end;
+        self
+    }
 }
 
 impl TerminalExitDetachProjection {
@@ -273,6 +286,7 @@ impl TerminalExitDetachProjection {
             changed_screens: self.changed_screens,
             selection_resync: self.selection_resync,
             empty_revision,
+            end: None,
         }
     }
 }

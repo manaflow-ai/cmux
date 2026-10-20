@@ -1,4 +1,5 @@
 title: Agents can read, set and clear cookies in Chromium tabs
 category: fixed
+docs: https://cmux.com/docs/browser-automation
 
-An agent that read, set or cleared cookies in a Chromium tab got an error. These calls now work in Chromium tabs the same way they work in WebKit tabs. A clear removes only the tab's site, and cmux keeps a backup so the agent can undo the clear in that same tab.
+Agents can now read, set and clear cookies in Chromium tabs, the same as in WebKit tabs. A clear removes only the tab's site, and the agent can undo it.

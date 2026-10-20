@@ -8,6 +8,8 @@ import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
+import { GoalStrip } from "./GoalStrip";
+import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { ConversationList, useStamp } from "./ConversationList";
 import { HomeIcon } from "./icons";
 import {
@@ -34,6 +36,7 @@ import { backToList, conversationHash, setHash, useHashPane, useNarrow, type Pan
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
 import { RouteSheets } from "./RouteSheets";
+import { LiveTyping } from "./LiveTyping";
 import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
 import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
@@ -75,6 +78,7 @@ export function HomeChannelsPage({
       strings,
       onOpen: (run: HomeRun) => setOpenRun({ conversation: run.conversation, author: run.author, id: run.id }),
       onLoad: (run: HomeRun) => void store.loadRunSteps(run),
+      live: store.live,
     }),
     [store, strings],
   );
@@ -125,7 +129,10 @@ export function HomeChannelsPage({
     if (snap.me) map.set(snap.me.id, snap.me);
     return map;
   }, [conversations, snap.me]);
-  const runsWithPeople = useMemo<RunsContextValue>(() => ({ ...runs, people }), [runs, people]);
+  const runsWithPeople = useMemo<RunsContextValue>(
+    () => ({ ...runs, people, draftTurn: snap.draft?.turn }),
+    [runs, people, snap.draft?.turn],
+  );
   const mentionable = useMemo(() => others(open, me), [open, me]);
   const online = snap.connection === "online";
   const name = open ? conversationName(open, me) : "";
@@ -242,6 +249,18 @@ export function HomeChannelsPage({
     if (root) void store.updateThread(root, { owner });
   };
   const focusedMessage = focused ? walk.find((m) => m.id === focused) : undefined;
+  // What the host's `home.currentSelection` answers (the dock's view switch): the open
+  // conversation and the message the person is on; null on the narrow list pane.
+  const selectionMessage = focusedMessage?.id ?? snap.highlight ?? snap.thread;
+  const selection = useMemo<HomeSelection | null>(
+    () =>
+      // Before the first measure the page does not know yet whether only the list shows.
+      measured === undefined || listShown || !snap.selected
+        ? null
+        : { conversation: snap.selected, ...(selectionMessage ? { message: selectionMessage } : {}) },
+    [measured, listShown, snap.selected, selectionMessage],
+  );
+  useHostSelection(store.host, selection);
   const moveList = (delta: 1 | -1, unreadOnly: boolean) => {
     // The order the list shows: my pins first, then newest activity.
     const { pinned, rest } = listOrder(snap.conversations.values());
@@ -483,6 +502,7 @@ export function HomeChannelsPage({
                 onOpenPalette={() => setPalette(true)}
                 onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
                 actions={rowActions}
+                chiefs={sheetState.chiefs}
               />
               <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
                 {snap.loading ? null : empty || !open ? (
@@ -587,6 +607,7 @@ export function HomeChannelsPage({
                     )}
                     <RunsContext.Provider value={runsWithPeople}>
                       <div className="lg-stage" ref={column} data-drop-zone>
+                        <GoalStrip book={store.runs} conversation={open.id} strings={strings} onOpen={runs.onOpen} />
                         <Timeline
                           conversation={snap.selected}
                           rows={rows}
@@ -609,13 +630,16 @@ export function HomeChannelsPage({
                           empty={t("timeline.empty")}
                           {...editActions("main")}
                         />
-                        <div className="lg-typing" aria-live="polite">
-                          {typingNames.length === 1
-                            ? format("typing.one", typingNames[0]!)
-                            : typingNames.length > 1
-                              ? t("typing.many")
-                              : ""}
-                        </div>
+                        <LiveTyping
+                          conversation={open.id}
+                          live={store.live}
+                          runs={store.runs}
+                          people={people}
+                          typing={typingNames}
+                          draftTurn={snap.draft?.turn}
+                          strings={strings}
+                          onOpen={runs.onOpen}
+                        />
                         <div className="lg-main-compose">
                           <Composer
                             key={open.id}

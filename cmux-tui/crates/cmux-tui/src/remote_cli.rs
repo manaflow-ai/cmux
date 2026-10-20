@@ -14,10 +14,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
 use base64::Engine;
-use cmux_remote::admin::{
-    AdminRequest, AdminResponse, UnixPeerAuthError, call_admin, call_admin_with_peer_exit,
-    verify_unix_peer_owner,
-};
+use cmux_build_identity::BUILD_IDENTITY;
+#[cfg(test)]
+use cmux_remote::admin::UnixPeerAuthError;
+use cmux_remote::admin::{AdminRequest, AdminResponse, call_admin, call_admin_with_peer_exit};
 use cmux_remote::bridge::LocalPortForward;
 use cmux_remote::client::WorkspaceClient;
 use cmux_remote::connection::ReconnectPolicy;
@@ -32,7 +32,7 @@ use cmux_remote::provider::{
     WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
-use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
+use cmux_remote::ssh_bootstrap::{DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,
@@ -52,6 +52,8 @@ use crate::remote_runtime::{
     load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
+#[cfg(test)]
+mod remote_link_binding_tests;
 mod remote_link_mux;
 use remote_link_mux::{mux_owner_args, socket_for};
 
@@ -104,6 +106,7 @@ fn run_inner(
         Some("remote-link") => run_remote_link(&args[1..]),
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
         Some("remote-stop") => run_remote_stop(&args[1..]),
+        Some("remote-update-need") => run_update_need(&args[1..]),
         Some("install-self") => run_install_self(&args[1..]),
         Some("wg") => run_wg(&args[1..]),
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
@@ -197,6 +200,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-probe") => client.remote_probe_help,
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
+        Some("remote-update-need") => catalog().remote.remote_update_need_help,
         Some("install-self") => client.install_self_help,
         Some("wg") => client.wg_hub_help,
         Some("remote") => client.remote_lifecycle_help,
@@ -1988,6 +1992,61 @@ pub const PROBE_CAPABILITIES: &[&str] = &[
     cmux_remote::SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY,
 ];
 
+/// `remote update-need --probe-json <file|->` (cx-3r9mt): whether the machine
+/// whose `remote-probe --json` this is runs an older, the same or a newer
+/// cmux-tui than this binary, by `cmux_remote::update_need`. Exit 0 for every
+/// answer; only bad input fails.
+fn run_update_need(args: &[String]) -> anyhow::Result<()> {
+    use cmux_remote::update_need::{BuildFacts, update_need};
+    let source = match args {
+        [flag, source] if flag == "--probe-json" => source.as_str(),
+        [single] if single.starts_with("--probe-json=") => &single["--probe-json=".len()..],
+        _ => return Err(anyhow!(catalog().remote.remote_update_need_help)),
+    };
+    let text = if source == "-" {
+        let mut text = String::new();
+        io::stdin().read_to_string(&mut text).context("read the probe JSON from stdin")?;
+        text
+    } else {
+        fs::read_to_string(source).with_context(|| format!("read {source}"))?
+    };
+    let probe: Value = serde_json::from_str(&text).context("the probe is not JSON")?;
+    let object = probe.as_object().ok_or_else(|| anyhow!("the probe is not a JSON object"))?;
+    let remote = BuildFacts {
+        commit: object.get("build_identity").and_then(Value::as_str).map(str::to_owned),
+        time: object.get("build_time").and_then(Value::as_u64).unwrap_or(0),
+        capabilities: object
+            .get("daemon_capabilities")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
+    };
+    let local = BuildFacts {
+        commit: Some(BUILD_IDENTITY.to_owned()),
+        time: cmux_build_identity::BUILD_TIME,
+        capabilities: Some(
+            cmux_tui_core::server::build_capabilities().into_iter().map(str::to_owned).collect(),
+        ),
+    };
+    let (need, reason) = update_need(&local, &remote);
+    let side = |facts: &BuildFacts| {
+        serde_json::json!({
+            "commit": facts.commit,
+            "time": facts.time,
+            "capabilities_count": facts.capabilities.as_ref().map(BTreeSet::len),
+        })
+    };
+    let mut answer = serde_json::json!({
+        "need": need, "reason": reason, "remote": side(&remote), "local": side(&local),
+    });
+    if reason == cmux_remote::update_need::Reason::Incomparable {
+        answer["warning"] = serde_json::json!(
+            "each build serves a capability the other lacks; neither replaces the other"
+        );
+    }
+    println!("{answer}");
+    Ok(())
+}
+
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
         "app": "cmux-tui",
@@ -1995,12 +2054,21 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
         "distribution_version": DISTRIBUTION_VERSION,
         "npm_bootstrap_version": NPM_BOOTSTRAP_VERSION,
         "build_identity": BUILD_IDENTITY,
+        // cx-3r9mt: what `remote update-need` orders builds by.
+        "build_time": cmux_build_identity::BUILD_TIME,
         "remote_protocol": REMOTE_PROTOCOL_VERSION,
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         // Client-side transport capabilities a control plane can key routing on.
         "capabilities": PROBE_CAPABILITIES,
     });
+    // The capability list only on request: the SSH bootstrap of every client reads at most
+    // 4096 bytes of this output, and the list alone is larger (cx-3r9mt).
+    let mut value = value;
+    if args.iter().any(|argument| argument == "--build-facts") {
+        value["daemon_capabilities"] =
+            serde_json::json!(cmux_tui_core::server::build_capabilities());
+    }
     if args.iter().any(|argument| argument == "--json") {
         println!("{}", serde_json::to_string(&value)?);
     } else {
@@ -2216,9 +2284,15 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
     if let Some(providers) = agent_hooks {
         install_agent_hooks(agent_hook_providers(&providers));
     }
-    ensure_daemon(&session, state_dir.as_deref(), &session_state, &link, mux_socket.as_deref())?;
+    let stream = ensure_daemon(
+        &session,
+        state_dir.as_deref(),
+        &session_state,
+        &link,
+        mux_socket.as_deref(),
+    )?;
     let runtime = tokio_runtime()?;
-    let result = runtime.block_on(proxy_stdio(&link));
+    let result = runtime.block_on(proxy_stdio(stream));
     // Tokio reads stdin on a blocking thread that cannot be cancelled: when
     // the link side ended first, do not wait for the next byte on stdin
     // before exiting (cx-bj1o review).
@@ -2513,10 +2587,16 @@ fn ensure_daemon(
     session_state: &Path,
     link: &Path,
     mux_socket_override: Option<&Path>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<UnixStream> {
     let _lock = lock_daemon_start(session_state)?;
-    if connect_same_user_socket(link).is_ok() {
-        return Ok(());
+    if let Ok(stream) = connect_same_user_socket(link) {
+        return remote_link_mux::check_binding(
+            stream,
+            session,
+            state_root,
+            link,
+            mux_socket_override,
+        );
     }
 
     // Spawn the daemon from this client's own running build (open inode on
@@ -2574,7 +2654,31 @@ fn ensure_daemon(
     command.stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log));
     configure_detached_process(&mut command);
     let mut child = command.spawn().context("could not start remote daemon")?;
-    wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
+    wait_for_detached_socket(
+        &mut child,
+        link,
+        Duration::from_secs(20),
+        "remote daemon",
+        &log_path,
+    )?;
+    if mux_socket_override.is_some() {
+        // The link listener is created before the admin listener during startup.
+        let (_, _, admin) = daemon_paths(session, state_root)?;
+        wait_for_detached_socket(
+            &mut child,
+            &admin,
+            Duration::from_secs(20),
+            "remote daemon admin",
+            &log_path,
+        )?;
+    }
+    remote_link_mux::check_binding(
+        connect_same_user_socket(link)?,
+        session,
+        state_root,
+        link,
+        mux_socket_override,
+    )
 }
 
 /// The mux owner and sidecar of a link with its own state directory log to
@@ -2798,14 +2902,21 @@ fn lock_daemon_start(session_state: &Path) -> anyhow::Result<fs::File> {
     Ok(lock)
 }
 
-async fn proxy_stdio(link: &Path) -> anyhow::Result<()> {
-    proxy_stdio_with_io(link, tokio::io::stdin(), tokio::io::stdout(), verify_unix_peer_owner).await
+async fn proxy_stdio(stream: UnixStream) -> anyhow::Result<()> {
+    stream.set_nonblocking(true)?;
+    proxy_connected_stdio_with_io(
+        tokio::net::UnixStream::from_std(stream)?,
+        tokio::io::stdin(),
+        tokio::io::stdout(),
+    )
+    .await
 }
 
+#[cfg(test)]
 async fn proxy_stdio_with_io<R, W, V>(
     link: &Path,
-    mut stdin: R,
-    mut stdout: W,
+    stdin: R,
+    stdout: W,
     verify_peer: V,
 ) -> anyhow::Result<()>
 where
@@ -2813,10 +2924,21 @@ where
     W: tokio::io::AsyncWrite + Unpin,
     V: FnOnce(&tokio::net::UnixStream) -> Result<(), UnixPeerAuthError>,
 {
-    use tokio::io::{AsyncWriteExt, copy};
-
     let stream = tokio::net::UnixStream::connect(link).await?;
     verify_peer(&stream)?;
+    proxy_connected_stdio_with_io(stream, stdin, stdout).await
+}
+
+async fn proxy_connected_stdio_with_io<R, W>(
+    stream: tokio::net::UnixStream,
+    mut stdin: R,
+    mut stdout: W,
+) -> anyhow::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::io::{AsyncWriteExt, copy};
     let (mut socket_read, mut socket_write) = stream.into_split();
     let upload = async {
         copy(&mut stdin, &mut socket_write).await?;

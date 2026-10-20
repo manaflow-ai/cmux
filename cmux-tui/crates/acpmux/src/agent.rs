@@ -8,12 +8,14 @@ use crate::rpc::{Id, Message, RpcError};
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
+
+mod command;
+pub(crate) use command::{command_env, harness_command};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -147,6 +149,9 @@ pub struct ChildAgent {
     /// (`codex_app_server.rs`) and run directly under acpmux.
     codex: Option<CodexLink>,
     hosted: Option<Hosted>,
+    /// Windows: the agent's job (its process group on Unix).
+    #[cfg(windows)]
+    job: Option<crate::job::Job>,
 }
 
 /// The in-process Codex bridge of a direct child: its translator, and the
@@ -160,170 +165,15 @@ struct CodexLink {
     order: Mutex<()>,
 }
 
-/// The harness command line and environment, as acpmux runs it: the login
-/// environment, no nested-agent markers, the session's `ACPMUX_*` caller
-/// context, and the profile's env. Shared by direct children and hosts.
-pub(crate) fn harness_command(
-    name: &str,
-    profile: &HarnessProfile,
-    cwd: &std::path::Path,
-    command_line: Option<(String, Vec<String>)>,
-    session: Option<(&str, &str)>,
-) -> Result<Command> {
-    // A session's Claude Code (a planned command line) gets cmux's browser
-    // and computer use tools and skills (agent_tools.rs); a remote chain's
-    // sandboxed plan carries --strict-mcp-config and gets none.
-    let claude_session = profile.kind == crate::config::HarnessKind::ClaudeStdio
-        && command_line.is_some()
-        && session.is_some();
-    let owned: (String, Vec<String>) = match command_line {
-        Some(c) => c,
-        None => {
-            let (program, args) = profile
-                .argv
-                .split_first()
-                .ok_or_else(|| anyhow!("agent {name} has an empty argv"))?;
-            (program.clone(), args.to_vec())
-        }
-    };
-    if profile.kind == crate::config::HarnessKind::Terminal {
-        return Err(anyhow!(
-            "{name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
-        ));
-    }
-    let owned = if let (true, Some((session_id, _))) = (claude_session, session) {
-        let extra = crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id);
-        (owned.0, owned.1.into_iter().chain(extra).collect())
-    } else {
-        owned
-    };
-    let mut env = resolved_profile_env(profile)?;
-    // The Codex bridge runs the configured codex binary: `CODEX_PATH` of the
-    // profile or its family (`defaults.codex.env`), as the ACP adapter does.
-    let owned = match env.get("CODEX_PATH").filter(|p| !p.is_empty()) {
-        Some(path) if crate::codex_app_server::is_launch(&owned.0, &owned.1) => {
-            (path.clone(), owned.1)
-        }
-        _ => owned,
-    };
-    // A bound route's provider variables the inherited env must not keep
-    // (routes.rs): an earlier route's key never reaches this process.
-    let route_unset = env.remove(crate::routes::UNSET_KEY);
-    env.remove(crate::routes::PROFILE_ROUTE_KEY);
-    let (program, args) = (&owned.0, &owned.1);
-    let mut cmd = Command::new(program);
-    // Startup files changed since the last read: refresh in the background.
-    crate::login_env::refresh_if_changed();
-    // The login shell's allow-list for this harness's family (login_env.rs).
-    let family_name = crate::config::derive_family(name, profile);
-    let family = Some(family_name.as_str());
-    crate::login_env::apply_tokio_for(&mut cmd, family, Some(&env));
-    crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, family);
-    // Caller context, herdr-style: the agent knows which session it is.
-    for (k, _) in std::env::vars_os() {
-        if k.to_string_lossy().starts_with("ACPMUX_") {
-            cmd.env_remove(&k);
-        }
-    }
-    // Helper tokens reach the cmux-cua MCP server through its own env only.
-    crate::cua_socket::scrub_agent_env(&mut cmd);
-    // A nested launch must not be taken for its parent's thread.
-    cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
-    // The daemon's own terminal (it may have started in a cmux terminal) is
-    // not the agent's: a stale id would open the agent's tabs beside it.
-    for key in crate::agent_tools::INHERITED_CALLER_ENV {
-        cmd.env_remove(key);
-    }
-    for k in route_unset.iter().flat_map(|list| list.split(',')) {
-        cmd.env_remove(k);
-    }
-    if let Some((id, sname)) = session {
-        cmd.env("ACPMUX_ENV", "1")
-            .env("ACPMUX_SESSION_ID", id)
-            .env("ACPMUX_SESSION_NAME", sname)
-            .env("ACPMUX_SOCKET", crate::config::socket_path())
-            // The caller the cmux CLI names to the app: its tabs open in the
-            // column right of this session's chat (beside_caller).
-            .env(crate::agent_tools::AGENT_SESSION_ENV, id);
-    }
-    cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
-        .envs(env.iter())
-        // A terminal's launch credential names that one terminal; no agent
-        // acts as the terminal that started acpmux, not even through a preset.
-        .env_remove(crate::config::LAUNCH_CREDENTIAL_ENV)
-        // Nor as the Chief whose host started acpmux (config::CHIEF_CREDENTIAL_ENV).
-        .env_remove(crate::config::CHIEF_CREDENTIAL_ENV[0])
-        .env_remove(crate::config::CHIEF_CREDENTIAL_ENV[1])
-        // Claude refuses to nest inside another Claude session.
-        .env_remove("CLAUDECODE")
-        .env_remove("CLAUDE_CODE_ENTRYPOINT")
-        .current_dir(cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    // Own process group, so stopping the session stops everything the
-    // agent started underneath it (background shells included). Windows
-    // port: a job object there (a later landing).
-    #[cfg(unix)]
-    cmd.process_group(0);
-    crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some());
-    // A Claude agent's sign-in inputs, for a clear message if it has none.
-    match (family == Some("claude"), session) {
-        (true, Some((id, _))) => crate::claude_auth::remember(id, &command_env(&cmd)),
-        (false, Some((id, _))) => crate::claude_auth::forget(id),
-        _ => {}
-    }
-    Ok(cmd)
-}
-
-/// The profile's env with its `${keychain:…}` and `${env:…}` references
-/// resolved (`config::profiles`). The secret store is asked only when a
-/// value holds a reference; the lookup blocks, so a multi-thread runtime
-/// moves it off its worker first.
-fn resolved_profile_env(
-    profile: &HarnessProfile,
-) -> Result<std::collections::BTreeMap<String, String>> {
-    let mut env = profile.env.clone();
-    if !crate::config::profiles::has_env_refs(&env) {
-        return Ok(env);
-    }
-    let resolve = |env: &mut std::collections::BTreeMap<String, String>| {
-        crate::config::profiles::resolve_env_refs(
-            env,
-            &|var| crate::login_env::allowed_var(var).or_else(|| std::env::var(var).ok()),
-            &crate::config::profiles::keychain_lookup,
-        )
-    };
-    let multi_thread = tokio::runtime::Handle::try_current()
-        .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
-    let result = if multi_thread {
-        tokio::task::block_in_place(|| resolve(&mut env))
-    } else {
-        resolve(&mut env)
-    };
-    result.map_err(|e| anyhow!(e))?;
-    Ok(env)
-}
-
-/// The full environment `cmd` gives its child (inherited, then changed).
-pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
-    let mut env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
-    for (k, v) in cmd.as_std().get_envs() {
-        let k = k.to_string_lossy().into_owned();
-        match v {
-            Some(v) => {
-                env.insert(k, v.to_string_lossy().into_owned());
-            }
-            None => {
-                env.remove(&k);
-            }
-        }
-    }
-    env.into_iter().collect()
-}
-
 impl ChildAgent {
+    /// Ends every process in the agent's job (Windows; killpg on Unix).
+    #[cfg(windows)]
+    fn kill_job(&self) {
+        if let Some(job) = &self.job {
+            job.kill();
+        }
+    }
+
     /// Spawn the agent and start its reader loop. Inbound requests and
     /// notifications are delivered on `inbound`.
     pub async fn spawn(
@@ -350,6 +200,8 @@ impl ChildAgent {
         // it can drive its own session and siblings through the CLI.
         session: Option<(&str, &str)>,
     ) -> Result<Arc<Self>> {
+        // The build-session kill switch: no agent process at all (cx-9ettq).
+        crate::launch_policy::refuse_if_disabled()?;
         let codex = (translator.is_none()
             && command_line.is_none()
             && crate::codex_app_server::is_profile_launch(&profile.argv))
@@ -359,9 +211,23 @@ impl ChildAgent {
             order: Mutex::new(()),
         });
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("spawn agent {name}: {}", profile.argv.join(" ")))?;
+        #[cfg(windows)]
+        cmd.creation_flags(crate::job::AGENT_FLAGS);
+        let mut child = cmd.spawn().with_context(|| format!("spawn agent {name}"))?;
+        #[cfg(windows)]
+        let job = {
+            let contained = child
+                .raw_handle()
+                .ok_or_else(|| std::io::Error::other("the agent has no process handle"))
+                .and_then(crate::job::Job::contain);
+            match contained {
+                Ok(job) => Some(job),
+                Err(e) => {
+                    let _ = child.start_kill();
+                    anyhow::bail!("spawn agent {name}: its job object: {e}");
+                }
+            }
+        };
         let pid = child.id();
         let stdin = child.stdin.take().context("agent stdin")?;
         let stdout = child.stdout.take().context("agent stdout")?;
@@ -381,6 +247,8 @@ impl ChildAgent {
             translator: translator.clone(),
             codex,
             hosted: None,
+            #[cfg(windows)]
+            job,
         });
 
         // Writer task.
@@ -443,6 +311,8 @@ impl ChildAgent {
                                         libc::killpg(pg as i32, libc::SIGKILL);
                                     }
                                 }
+                                #[cfg(windows)]
+                                agent_for_exit.kill_job();
                             }
                             continue;
                         }
@@ -627,9 +497,15 @@ impl ChildAgent {
             unsafe {
                 libc::killpg(pid as i32, libc::SIGTERM);
             }
+            // Windows: Ctrl+Break to the agent's process group first.
+            #[cfg(windows)]
+            crate::job::ctrl_break(pid);
             if let Some(child) = guard.as_mut() {
                 let _ = tokio::time::timeout(KILL_GRACE, child.wait()).await;
             }
+            // Then the job ends, stragglers included (SIGKILL on Unix).
+            #[cfg(windows)]
+            self.kill_job();
             #[cfg(unix)]
             unsafe {
                 libc::killpg(pid as i32, libc::SIGKILL);
@@ -679,6 +555,11 @@ impl ChildAgent {
                 libc::killpg(pg, libc::SIGTERM);
             }
         }
+        // Windows: Ctrl+Break to the agent's process group first.
+        #[cfg(windows)]
+        if let Some(pg) = pgid {
+            crate::job::ctrl_break(pg as u32);
+        }
         let _ = tokio::time::timeout(grace, async {
             // The exit watcher may hold this lock while it reaps, and frees
             // it once the child is gone; otherwise wait on the exit here.
@@ -687,6 +568,9 @@ impl ChildAgent {
             }
         })
         .await;
+        // Then the job ends, stragglers included (SIGKILL on Unix).
+        #[cfg(windows)]
+        self.kill_job();
         #[cfg(unix)]
         if let Some(pg) = pgid {
             unsafe {
@@ -1021,6 +905,8 @@ impl ChildAgent {
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
+            #[cfg(windows)]
+            job: None,
         });
         agent.start_reader(link);
         (agent, responses)
@@ -1176,4 +1062,30 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
     let _ =
         tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
             .await;
+}
+
+#[cfg(all(test, unix))]
+mod spawn_error_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn direct_spawn_failure_does_not_expose_harness_argv() {
+        const SENTINEL: &str = "argv-secret-must-not-leave-the-daemon";
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["/nonexistent/acpmux-test-harness", "--token", SENTINEL]
+        }))
+        .unwrap();
+        let (inbound, _rx) = mpsc::channel(1);
+        let tap: Tap = Arc::new(|_, _, _| true);
+        let error =
+            match ChildAgent::spawn("missing", &profile, &std::env::temp_dir(), inbound, tap).await
+            {
+                Ok(_) => panic!("a missing harness started"),
+                Err(error) => error,
+            };
+        assert!(
+            !error.to_string().contains(SENTINEL),
+            "spawn failure exposed harness argv: {error:#}"
+        );
+    }
 }

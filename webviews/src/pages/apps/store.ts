@@ -5,13 +5,14 @@
 // confirmation (coordinator Q4), so the page shows the owner's result, never its own guess.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
-import { fromDetail, listCatalog, listInstalled, type WireDetail } from "./wire";
+import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import { categories, filterApps, listedInStore, parseRoute, type StoreLayout, type StoreTab } from "./model";
 import {
   AppsOps,
   OPEN_ACTION,
   type AppDetail,
   type AppIconRef,
+  type AppUpdate,
   type AppsChanged,
   type CatalogApp,
   type Grants,
@@ -23,6 +24,9 @@ import {
 
 export type Connection = "connecting" | "connected" | "disconnected";
 
+export type CatalogStatus = "loading" | "ready" | "error";
+export type DetailStatus = "idle" | "loading" | "ready" | "not-found" | "error";
+
 export interface AppsSnapshot {
   tab: StoreTab;
   layout: StoreLayout;
@@ -33,6 +37,12 @@ export interface AppsSnapshot {
   visible: CatalogApp[];
   categories: string[];
   installed: InstalledApp[];
+  /** Updates reported by the supervisor. This may be stale when updates.list is unavailable. */
+  updates: AppUpdate[];
+  updatesLoading: boolean;
+  updatesStale: boolean;
+  updatesError?: string;
+  updatesRevision?: number;
   selection?: string;
   detail?: AppDetail;
   grants: Record<string, Grants>;
@@ -41,6 +51,12 @@ export interface AppsSnapshot {
   logsShown?: string;
   logs: Record<string, LogLine[]>;
   loading: boolean;
+  /** The catalog request state; stale rows remain visible while a retry is in flight. */
+  catalogStatus: CatalogStatus;
+  catalogError?: string;
+  /** The selected detail request state; selection is retained across failures and retries. */
+  detailStatus: DetailStatus;
+  detailError?: string;
   connection: Connection;
   error?: string;
 }
@@ -59,6 +75,8 @@ export class AppsStore {
   private readonly icons = new Map<string, string>();
   private starting = false;
   private generation = 0;
+  /** Monotonic token so a slower updates.list response cannot replace a newer one. */
+  private updatesGeneration = 0;
   private detailGeneration = 0;
   /**
    * The idempotency key of each action still in flight or failed with a retryable error, by op and
@@ -80,7 +98,12 @@ export class AppsStore {
       visible: [],
       categories: [],
       installed: [],
+      updates: [],
+      updatesLoading: client !== null,
+      updatesStale: false,
       selection: route.app && listedInStore({ id: route.app }) ? route.app : undefined,
+      catalogStatus: client ? "loading" : "ready",
+      detailStatus: client && route.app && listedInStore({ id: route.app }) ? "loading" : "idle",
       grants: {},
       logs: {},
       loading: client !== null,
@@ -146,12 +169,20 @@ export class AppsStore {
     this.unwatch = undefined;
   }
 
-  /** Re-reads the catalog, the installed list, and the selected app's detail. */
+  /** Re-reads the catalog, installed list, and update list owned by the supervisor. */
   async reload(): Promise<void> {
     if (!this.client) return;
     const generation = ++this.generation;
+    const updatesGeneration = ++this.updatesGeneration;
+    this.set({ loading: true, catalogStatus: "loading", catalogError: undefined });
     try {
-      const [catalog, installed] = await Promise.all([listCatalog(this.client), listInstalled(this.client)]);
+      const [catalog, installed, updateResponse] = await Promise.all([
+        listCatalog(this.client),
+        listInstalled(this.client),
+        listUpdates(this.client)
+          .then((result) => ({ result, error: undefined as unknown }))
+          .catch((error: unknown) => ({ result: undefined, error })),
+      ]);
       if (generation !== this.generation) return;
       const listed = catalog.apps.filter(listedInStore);
       // Installed rows carry no icon: they take their listing's.
@@ -159,12 +190,42 @@ export class AppsStore {
       const installedRows = installed.apps
         .filter(listedInStore)
         .map((app) => (app.icon || !iconOf.get(app.id) ? app : { ...app, icon: iconOf.get(app.id) }));
+      const installedIds = new Set(installedRows.map((app) => app.id));
+      const acceptUpdates = updatesGeneration === this.updatesGeneration;
+      const updates = (
+        acceptUpdates
+          ? (updateResponse.result?.updates ?? installedRows.flatMap(updateFromInstalled))
+          : this.snapshot.updates
+      ).filter((update) => installedIds.has(update.app));
+      const updatesByApp = new Map(updates.map((update) => [update.app, update]));
+      const mergedInstalled = installedRows.map((app) => {
+        const update = updatesByApp.get(app.id);
+        if (!update) return app;
+        return {
+          ...app,
+          update: { version: update.version },
+          failure: update.failure ?? app.failure,
+        };
+      });
       this.set({
         catalog: listed,
         visible: filterApps(listed, this.snapshot.query, this.snapshot.category),
         categories: categories(listed),
-        installed: installedRows,
+        installed: mergedInstalled,
+        updates,
+        updatesLoading: acceptUpdates ? false : this.snapshot.updatesLoading,
+        updatesStale: acceptUpdates ? !updateResponse.result : this.snapshot.updatesStale,
+        updatesError: acceptUpdates
+          ? updateResponse.error
+            ? message(updateResponse.error)
+            : undefined
+          : this.snapshot.updatesError,
+        updatesRevision: acceptUpdates
+          ? (updateResponse.result?.revision ?? installed.revision)
+          : this.snapshot.updatesRevision,
         loading: false,
+        catalogStatus: "ready",
+        catalogError: undefined,
         connection: "connected",
         error: undefined,
       });
@@ -175,7 +236,46 @@ export class AppsStore {
       void this.loadIcons(generation);
     } catch (error) {
       if (generation !== this.generation) return;
-      this.set({ loading: false, ...failure(error) });
+      const failed = failure(error);
+      this.set({
+        loading: false,
+        updatesLoading: false,
+        catalogStatus: "error",
+        catalogError: failed.error,
+        // A deep-linked detail waits on the catalog; the banner's Reload retries both.
+        ...(this.snapshot.detailStatus === "loading" ? { detailStatus: "error", detailError: failed.error } : {}),
+        ...failed,
+        error: undefined,
+      });
+    }
+  }
+
+  /** Re-reads only the update list without guessing at a new version after a failure. */
+  async refreshUpdates(): Promise<void> {
+    if (!this.client) return;
+    const updatesGeneration = ++this.updatesGeneration;
+    this.set({ updatesLoading: true });
+    try {
+      const result = await listUpdates(this.client);
+      if (updatesGeneration !== this.updatesGeneration) return;
+      const installedIds = new Set(this.snapshot.installed.map((app) => app.id));
+      const updates = result.updates.filter((update) => installedIds.has(update.app));
+      const updatesByApp = new Map(updates.map((update) => [update.app, update]));
+      this.set({
+        updates,
+        updatesLoading: false,
+        updatesStale: false,
+        updatesError: undefined,
+        updatesRevision: result.revision,
+        installed: this.snapshot.installed.map((app) => {
+          const update = updatesByApp.get(app.id);
+          if (!update) return app.update ? { ...app, update: undefined, failure: undefined } : app;
+          return { ...app, update: { version: update.version }, failure: update.failure ?? app.failure };
+        }),
+      });
+    } catch (error) {
+      if (updatesGeneration !== this.updatesGeneration) return;
+      this.set({ updatesLoading: false, updatesStale: true, updatesError: message(error) });
     }
   }
 
@@ -203,21 +303,46 @@ export class AppsStore {
 
   async select(app: string | undefined): Promise<void> {
     if (app && !listedInStore({ id: app })) app = undefined;
-    this.set({ selection: app, detail: app === this.snapshot.detail?.id ? this.snapshot.detail : undefined });
+    this.set({
+      selection: app,
+      detail: app === this.snapshot.detail?.id ? this.snapshot.detail : undefined,
+      detailStatus: app ? "loading" : "idle",
+      detailError: undefined,
+    });
     if (app) await this.loadDetail(app);
   }
 
   private async loadDetail(app: string): Promise<void> {
     if (!this.client) return;
     const generation = ++this.detailGeneration;
+    if (this.snapshot.selection === app) this.set({ detailStatus: "loading", detailError: undefined });
     try {
       const detail = fromDetail(await this.client.call<WireDetail>(AppsOps.catalogGet, { app }));
       if (generation === this.detailGeneration && this.snapshot.selection === app)
-        this.set({ detail: { ...detail, icon: this.withIcon(app, detail.icon) } });
+        this.set({
+          detail: { ...detail, icon: this.withIcon(app, detail.icon) },
+          detailStatus: "ready",
+          detailError: undefined,
+        });
       if (detail.installed) await this.loadGrants(app);
     } catch (error) {
-      if (generation === this.detailGeneration) this.set(failure(error));
+      if (generation === this.detailGeneration && this.snapshot.selection === app) {
+        const failed = failure(error);
+        const notFound = isPageError(error) && error.code === "cmux.apps.not_found";
+        this.set({
+          detailStatus: notFound ? "not-found" : "error",
+          detailError: failed.error,
+          ...failed,
+          error: undefined,
+        });
+      }
     }
+  }
+
+  /** Retries the selected app without dropping its route or list selection. */
+  retryDetail(): Promise<void> {
+    const app = this.snapshot.selection;
+    return app ? this.loadDetail(app) : Promise.resolve();
   }
 
   private async loadGrants(app: string): Promise<void> {
@@ -282,7 +407,8 @@ export class AppsStore {
 
   /** Loads the icons no earlier reload loaded (`cmux.apps.asset.get`), then shows them. */
   private async loadIcons(generation: number): Promise<void> {
-    if (!this.client) return;
+    const client = this.client;
+    if (!client) return;
     const wanted = this.snapshot.catalog.filter(
       (app) => app.icon?.asset && !this.icons.has(`${app.id}\u0000${app.icon.asset}`),
     );
@@ -291,7 +417,7 @@ export class AppsStore {
       wanted.map(async (app) => {
         const asset = app.icon?.asset ?? "";
         try {
-          const wire = await this.client!.call<WireAsset>(AppsOps.assetGet, { app: app.id, path: asset });
+          const wire = await client.call<WireAsset>(AppsOps.assetGet, { app: app.id, path: asset });
           this.icons.set(`${app.id}\u0000${asset}`, wire.data_url.startsWith("data:image/") ? wire.data_url : "");
         } catch {
           // No icon is not an error: the generic glyph stays.
@@ -385,6 +511,20 @@ function newKey(): string {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function updateFromInstalled(app: InstalledApp): AppUpdate[] {
+  return app.update
+    ? [
+        {
+          app: app.id,
+          name: app.name,
+          current_version: app.version,
+          version: app.update.version,
+          failure: app.failure,
+        },
+      ]
+    : [];
 }
 
 function failure(error: unknown): Partial<AppsSnapshot> {

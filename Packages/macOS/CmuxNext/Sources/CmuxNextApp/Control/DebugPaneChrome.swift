@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 
@@ -35,9 +36,11 @@ enum DebugPaneChrome {
                     "strip": rect(strip),
                     "border": rect(border), "pill": pill.map(rect) ?? .null,
                     "first_cell": firstCell.map { .array([.number(Double($0.x)), .number(Double($0.y))]) } ?? .null,
-                    // The tab bar rule (cx-soza): hidden now, the pane's kind, its own choice.
+                    // The tab bar (cx-soza): hidden now, the pane's own choice, the palette row's title.
                     "strip_hidden": .bool(view.hidesStrip),
-                    "tab_bar_kind": .string(pane.tabBarKind.rawValue),
+                    "tab_bar_title": .string(services.registry.action(for: PaneTabBarHandlers.toggle)?.targetTitle?(
+                        ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .script))
+                        ?? services.registry.title(for: PaneTabBarHandlers.toggle) ?? ""),
                     "tab_bar_choice": services.paneTabBars.choice(for: pane.paneKey).map(JSONValue.bool) ?? .null,
                     "tab_slots": .array(view.stripView.tabSlots.map { .array($0.map(JSONValue.number)) }), "tab_available": .number(view.stripView.tabAvailableWidth),
                 ]
@@ -68,7 +71,7 @@ enum DebugPaneChrome {
             return .object([
                 "id": .string(controller.state.id),
                 "scale": .number(Double(window.backingScaleFactor)),
-                "pane_padding": .number(Double(Metrics.panePadding)), "floating_panes": .bool(Metrics.floatingPanes), "main_pane": rect(topLeft(controller.root.contentHost.convert(controller.root.contentHost.bounds, to: nil))), "sidebar": rect(topLeft(controller.root.sidebar.convert(controller.root.sidebar.bounds, to: nil))),
+                "pane_padding": .number(Double(Metrics.panePadding)), "floating_panes": .bool(Metrics.floatingPanes), "main_pane": rect(topLeft(controller.root.contentHost.convert(controller.root.contentHost.bounds, to: nil))), "sidebar": rect(topLeft(controller.root.sidebar.convert(controller.root.sidebar.bounds, to: nil))), "chrome_style": .string(DesignSettings.shared.chromeStyle.rawValue),
                 "panes": .array(panes),
                 "window_controls": .object([
                     "sidebar_hidden": .bool(controller.root.sidebarHidden),

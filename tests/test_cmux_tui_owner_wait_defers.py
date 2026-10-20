@@ -53,12 +53,14 @@ if "/actions/runs/" in url and os.environ.get("FAKE_OWNER_ENDS_AFTER"):
 if "/actions/runs/" in url:
     run_id = url.rsplit("/", 1)[1]
     if run_id in os.environ.get("FAKE_BUILDERS", "").split(","):
-        print(json.dumps({"status": os.environ.get("FAKE_BUILDER_STATUS", "in_progress")}))
+        print(json.dumps({"status": os.environ.get("FAKE_BUILDER_STATUS", "in_progress"),
+                          "event": os.environ.get("FAKE_BUILDER_EVENT", "push"),
+                          "head_branch": os.environ.get("FAKE_BUILDER_BRANCH", "feat-cmux-next")}))
         sys.exit(0)
     if os.environ["FAKE_OWNER_STATUS"] == "fail":
         sys.exit(22)
     print(json.dumps({"status": os.environ["FAKE_OWNER_STATUS"], "conclusion": os.environ.get("FAKE_OWNER_CONCLUSION", ""),
-                      "event": "push", "head_branch": os.environ.get("FAKE_OWNER_BRANCH", "feat-cmux-next"),
+                      "event": os.environ.get("FAKE_OWNER_EVENT", "push"), "head_branch": os.environ.get("FAKE_OWNER_BRANCH", "feat-cmux-next"),
                       "head_sha": os.environ.get("FAKE_OWNER_SHA", "b" * 40)}))
     sys.exit(0)
 if os.environ.get("FAKE_TREE_PUBLISHED") != "1":
@@ -290,17 +292,48 @@ def main():
     result, out, log = run_wait("")
     _check(result.returncode == 0 and "takeover=true" in out, f"the owner itself builds ({out.strip()!r})")
 
-    # A lane-branch owner publishes build-only (no daemon-tests marker). A
-    # testing run that finds its tree published unmarked tests it here, or a
-    # feat-cmux-next push racing that publish would leave the key untested.
-    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0")
-    _check(result.returncode == 0 and "takeover=false" in out and "unmarked=true" in out,
-           f"a tree a lane run published without the marker is flagged unmarked ({out.strip()!r})")
-    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1")
+    # Every publisher publishes before its daemon tests end (cx-y0nf2). A run
+    # defers only to an active feat-cmux-next push, which tests the tree and
+    # requests the promotion: re-testing would queue a second job on the
+    # promote runner. Any other owner is re-tested even while active: a
+    # lane-branch push never tests (and stays in progress for its macOS cross
+    # jobs), and a pull request or dispatch run never requests the promotion.
+    for status in ("in_progress", "queued"):
+        result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS=status,
+                                    FAKE_OWNER_BRANCH="feat-cmux-next")
+        _check(result.returncode == 0 and "takeover=false" in out and "unmarked=false" in out,
+               f"an unmarked tree whose feat-cmux-next push owner is {status} is not re-tested ({out.strip()!r})")
+    for event, branch, why in (("push", "op-next-idle-caret", "lane-branch push"),
+                               ("pull_request_target", "op-next-idle-caret", "pull request"),
+                               ("workflow_dispatch", "feat-cmux-next", "feat-cmux-next dispatch")):
+        result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="in_progress",
+                                    FAKE_OWNER_EVENT=event, FAKE_OWNER_BRANCH=branch)
+        _check(result.returncode == 0 and "takeover=false" in out and "unmarked=true" in out,
+               f"an unmarked tree whose active owner is a {why} run is re-tested ({out.strip()!r})")
+    # A branch owner that a feat-cmux-next builder replaced: the run deferred
+    # to is that builder, so its state decides, not the branch owner's.
+    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="in_progress",
+                                FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="9", FAKE_BUILDER_STATUS="in_progress")
+    _check(result.returncode == 0 and "owner=9" in out and "unmarked=false" in out,
+           f"an unmarked tree an active feat-cmux-next builder publishes is not re-tested ({out.strip()!r})")
+    # The builder artifact list is repo-wide: a run that left one but is not a
+    # feat-cmux-next push (another workflow, a pull request) does not hold the marker.
+    for event, branch in (("pull_request", "op-next-idle-caret"), ("push", "op-next-idle-caret")):
+        result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="in_progress",
+                                    FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_BUILDERS="9",
+                                    FAKE_BUILDER_STATUS="in_progress", FAKE_BUILDER_EVENT=event, FAKE_BUILDER_BRANCH=branch)
+        _check(result.returncode == 0 and "unmarked=true" in out,
+               f"an active {event} builder on {branch} does not stop the re-test ({out.strip()!r})")
+    for branch in ("cmux-tui-pin-0123456789ab", "feat-cmux-next"):
+        result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="completed",
+                                    FAKE_OWNER_CONCLUSION="failure", FAKE_OWNER_BRANCH=branch)
+        _check(result.returncode == 0 and "takeover=false" in out and "unmarked=true" in out,
+               f"an unmarked tree whose {branch} owner ended is re-tested ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="fail")
+    _check(result.returncode == 0 and "unmarked=true" in out,
+           f"an unmarked tree whose owner cannot be read is re-tested ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_OWNER_STATUS="completed")
     _check(result.returncode == 0 and "unmarked=false" in out, f"a marked tree is not flagged ({out.strip()!r})")
-    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_SOURCE_REF="refs/heads/feat-cmux-next")
-    _check(result.returncode == 0 and "unmarked=false" in out,
-           f"a feat-cmux-next publisher tests its own tree, so it is not flagged ({out.strip()!r})")
 
     _check({"macos-cross-shadow", "macos-cross-runtime-x86_64"} <= set(job("notify-unpublished-tree")["needs"]),
            "the hand-off runs after the jobs that keep the owner in progress")

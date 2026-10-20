@@ -188,6 +188,14 @@ public nonisolated final class DaemonHomeSource: HomeSource {
         }.map(HomeCoreMapping.message)
     }
 
+    /// `conversation-link-resolve` (conversation-tree-v1): the daemon's seq, thread root and path for a message link.
+    public func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget? {
+        let url = "cmux://conversation/\(conversation.rawValue)/message/\(message.rawValue)"
+        let target = try await Self.mapped { try await ConversationClient(self.requireConnection()).resolveLink(url) }
+        return HomeLinkTarget(seq: target.message?.seq, threadRoot: target.threadRoot.map { MessageID($0) },
+                              path: target.path.map { MessageID($0) })
+    }
+
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         // Typing is never stored: the owner's typing frame, not an op.
         if case .setTyping(let conversation, let on) = intent.op {

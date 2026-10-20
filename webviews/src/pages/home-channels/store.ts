@@ -8,8 +8,9 @@ import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService } from "./attachmentService";
 import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
-import { hashLink, mergeMessages, threadOf } from "./model";
+import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
 import { conversationHash, hashConversation, setHash } from "./panes";
+import { LiveBook } from "./live";
 import { RunBook } from "./runs";
 import { HomeSheets } from "./sheets";
 import {
@@ -20,6 +21,8 @@ import {
   type HomeEventBatch,
   type HomeHistory,
   type HomeInbox,
+  type HomeLiveFrame,
+  type HomeLiveSnapshot,
   type HomeMarkUnreadRequest,
   type HomeMessage,
   type HomePage,
@@ -128,6 +131,8 @@ export class HomeChannelsStore {
   private readonly drafts = new DraftBook();
   /** Agent runs (`cmux.home.runs`, `cmux.home.run`, run events): rows read them through `useRun`. */
   readonly runs = new RunBook();
+  /** A Chief's live run text (`chief-live-v1`): the run card and the typing row read it. */
+  readonly live = new LiveBook();
   /** Runs whose steps are being read now (one read at a time per run). */
   private readonly loadingRuns = new Set<string>();
   /** Runs whose step read failed, with the run revision it failed at: read again only after the
@@ -148,7 +153,8 @@ export class HomeChannelsStore {
   constructor(
     private readonly client: PageClient | null,
     private readonly carry: PendingCarry = new PendingCarry(),
-    host: PageClient | null = null,
+    /** The page's host bridge (the app), or null in a browser: the page serves it hostSelection.ts. */
+    readonly host: PageClient | null = null,
   ) {
     this.attachments = client ? new AttachmentService(client) : undefined;
     this.avatars = client ? new AvatarService(client) : undefined;
@@ -250,36 +256,28 @@ export class HomeChannelsStore {
    * conversation, the message's thread, and the message marked. Resolves true when it opened. */
   async openLink(url: string): Promise<boolean> {
     if (!this.client) return false;
+    let link: HomeResolvedLink;
     try {
-      const link = await this.client.call<HomeResolvedLink>(HomeOps.resolveLink, { url });
+      link = await this.client.call<HomeResolvedLink>(HomeOps.resolveLink, { url });
+    } catch (error) {
+      // No resolver for this owner (a Cloud conversation, G4) or an older daemon: a conversation
+      // the page knows opens at the message from its own pages (the Messages view's switch hands
+      // off this way). Any other refusal of a local link (a deleted message) stays an error.
+      const known = parseConversationLink(url);
+      const listed = known ? this.snapshot.conversations.get(known.conversation) : undefined;
+      const noResolver = isPageError(error) && error.code === "cmux.protocol.unknown_op";
+      if (known && listed && (listed.owner === "cloud" || noResolver)) return this.openKnown(known);
+      this.set({ error: describe(error) });
+      return false;
+    }
+    try {
       if (!this.snapshot.conversations.has(link.conversation)) await this.reloadInbox();
       await this.select(link.conversation);
       const target = link.message;
       // A reply from before threads has no owner root; the page shows it in its reply_to thread.
       const root = link.threadRoot ?? (target ? threadOf(target) : undefined);
-      if (target && root) {
-        await this.openThread(root);
-        await this.pageTo(
-          () => this.snapshot.threadView?.messages,
-          target,
-          async () => {
-            const view = this.snapshot.threadView;
-            if (!view?.hasMore || view.root !== root) return false;
-            await this.loadThread(root, view.messages.at(-1)?.seq ?? 0);
-            return true;
-          },
-        );
-      } else if (target) {
-        await this.pageTo(
-          () => this.snapshot.messages,
-          target,
-          async () => {
-            if (!this.snapshot.hasOlder || this.snapshot.selected !== link.conversation) return false;
-            await this.loadOlder();
-            return true;
-          },
-        );
-      }
+      if (target && root) await this.pageThreadTo(root, target.id);
+      else if (target) await this.pageTimelineTo(link.conversation, target.id);
       this.set({ highlight: target?.id });
       return true;
     } catch (error) {
@@ -288,14 +286,60 @@ export class HomeChannelsStore {
     }
   }
 
-  /** Loads more pages (at most LINK_PAGES) until `target` is in `loaded()`. */
+  /** Opens a known conversation at a message without the owner's link read: the timeline's pages
+   * until the message shows, then its thread when it is a reply. */
+  private async openKnown(link: { conversation: string; message?: string }): Promise<boolean> {
+    try {
+      await this.select(link.conversation);
+      const id = link.message;
+      if (id) {
+        await this.pageTimelineTo(link.conversation, id);
+        const found = this.snapshot.messages.find((message) => message.id === id);
+        const root = found ? threadOf(found) : undefined;
+        if (root) await this.pageThreadTo(root, id);
+        this.set({ highlight: found ? id : undefined });
+      }
+      return true;
+    } catch (error) {
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  private async pageThreadTo(root: string, id: string): Promise<void> {
+    await this.openThread(root);
+    await this.pageTo(
+      () => this.snapshot.threadView?.messages,
+      id,
+      async () => {
+        const view = this.snapshot.threadView;
+        if (!view?.hasMore || view.root !== root) return false;
+        await this.loadThread(root, view.messages.at(-1)?.seq ?? 0);
+        return true;
+      },
+    );
+  }
+
+  private async pageTimelineTo(conversation: string, id: string): Promise<void> {
+    await this.pageTo(
+      () => this.snapshot.messages,
+      id,
+      async () => {
+        if (!this.snapshot.hasOlder || this.snapshot.selected !== conversation) return false;
+        await this.loadOlder();
+        return true;
+      },
+    );
+  }
+
+  /** Loads more pages (at most LINK_PAGES) until message `id` is in `loaded()`. */
   private async pageTo(
     loaded: () => readonly HomeMessage[] | undefined,
-    target: HomeMessage,
+    id: string,
     more: () => Promise<boolean>,
   ): Promise<void> {
     for (let page = 0; page < LINK_PAGES; page += 1) {
-      if (loaded()?.some((message) => message.id === target.id)) return;
+      if (loaded()?.some((message) => message.id === id)) return;
       if (!(await more())) return;
     }
   }
@@ -387,6 +431,7 @@ export class HomeChannelsStore {
       });
       this.runs.noteMessages(messages);
       void this.loadRuns(id, messages, true);
+      void this.loadLive(id);
       if (this.shown) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
@@ -716,7 +761,10 @@ export class HomeChannelsStore {
     if (batch.connection) patch.connection = batch.connection;
     // Typing is ephemeral: a reconnect or an inbox refetch ends every indicator.
     if (batch.connection || batch.inboxStale) patch.typing = [];
-    if (batch.connection === "offline") this.drafts.clear();
+    if (batch.connection === "offline") {
+      this.drafts.clear();
+      this.live.clear();
+    }
     // Drafts first, then typing off and the posted messages: a reply that posts in the same
     // batch as its last draft item ends the draft, and a late item cannot bring it back.
     for (const item of batch.drafts ?? []) this.drafts.apply(item);
@@ -725,6 +773,7 @@ export class HomeChannelsStore {
     if (batch.runs?.length) this.runs.apply(batch.runs);
     if (batch.avatars?.length) this.avatars?.changed(batch.avatars);
     if (batch.messages?.length) this.runs.noteMessages(batch.messages);
+    this.applyLive(batch);
     let conversations: Map<string, HomeConversation> | undefined;
     for (const conversation of batch.conversations ?? []) {
       conversations ??= new Map(this.snapshot.conversations);
@@ -783,6 +832,50 @@ export class HomeChannelsStore {
     }
     if (batch.inboxStale) void this.reloadInbox();
     else if (selected && batch.stale?.includes(selected)) void this.reloadPage(selected);
+  }
+
+  /** A batch's live frames, then what ends live text: a run that left `running`, a posted reply
+   * (it replaces the streaming text). A missed frame asks for the conversation's snapshot. */
+  private applyLive(batch: HomeEventBatch): void {
+    if (batch.live?.length) {
+      for (const conversation of this.live.apply(batch.live.map((frame) => this.withAuthor(frame))))
+        void this.loadLive(conversation);
+    }
+    for (const { run, steps } of batch.runs ?? []) {
+      if (run.status !== "running") this.live.end(run.conversation, run.author, run.id);
+      const rows = steps.filter((step) => step.kind === "talk" || step.kind === "thought").map((step) => step.id);
+      if (rows.length) this.live.rowsWritten(run.conversation, run.author, run.id, rows);
+    }
+    for (const message of batch.messages ?? []) this.live.posted(message, (m) => this.runs.forReply(m)?.run.id);
+  }
+
+  /** A frame from an owner that does not stamp the author: its run's (the running run with that id). */
+  private withAuthor(frame: HomeLiveFrame): HomeLiveFrame {
+    if (frame.type === "run.live") {
+      const runs = frame.runs.map((run) =>
+        run.author ? run : { ...run, author: this.runAuthor(frame.conversation, run.run) },
+      );
+      return { ...frame, runs };
+    }
+    return frame.author ? frame : { ...frame, author: this.runAuthor(frame.conversation, frame.run) };
+  }
+
+  /** Best effort: the first running run with that id (an owner that stamps no author; two Cloud
+   * Chiefs with the same run id could be confused there). */
+  private runAuthor(conversation: string, run: string): string | undefined {
+    return this.runs.running(conversation).find((candidate) => candidate.id === run)?.author;
+  }
+
+  /** The owner's `run.live` snapshot of a conversation (open, reconnect, gap). A Cloud owner
+   * answers with a live event instead; a host without live frames answers nothing. */
+  private async loadLive(conversation: string): Promise<void> {
+    if (!this.client) return;
+    try {
+      const snapshot = await this.client.call<HomeLiveSnapshot | null>(HomeOps.live, { conversation });
+      if (snapshot && snapshot.type === "run.live") this.live.snapshot(this.withAuthor(snapshot) as HomeLiveSnapshot);
+    } catch {
+      // No live text: the run card and the typing row show what the runs and typing say.
+    }
   }
 
   /** Who types or writes a reply in each conversation after this batch (undefined: no change).

@@ -28,6 +28,7 @@ members = [
     "bindings/rust-daemon-client",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
+    "crates/cmux-mux2",
     "crates/cmux-tui-cdp",
     "crates/cmux-browser-host",
     "crates/cmux-git",
@@ -37,12 +38,15 @@ members = [
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
+    "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-unix-socket",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
+    "crates/cmux-remote-transcript",
+    "crates/cmux-build-identity",
     "crates/cmux-remote",
     "crates/cmux-terminal-client",
     "crates/cmux-relay",
@@ -98,11 +102,13 @@ default-members = [
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
+    "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
+    "crates/cmux-build-identity",
     "crates/cmux-remote",
     "crates/cmux-relay",
     "crates/chatmux-relay",
@@ -140,6 +146,11 @@ default-members = [
 exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 
 [workspace.package]
+# The cmux-next version: the one source of truth for every version surface
+# (bundled CLIs, app CFBundleShortVersionString, nightly 1.0.0-nightly.<build>).
+# Read by scripts/ci/nightly_version.py next-base; checked on every built app by
+# scripts/cmux-next/check-version-surfaces.sh.
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
@@ -180,8 +191,10 @@ cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
+cmux-api-compat = { path = "crates/cmux-api-compat" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
+cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-server = { path = "crates/cmux-server" }
@@ -279,7 +292,8 @@ quick-xml = { version = "0.41", default-features = false }
 # Ed25519 verification of the signed channel manifest (cmux-server-core).
 # ring is already in the graph through rustls; this adds no new code.
 ring = "0.17"
-socket2 = { version = "0.5", features = ["all"] }
+# TCP keepalive on accepted daemon WebSocket sockets (cmux-tui-core).
+socket2 = { version = "0.6", features = ["all"] }
 snow = "0.10"
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
@@ -317,6 +331,26 @@ opt-level = 1
 # cmux-tui rebuild after a one-line edit (-Z time-passes, crate-split lane 3).
 # Off: about 11 s -> 5.5 s per edit; release builds keep lto = "thin".
 lto = "off"
+# Line tables keep file:line in panics, backtraces and profiles; full DWARF made
+# each worktree's target about twice the size (Huge Blue, 10-19: 11 GB -> 5.4 GB
+# cold, with cold builds 360 s -> 251 s). Use `debug = true` locally to step
+# through locals in a debugger.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+# acpmux's own code does not make its tests faster when optimized (rbx,
+# 2026-10-17: cargo nextest -p acpmux 16.2 s at opt-level 1, 16.5 s at 0), but
+# optimizing it is most of the edit loop: an edit in acpmux rebuilt its test
+# library in 24.5 s at opt-level 1 and 4.4 s at 0. cmux-tui-core keeps 1: its
+# tests take 16.1 s at 1 and 30.0 s at 0. Measure a package the same way
+# before it joins this list.
+[profile.dev.package.acpmux]
+opt-level = 0
+
+# The JSON rewriter sits on every translated daemon message; tests and the
+# Rex parity bench (tests/rex_parity_bench.rs) measure it optimized.
+[profile.dev.package.cmux-api-compat]
 opt-level = 3

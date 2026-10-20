@@ -8,7 +8,7 @@ import Foundation
 extension HomeService {
     var composer: HomeComposer {
         let store = homeStore
-        return HomeComposer { op in try await store.perform(op) }
+        return HomeComposer(perform: { op in try await store.perform(op) }, describe: { RefusalStrings.describe($0) })
     }
 
     /// The people New Message offers: team members, then people of the
@@ -31,8 +31,16 @@ extension HomeService {
         await composer.invite(address)
     }
 
-    /// Creates another Chief; its main conversation shows once the inbox lists it.
-    func createChief(named name: String) async -> HomeComposeOutcome {
+    /// Creates another Chief on `backend`; its main conversation shows once the inbox lists it.
+    /// The one create path of the New Chief sheet, the palette and `cmux home new-chief`: an
+    /// engine whose Chiefs are this Mac's (UniiChat, Codex: ``ChiefBackend/createsOnThisMac``)
+    /// goes to this Mac's Chief owner, Claude to the signed-in account's cloud Chiefs.
+    func createChief(named name: String, backend: ChiefBackend = .claude) async -> HomeComposeOutcome {
+        backend.createsOnThisMac ? await createLocalChief(named: name, backend: backend) : await createCloudChief(named: name)
+    }
+
+    /// `chief.create` on the signed-in account's cloud Chiefs (the default engine).
+    private func createCloudChief(named name: String) async -> HomeComposeOutcome {
         do {
             let record = try await directory.createChief(named: name)
             let id = record.mainConversation.map { ConversationID($0) }
@@ -73,13 +81,12 @@ extension HomeService {
     /// choosing a row shows its conversation on the Home page, a person starts a DM.
     func makeSidebarSource() -> HomeSidebarSource {
         let store = homeStore
-        let auth = services.cloud.auth
         let source = HomeSidebarSource(
-            store: HomePinStore(),
-            account: { auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } ?? "local" },
+            store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox], account: { [weak self] in self?.pinAccount ?? "local" },
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
-            chiefAvatar: { [weak self] in self?.directory.chiefAvatar })
+            chiefAvatar: { [weak self] in self?.directory.chiefAvatar },
+            chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
         source.onStart = { [weak self] contact in
             // task-owner: one dm.open; the page shows the DM once listed
@@ -87,6 +94,12 @@ extension HomeService {
         }
         source.reloadPins()
         return source
+    }
+
+    /// The account this Mac's Home pins and marks are kept under: the signed-in Cloud user, else "local".
+    var pinAccount: String {
+        let auth = services.cloud.auth
+        return auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } ?? "local"
     }
 
     /// Reads the Chief's avatar for its tile (profile.json's picture, else

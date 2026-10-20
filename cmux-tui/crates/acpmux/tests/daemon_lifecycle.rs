@@ -4,6 +4,11 @@
 //! agents, and stops promptly on SIGTERM.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -68,16 +73,13 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
     );
     let socket = dir.join("s.sock");
     let started = Instant::now();
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
         .args(["--log", "warn"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_LOGIN_ENV", "1")
         .env("SHELL", &shell)
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
-        .env_remove("SSL_CERT_DIR")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -186,14 +188,12 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
     let mut fds = [0i32; 2];
     assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
     let (rfd, wfd) = (fds[0], fds[1]);
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "3"])
         .args(["--log", "warn"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
@@ -295,13 +295,12 @@ async fn a_socket_path_past_the_unix_limit_still_serves() {
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("s.sock");
     assert!(socket.as_os_str().len() > 104, "the path must be past the limit");
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::acpmux(&dir)
         .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
         .args(["--log", "warn"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_SOCKET", &socket)
         .env("TMPDIR", &dir)
-        .env_remove("XPC_SERVICE_NAME")
         .env("ACPMUX_LOGIN_ENV", "0")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -322,7 +321,7 @@ async fn a_socket_path_past_the_unix_limit_still_serves() {
     let bound = PathBuf::from(ready["socket"].as_str().unwrap());
     assert!(bound.as_os_str().len() <= 103, "bound past the limit: {}", bound.display());
     // A client knows only the long path.
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let out = daemon_env::acpmux(&dir)
         .args(["daemon", "shutdown"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_SOCKET", &socket)
@@ -397,7 +396,7 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     );
     let socket = dir.join("s.sock");
     let app_socket = dir.join("app.sock");
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_SOCKET", &socket)
@@ -406,8 +405,6 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
         .env("CMUX_BUNDLED_CLI_PATH", bundled.join("cmux"))
         .env("CMUX_SOCKET_PATH", &app_socket)
         .env("CMUX_BUNDLE_ID", "com.cmuxterm.app.next.debug.cli")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())

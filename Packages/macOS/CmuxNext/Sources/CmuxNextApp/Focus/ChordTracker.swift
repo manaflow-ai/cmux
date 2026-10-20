@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFocus
 
 /// Chords of up to four keys (`["ctrl+b", "c"]` in cmux.json, longer
 /// sequences in keybindings.json) for the key router: the first key arms a

@@ -11,8 +11,17 @@
 //! fleet Mac (cx-ckdxf, host_lifetime.rs). One thread waits in `kevent` with
 //! no timeout; dropping [`DirWatch`] triggers a user event that ends it.
 //!
-//! Elsewhere: notify's recommended watcher (inotify on Linux), which is a
-//! kernel queue too.
+//! Linux: an inotify watch on each directory with a mask of entry changes
+//! only (created, deleted, renamed in or out) and the directory's own
+//! deletion or move. notify's inotify backend always asks for open, close and
+//! modify events too: the callback's own read of the record then queued an
+//! open and a close in the watched directory, which ran the callback again,
+//! so every pooled host spun at 100% CPU reading its record. With this mask a
+//! read never queues an event. One thread waits in `poll` with no timeout;
+//! dropping [`DirWatch`] writes an eventfd that ends it.
+//!
+//! Elsewhere: notify's recommended watcher; access events are ignored there
+//! for the same reason.
 
 use std::path::PathBuf;
 
@@ -20,7 +29,9 @@ use std::path::PathBuf;
 pub(super) struct DirWatch {
     #[cfg(target_os = "macos")]
     kq: std::sync::Arc<std::os::fd::OwnedFd>,
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    stop: std::sync::Arc<std::os::fd::OwnedFd>,
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     _watcher: notify::RecommendedWatcher,
 }
 
@@ -107,7 +118,76 @@ impl DirWatch {
         Some(Self { kq })
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    pub(super) fn start(
+        dirs: &[PathBuf],
+        mut on_change: impl FnMut() -> bool + Send + 'static,
+    ) -> Option<Self> {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::ffi::OsStrExt;
+        // SAFETY: inotify_init1 has no preconditions.
+        let raw = unsafe { libc::inotify_init1(libc::IN_CLOEXEC | libc::IN_NONBLOCK) };
+        if raw < 0 {
+            tracing::warn!(
+                "the host cannot watch its record: inotify: {}",
+                std::io::Error::last_os_error()
+            );
+            return None;
+        }
+        // SAFETY: inotify_init1 returned a new descriptor that nothing else owns.
+        let inotify = unsafe { OwnedFd::from_raw_fd(raw) };
+        // SAFETY: eventfd has no preconditions.
+        let raw_stop = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
+        if raw_stop < 0 {
+            tracing::warn!(
+                "the host cannot watch its record: eventfd: {}",
+                std::io::Error::last_os_error()
+            );
+            return None;
+        }
+        // SAFETY: eventfd returned a new descriptor that nothing else owns.
+        let stop = std::sync::Arc::new(unsafe { OwnedFd::from_raw_fd(raw_stop) });
+        // Entry changes and the directory's own end only: no IN_OPEN,
+        // IN_ACCESS, IN_CLOSE_* or IN_MODIFY, which a read of the record
+        // (the callback's own) or a write to an open file would queue.
+        let mask = libc::IN_CREATE
+            | libc::IN_DELETE
+            | libc::IN_MOVED_FROM
+            | libc::IN_MOVED_TO
+            | libc::IN_DELETE_SELF
+            | libc::IN_MOVE_SELF
+            | libc::IN_ONLYDIR;
+        let mut watched = 0;
+        for dir in dirs {
+            let added = std::ffi::CString::new(dir.as_os_str().as_bytes())
+                .map_err(std::io::Error::other)
+                .and_then(|path| {
+                    // SAFETY: a valid inotify descriptor and a NUL-terminated path.
+                    let wd = unsafe {
+                        libc::inotify_add_watch(inotify.as_raw_fd(), path.as_ptr(), mask)
+                    };
+                    if wd < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+                });
+            match added {
+                Ok(()) => watched += 1,
+                Err(e) => tracing::warn!("the host cannot watch {}: {e}", dir.display()),
+            }
+        }
+        if watched == 0 {
+            return None;
+        }
+        let thread_stop = stop.clone();
+        let spawned = std::thread::Builder::new()
+            .name("acpmux-record-watch".into())
+            .spawn(move || wait_inotify(&inotify, &thread_stop, &mut on_change));
+        if let Err(e) = spawned {
+            tracing::warn!("the host cannot watch its record: {e}");
+            return None;
+        }
+        Some(Self { stop })
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     pub(super) fn start(
         dirs: &[PathBuf],
         mut on_change: impl FnMut() -> bool + Send + 'static,
@@ -115,8 +195,11 @@ impl DirWatch {
         use notify::Watcher as _;
         let mut done = false;
         let mut watcher =
-            notify::recommended_watcher(move |_event: notify::Result<notify::Event>| {
-                if !done {
+            notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                // An access (the callback's own read of the record among
+                // them) never changes whether the record is there.
+                let access = matches!(&event, Ok(e) if e.kind.is_access());
+                if !done && !access {
                     done = on_change();
                 }
             })
@@ -130,6 +213,67 @@ impl DirWatch {
             }
         }
         (watched > 0).then_some(Self { _watcher: watcher })
+    }
+}
+
+/// Runs `on_change` once per batch of inotify events until it returns true
+/// or `stop` becomes readable. Every queued event is drained before the
+/// check, so a burst of entry changes costs one check.
+#[cfg(target_os = "linux")]
+fn wait_inotify(
+    inotify: &std::os::fd::OwnedFd,
+    stop: &std::os::fd::OwnedFd,
+    on_change: &mut dyn FnMut() -> bool,
+) {
+    use std::os::fd::AsRawFd;
+    let mut fds = [
+        libc::pollfd { fd: inotify.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+        libc::pollfd { fd: stop.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+    ];
+    // Room for at least one event with the longest name.
+    let mut buf = [0u8; 4096];
+    loop {
+        // SAFETY: two valid pollfds; -1 waits until one is ready.
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+        if ready < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            tracing::warn!("the host's record watch stopped: poll: {error}");
+            return;
+        }
+        if fds[1].revents != 0 {
+            return;
+        }
+        if fds[0].revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+            tracing::warn!("the host's record watch stopped: inotify descriptor failed");
+            return;
+        }
+        let mut events = false;
+        loop {
+            // SAFETY: a valid descriptor and a buffer of `buf.len()` bytes.
+            let n = unsafe { libc::read(inotify.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
+            if n > 0 {
+                events = true;
+                continue;
+            }
+            if n == 0 {
+                break;
+            }
+            let error = std::io::Error::last_os_error();
+            match error.kind() {
+                std::io::ErrorKind::Interrupted => continue,
+                std::io::ErrorKind::WouldBlock => break,
+                _ => {
+                    tracing::warn!("the host's record watch stopped: read: {error}");
+                    return;
+                }
+            }
+        }
+        if events && on_change() {
+            return;
+        }
     }
 }
 
@@ -180,5 +324,18 @@ impl Drop for DirWatch {
         // Not joined: the callback may be blocked handing its event to a
         // loop that is ending; it returns once that receiver is gone.
         let _ = kevent_change(self.kq.as_raw_fd(), STOP, libc::EVFILT_USER, 0, libc::NOTE_TRIGGER);
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for DirWatch {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+        // Not joined, as on macOS. Any nonzero count makes the eventfd readable.
+        let one: u64 = 1;
+        // SAFETY: a valid eventfd and an 8-byte value.
+        let _ = unsafe {
+            libc::write(self.stop.as_raw_fd(), (&raw const one).cast(), std::mem::size_of::<u64>())
+        };
     }
 }

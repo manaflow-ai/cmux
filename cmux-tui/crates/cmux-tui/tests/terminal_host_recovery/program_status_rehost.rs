@@ -6,7 +6,7 @@
 use super::host_replacement::{wait_for_daemon_custody, wait_for_replacement};
 use super::pty_custody::{signal_pid, wait_for_dead_host};
 use super::*;
-use crate::program_status_restart::{program_status, wait_for_program_status};
+use crate::program_status_restart::{program_status, wait_for_program_status, without_since};
 
 #[test]
 fn program_status_records_survive_a_host_replacement_then_a_daemon_restart() {
@@ -55,7 +55,11 @@ fn program_status_records_survive_a_host_replacement_then_a_daemon_restart() {
     assert_eq!(resolved["terminal_incarnation"], incarnation.as_str(), "{resolved}");
 
     let after = wait_for_program_status(&harness, 2);
-    assert_eq!(after, before, "program status changed across the replacement and restart");
+    assert_eq!(
+        without_since(after),
+        without_since(before),
+        "program status changed across the replacement and restart"
+    );
 
     request(
         &harness.socket,

@@ -307,6 +307,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);
             }
+            if let Some(m) = &args.mode {
+                meta["mode"] = json!(m);
+            }
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }
