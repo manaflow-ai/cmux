@@ -2490,137 +2490,6 @@
         }
       }
     },
-    "handlers.misc.unavailable.agentTeams": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The Claude and Codex Teams launcher is not ported to cmux-next yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude / Codex Teams の起動はまだ cmux-next に移植されていません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم يُنقل مشغّل Claude وCodex Teams إلى cmux-next بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokretač Claude i Codex Teams još nije prenesen u cmux-next."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Starteren til Claude og Codex Teams er endnu ikke porteret til cmux-next."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der Starter für Claude und Codex Teams ist noch nicht nach cmux-next portiert."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El iniciador de Claude y Codex Teams aún no está portado a cmux-next."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le lanceur Claude et Codex Teams n’est pas encore porté dans cmux-next."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’avvio di Claude e Codex Teams non è ancora portato in cmux-next."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កម្មវិធីចាប់ផ្ដើម Claude និង Codex Teams មិនទាន់បានផ្ទេរទៅ cmux-next នៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude 및 Codex Teams 실행기는 아직 cmux-next로 이식되지 않았습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oppstarteren for Claude og Codex Teams er ikke overført til cmux-next ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Programu uruchamiającego Claude i Codex Teams nie przeniesiono jeszcze do cmux-next."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O iniciador do Claude e Codex Teams ainda não foi portado para o cmux-next."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запуск Claude и Codex Teams еще не перенесен в cmux-next."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตัวเปิด Claude และ Codex Teams ยังไม่ได้พอร์ตมายัง cmux-next"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude ve Codex Teams başlatıcısı henüz cmux-next’e taşınmadı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запуск Claude і Codex Teams ще не перенесено в cmux-next."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trình khởi chạy Claude và Codex Teams chưa được chuyển sang cmux-next."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude 和 Codex Teams 启动器尚未移植到 cmux-next。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Claude 與 Codex Teams 啟動器尚未移植至 cmux-next。"
-          }
-        }
-      }
-    },
     "handlers.misc.unavailable.browserHistory": {
       "extractionState": "manual",
       "localizations": {
@@ -14732,6 +14601,798 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux 瀏覽器已關閉。執行「啟用 cmux 瀏覽器」即可在 cmux 中開啟網頁。"
+          }
+        }
+      }
+    },
+    "handlers.paneBackground.badBackground": {
+      "comment": "Refusal: the pane background value is not one cmux knows.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a background. Use inherit, none, daily, desktop, a painting, or a system: or file: path."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليست خلفية. استخدم inherit أو none أو daily أو desktop أو لوحة أو مسار system: أو file:."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije pozadina. Koristite inherit, none, daily, desktop, sliku ili putanju system: ili file:."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en baggrund. Brug inherit, none, daily, desktop, et maleri eller en system:- eller file:-sti."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Hintergrund. Verwende inherit, none, daily, desktop, ein Gemälde oder einen system:- oder file:-Pfad."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No es un fondo. Usa inherit, none, daily, desktop, una pintura o una ruta system: o file:."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce n'est pas un arrière-plan. Utilisez inherit, none, daily, desktop, un tableau ou un chemin system: ou file:."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è uno sfondo. Usa inherit, none, daily, desktop, un dipinto o un percorso system: o file:."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景ではありません。inherit、none、daily、desktop、絵画、または system: か file: のパスを使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមែនជាផ្ទៃខាងក្រោយទេ។ ប្រើ inherit, none, daily, desktop, គំនូរ ឬផ្លូវ system: ឬ file:។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경이 아닙니다. inherit, none, daily, desktop, 그림 또는 system: 또는 file: 경로를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en bakgrunn. Bruk inherit, none, daily, desktop, et maleri eller en system:- eller file:-bane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To nie jest tło. Użyj inherit, none, daily, desktop, obrazu lub ścieżki system: albo file:."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é um fundo. Use inherit, none, daily, desktop, uma pintura ou um caminho system: ou file:."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это не фон. Используйте inherit, none, daily, desktop, картину или путь system: или file:."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ใช่พื้นหลัง ใช้ inherit, none, daily, desktop, ภาพวาด หรือพาธ system: หรือ file:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arka plan değil. inherit, none, daily, desktop, bir tablo ya da system: veya file: yolu kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це не тло. Використовуйте inherit, none, daily, desktop, картину або шлях system: чи file:."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không phải hình nền. Dùng inherit, none, daily, desktop, một bức tranh, hoặc đường dẫn system: hay file:."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是背景。请使用 inherit、none、daily、desktop、画作，或 system: 或 file: 路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是背景。請使用 inherit、none、daily、desktop、畫作，或 system: 或 file: 路徑。"
+          }
+        }
+      }
+    },
+    "handlers.paneBackground.badTint": {
+      "comment": "Refusal: the pane tint value is not a known color.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a tint. Use none, a color name, or #RRGGBB."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليست صبغة. استخدم none أو اسم لون أو #RRGGBB."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije nijansa. Koristite none, naziv boje ili #RRGGBB."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en farvetone. Brug none, et farvenavn eller #RRGGBB."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Tönung. Verwende none, einen Farbnamen oder #RRGGBB."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No es un tinte. Usa none, un nombre de color o #RRGGBB."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce n'est pas une teinte. Utilisez none, un nom de couleur ou #RRGGBB."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è una tinta. Usa none, un nome di colore o #RRGGBB."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色合いではありません。none、色の名前、または #RRGGBB を使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមែនជាពណ៌ទេ។ ប្រើ none ឈ្មោះពណ៌ ឬ #RRGGBB។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "색조가 아닙니다. none, 색상 이름 또는 #RRGGBB를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en fargetone. Bruk none, et fargenavn eller #RRGGBB."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To nie jest odcień. Użyj none, nazwy koloru lub #RRGGBB."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é uma tonalidade. Use none, um nome de cor ou #RRGGBB."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это не оттенок. Используйте none, название цвета или #RRGGBB."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ใช่โทนสี ใช้ none, ชื่อสี หรือ #RRGGBB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ton değil. none, bir renk adı ya da #RRGGBB kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це не відтінок. Використовуйте none, назву кольору або #RRGGBB."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không phải sắc màu. Dùng none, tên màu, hoặc #RRGGBB."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是色调。请使用 none、颜色名称或 #RRGGBB。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是色調。請使用 none、顏色名稱或 #RRGGBB。"
+          }
+        }
+      }
+    },
+    "handlers.paneBackground.noDurablePane": {
+      "comment": "Refusal: the pane's session is too old to remember a per-pane background.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pane cannot keep its own background: its session is too old. Update cmux on that machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لهذا الجزء الاحتفاظ بخلفيته: جلسته قديمة جدًا. حدّث cmux على ذلك الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovo okno ne može zadržati vlastitu pozadinu: sesija je prestara. Ažurirajte cmux na tom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne rude kan ikke beholde sin egen baggrund: sessionen er for gammel. Opdater cmux på den maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Bereich kann keinen eigenen Hintergrund behalten: Seine Sitzung ist zu alt. Aktualisiere cmux auf diesem Rechner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este panel no puede tener fondo propio: su sesión es demasiado antigua. Actualiza cmux en esa máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce volet ne peut pas garder son propre arrière-plan : sa session est trop ancienne. Mettez à jour cmux sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo riquadro non può avere uno sfondo proprio: la sua sessione è troppo vecchia. Aggiorna cmux su quella macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインは固有の背景を保持できません。セッションが古すぎます。そのマシンの cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងនេះមិនអាចរក្សាផ្ទៃខាងក្រោយផ្ទាល់ខ្លួនបានទេ៖ វគ្គរបស់វាចាស់ពេក។ ធ្វើបច្ចុប្បន្នភាព cmux នៅលើម៉ាស៊ីននោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 창 영역은 자체 배경을 유지할 수 없습니다. 세션이 너무 오래되었습니다. 해당 기기의 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne ruten kan ikke beholde sin egen bakgrunn: økten er for gammel. Oppdater cmux på den maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten panel nie może mieć własnego tła: jego sesja jest za stara. Zaktualizuj cmux na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este painel não pode ter fundo próprio: a sessão é antiga demais. Atualize o cmux nessa máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта панель не может хранить собственный фон: её сеанс слишком старый. Обновите cmux на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างนี้เก็บพื้นหลังของตัวเองไม่ได้ เซสชันเก่าเกินไป อัปเดต cmux บนเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu bölme kendi arka planını tutamaz: oturumu çok eski. O makinede cmux'u güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця панель не може зберігати власне тло: її сеанс застарий. Оновіть cmux на тому комп'ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khung này không giữ được hình nền riêng: phiên của nó quá cũ. Hãy cập nhật cmux trên máy đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗格无法保留自己的背景：其会话太旧。请在那台电脑上更新 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗格無法保留自己的背景：其工作階段太舊。請在那台電腦上更新 cmux。"
+          }
+        }
+      }
+    },
+    "handlers.appearance.badProperty": {
+      "comment": "Refusal: appearance set or reset was given no valid scope or property.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name a scope (window, workspace, pane or tab) and a property (theme, background, tint or opacity)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد نطاقًا (window أو workspace أو pane أو tab) وخاصية (theme أو background أو tint أو opacity)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navedite opseg (window, workspace, pane ili tab) i svojstvo (theme, background, tint ili opacity)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv et omfang (window, workspace, pane eller tab) og en egenskab (theme, background, tint eller opacity)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einen Bereich (window, workspace, pane oder tab) und eine Eigenschaft (theme, background, tint oder opacity) an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica un ámbito (window, workspace, pane o tab) y una propiedad (theme, background, tint u opacity)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez une portée (window, workspace, pane ou tab) et une propriété (theme, background, tint ou opacity)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica un ambito (window, workspace, pane o tab) e una proprietà (theme, background, tint o opacity)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲（window、workspace、pane、tab）とプロパティ（theme、background、tint、opacity）を指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជាក់វិសាលភាព (window, workspace, pane ឬ tab) និងលក្ខណៈ (theme, background, tint ឬ opacity)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "범위(window, workspace, pane, tab)와 속성(theme, background, tint, opacity)을 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi et omfang (window, workspace, pane eller tab) og en egenskap (theme, background, tint eller opacity)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj zakres (window, workspace, pane lub tab) i właściwość (theme, background, tint lub opacity)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe um escopo (window, workspace, pane ou tab) e uma propriedade (theme, background, tint ou opacity)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите область (window, workspace, pane или tab) и свойство (theme, background, tint или opacity)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุขอบเขต (window, workspace, pane หรือ tab) และคุณสมบัติ (theme, background, tint หรือ opacity)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir kapsam (window, workspace, pane veya tab) ve bir özellik (theme, background, tint veya opacity) belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть область (window, workspace, pane або tab) і властивість (theme, background, tint або opacity)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy nêu phạm vi (window, workspace, pane hoặc tab) và thuộc tính (theme, background, tint hoặc opacity)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请指定范围（window、workspace、pane 或 tab）和属性（theme、background、tint 或 opacity）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請指定範圍（window、workspace、pane 或 tab）和屬性（theme、background、tint 或 opacity）。"
+          }
+        }
+      }
+    },
+    "handlers.appearance.notAtLevel": {
+      "comment": "Refusal: the property cannot be set at the chosen scope (for example a background on a tab).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That property cannot be set at that scope."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن تعيين هذه الخاصية في هذا النطاق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To svojstvo se ne može postaviti u tom opsegu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den egenskab kan ikke angives i det omfang."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Eigenschaft lässt sich in diesem Bereich nicht festlegen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa propiedad no se puede establecer en ese ámbito."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette propriété ne peut pas être définie à cette portée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella proprietà non si può impostare in quell'ambito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのプロパティはその範囲では設定できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចកំណត់លក្ខណៈនោះក្នុងវិសាលភាពនោះបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 속성은 그 범위에서 설정할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den egenskapen kan ikke angis i det omfanget."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tej właściwości nie można ustawić w tym zakresie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa propriedade não pode ser definida nesse escopo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это свойство нельзя задать в этой области."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งคุณสมบัตินั้นในขอบเขตนี้ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu özellik bu kapsamda ayarlanamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цю властивість не можна задати в цій області."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể đặt thuộc tính đó ở phạm vi này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在该范围设置该属性。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在該範圍設定該屬性。"
+          }
+        }
+      }
+    },
+    "handlers.appearance.badValue": {
+      "comment": "Refusal: the value is not valid for the appearance property.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a value of that property."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليست قيمة لهذه الخاصية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije vrijednost tog svojstva."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en værdi for den egenskab."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Wert dieser Eigenschaft."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No es un valor de esa propiedad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce n'est pas une valeur de cette propriété."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è un valore di quella proprietà."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのプロパティの値ではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមែនជាតម្លៃនៃលក្ខណៈនោះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 속성의 값이 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en verdi for den egenskapen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To nie jest wartość tej właściwości."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é um valor dessa propriedade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это не значение этого свойства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ใช่ค่าของคุณสมบัตินั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu özelliğin bir değeri değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це не значення цієї властивості."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không phải giá trị của thuộc tính đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是该属性的值。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是該屬性的值。"
           }
         }
       }

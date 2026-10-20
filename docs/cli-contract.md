@@ -544,6 +544,12 @@ Every action in the app's registry is also a verb under its CLI name:
 `--interactive` work as in `action run`. `cmux action list` lists the names and
 `cmux action describe <id>` shows the arguments and targets.
 
+Move to New Window is `cmux <noun> move-to-new-window --target <id>` for
+`tab`, `tab-group`, `pane`, `screen`, `screen-group`, `workspace` and
+`workspace-group`; `cmux <noun> move-to-window --new --target <id>` is the
+same command. The new window opens beside the old one and takes the focus;
+terminals keep running and pages keep their state.
+
 ## `cmux coderouter`
 
 ```text

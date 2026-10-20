@@ -93,7 +93,7 @@ impl Brain {
             spawn,
             ids,
             queued,
-            limit: self.live_cap(),
+            limit: self.live_cap_source(),
             engine: self.spawn_engine(),
         })
     }
@@ -453,7 +453,7 @@ impl Brain {
                 sub.status = SubStatus::Done;
                 sub.stopped = false;
                 sub.report = Some(format!(
-                    "stopped: {reason}. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
+                    "stopped after a retryable network error. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
                     crate::auto_resume::NETWORK_WAIT_MAX.as_secs() / 60
                 ));
             }
@@ -629,6 +629,19 @@ impl Brain {
             return Ok(format!(
                 "outcome: refused. {id} was cancelled; control(action: \"restart\", id: \"{id}\") brings it back"
             ));
+        }
+        // The messages this tell is for: its next report answers them, in
+        // their thread (chief-replies-reactions-DESIGN.md).
+        let told_for = self
+            .state
+            .turn
+            .as_ref()
+            .map(|t| t.answers.clone())
+            .unwrap_or_default();
+        if !told_for.is_empty()
+            && let Some(sub) = self.state.sub_mut(id)
+        {
+            sub.answers = told_for;
         }
         if let Some(key) = key
             && let Some(sub) = self.state.sub_mut(id)
@@ -839,10 +852,16 @@ impl Brain {
 
     /// The live cap: `control cap` (0: none) over the env's.
     pub(super) fn live_cap(&self) -> Option<usize> {
+        self.live_cap_source().map(crate::subagents::LiveCap::n)
+    }
+
+    /// The live cap with where it came from (`control cap` over the env).
+    pub(super) fn live_cap_source(&self) -> Option<crate::subagents::LiveCap> {
+        use crate::subagents::LiveCap;
         match self.state.live_cap {
             Some(0) => None,
-            Some(n) => Some(n),
-            None => self.max_live,
+            Some(n) => Some(LiveCap::Control(n)),
+            None => self.max_live.map(LiveCap::Env),
         }
     }
 

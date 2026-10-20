@@ -10,6 +10,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextFeed
 import CmuxNextPalette
@@ -60,6 +61,8 @@ final class AppServices {
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
+    /// iPhone connections for the cmux-next iPhone app (cnx-ios, Settings > Mobile).
+    let iphone = IPhoneHostService()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
@@ -102,6 +105,18 @@ final class AppServices {
     }()
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
+    /// The session vault (past agent sessions); tests may set one over a fixed source.
+    lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
+    /// `cmux://vault`: Open Vault as Pane.
+    private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
+    /// Where each window's right sidebar remembers its state (tests set a suite of their own).
+    var rightSidebarDefaults: UserDefaults = .standard
+    /// The right sidebar's sections by mode (the file explorer adds Files and Find).
+    private(set) lazy var rightSidebarSections: RightSidebarSections = {
+        let sections = RightSidebarSections()
+        sections.registerAppSections()
+        return sections
+    }()
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
@@ -116,11 +131,17 @@ final class AppServices {
     private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
-    /// Phone tabs: simulators and real iPhones, recordings, feedback to Chief (plans/cmux-next/phone.md).
+    /// Phone tabs: iOS simulators, Android emulators and real phones, recordings, feedback to Chief
+    /// (plans/cmux-next/phone.md, simulators-DESIGN.md).
     private(set) lazy var phones: PhoneService = {
         let folder = SidebarSnapshotFile.buildDirectory(launch: environment.launch).appending(path: "phone", directoryHint: .isDirectory)
-        return PhoneService(backend: XcodePhoneBackend(), recordings: folder.appending(path: "recordings", directoryHint: .isDirectory),
-                            scratch: FileManager.default.temporaryDirectory.appending(path: "cmux-phone", directoryHint: .isDirectory))
+        // One SimulatorKit host serves the iOS backend's input and the phone tabs' live screens.
+        let simulatorKit = SimulatorKitHID(developerDirectory: SimulatorKitHID.selectedDeveloperDirectory())
+        let backend = PlatformPhoneBackend(ios: XcodePhoneBackend(hid: simulatorKit),
+                                           android: AndroidSDK.locate().map { AndroidPhoneBackend(sdk: $0) })
+        return PhoneService(backend: backend, recordings: folder.appending(path: "recordings", directoryHint: .isDirectory),
+                            scratch: FileManager.default.temporaryDirectory.appending(path: "cmux-phone", directoryHint: .isDirectory),
+                            live: simulatorKit)
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
@@ -129,6 +150,8 @@ final class AppServices {
     private(set) lazy var workspaceTodo = WorkspaceTodoPageService(services: self)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
+    /// Where a link or path the person opens lands (`layout.linkPlacement`): beside its pane.
+    private(set) lazy var linkOpener = LinkOpener(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
     private(set) lazy var serverMenuBar = ServerMenuBarController.app(services: self)
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
@@ -151,6 +174,8 @@ final class AppServices {
     )
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
+    /// The panes in Full Width Tab mode (`PaneFullWidthTabs`).
+    let paneFullWidthTabs = PaneFullWidthTabs()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.

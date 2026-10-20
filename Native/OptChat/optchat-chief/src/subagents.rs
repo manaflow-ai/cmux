@@ -62,6 +62,36 @@ pub fn live_limit(value: Option<&str>) -> Option<usize> {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|n| *n > 0)
 }
+/// A cap on subagents at work at once, with where it came from. There is
+/// none by default: a cap is opt-in, from [`MAX_LIVE_ENV`] or `control cap`
+/// (2026-10-20 the user: "we need to remove 40 agent limit by default").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LiveCap {
+    /// Set at run time with `control cap N` (saved as `live_cap`).
+    Control(usize),
+    /// Set by [`MAX_LIVE_ENV`] when the host started.
+    Env(usize),
+}
+
+impl LiveCap {
+    /// How many subagents may work at once.
+    pub fn n(self) -> usize {
+        match self {
+            LiveCap::Control(n) | LiveCap::Env(n) => n,
+        }
+    }
+
+    /// Where the cap came from and how to lift it, for a queued line: the
+    /// user asked why agents waited, and the old line named the env even
+    /// for a `control cap`.
+    pub fn source(self) -> String {
+        match self {
+            LiveCap::Control(n) => format!("set with `control cap {n}`"),
+            LiveCap::Env(n) => format!("set by {MAX_LIVE_ENV}={n}"),
+        }
+    }
+}
+
 /// Longest `spawn` waits for the view to settle (section 6), as a turn does
 /// (a user turn never waits more than SETTLE_BOUND, 1 s, on compaction):
 /// then the subagent gets the view with the lines still building as the
@@ -91,8 +121,8 @@ pub struct SpawnPlan {
     pub ids: Vec<String>,
     /// The ids over the cap (`live_limit`): they wait for a free slot.
     pub queued: Vec<String>,
-    /// The cap in force, when there is one.
-    pub limit: Option<usize>,
+    /// The cap in force, when there is one, with where it came from.
+    pub limit: Option<LiveCap>,
     /// The engine of the turn that called spawn (engine.json); None before
     /// any turn.
     pub engine: Option<SpawnEngine>,
@@ -209,7 +239,9 @@ impl CloudPlacement {
         env: impl Fn(&str) -> Option<String>,
         instructions: String,
     ) -> Option<CloudPlacement> {
-        let peer = env(PEER_ENV).map(|p| p.trim().to_owned()).filter(|p| !p.is_empty())?;
+        let peer = env(PEER_ENV)
+            .map(|p| p.trim().to_owned())
+            .filter(|p| !p.is_empty())?;
         Some(CloudPlacement {
             peer,
             dir: env("OPTCHAT_SUBAGENT_PEER_DIR")
@@ -406,8 +438,8 @@ impl Spawner {
         // catalog, so it does not apply there.
         let admitted = match &peer {
             Some(_) => crate::harness_gate::Admitted::peer(&s.harness),
-            None => crate::harness_gate::admit_live(&*self.agents, &s.harness).map_err(
-                |reason| {
+            None => {
+                crate::harness_gate::admit_live(&*self.agents, &s.harness).map_err(|reason| {
                     crate::harness_gate::trace_refusal(
                         &self.trace,
                         "subagent",
@@ -415,8 +447,8 @@ impl Spawner {
                         &reason,
                     );
                     crate::harness_gate::refusal(&reason)
-                },
-            )?,
+                })?
+            }
         };
         // No mark of ours in a subagent's first message: Claude Code marks
         // its two system blocks and the last two messages of every later
@@ -1014,9 +1046,18 @@ impl Orchestrator for Spawner {
                             launch: launch.clone(),
                         },
                     );
-                let at_work = plan.limit.map_or_else(String::new, |n| format!("{n} "));
+                let cap = plan.limit.map_or_else(
+                    || "a cap".to_owned(),
+                    |cap| {
+                        format!(
+                            "{} subagents are at work, the cap {}",
+                            cap.n(),
+                            cap.source()
+                        )
+                    },
+                );
                 lines.push(format!(
-                    "- {id}: queued ({at_work}subagents are at work, the most this Chief runs at once ({MAX_LIVE_ENV}); it starts when one finishes)"
+                    "- {id}: queued ({cap}; it starts when one finishes; there is no cap by default, `control cap 0` removes this one)"
                 ));
                 continue;
             }
@@ -1086,6 +1127,30 @@ impl Orchestrator for Spawner {
     fn control(&self, request: crate::tools::ControlCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.send(Input::Control { request, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn react(&self, id: u64, reaction: &str) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::React {
+            id,
+            reaction: reaction.to_owned(),
+            reply,
+        })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn reply(&self, id: u64, text: &str) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::Reply {
+            id,
+            text: text.to_owned(),
+            reply,
+        })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?

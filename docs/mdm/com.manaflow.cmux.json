@@ -1128,6 +1128,12 @@
       "title" : "Default Engine",
       "type" : "string"
     },
+    "browser.enabled" : {
+      "default" : true,
+      "description" : "When off, cmux opens no browser tabs for web pages and every link opens in your default browser.",
+      "title" : "Enable cmux Browser",
+      "type" : "boolean"
+    },
     "browser.freezeHiddenTabs" : {
       "default" : 30,
       "description" : "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake. Also accepts a number from 5 to 3600 in a raw profile.",
@@ -1326,6 +1332,12 @@
       "default" : false,
       "description" : "A soft shadow under the glass address bar.",
       "title" : "Address Bar Shadow",
+      "type" : "boolean"
+    },
+    "browser.omnibar.showFullURLs" : {
+      "default" : false,
+      "description" : "Shows the whole address, with https:// and www., when you are not editing it.",
+      "title" : "Always Show Full URLs",
       "type" : "boolean"
     },
     "browser.openLinksInCmuxBrowser" : {
@@ -2172,6 +2184,17 @@
       "title" : "Dock Corners",
       "type" : "string"
     },
+    "layout.linkPlacement" : {
+      "default" : "split-right",
+      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
+      "enum" : [
+        "split-right",
+        "new-column",
+        "same-pane"
+      ],
+      "title" : "Open Links and Files",
+      "type" : "string"
+    },
     "layout.minimumPaneHeight" : {
       "default" : 64,
       "description" : "layout.minimumPaneHeight",
@@ -2998,7 +3021,7 @@
     },
     "sidebar.nowPlaying.enabled" : {
       "default" : false,
-      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "description" : "A player for what is playing, at the bottom of the sidebar.",
       "title" : "Show Now Playing",
       "type" : "boolean"
     },
@@ -3053,6 +3076,12 @@
       "default" : true,
       "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
+      "type" : "boolean"
+    },
+    "sidebar.showTimestamps" : {
+      "default" : false,
+      "description" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does.",
+      "title" : "Show Timestamps",
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
@@ -3599,6 +3628,12 @@
       "default" : false,
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
+      "type" : "boolean"
+    },
+    "tabs.newTabNowPlaying" : {
+      "default" : true,
+      "description" : "A player for what is playing, on the New Tab page.",
+      "title" : "Show Now Playing on New Tab",
       "type" : "boolean"
     },
     "tabs.newTabPosition" : {

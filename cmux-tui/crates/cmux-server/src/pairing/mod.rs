@@ -1,6 +1,7 @@
 //! General server enrollment through the existing human-approved Cloud flow.
 //! This records identity; it never installs, starts roles or grants execution.
 
+mod credentials;
 mod identity;
 pub(crate) mod info;
 pub(crate) mod messages;
@@ -15,6 +16,7 @@ use serde_json::{Value, json};
 
 use crate::error::{Error, Result};
 
+pub use credentials::EnrolledIdentity;
 pub use network::Network;
 
 pub const DEFAULT_API: &str = "https://cloud-api.cmux.dev";

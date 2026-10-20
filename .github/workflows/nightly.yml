@@ -1869,6 +1869,7 @@ jobs:
           workspaces: |
             cmux-tui -> target/acpmux-app
             Native/OptChat/optchat-chief -> target/app
+            cnx-ios/rust -> target/cnx-hostd-app
           shared-key: nightly-next-rust-helpers
           cache-all-crates: true
 
@@ -1926,6 +1927,21 @@ jobs:
           echo "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1" >> "$GITHUB_ENV"
           # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
           echo "CMUX_NEXT_REQUIRE_UBLOCK=1" >> "$GITHUB_ENV"
+
+      # The cmux cnx iPhone host (cnx-ios/rust/crates/cnx-hostd), which
+      # Settings > Mobile runs: the Release build's "Bundle cnx-hostd" phase
+      # copies it to Resources/bin, and sign-cmux-bundle-helpers.sh signs it
+      # with the app's Developer ID, hardened runtime and the helper
+      # entitlements before notarization, like every Mach-O there.
+      - name: Build the cnx iPhone host (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        run: |
+          set -euo pipefail
+          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
+          hostd_bin="$RUNNER_TEMP/cmux-next-cnx-hostd/cnx-hostd"
+          CMUX_NEXT_CNX_HOSTD_ARCHS="$archs" scripts/cmux-next/build-cnx-hostd.sh --output "$hostd_bin"
+          echo "CMUX_NEXT_CNX_HOSTD_BIN=$hostd_bin" >> "$GITHUB_ENV"
+          echo "CMUX_NEXT_REQUIRE_CNX_HOSTD=1" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
@@ -2018,6 +2034,13 @@ jobs:
         run: |
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
+          # The remote browser host the Embed remote browser host phase puts in
+          # Contents/Helpers (phone browser tabs, arm64). From R2 with the same key;
+          # unavailable, the app builds without it (the phase warns). A digest
+          # mismatch fails here. The tailnet store is not reachable from runners.
+          if [[ -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
+            CMUX_RB_HOST_NO_STORE=1 scripts/cmux-next/ensure-remote-browser-host.sh --optional >/dev/null
+          fi
 
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
       # bundles: the daemon, app host and Cloud server come from this tree
@@ -2029,8 +2052,10 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
         env:
           CMUX_NOTICES_ALLOW_CARGO: "1"
-          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
         run: |
+          # A trusted NEXT worker keeps the crate sources between jobs
+          # (nightly_build_state.py); every other runner downloads them.
+          export CMUX_NOTICES_CACHE="${CMUX_NEXT_NOTICES_CACHE:-$RUNNER_TEMP/cmux-notices}"
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
@@ -2752,15 +2777,17 @@ jobs:
           done
           # The cmux-next nightly carries the OptChat Chief with the app's slices.
           if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
-            chief="$APP/Contents/Resources/bin/optchat-chief"
-            [ -x "$chief" ] || { echo "nightly-next is missing bin/optchat-chief" >&2; exit 1; }
-            archs="$(lipo -archs "$chief")"
-            echo "$chief: $archs"
-            if [ "$NIGHTLY_VARIANT" = "universal" ]; then
-              [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
-            else
-              [ "$archs" = "$NIGHTLY_VARIANT" ]
-            fi
+            for helper in optchat-chief cnx-hostd; do
+              binary="$APP/Contents/Resources/bin/$helper"
+              [ -x "$binary" ] || { echo "nightly-next is missing bin/$helper" >&2; exit 1; }
+              archs="$(lipo -archs "$binary")"
+              echo "$binary: $archs"
+              if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+                [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+              else
+                [ "$archs" = "$NIGHTLY_VARIANT" ]
+              fi
+            done
           fi
           # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
           for alias in cmux-tui acpmux; do

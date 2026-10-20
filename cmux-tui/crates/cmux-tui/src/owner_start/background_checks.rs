@@ -62,13 +62,22 @@ fn update_check() -> String {
         },
         Err(error) => return format!("failed ({error})"),
     };
+    // npm's next tag (tester rollout #8): a missing tag is no next, not a failure.
+    let next = update_notice::next_url(channel, &url)
+        .and_then(|next_url| get(&next_url).ok())
+        .and_then(|body| update_notice::parse_latest(&body));
+    let summary = match &next {
+        Some(next) => format!("latest={latest} next={next}"),
+        None => format!("latest={latest}"),
+    };
     let cached = update_notice::Cached {
         checked_at_ms: now_ms,
-        latest: latest.clone(),
+        latest,
+        next,
         channel: channel.as_str().to_string(),
     };
     match update_notice::write_cache(&root, &cached) {
-        Ok(()) => format!("latest={latest}"),
+        Ok(()) => summary,
         Err(error) => format!("failed ({error})"),
     }
 }
