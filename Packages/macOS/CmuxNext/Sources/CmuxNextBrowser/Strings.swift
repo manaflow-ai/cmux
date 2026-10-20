@@ -93,6 +93,7 @@ nonisolated enum Strings {
     static var findNext: String { String(localized: "browser.find.next", defaultValue: "Next Match", bundle: .module) }
     static var dismissNotice: String { String(localized: "browser.notice.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var findDone: String { String(localized: "browser.find.done", defaultValue: "Done", bundle: .module) }
+    static var findMatchCase: String { String(localized: "browser.find.matchCase", defaultValue: "Match Case", bundle: .module) }
     static var findNoMatches: String { String(localized: "browser.find.noMatches", defaultValue: "No matches", bundle: .module) }
     static func findPosition(_ index: Int, of count: Int) -> String {
         String(localized: "browser.find.position", defaultValue: "\(index) of \(count)", bundle: .module)

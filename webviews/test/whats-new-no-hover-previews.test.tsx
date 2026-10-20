@@ -84,8 +84,10 @@ test("the Updated card's change titles show no hover preview", async () => {
   await render((strings) => (
     <UpdatedCard data={data} strings={strings as never} actions={{ openChangelog: noop, dismiss: noop }} />
   ));
-  expect(host.querySelectorAll(".wn-card-changes li").length).toBe(2);
+  // The first change is the card's headline (2026-10-20), the rest its bullets; neither has a tooltip.
+  expect(host.querySelectorAll(".wn-card-changes li").length).toBe(1);
   expect(titleTooltips(".wn-card-changes")).toEqual([]);
+  expect(titleTooltips(".wn-card-headline")).toEqual([]);
 });
 
 test("the Update Ready popover's change titles show no hover preview", async () => {

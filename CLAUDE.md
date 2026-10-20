@@ -27,6 +27,14 @@ Read the matching skill before changing an area, then only the references needed
   for commands and cache reuse; team fleet tasks start at
   [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md).
   Never use bare `xcodebuild` or an untagged `cmux DEV.app`. Clean up only your own tags.
+- **Agents never compile or test on the person's Mac.** No local `swift build`/`swift test`,
+  `xcodebuild build|test`, `cargo build|test|clippy` or `scripts/reload.sh`: run them as a
+  fleet step (`cmux-ci run --class isolated --script ... --ref SHA`, `cmux-ci build cmux --ref SHA`).
+  Several agents' local SwiftPM test runs pegged the Mac at 100% CPU (2026-10-20). The PATH
+  guards (`~/.local/lib/cmux-local-build-guards`) queue or refuse these; never bypass them.
+- **Scope every search.** `rg`/`find`/`fd` only inside your worktree or a named subfolder, never
+  `..`, `~`, `~/fun`, `/`, `$TMPDIR` or `/var/folders` (worktrees and caches there hold millions of
+  files). Prefer `git grep` or `rg` with a path; prefix long scans with `nice -n 10`.
 - A same-repo app PR gets a fleet dogfood build and link comment only while it has the
   `dev-build` label. Add it when someone will dogfood the PR, not by default; under load
   the fleet builds the newest push, and the comment says how to build a skipped commit.
@@ -192,6 +200,7 @@ Use these existing owners instead of duplicating their checklists here:
 | Packages, workspace groups, lockfiles or feature flags | [cmux-architecture](skills/cmux-architecture/SKILL.md) |
 | Submodules or GhosttyKit | [cmux-ghostty](skills/cmux-ghostty/SKILL.md) |
 | User-facing strings, docs or help | [cmux-localization](skills/cmux-localization/SKILL.md); report the localization audit |
+| A change people will notice (What's New, update card) | [release-notes/next/WRITING.md](release-notes/next/WRITING.md); add one curated highlight file in the same commit, never a commit subject |
 | New cmux shortcuts | [cmux-keyboard-shortcuts](skills/cmux-keyboard-shortcuts/SKILL.md) |
 | Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); CmuxNext tests need no wiring; the `cmux` CLI is cmux-tui Rust (tests run with cargo on a Testbox or CI) |
 | Multiple entrypoints or a bug that tests previously missed | [cmux-shared-behavior](skills/cmux-shared-behavior/SKILL.md); share action/mutation paths, verify every entrypoint, and cover the missed repro |

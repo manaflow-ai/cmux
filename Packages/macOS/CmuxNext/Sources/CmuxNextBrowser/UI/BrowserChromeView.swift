@@ -76,6 +76,8 @@ public final class BrowserChromeView: NSView {
     var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
     var isToolbarHidden = false
+    /// The person hid this tab's address bar row (Toggle Omnibar).
+    public internal(set) var isOmnibarHidden = false
     private let density = DensityBinding()
     lazy var extensionToolbar: ExtensionActionToolbar = {
         let toolbar = ExtensionActionToolbar(slot: extensionSlot)
@@ -210,8 +212,8 @@ public final class BrowserChromeView: NSView {
 
         _ = toolbarHeight  // binds it here, in the same order as before
         density.update { [extensionSlot, toolbarButtons] in
-            extensionSlot.spacing = BrowserMetrics.buttonSpacing
-            toolbarButtons.spacing = BrowserMetrics.buttonSpacing
+            extensionSlot.spacing = OmnibarStyle.buttonSpacing
+            toolbarButtons.spacing = OmnibarStyle.buttonSpacing
             navigation.spacing = OmnibarStyle.buttonSpacing
         }
         NSLayoutConstraint.activate([
@@ -226,7 +228,7 @@ public final class BrowserChromeView: NSView {
                 OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
             },
             density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
-            density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { BrowserMetrics.buttonSpacing },
+            density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { OmnibarStyle.buttonSpacing },
             density.bind(toolbarButtons.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
             // On the omnibar's vertical center, wherever the row places the omnibar.
             toolbarButtons.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
@@ -260,9 +262,10 @@ public final class BrowserChromeView: NSView {
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            density.bind(findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
-            density.bind(findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor)) { -BrowserMetrics.overlayInset },
-            density.bind(findBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor)) { BrowserMetrics.overlayInset },
+            // The shared find pill sits where every pane's does.
+            findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: FindPillMetrics.inset),
+            findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -FindPillMetrics.inset),
+            findBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor, constant: FindPillMetrics.inset),
 
             density.bind(promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
             promptBar.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
@@ -325,7 +328,7 @@ public final class BrowserChromeView: NSView {
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         extensionToolbar.bind(tab)
         toolbarButtons.bind(tab)
-        bindOmniboxKeywords(tab)
+        addressBar.bindKeywords(of: tab)
         if !findBar.isHidden {
             old?.clearFind()
             findBar.isHidden = true
@@ -360,7 +363,7 @@ public final class BrowserChromeView: NSView {
 
         renderPrompt()
 
-        setToolbarHidden(state.isContentFullscreen)
+        setToolbarHidden(state.isContentFullscreen || isOmnibarHidden)
         updateOcclusion()
     }
 

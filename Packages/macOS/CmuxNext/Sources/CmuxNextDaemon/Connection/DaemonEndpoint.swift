@@ -199,6 +199,10 @@ public struct DaemonCapabilities: Sendable {
     /// Rows: `new-row`, `set-row-heights` and `columns[].rows`
     /// (plans/cmux-next/rows.md). Without it no row op is sent.
     public let rows = "rows-v1"
+    /// `move-column`: a whole viewport column (every pane in it) moves one
+    /// place left or right in one commit. Without it only a one-pane column
+    /// moves, through `swap-pane`.
+    public let columnMove = "column-move-v1"
     /// `move-tab-to-column` `respawn`: a pane's only tab moves into a new
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
@@ -441,7 +445,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, frontendBrowserTabKeys, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, workspaceChecklist, notificationMarkUnread, tabMarkUnread, workspaceDescription, workspaceStatus,
-                                            terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, pinnedDockAlone, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
+                                            terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, pinnedDockAlone, rows, columnMove, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, cloudConversationTyping, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
