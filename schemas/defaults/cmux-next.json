@@ -327,6 +327,8 @@
     "setting.appearance.surfaces.terminal.opacity": null,
     "setting.appearance.theme": null,
     "setting.appearance.themeEdits": {},
+    "setting.browser.agentMouse.maxMoveMs": 350,
+    "setting.browser.agentMouse.motion": "human",
     "setting.browser.builtInAdBlocker": true,
     "setting.browser.customSearchEngine.search": "",
     "setting.browser.customSearchEngine.suggest": "",
