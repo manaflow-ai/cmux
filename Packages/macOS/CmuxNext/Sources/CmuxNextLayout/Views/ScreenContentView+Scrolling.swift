@@ -21,7 +21,9 @@ extension ScreenContentView {
         lastFocused = focused
         defer { leadIfPending() }
         let animate = animated && !context.reduceMotion && bounds.width > 0
-        let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals)
+        // Inner first (scroll-areas-DESIGN.md K2): areas, then rows, then the strip.
+        let areasNeedFrames = syncAreas(focused: focused, source: source, animated: animate, reveals: reveals)
+        let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals) || areasNeedFrames
         guard let strip else {
             scrollState = ColumnScrollState()
             settleCarried()
