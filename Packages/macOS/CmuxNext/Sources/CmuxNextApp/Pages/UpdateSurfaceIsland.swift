@@ -116,13 +116,6 @@ final class UpdateSurfaceProvider: PageProvider {
                 guard let value = try? json(highlights) else { continue }
                 services?.updater.log.append("update surface \(kind.rawValue): data \(highlights == nil ? "none" : "\(highlights?.items.count ?? 0) items")")
                 onEvent(value)
-                // The popover's pictures load after the text (inlined and checked off the main
-                // thread), then the same highlights come again with them.
-                guard kind == .ready, highlights != nil, let updater = services?.updater,
-                      let withMedia = await updater.stagedHighlightsWithMedia(), !Task.isCancelled,
-                      withMedia != highlights, updater.stagedHighlights == highlights,
-                      let media = try? json(withMedia) else { continue }
-                onEvent(media)
             }
         }
         return PageSubscription { task.cancel() }

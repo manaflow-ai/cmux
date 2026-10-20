@@ -28,31 +28,13 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
         public var category: Category
         /// An SF Symbol the source names; never required.
         public var symbol: String?
-        /// The change's picture as checked `data:` URLs (``withMedia(from:languages:)``); nil
-        /// without one, and always nil before the host inlined the notes' media.
-        public var media: Media?
 
-        public init(id: String, title: String, summary: String?, category: Category, symbol: String? = nil, media: Media? = nil) {
+        public init(id: String, title: String, summary: String?, category: Category, symbol: String? = nil) {
             self.id = id
             self.title = title
             self.summary = summary
             self.category = category
             self.symbol = symbol
-            self.media = media
-        }
-    }
-
-    /// A change's picture for the popover (Leo 2026-10-19: notes with screenshots show them
-    /// inline): the light and dark files, each a `data:` URL, and the localized description.
-    public struct Media: Codable, Equatable, Sendable {
-        public var light: String
-        public var dark: String
-        public var alt: String
-
-        public init(light: String, dark: String, alt: String) {
-            self.light = light
-            self.dark = dark
-            self.alt = alt
         }
     }
 
@@ -95,27 +77,6 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
         self.language = language
         items = Array(all.prefix(Self.shownItems))
         moreCount = max(0, all.count - Self.shownItems)
-    }
-
-    /// These highlights with each item's picture from `notes` whose media the host inlined
-    /// (``ReleaseMediaStore/inlined(_:)``): a What's New entry's image, else a highlight's first.
-    /// Only `data:` URLs pass, so a remote or unchecked file never reaches the page.
-    public func withMedia(from notes: ReleaseNotes, languages: [String] = Locale.preferredLanguages) -> UpdateHighlights {
-        func inline(_ url: String) -> Bool { url.hasPrefix("data:image/") }
-        var media: [String: Media] = [:]
-        for highlight in notes.highlights {
-            if let first = highlight.media.first(where: { inline($0.url.absoluteString) }) {
-                media[highlight.id] = Media(light: first.url.absoluteString, dark: first.url.absoluteString, alt: first.alt)
-            }
-        }
-        for entry in notes.whatsNew?.entries ?? [] {
-            if let file = entry.media, file.kind == "image", inline(file.light), inline(file.dark) {
-                media[entry.id] = Media(light: file.light, dark: file.dark, alt: file.alt.resolved(for: languages))
-            }
-        }
-        var copy = self
-        for index in copy.items.indices { copy.items[index].media = media[copy.items[index].id] }
-        return copy
     }
 
     static func pick(notes: ReleaseNotes?, appcast: UpdateChangelog?, languages: [String]) -> (Source, String, [Item]) {

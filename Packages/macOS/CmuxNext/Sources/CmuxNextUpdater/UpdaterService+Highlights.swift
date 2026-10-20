@@ -15,21 +15,6 @@ extension UpdaterService {
                                 notes: stagedNotes, appcast: stagedChangelog)
     }
 
-    /// ``stagedHighlights`` with each change's picture inlined and checked
-    /// (``ReleaseMediaStore``: the signed hash, or the bundled, cached or
-    /// first-party copy), for the popover. Nil while nothing is staged; the
-    /// plain highlights when the notes have no media or no store.
-    public func stagedHighlightsWithMedia() async -> UpdateHighlights? {
-        guard let highlights = stagedHighlights else { return nil }
-        guard let notes = stagedNotes, let media = releaseMedia,
-              !notes.highlights.allSatisfy(\.media.isEmpty) || notes.whatsNew?.entries.contains(where: { $0.media != nil }) == true
-        else { return highlights }
-        let inlined = await media.inlined(notes)
-        // The staged update changed while the pictures loaded: its own call answers for it.
-        guard stagedHighlights == highlights else { return stagedHighlights }
-        return highlights.withMedia(from: inlined)
-    }
-
     /// The highlights of the update this launch completed, for the "cmux
     /// Updated!" card: the ones the popover showed before the restart, else
     /// built from the recorded changelog lines; the span runs from the
