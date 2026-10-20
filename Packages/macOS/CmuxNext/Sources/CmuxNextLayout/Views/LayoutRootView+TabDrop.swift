@@ -11,17 +11,20 @@ extension LayoutRootView {
     /// here once, with it, and the commit runs this decision. `edgeDwell`: a
     /// pane edge splits only after the pointer has stayed on it this long;
     /// before that it joins the pane (cmuxterm-hq#1829: eager split targets).
+    /// `joinsFrom`: the source pane of a terminal tab; the edge of the pane
+    /// next to it that faces it joins that pane (bonsplit, #22287).
     @discardableResult
     public func updateTabDrag(_ tab: TabID, locationInWindow: NSPoint, removing: PaneID? = nil,
-                              edgeDwell: CFTimeInterval = 0) -> DropTarget? {
+                              joinsFrom: PaneID? = nil, edgeDwell: CFTimeInterval = 0) -> DropTarget? {
         dragTab = tab
         tabDragRemoving = removing
+        tabDragJoinsFrom = joinsFrom
         guard let active = model.activeScreenID, let view = screenViews[active] else {
             hideHighlight()
             return nil
         }
         let local = view.convert(locationInWindow, from: nil)
-        guard var hit = view.dropTarget(at: local, removing: removing, previous: tabDropHit) else {
+        guard var hit = view.dropTarget(at: local, removing: removing, joinsFrom: joinsFrom, previous: tabDropHit) else {
             hideHighlight()
             return nil
         }
@@ -30,7 +33,8 @@ extension LayoutRootView {
             let now = CACurrentMediaTime()
             if tabDragEdge?.hit != hit.hit { tabDragEdge = (hit.hit, now) }
             let deadline = (tabDragEdge?.since ?? now) + edgeDwell
-            if now < deadline, let held = view.dropTarget(at: local, removing: removing, previous: tabDropHit, edgesArmed: false) {
+            if now < deadline, let held = view.dropTarget(at: local, removing: removing, joinsFrom: joinsFrom, previous: tabDropHit,
+                                                                   edgesArmed: false) {
                 hit = held
                 tabDragDwellDeadline = deadline
             }
@@ -38,6 +42,10 @@ extension LayoutRootView {
             tabDragEdge = nil
         }
         tabDropHit = hit.hit
+        tabDragShownTarget = hit.target
+        // The App refused this target at the last move: it stays hidden, nothing redraws (a flicker).
+        guard hit.target != tabDragRefusedTarget else { return hit.target }
+        tabDragRefusedTarget = nil
         let rect = convert(hit.highlight, from: view)
         let region = convert(hit.region, from: view)
         tabDragHighlightOnScreen = window.map { $0.convertToScreen(convert(rect, to: nil)) }
@@ -68,6 +76,8 @@ extension LayoutRootView {
         let slot = convert(window.convertFromScreen(screenRect), from: nil)
         tabDragHighlightOnScreen = screenRect
         tabDropHit = nil
+        tabDragShownTarget = nil
+        tabDragRefusedTarget = nil
         let height = min(20, slot.height)
         let caret = CGRect(x: slot.minX - 2, y: slot.midY - height / 2, width: 2, height: height)
         if highlight.show(caret, region: caret, zone: .center, text: "", inset: 0, cornerRadius: 1,
@@ -96,6 +106,7 @@ extension LayoutRootView {
     /// refuses: it draws nothing. The drag goes on, and the zone held near
     /// its line stays for the next hit test.
     public func hideTabDragHighlight() {
+        tabDragRefusedTarget = tabDragShownTarget
         tabDragHighlightOnScreen = nil
         if highlight.hide(animated: false) { driver.start() }
     }
@@ -112,10 +123,11 @@ extension LayoutRootView {
     /// with, so it lands where the ring shows (cx-ohle).
     @discardableResult
     public func endTabDrag(_ tab: TabID, locationInWindow: NSPoint) -> DropTarget? {
-        let target = updateTabDrag(tab, locationInWindow: locationInWindow, removing: tabDragRemoving)
+        let target = updateTabDrag(tab, locationInWindow: locationInWindow, removing: tabDragRemoving, joinsFrom: tabDragJoinsFrom)
         hideHighlight()
         dragTab = nil
         tabDragRemoving = nil
+        tabDragJoinsFrom = nil
         if let target { model.dropTab(tab, on: target) }
         return target
     }
@@ -123,12 +135,15 @@ extension LayoutRootView {
     public func cancelTabDrag() {
         dragTab = nil
         tabDragRemoving = nil
+        tabDragJoinsFrom = nil
         hideHighlight()
     }
 
     func hideHighlight() {
         tabDragHighlightOnScreen = nil
         tabDropHit = nil
+        tabDragShownTarget = nil
+        tabDragRefusedTarget = nil
         tabDragEdge = nil
         tabDragDwellDeadline = nil
         // Classic hides the overlay at once on a drop, a cancel or an exit.
