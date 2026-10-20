@@ -1,0 +1,144 @@
+// Settings > Agents > Chiefs (u2586): every Chief (picture, name, role, backend, locked), each row
+// opening the same editor Home shows (home-channels/ChiefPage.tsx), and New Chief. The card has
+// no daemon connection of its own: it reads and writes through the host's page relay to the Chief
+// owner (`cmux.chief.profile.*`) and the host's harness center (`cmux.chief.backend.*`), as Home's
+// editor does; the person's click on Save, Undo or a backend is the gesture the host confirms.
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChiefPage } from "../../home-channels/ChiefPage";
+import { ChiefHost, HostChiefEditor } from "../../home-channels/chiefEditing";
+import type { HomeChief } from "../../home-channels/types";
+import { formatString, type Strings } from "../../shared/i18n";
+import { useStore } from "../context";
+import { locale, t } from "../strings";
+
+type Open = { kind: "new" } | { kind: "edit"; id: string } | null;
+
+/** The Settings table as the editor's strings (the editor's keys come from the Home catalog). */
+function settingsStrings(): Strings {
+  return { language: locale(), t: (key) => t(key), format: (key, ...args) => formatString(t(key), args) };
+}
+
+export function ChiefsCard() {
+  const store = useStore();
+  const host = useMemo(() => new ChiefHost(store.chiefCalls), [store]);
+  const strings = useMemo(settingsStrings, []);
+  const [chiefs, setChiefs] = useState<HomeChief[] | undefined>();
+  const [pictures, setPictures] = useState<ReadonlyMap<string, string>>(new Map());
+  const [unavailable, setUnavailable] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [open, setOpen] = useState<Open>(null);
+  const load = useCallback(async () => {
+    try {
+      const list = await host.list();
+      setChiefs(list);
+      setUnavailable(false);
+      const read = await Promise.all(
+        list
+          .filter((chief) => chief.avatar)
+          .map(async (chief) => [chief.id, await host.picture(chief.id).catch(() => null)] as const),
+      );
+      setPictures(
+        new Map(
+          read.flatMap(([id, picture]) =>
+            picture ? [[id, `data:${picture.mediaType};base64,${picture.data}`] as const] : [],
+          ),
+        ),
+      );
+    } catch {
+      setChiefs([]);
+      setUnavailable(true);
+    }
+  }, [host]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const editor = useMemo(
+    () =>
+      new HostChiefEditor(
+        host,
+        (saved) => {
+          setOpen(null);
+          if (saved) void load();
+        },
+        setError,
+      ),
+    [host, load],
+  );
+  const editing = open?.kind === "edit" ? chiefs?.find((chief) => chief.id === open.id) : undefined;
+  if (open && (open.kind === "new" || editing))
+    return (
+      <section className="group chiefs-card editing" data-card="chiefs">
+        <ChiefPage
+          key={editing?.id ?? "new"}
+          service={editor}
+          strings={strings}
+          chief={editing}
+          picture={editing ? pictures.get(editing.id) : undefined}
+          chiefName={(id) => chiefs?.find((chief) => chief.id === id)?.name}
+        />
+        {error && (
+          <p className="row-error" role="alert">
+            {error}
+          </p>
+        )}
+      </section>
+    );
+  return (
+    <section className="group chiefs-card" data-card="chiefs">
+      <div className="accounts-header">
+        <h3 className="group-title m-0 flex-1">{t("chief.settings.title")}</h3>
+        <button
+          type="button"
+          className="button"
+          disabled={unavailable}
+          onClick={() => {
+            setError(undefined);
+            setOpen({ kind: "new" });
+          }}
+        >
+          {t("chief.settings.new")}
+        </button>
+      </div>
+      <p className="row-help" data-intro="">
+        {t(unavailable ? "chief.settings.unavailable" : "chief.settings.intro")}
+      </p>
+      {chiefs && chiefs.length === 0 && !unavailable && <p className="row-help">{t("chief.settings.empty")}</p>}
+      {chiefs && chiefs.length > 0 && (
+        <div className="rows" data-chiefs="">
+          {chiefs.map((chief) => (
+            <button
+              key={chief.id}
+              type="button"
+              className="row chiefs-row"
+              data-chief={chief.id}
+              onClick={() => {
+                setError(undefined);
+                setOpen({ kind: "edit", id: chief.id });
+              }}
+            >
+              <span className="chiefs-picture" aria-hidden="true">
+                {pictures.get(chief.id) ? (
+                  <img src={pictures.get(chief.id)} alt="" />
+                ) : (
+                  <span className="chiefs-initial">{(chief.name.trim()[0] ?? "?").toUpperCase()}</span>
+                )}
+              </span>
+              <span className="row-main">
+                <span className="row-label">
+                  <span className="row-title">{chief.name}</span>
+                  {chief.role && <span className="row-help">{chief.role}</span>}
+                </span>
+              </span>
+              <span className="row-help chiefs-backend">
+                {chief.engine?.harness
+                  ? [chief.engine.harness, chief.engine.model, chief.engine.effort].filter(Boolean).join(" · ")
+                  : t("chief.backend.default")}
+              </span>
+              {chief.locked && <span className="badge">{t("chief.settings.locked")}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}

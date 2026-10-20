@@ -1,0 +1,21 @@
+-- cmux VM: ownership rows of creations that have not committed. A create whose
+-- VM was allocated but could not be grown to the requested size records the
+-- VM with committed = false: the owner sees and can delete it, its quota slot
+-- stays held by the creation intent, and only a same-key retry or reconcile
+-- that reaches the requested floors commits it. Inside the cmux_vm schema only
+-- and additive: one column with a constant default, so every existing row
+-- stays committed and nothing is rewritten. Nothing is dropped. No new table,
+-- so no new grant: the Worker role already has INSERT and UPDATE on resources.
+-- Applied by an operator (staging rehearsal first, in one transaction, e.g.
+-- psql -1), never by the Worker. Needs 0001-0011.
+--
+-- Until it is applied the schema gate answers 503 on every route but
+-- /healthz (src/db/schema-check.ts names cmux_vm.resources.committed).
+--
+-- Rollback. An older build reads an uncommitted row as a finished create.
+-- First delete or commit (retry with the original key) every live row listed
+-- by SELECT cmux_id FROM cmux_vm.resources WHERE NOT committed AND deleted_at IS NULL;
+-- then roll back the Worker build that needs 0012, then:
+--   ALTER TABLE cmux_vm.resources DROP COLUMN IF EXISTS committed;
+
+ALTER TABLE cmux_vm.resources ADD COLUMN IF NOT EXISTS committed boolean NOT NULL DEFAULT true;
