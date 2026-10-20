@@ -28,10 +28,14 @@ public struct SidebarMapping {
     public struct PageFace {
         public var title: String?
         public var favicon: SidebarFavicon?
+        /// The page's sound (a browser tab playing sound or muted); the row
+        /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
+        public var audio: SidebarWorkspaceAudio?
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil) {
             self.title = title
             self.favicon = favicon
+            self.audio = audio
         }
     }
 
@@ -114,6 +118,11 @@ public struct SidebarMapping {
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
         let page = front.flatMap { pageFace(workspace, $0, $0.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil) }
+        // Each browser tab's face once: its favicon in the tab list, its sound on the row.
+        var browserFaces: [String: PageFace] = [:]
+        for tab in tabs where tab.kind == .browser {
+            browserFaces[tab.id] = tab.id == front?.id ? page : pageFace(workspace, tab, nil)
+        }
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
@@ -149,7 +158,7 @@ public struct SidebarMapping {
                 let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
                 return SidebarTab(id: TabID(tab.id), title: title,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                  brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab, nil)?.favicon : nil)
+                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).

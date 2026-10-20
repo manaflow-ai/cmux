@@ -28,6 +28,7 @@ extension PaneController {
         case .rename(let id): rename(id)
         case .renameCommitted(let id, let name): commitRename(id, name: name)
         case .duplicate(let id): newTerminalTab(cwd: tab(id)?.cwd)
+        case .toggleAudioMute: break
         case .moveToNewSplit(let id, let direction):
             guard let tab = tab(id) else { return }
             TabMoves.toNewSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom, services: services)
