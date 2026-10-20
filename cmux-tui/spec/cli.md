@@ -469,6 +469,7 @@ session <selector> window title set|clear
 session <selector> terminal defaults set
 
 agent list [--needs-me] [--state <state>] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+agent <agent_id|term_id> focus
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
@@ -504,7 +505,7 @@ pane <selector> viewport width set
 pane <selector> tab ...
 
 tab list
-tab create terminal|browser
+tab create terminal|browser [--engine chromium|webkit]
 tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
@@ -519,12 +520,12 @@ terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 terminal <selector> process show|wait
 terminal <selector> viewport scroll
 
-browser open <url> | --url <url> [OPTIONS]
+browser open <url> | --url <url> [--engine chromium|webkit] [OPTIONS]
 browser list
 browser profile list
 browser profile create --name <name> [--color <value>] [--icon <value>] [--index <n>]
 browser profile move --profile <id-or-name> --index <n>
-browser profile open <url> | --url <url> --profile <id-or-name> [--engine webkit|cef] [--pane <selector>] [--title <value>] [--background true|false]
+browser profile open <url> | --url <url> --profile <id-or-name> [--engine chromium|webkit] [--pane <selector>] [--title <value>] [--background true|false]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
@@ -561,7 +562,8 @@ conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg
 conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
 chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] [--compactor-harness <h>] [--compactor-model <m>] | chief stop [<subagent>]
-chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief>
+chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief> | chief history <chief> [--limit <n>] | chief undo <chief> [--to-rev <n>]
+chief usage [--chief <id>] [--since <24h|7d|30d|90d|1y|all>] [--until <d>] [--bucket hour|day|week|month] [--by chief|agent|model|harness|kind] [--top <n>] [--json]
 agent list|message|inbox|report
 agent plugin list|install|use|update|remove
 pairing request list
@@ -710,16 +712,23 @@ the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
 Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and
 `/effort` read or set the engine (`chief.engine.get|set`), `/help` lists the
 commands. `chief engine` and `chief stop` make one such call without the
-chat. `chief list`, `chief new`, `chief edit` and `chief delete` make the
+chat. `chief usage` reads this Mac's Chief usage ledgers (tokens by kind, cost, cache hit,
+turn time over time; plans/cmux-next/chief-usage-analytics-DESIGN.md) through the bundled
+`optchat-chief usage`; no daemon or brain needs to run. `chief list`, `chief new`, `chief edit` and `chief delete` make the
 person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.create`,
 `chief.profile.update`, `chief.profile.delete`, `chief.profile.avatar.set`): `<chief>` is an id or one
 Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,
 `--instructions` or `--instructions-file`, `--avatar <png|jpeg|gif|webp file>`,
 `--tools`, `--harnesses`, `--self-edit` (comma lists) and `--harness`,
-`--model`, `--effort`. `chief adopt <agent> [<profile>]` (`chief.profile.adopt`)
+`--model`, `--effort` (the Chief's backend, written into its brain's engine
+file), `--lock` / `--unlock` (the person's lock: no Chief may change it).
+`chief adopt <agent> [<profile>]` (`chief.profile.adopt`)
 makes an agent already in the person's conversations a Chief under its own
-id; its conversations and history stay. Every write (new, adopt, edit,
-delete) is refused for an agent caller (`origin.forbidden`, reason
+id; its conversations and history stay. `chief history <chief>`
+(`chief.profile.history`) lists the kept revisions (rev, time, actor,
+operation); `chief undo <chief> [--to-rev <n>]` (`chief.profile.undo`)
+restores the one before the current rev, or rev `n`, as a new rev. Every
+write (new, adopt, edit, delete, undo) is refused for an agent caller (`origin.forbidden`, reason
 `agent_caller`). `--json` prints the record. It refuses a socket under
 `~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
 Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124

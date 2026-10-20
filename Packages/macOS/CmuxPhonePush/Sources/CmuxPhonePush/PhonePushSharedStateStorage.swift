@@ -34,6 +34,7 @@ extension Bundle {
 /// Generic-password items in the host app's keychain access group.
 public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
     static let service = "ai.manaflow.cmux.phone-push.shared-state"
+    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
 
     private let accessGroup: String?
 
@@ -62,12 +63,18 @@ public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
     }
 
     public func data(forKey key: String) -> Data? {
-        var query = itemQuery(forKey: key)
+        let identity = itemQuery(forKey: key)
+        var query = identity
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
-        return result as? Data
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data,
+              SecItemUpdate(
+                  identity as CFDictionary,
+                  [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
+              ) == errSecSuccess else { return nil }
+        return data
     }
 
     public func setData(_ data: Data?, forKey key: String) {
@@ -78,7 +85,7 @@ public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
         }
         let attributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrAccessible as String: Self.keychainAccessibility,
         ]
         guard SecItemUpdate(query as CFDictionary, attributes as CFDictionary) == errSecItemNotFound else {
             return

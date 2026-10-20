@@ -32,7 +32,20 @@ public final class DesignSettings {
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
-    public var density: Density = .compact
+    /// `appearance.density`: the active density's token set (plans/cmux-next/density-DESIGN.md).
+    public var densityTokens: DensityTokens = .compact
+    /// `appearance.customDensities`: the user's own densities, in file order.
+    public var customDensities: [DensityTokens] = []
+    /// Every density the user can pick: the built-ins, densest first, then the custom ones.
+    public var availableDensities: [DensityTokens] { DensityPreset.allCases.map(\.tokens) + customDensities }
+    /// The density with `id` among `availableDensities`.
+    public func density(id: String) -> DensityTokens? { availableDensities.first { $0.id == id } }
+    /// The two-way family of the active density (`DensityTokens.family`). Setting it picks that
+    /// built-in (Compact or Comfortable).
+    public var density: Density {
+        get { densityTokens.family }
+        set { densityTokens = newValue == .compact ? .compact : DensityPreset.comfortable.tokens }
+    }
     /// `app.uiScale`, the content/page scale. Chrome uses `interfaceScale`.
     /// Terminal content deliberately remains owned by Ghostty's font size.
     public var uiScale: CGFloat = 1
@@ -56,6 +69,23 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
         }
     }
+    /// `ui.animations.enabled`, the master motion switch: false makes every
+    /// animation in the app instant, whatever the category switches say
+    /// (``MotionGate``). Posts `Motion.speedDidChange` like the speed.
+    public var animationsEnabled = true {
+        didSet {
+            guard animationsEnabled != oldValue else { return }
+            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+        }
+    }
+    /// The categories whose `ui.animations.<category>` is false: their
+    /// animations are instant (``MotionCategory``). Posts `Motion.speedDidChange`.
+    public var disabledAnimationCategories: Set<MotionCategory> = [] {
+        didSet {
+            guard disabledAnimationCategories != oldValue else { return }
+            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+        }
+    }
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
     /// read it resolved through `ColorTransition.current`). Web pages take a new value with their
     /// next theme payload.
@@ -73,6 +103,9 @@ public final class DesignSettings {
     public var classicHome = false
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false
+    /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
+    /// default) keeps iMessage's blue and grey. The Home transcript follows it (`HomeNativeTranscriptView.bubbleStyle`).
+    public var homeChiefBubblesThemed = false
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
@@ -82,9 +115,6 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `tabs.overflow`: crowded tab strips shrink their tabs (default) or scroll sooner.
     public var tabOverflow: TabOverflow = .shrink
-    /// Turns scrolling tabs on and saves it (the App's `tabs.overflow.scroll`), for the crowded strip's
-    /// one-time hint. While nil (tests, galleries) no strip shows the hint.
-    @ObservationIgnored public var useScrollingTabs: (@MainActor () -> Void)?
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
@@ -100,6 +130,11 @@ public final class DesignSettings {
     /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
     /// Defaults to `HoverCardTiming.showDelay`.
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
+    /// `sidebar.hoverCards.layout`, `.sections.*` and `.maxRows`: what a workspace card shows (u3320).
+    public var workspaceHoverCard = WorkspaceHoverCardOptions()
+    /// `sidebar.hoverCards.groups.*`: whether group headers and tab group chips open a card, after
+    /// how long, and what it shows (Lawrence 2026-10-20).
+    public var groupHoverCard = GroupHoverCardOptions()
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
@@ -117,6 +152,8 @@ public final class DesignSettings {
     /// `layout.rows`: off hides every row entry point and fits existing
     /// rows into their column (plans/cmux-next/rows.md O1 to O3).
     public var layoutRows = true
+    /// `layout.focusFollowsMouse`: hovering or scrolling an unfocused pane focuses it (default off).
+    public var focusFollowsMouse = false
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
@@ -189,6 +226,8 @@ public final class DesignSettings {
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
+    /// `appearance.paneBackgrounds`: one background for the window or a copy per pane.
+    public var paneBackgrounds: PaneBackgroundMode = .shared
 
     public init() {}
 

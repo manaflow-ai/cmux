@@ -27,7 +27,7 @@ struct AppGrantsView: View {
                     .accessibilityIdentifier("appStore.rejection.\(app.id)")
             }
         }
-        .animation(Motion.animation(.focus), value: app)
+        .animation(Motion.feedback.animation(.focus), value: app)
     }
 
     /// TODO(cx-kyfd): read whether the sandbox applies from the supervisor's

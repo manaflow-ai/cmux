@@ -6,7 +6,7 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
+    static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
     /// Height of a placeholder row's bar (about a caption's x-height).
@@ -37,18 +37,22 @@ enum SidebarStyle {
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
-    /// The profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2): a
-    /// 16 pt avatar circle at the compact density (the icon box), a small
-    /// chevron after it, and the control as wide as a row-height square
-    /// plus the chevron, so the circle keeps a square item's center.
+    /// The profile control's circle at compact density (the icon box). The
+    /// avatar lives in the row-height square, so its click target scales with
+    /// the display density.
     static var avatarDiameter: CGFloat { iconBox }
-    static var avatarChevronSize: CGFloat { Metrics.smallIconSize - Metrics.space2 }
-    static var avatarChevronGap: CGFloat { Metrics.space1 }
-    static var avatarControlWidth: CGFloat { Metrics.sidebarRowHeight + avatarChevronGap + avatarChevronSize }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     static var dragThreshold: CGFloat { Metrics.space2 }
-    static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 10 }
+    /// Rows realized past each edge of the visible list. A scroll draws rows as they come in
+    /// (one or two a frame), so a deep overscan bought nothing and cost every frame: each realized
+    /// or parked row view is a subtree AppKit walks per scroll frame (tracking areas, layout,
+    /// display), 10 rows a side made a scroll cost grow with the workspace count
+    /// (sidebar-scroll-perf-DESIGN.md).
+    static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 3 }
+    /// Extra distance past the realization rect before a row view is parked, so a row at the
+    /// edge does not park and come back on every small scroll.
+    static var pruneMargin: CGFloat { Metrics.sidebarRowHeightWithSubtitle }
 
     /// Workspace titles: regular weight, read or unread, selected or not
     /// (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
@@ -65,13 +69,23 @@ enum SidebarStyle {
     /// How far a group member's content moves in past the row's own
     /// leading edge, which already starts right of the line (`groupGutter`).
     static var groupMemberIndent: CGFloat { Metrics.space1 }
-    /// The header bar inside its row: 26 of 32 pt, scaled with the row height.
-    static func groupHeaderBarHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
+    /// The size a group header's name, glyphs, buttons and corner scale from: 26 of a 32 pt row,
+    /// scaled with the row height. The colored bar itself fills the row, as tall as a workspace
+    /// row (Lawrence 2026-10-19: "the height of the group headers is identical to the height of
+    /// each workspace").
+    static func groupHeaderContentHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
     /// The header's name: medium weight (cx-qno.17: more contrast on the
     /// pastel bar), 14 pt on a 26 pt bar, scaled.
     static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
         NSFont.systemFont(ofSize: min(15, max(11, (barHeight * 0.54).rounded())), weight: .medium)
     }
+    /// The opt-in member count after a group's name (Lawrence 2026-10-20): a detail, not a title,
+    /// so smaller than `name`, at the regular weight, in ``groupHeaderCountInkAlpha`` of the ink.
+    static func groupHeaderCountFont(name: NSFont) -> NSFont {
+        NSFont.systemFont(ofSize: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
+    }
+    /// How much of the header's ink the member count takes: lighter than the name.
+    static let groupHeaderCountInkAlpha: CGFloat = 0.7
     /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
     static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }

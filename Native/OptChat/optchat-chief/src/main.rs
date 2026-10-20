@@ -15,15 +15,21 @@ optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the moni
 optchat-chief workspace                                   the person's Home workspace now (panes, terminal tails, browsers)
 optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
+optchat-chief usage [--since 7d] [--by chief|agent|model|harness|kind] [--top N] [--json] [--mux-home DIR]... [--chiefs]
+                                                          tokens, cost, cache hit and turn time over time (the usage ledger)
+optchat-chief usage backfill [--force] [--mux-home DIR]   convert old traces into the usage ledger
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
-optchat-chief settings [show | set remote.autoApprove true|false] [--mux-home DIR]
+optchat-chief settings [show | set remote.autoApprove true|false | set replies.thread auto|always|never | set show.afterReport true|false] [--mux-home DIR]
                                                            per-Chief settings (on only from the Mac, outside a remote-origin turn)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
 optchat-chief memory export|import|search|stats ...         the memory database (see `optchat-chief memory`)
+optchat-chief move --to local:/path|ssh:HOST[:/path] [--stop-host] [--dry-run] | rollback | checkpoint | restore | verify
+                                                           move this Chief to another home or host (see `optchat-chief move help`)
+optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...  long-term memory shared by Codex and Claude Code sessions (see `optchat-chief agent-memory`)
 optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH [--mux-home DIR]
                                                              answer the chief's cloud conversation (an always-on brain host)
 optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
@@ -37,11 +43,40 @@ fn main() -> std::process::ExitCode {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // Agent memory parses its own arguments: note text keeps every word,
+    // including the Chief's own flags below.
+    if args.first().is_some_and(|a| a == "agent-memory") {
+        return match optchat_chief::agent_memory::run(&args[1..]) {
+            Ok(out) => {
+                if !out.is_empty() {
+                    println!("{out}");
+                }
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("optchat-chief agent-memory: {e}");
+                std::process::ExitCode::from(1)
+            }
+        };
+    }
+    // `move` parses its own switches (`--stop-host`, `--dry-run`, ...).
+    if args.first().is_some_and(|a| a == "move") {
+        let code = optchat_chief::migrate::cli(&args[1..]);
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
     // A boolean flag: taken out before parsing, which would read the next
     // argument as its value.
     let append_after_live = args.iter().any(|a| a == "--append-after-live");
     args.retain(|a| a != "--append-after-live");
-    let flags = Flags::parse(&args);
+    let mut flags = Flags::parse(&args);
+    // `memory search --json` (and only there: `trace` and `stats` read their
+    // own `--json` from the raw arguments). The verb may follow options.
+    let memory_json =
+        flags.words.first().is_some_and(|w| w == "memory") && args.iter().any(|a| a == "--json");
+    if memory_json {
+        args.retain(|a| a != "--json");
+        flags = Flags::parse(&args);
+    }
     let code = match flags.words.first().map(String::as_str) {
         Some("host") => optchat_chief::host::run(&flags, started_ms),
         Some("mcp") => {
@@ -61,7 +96,11 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
-        Some(tool @ ("zoom" | "date" | "spawn" | "tell" | "control" | "profile" | "chiefs")) => {
+        Some(
+            tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
+            | "stop" | "sleep" | "control" | "profile" | "chiefs" | "escalate-auth"
+            | "escalate_auth"),
+        ) => {
             let socket = flags
                 .value("socket")
                 .map(PathBuf::from)
@@ -98,6 +137,16 @@ fn main() -> std::process::ExitCode {
             }
             Err(e) => {
                 eprintln!("optchat-chief {verb}: {e}");
+                1
+            }
+        },
+        Some("usage") => match optchat_chief::usage::run(&args[1..]) {
+            Ok(out) => {
+                print!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("optchat-chief usage: {e}");
                 1
             }
         },
@@ -254,16 +303,18 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
-        Some("memory") => match optchat_chief::memory_cli::run(&flags, &home(&flags)) {
-            Ok(out) => {
-                println!("{out}");
-                0
+        Some("memory") => {
+            match optchat_chief::memory_cli::run(&flags, &home(&flags), memory_json) {
+                Ok(out) => {
+                    println!("{out}");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief memory: {e}");
+                    1
+                }
             }
-            Err(e) => {
-                eprintln!("optchat-chief memory: {e}");
-                1
-            }
-        },
+        }
         Some("import-claude-code") => {
             let paths = Paths::new(&home(&flags));
             let projects = flags

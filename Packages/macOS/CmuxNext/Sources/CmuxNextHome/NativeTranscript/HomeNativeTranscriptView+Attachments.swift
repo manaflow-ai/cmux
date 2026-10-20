@@ -142,8 +142,9 @@ extension HomeNativeTranscriptView {
         showNotice(HomeStrings.unanswered)
     }
 
-    /// Returns when every attachment given so far is in the draft (tests).
-    func attachmentsReady() async {
+    /// Returns when every attachment given so far is in the draft (each one copied into the
+    /// blob cache, so its source file may go): tests, and design mode's temp files.
+    public func attachmentsReady() async {
         while let current = intake {
             await current.value
             if intake == current { return }
@@ -153,7 +154,7 @@ extension HomeNativeTranscriptView {
     // MARK: Drag and drop
 
     public override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        // Types only: the bytes are read once, on drop.
+        // Types and the plain string only: the picture bytes are read once, on drop.
         guard attachmentPreparer != nil, HomeAttachmentIntake.offers(sender.draggingPasteboard) else { return [] }
         return .copy
     }

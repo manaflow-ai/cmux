@@ -45,7 +45,7 @@ public final class WindowMaterialView: NSView {
         // window resize, the sidebar's slide) moves it at once, frame by frame with the column.
         didSet {
             if coveredColumns != oldValue {
-                updateArtCrop(animated: coveredColumns.count != oldValue.count && window?.inLiveResize != true)
+                updateArtCrop(animated: coveredColumns.count != oldValue.count && !Motion.isLiveResizing(window))
             }
         }
     }
@@ -121,6 +121,28 @@ public final class WindowMaterialView: NSView {
 
     override public func layout() {
         super.layout()
+        updateArtCrop()
+    }
+
+    /// The art is the only layer whose frame is computed, not autoresized: every size change
+    /// places it again at once. `layout()` alone is not enough, since a superview's autoresize
+    /// can change this frame without asking for layout, which left the art at the old window's
+    /// frame over a stretched blurred fill after a resize.
+    override public func setFrameSize(_ newSize: NSSize) {
+        let changed = frame.size != newSize
+        super.setFrameSize(newSize)
+        if changed { updateArtCrop() }
+    }
+
+    override public func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        updateArtCrop()
+    }
+
+    override public func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        // A display or scale change: the placement is pixel-sensitive.
+        artPlacement = nil
         updateArtCrop()
     }
 
@@ -233,7 +255,7 @@ public final class WindowMaterialView: NSView {
                     let image = await images.image(shown, texture: texture, dark: dark)
                     guard !Task.isCancelled, let self, let image else { return }
                     self.showArt(image)
-                    if fades, let layer = self.artView.layer { Motion.set(layer, "opacity", to: self.artOpacity, fade: .fadeIn, from: 0) }
+                    if fades, let layer = self.artView.layer { Motion.panes.set(layer, "opacity", to: self.artOpacity, fade: .fadeIn, from: 0) }
                 }
             }
         }
@@ -287,12 +309,13 @@ public final class WindowMaterialView: NSView {
         updateArtCrop()
     }
 
-    /// The blur and dimming of the fill behind shrunk art: enough that it reads as the art's own
-    /// light, never as a second picture. Made for each view: filters are mutable objects.
-    private static func fillFilters() -> [CIFilter] {
+    /// The blur of the fill behind shrunk art: enough that it reads as the art's own light, never
+    /// as a second picture, in the art's own tone. Made for each view: filters are mutable objects.
+    static func fillFilters() -> [CIFilter] {
+        // Blur only: a dimmed fill read as a darker sidebar beside the art (Lawrence 2026-10-19,
+        // "not a different color"), so the fill keeps the art's own tone.
         let blur = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 48])
-        let dim = CIFilter(name: "CIColorControls", parameters: [kCIInputBrightnessKey: -0.18, kCIInputSaturationKey: 0.9])
-        return [blur, dim].compactMap { $0 }
+        return [blur].compactMap { $0 }
     }
 
     /// Places the art (``BackdropArtMetadata/placement(forViewSize:imageSize:visible:)``): on a
@@ -328,8 +351,8 @@ public final class WindowMaterialView: NSView {
         guard placement != artPlacement else { return }
         artPlacement = placement
         if animated, window != nil {
-            Motion.set(layer, "contentsRect", to: NSValue(rect: placement.contentsRect), spring: .move)
-            Motion.animate(.move, in: self) { artView.animator().frame = placement.frame }
+            Motion.panes.set(layer, "contentsRect", to: NSValue(rect: placement.contentsRect), spring: .move)
+            Motion.panes.animate(.move, in: self) { artView.animator().frame = placement.frame }
         } else {
             CATransaction.begin()
             CATransaction.setDisableActions(true)

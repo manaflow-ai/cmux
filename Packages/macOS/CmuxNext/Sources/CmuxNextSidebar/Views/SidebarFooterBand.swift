@@ -72,6 +72,7 @@ final class SidebarFooterBand {
     func placeSpaces(top: CGFloat, height: CGFloat) {
         guard let host else { return }
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
+        let searchMaxX = placeSearch()
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
             bar.leadingInset = nil
@@ -79,24 +80,59 @@ final class SidebarFooterBand {
             bar.centerX = bounds.midX
         } else if let row = bandFirstRow {
             if bar.superview !== host { host.addSubview(bar) }
-            // The bar starts right after the control (the strip never covers
-            // it; the slots carry the gap) and centers on the sidebar's middle.
+            // The bar starts right after the control and the Search button (the
+            // strip never covers them; the slots carry the gap) and centers on
+            // the sidebar's middle.
+            let lead = max(row.itemsMaxX, searchMaxX ?? 0)
             bar.leadingInset = 0
-            bar.frame = NSRect(x: row.itemsMaxX, y: row.frame.minY, width: max(0, bounds.width - row.itemsMaxX), height: row.frame.height)
-            bar.centerX = bounds.midX - row.itemsMaxX
+            bar.frame = NSRect(x: lead, y: row.frame.minY, width: max(0, bounds.width - lead), height: row.frame.height)
+            bar.centerX = bounds.midX - lead
         } else {
             if bar.superview !== footer { footer.addSubview(bar) }
-            bar.leadingInset = nil
-            bar.frame = NSRect(x: 0, y: 0, width: footer.bounds.width, height: footer.bounds.height)
-            bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x
+            // The Search button holds the leading slot; the strip starts after it.
+            let lead = searchMaxX.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x } ?? 0
+            bar.leadingInset = searchMaxX == nil ? nil : 0
+            bar.frame = NSRect(x: lead, y: 0, width: max(0, footer.bounds.width - lead), height: footer.bounds.height)
+            bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x - lead
         }
         bar.refresh()
+    }
+
+    // MARK: Search button
+
+    /// The smallest side of the Search button: the macOS minimum control size (HIG, 28 pt).
+    static let searchButtonMinSide: CGFloat = 28
+
+    /// Places the Search button (plans/cmux-next/sidebar-search.md) after the
+    /// footer band's first-row items (the profile avatar), on their line, or
+    /// leading in the footer when the band shows none. Returns its maxX in the
+    /// sidebar's coordinates, or nil when `sidebar.showSearchButton` hides it.
+    @discardableResult
+    func placeSearch() -> CGFloat? {
+        guard let host else { return nil }
+        let button = host.searchButton
+        guard host.design.sidebarSections.showSearchButton else {
+            button.isHidden = true
+            return nil
+        }
+        button.isHidden = false
+        let side = max(Self.searchButtonMinSide, Metrics.sidebarRowHeight)
+        let x: CGFloat, midY: CGFloat
+        if let row = bandFirstRow {
+            (x, midY) = (row.itemsMaxX + Metrics.space2, row.frame.midY)
+        } else {
+            let footer = host.footer.frame
+            // An empty band: the footer row, or the sidebar's bottom when the footer has no height.
+            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.footerHeight / 2)
+        }
+        button.frame = NSRect(x: x, y: (midY - side / 2).rounded(), width: side, height: side)
+        return button.frame.maxX
     }
 
     // MARK: Profile menu
 
     // SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2: the sidebar's bottom-left is
-    // one control, the current profile's avatar with a chevron. A click (or
+    // one control, the current profile's avatar. A click (or
     // the `sidebar.profileMenu` action) opens the one profile menu the App
     // builds from registry actions (`profileMenuProvider`).
 

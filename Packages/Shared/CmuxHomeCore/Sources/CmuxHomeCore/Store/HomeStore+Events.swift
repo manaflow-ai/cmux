@@ -103,12 +103,20 @@ extension HomeStore {
             let wasOnline = connection == .online
             connection = state
             if state != .online {
+                // Typing is the owner's ephemeral state: a typing-off sent while this client is not
+                // connected never comes, so nothing kept from before stays on screen as dots under a
+                // finished reply. Dots come back with the owner's next typing frame or a live run.
+                typing.removeAll()
                 log.markDisconnected()
                 pendingResends.removeAll()
                 cancelBackoffs()
             }
             if state == .online, !wasOnline {
                 backoffAttempts.removeAll()
+                // Typing went with the connection: a turn still running shows its dots again from the
+                // owner's live runs (`typists(in:)`), read again for every conversation on screen or
+                // with a run this client kept (a run that ended meanwhile leaves the snapshot).
+                for id in Set(pager.viewers.keys).union(live.keys).sorted(by: { $0.rawValue < $1.rawValue }) { requestLive(id) }
                 enqueueResends(log.takeResends())
                 resumeInterruptedUploads()
                 for stream in mirror.stale { scheduleRefetch(stream) }
@@ -132,10 +140,10 @@ extension HomeStore {
             var set = typing[id] ?? []
             if on { set.insert(who) } else { set.remove(who) }
             typing[id] = set.isEmpty ? nil : set
-            if !on, draftBook.typingOff(id, who) { drafts = draftBook.live }
+            if !on, draftBook.typingOff(id, who) { publishLive(id) }
             rebuildRows()
         case .draft(let update):
-            if draftBook.apply(update) { drafts = draftBook.live }
+            if draftBook.apply(update) { publishLive(update.conversation) }
         case .live(let event):
             applyLive(event)
         default:
@@ -171,8 +179,9 @@ extension HomeStore {
                 dropOrphanUploadJobs()
             case .message(let message, _):
                 // The posted reply ends its draft in the same change.
-                if draftBook.posted(message) { drafts = draftBook.live }
-                if newPost, liveBook.posted(message) { live = liveBook.shown }
+                let draftEnded = draftBook.posted(message)
+                let runEnded = newPost && liveBook.posted(message)
+                if draftEnded || runEnded { publishLive(message.conversation) }
                 bumpTranscript(message.conversation)
             case .conversationPage(let page):
                 bumpTranscript(page.conversation.id)

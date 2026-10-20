@@ -1,8 +1,9 @@
 import CmuxNextDesign
 import QuartzCore
 
-/// The tab's busy indicator: the shared `StatusIndicatorLayer` in the icon
-/// slot. A busy cell registers with `StatusIndicatorAppearance`, so a
+/// The tab's busy indicator: the shared `StatusIndicatorLayer` in the
+/// trailing cluster (TabCell+TrailingMarks; in the icon slot only on a tab
+/// that shows no title). A busy cell registers with `StatusIndicatorAppearance`, so a
 /// settings or Debug Settings change restyles it live; idle cells cost
 /// nothing.
 extension TabCell: StatusIndicatorConfigClient {
@@ -11,12 +12,12 @@ extension TabCell: StatusIndicatorConfigClient {
     var spinnerPlan: StatusIndicatorPlan {
         guard item.indicator.replacesTabIcon else { return .hidden }
         let config = StatusIndicatorAppearance.shared.config
-        var plan = StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle),
-                                            animates: config.animatesLoops && isWindowVisible, set: config.iconSet, isStatic: config.isStatic,
-                                            staticShapes: config.staticShapes)
-        // A page waiting for its first response turns the other way; agent work keeps `spin`.
-        if item.isWaiting, item.indicator.isLoading, plan.animation == .spin { plan.animation = .spinBackward }
-        return plan
+        // A page waiting for its first response spins like every other spinner: same direction,
+        // same phase (Lawrence 2026-10-20; Chromium's counter-clockwise waiting throbber put two
+        // spinners on screen turning opposite ways).
+        return StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle),
+                                        animates: config.animatesLoops && isWindowVisible, set: config.iconSet, isStatic: config.isStatic,
+                                        staticShapes: config.staticShapes)
     }
 
     /// Creates, updates or removes the indicator for the current item and
@@ -53,7 +54,7 @@ extension TabCell: StatusIndicatorConfigClient {
         layer.removeAnimation(forKey: "opacity")
         layer.removeAnimation(forKey: "transform")
         layer.isHidden = false
-        guard variant != .instant, Motion.duration(.fadeIn) > 0 else {
+        guard variant != .instant, Motion.indicators.duration(.fadeIn) > 0 else {
             layer.opacity = 1
             layer.transform = CATransform3DIdentity
             return
@@ -64,17 +65,17 @@ extension TabCell: StatusIndicatorConfigClient {
         case .fade:
             break
         case .fadeScale:
-            if Motion.animatesMovement {
+            if Motion.indicators.animatesMovement {
                 layer.transform = prototypeTransform(scale: 0.86)
-                Motion.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform()), movementFade: .fadeIn,
+                Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform()), movementFade: .fadeIn,
                            from: NSValue(caTransform3D: prototypeTransform(scale: 0.86)))
             } else {
                 layer.transform = CATransform3DIdentity
             }
         case .fadeSlide:
-            if Motion.animatesMovement {
+            if Motion.indicators.animatesMovement {
                 layer.transform = prototypeTransform(y: 2)
-                Motion.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform()), movementFade: .fadeIn,
+                Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform()), movementFade: .fadeIn,
                            from: NSValue(caTransform3D: prototypeTransform(y: 2)))
             } else {
                 layer.transform = CATransform3DIdentity
@@ -82,7 +83,7 @@ extension TabCell: StatusIndicatorConfigClient {
         case .instant:
             break
         }
-        Motion.set(layer, "opacity", to: 1.0, fade: .fadeIn, from: 0.0)
+        Motion.indicators.set(layer, "opacity", to: 1.0, fade: .fadeIn, from: 0.0)
     }
 
     /// Retains the indicator for the duration of a prototype exit so a busy
@@ -93,7 +94,7 @@ extension TabCell: StatusIndicatorConfigClient {
         let layer = spinner.layer
         layer.removeAnimation(forKey: "opacity")
         layer.removeAnimation(forKey: "transform")
-        guard variant != .instant, Motion.duration(.fadeOut) > 0 else {
+        guard variant != .instant, Motion.indicators.duration(.fadeOut) > 0 else {
             removeSpinner(spinner)
             return
         }
@@ -111,17 +112,17 @@ extension TabCell: StatusIndicatorConfigClient {
         case .fade:
             break
         case .fadeScale:
-            if Motion.animatesMovement {
-                Motion.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform(scale: 0.86)), movementFade: .fadeOut)
+            if Motion.indicators.animatesMovement {
+                Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform(scale: 0.86)), movementFade: .fadeOut)
             }
         case .fadeSlide:
-            if Motion.animatesMovement {
-                Motion.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform(y: 2)), movementFade: .fadeOut)
+            if Motion.indicators.animatesMovement {
+                Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform(y: 2)), movementFade: .fadeOut)
             }
         case .instant:
             break
         }
-        Motion.set(layer, "opacity", to: 0.0, fade: .fadeOut)
+        Motion.indicators.set(layer, "opacity", to: 0.0, fade: .fadeOut)
         CATransaction.commit()
     }
 

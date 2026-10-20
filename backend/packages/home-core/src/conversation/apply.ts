@@ -1,6 +1,9 @@
 import { checkAgentBudget, checkAgentStreak, threadAgentStreak, withTurn } from "./budget.ts"
-import { removeParticipant, setSettings } from "./cloud.ts"
-import { acceptInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
+import { removeParticipant, setRole, setSettings, transferOwnership, unban } from "./cloud.ts"
+import { checkGrant, checkWriter, grantableRole } from "./roles.ts"
+import { MAX_GROUP_MEMBERS, memberCount } from "./large.ts"
+import { createGrant, revokeGrant } from "./grants.ts"
+import { acceptInvite, acceptVerifiedInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
 import { parseRfc3339Millis, validToken } from "./ids.ts"
 import { answerQuestion, checkQuestionEdit } from "./question.ts"
 import { fail, reject, RejectError } from "./reject.ts"
@@ -37,7 +40,7 @@ export const targetMessageId = (op: Op): string | undefined =>
 
 export const isSend = (op: Op): boolean => op.kind === "message.send"
 
-const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.approve_join", "invite.delivery.report", "conversation.settings.set"])
+const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.accept_verified", "invite.approve_join", "invite.delivery.report", "conversation.settings.set", "participants.set_role", "ownership.transfer", "participants.unban", "grant.create", "grant.revoke"])
 
 /** Validates one op against the head. Every commit increases `rev` by exactly one. */
 export const apply = (head: ConversationHead, request: OpRequest): ApplyResult => {
@@ -57,6 +60,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   const next: Draft = { ...head, rev: head.rev + 1 }
   // Ops whose caller is not a participant.
   if (op.kind === "invite.accept") return acceptInvite(head, next, request, op)
+  if (op.kind === "invite.accept_verified") return acceptVerifiedInvite(head, next, request, op)
   if (op.kind === "invite.delivery.report") {
     if (request.actor !== SYSTEM_ACTOR) fail("forbidden")
     return reportDelivery(head, next, request, op)
@@ -67,6 +71,8 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   if (head.state === "archived") fail("archived")
   // A promoted conversation opens for normal ops only after `conversation.import.commit`.
   if (head.state === "importing") fail("importing")
+  // Roles are cloud only: a local head has no read-only members.
+  if (cloud) checkWriter(actor, op.kind, op.kind === "participants.remove" ? op.participant : undefined)
   const now = request.now
   switch (op.kind) {
     case "message.send": {
@@ -192,13 +198,17 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       if (currentParticipant(head, participant.id)) fail("duplicate_participant")
       // A departed participant (cloud only) rejoins; locally every id is current.
       if (!cloud && findParticipant(head, participant.id)) fail("duplicate_participant")
-      if (currentParticipants(head).length >= MAX_PARTICIPANTS) fail("invalid_participant")
+      // A local head keeps the Rust cap; a cloud group grows into the large tier (large.ts).
+      if (cloud ? memberCount(head) >= MAX_GROUP_MEMBERS : currentParticipants(head).length >= MAX_PARTICIPANTS) fail("invalid_participant")
       let stamped: Participant = participant
       if (cloud) {
+        if (request.banned === true) fail("banned")
+        const role = op.role === undefined ? "member" : grantableRole(op.role)
+        checkGrant(actor, role)
         // A known (departed) record's owner is trusted; a caller-supplied one only with the host's approval.
         const owner = findParticipant(head, participant.id)?.owner_user ?? participant.owner_user
         if (participant.kind === "agent" && owner !== request.actor && request.trusted_participant !== true) fail("forbidden")
-        stamped = { ...participant, ...(owner === undefined ? {} : { owner_user: owner }), role: "member", joined_seq: head.last_seq, added_by: request.actor }
+        stamped = { ...participant, ...(owner === undefined ? {} : { owner_user: owner }), role, joined_seq: head.last_seq, added_by: request.actor }
       }
       next.participants = upsertParticipant(head.participants, stamped)
       next.updated_at = now
@@ -253,6 +263,16 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       return approveJoin(head, next, request, actor, op)
     case "conversation.settings.set":
       return setSettings(head, next, request, actor, op)
+    case "participants.set_role":
+      return setRole(head, next, request, actor, op)
+    case "ownership.transfer":
+      return transferOwnership(head, next, request, actor, op)
+    case "participants.unban":
+      return unban(head, next, request, actor, op)
+    case "grant.create":
+      return createGrant(head, next, request, actor, op)
+    case "grant.revoke":
+      return revokeGrant(head, next, request, actor, op)
     default:
       return fail("unsupported_op")
   }

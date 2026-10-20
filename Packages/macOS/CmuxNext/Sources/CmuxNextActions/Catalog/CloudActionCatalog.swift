@@ -257,8 +257,8 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.mobileConnect",
                 title: String(localized: "action.palette.mobileConnect", defaultValue: "Open Mobile Pairing", bundle: .module),
-                keywords: ["ios", "phone", "pair"], category: .cloud, symbol: "iphone.radiowaves.left.and.right",
-                surfaces: [.palette], cliName: "cloud open-mobile-pairing"
+                keywords: ["ios", "iphone", "phone", "mobile", "pair", "qr"], category: .cloud, symbol: "iphone.radiowaves.left.and.right",
+                surfaces: [.palette, .menu], cliName: "cloud open-mobile-pairing", mainMenu: .window
             ),
         ]
         let waitsForResult: Set<ActionID> = [

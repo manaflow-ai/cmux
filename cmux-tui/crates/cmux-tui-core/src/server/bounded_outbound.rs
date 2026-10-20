@@ -538,6 +538,9 @@ pub(super) struct SynchronizedTcpStream {
     /// Bytes already read from `stream` (the request head the listener read
     /// to tell a page request from a WebSocket handshake), read first.
     replay: VecDeque<u8>,
+    /// Bytes this handle has read from `stream`: inbound liveness even while
+    /// a large frame is still arriving.
+    bytes_read: u64,
 }
 
 impl SynchronizedTcpStream {
@@ -548,7 +551,7 @@ impl SynchronizedTcpStream {
 
     /// A stream whose reads return `replay` before reading `stream` again.
     pub(super) fn with_replay(stream: TcpStream, replay: Vec<u8>) -> Self {
-        Self { stream, write_lock: Arc::new(Mutex::new(())), replay: replay.into() }
+        Self { stream, write_lock: Arc::new(Mutex::new(())), replay: replay.into(), bytes_read: 0 }
     }
 
     pub(super) fn try_clone(&self) -> std::io::Result<Self> {
@@ -556,7 +559,13 @@ impl SynchronizedTcpStream {
             stream: self.stream.try_clone()?,
             write_lock: self.write_lock.clone(),
             replay: VecDeque::new(),
+            bytes_read: 0,
         })
+    }
+
+    /// Bytes read from the socket through this handle (replayed bytes excluded).
+    pub(super) fn bytes_read(&self) -> u64 {
+        self.bytes_read
     }
 
     pub(super) fn try_clone_raw(&self) -> std::io::Result<TcpStream> {
@@ -583,6 +592,12 @@ impl SynchronizedTcpStream {
 
     pub(super) fn write_websocket_close(&mut self) -> std::io::Result<()> {
         self.write_websocket_frame(0x8, &[])
+    }
+
+    /// An empty Ping, written whole under the shared write lock so it never
+    /// lands inside another frame.
+    pub(super) fn write_websocket_ping(&mut self) -> std::io::Result<()> {
+        self.write_websocket_frame(0x9, &[])
     }
 
     pub(super) fn write_websocket_frame(
@@ -624,7 +639,9 @@ impl Read for SynchronizedTcpStream {
         if !self.replay.is_empty() {
             return self.replay.read(buf);
         }
-        self.stream.read(buf)
+        let read = self.stream.read(buf)?;
+        self.bytes_read += read as u64;
+        Ok(read)
     }
 }
 

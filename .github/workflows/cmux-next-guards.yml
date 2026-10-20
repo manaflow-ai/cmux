@@ -83,7 +83,7 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           changed="$(git diff --name-only "$BASE_SHA" HEAD)"
-          pattern='(^|/)Cargo\.(toml|lock)$|^cmux-tui/build-support/notices/|^scripts/cmux-next/generate-third-party-notices\.sh$|^scripts/cmux-next/notices/|^Packages/macOS/CmuxNext/Package\.resolved$|^scripts/build-cmux-cua\.sh$'
+          pattern='(^|/)Cargo\.(toml|lock)$|^scripts/cmux-next/remote-browser-host\.pin\.json$|^cmux-tui/build-support/notices/|^scripts/cmux-next/generate-third-party-notices\.sh$|^scripts/cmux-next/notices/|^Packages/macOS/CmuxNext/Package\.resolved$|^scripts/build-cmux-cua\.sh$'
           if grep -qE "$pattern" <<<"$changed"; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Generate the Rust notices from this tree (as the nightly does)
@@ -188,6 +188,7 @@ jobs:
     needs: [app-size, crash-ratchet]
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
     permissions:
+      actions: read
       checks: read
       contents: read
       pull-requests: write
@@ -216,3 +217,8 @@ jobs:
       # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
       - name: The group rows stay at the top of the right-click menus
         run: python3 scripts/cmux-next/check-group-menus.py
+      # Lawrence 2026-10-19: right-click New Tab Group failed while the palette
+      # path worked. A menu row with its own selector is a second path beside
+      # the registered action; new ones fail here.
+      - name: Menu rows run registered actions, not inline selectors
+        run: python3 scripts/cmux-next/check-menu-actions.py

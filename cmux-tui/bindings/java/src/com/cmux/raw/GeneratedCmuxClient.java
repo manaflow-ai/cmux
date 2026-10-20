@@ -298,6 +298,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudRequestsList() throws CmuxException {
+        Object result = execute(Commands.CLOUD_REQUESTS_LIST, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudSessionClear() throws CmuxException {
         Object result = execute(Commands.CLOUD_SESSION_CLEAR, Map.of());
         return Wire.immutableJson(result);
@@ -734,6 +739,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object moveBrowserProfile(MoveBrowserProfileRequest request) throws CmuxException {
         Object result = execute(Commands.MOVE_BROWSER_PROFILE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object moveColumn(MoveColumnRequest request) throws CmuxException {
+        Object result = execute(Commands.MOVE_COLUMN, request.toWire());
         return Wire.immutableJson(result);
     }
 
@@ -1277,6 +1287,11 @@ public abstract class GeneratedCmuxClient {
     public final TerminalResourcesResult terminalResources(TerminalResourcesRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_RESOURCES, request.toWire());
         return TerminalResourcesResult.fromWire(result);
+    }
+
+    public final TerminalResumeCommandResult terminalResumeCommand(TerminalResumeCommandRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_RESUME_COMMAND, request.toWire());
+        return TerminalResumeCommandResult.fromWire(result);
     }
 
     public final LayoutUndoResult undoLayout(UndoLayoutRequest request) throws CmuxException {
