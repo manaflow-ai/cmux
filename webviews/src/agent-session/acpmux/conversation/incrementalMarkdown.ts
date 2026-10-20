@@ -28,7 +28,8 @@ export class IncrementalMarkdown {
   private closed: KeyedBlock[] = [];
   private closedEnd = 0;
   private tail: KeyedBlock[] = [];
-  /// The fence lines before `closedEnd`; a boundary sits outside any fence, so it is even.
+  /// The fence lines before `closedEnd`, counted as `fenceLines` counts them. It can be odd: a
+  /// fence line inside a `$$` display counts here but does not open a fence for the boundary.
   private closedFences = 0;
   /// The source has an odd number of fence lines: its last block is a fence still arriving.
   fenceOpen = false;

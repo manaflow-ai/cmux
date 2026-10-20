@@ -28,9 +28,12 @@ for (const [index, fixture] of fixtures.entries()) {
 }
 
 test("fenceOpen follows a source that is replaced rather than extended", () => {
+  // The first source closes an odd count (the fence line inside `$$`), so a count left over from
+  // it would flip the answer for the second.
   const parser = new IncrementalMarkdown();
-  parser.update("Para\n\n```\ncode\n```\n\nNext\n\n```\nopen", { streaming: true });
-  expect(parser.fenceOpen).toBe(true);
+  const first = "$$\n```\n$$\n\nNext\n\nTail";
+  parser.update(first, { streaming: true });
+  expect(parser.fenceOpen).toBe(wholeTextFenceOpen(first));
   parser.update("Other\n\nno fences here", { streaming: true });
   expect(parser.fenceOpen).toBe(false);
 });
