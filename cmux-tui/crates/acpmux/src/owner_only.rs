@@ -20,7 +20,7 @@ use std::os::windows::io::FromRawHandle;
 use std::path::Path;
 use std::ptr::null_mut;
 use windows_sys::Win32::Foundation::{
-    ERROR_SUCCESS, GENERIC_WRITE, INVALID_HANDLE_VALUE, LocalFree,
+    ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE, LocalFree,
 };
 use windows_sys::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
@@ -32,9 +32,9 @@ use windows_sys::Win32::Security::{
     PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
-    FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    OPEN_ALWAYS,
+    CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_ALWAYS, OPEN_EXISTING,
 };
 
 /// SIDs whose rights do not make a file shared: SYSTEM, Administrators and
@@ -147,6 +147,29 @@ pub(crate) fn open_append(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
+/// Open an existing state file for reading without following a reparse point,
+/// narrowing a wider DACL before its contents are consumed.
+pub(crate) fn open_read(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::MetadataExt;
+
+    let file = open_owner_only(
+        path,
+        OPEN_EXISTING,
+        GENERIC_READ | 0x80,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    )?;
+    if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is a link, not a state file", path.display()),
+        ));
+    }
+    if !only_owner_reads(path)? {
+        restrict(path)?;
+    }
+    Ok(file)
+}
+
 fn open_owner_only(path: &Path, disposition: u32, access: u32, share: u32) -> io::Result<File> {
     let sd = descriptor(&user_sid()?, false)?;
     let attrs = attributes(&sd);
@@ -160,6 +183,29 @@ fn open_owner_only(path: &Path, disposition: u32, access: u32, share: u32) -> io
             &attrs,
             disposition,
             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+            null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a handle CreateFileW returned; `File` owns it.
+    Ok(unsafe { File::from_raw_handle(handle) })
+}
+
+/// Open a directory itself, never the target of a junction or other reparse point.
+fn open_directory(path: &Path) -> io::Result<File> {
+    let name = wide(path);
+    // SAFETY: a NUL-terminated name; no security attributes are needed for an
+    // existing directory, and the returned handle is owned below.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null_mut(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
             null_mut(),
         )
     };
@@ -197,11 +243,21 @@ pub(crate) fn create_dir_all(dir: &Path) -> io::Result<()> {
 /// refused (mode 0700 and the uid check on Unix).
 pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
     create_dir_all(dir)?;
-    if !only_owner_reads(dir)? {
+    use std::os::windows::fs::MetadataExt;
+    let opened = open_directory(dir)?;
+    let attributes = opened.metadata()?.file_attributes();
+    if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 || attributes & FILE_ATTRIBUTE_DIRECTORY == 0
+    {
         return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::InvalidInput,
             format!("{} is not a private directory", dir.display()),
         ));
+    }
+    // Normalize even an owner-only but read-only legacy DACL: state
+    // directories must let this user create, replace and delete children.
+    restrict(dir)?;
+    if !only_owner_reads(dir)? {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "directory is not owner-only"));
     }
     Ok(())
 }

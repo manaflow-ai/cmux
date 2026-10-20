@@ -106,6 +106,7 @@ fn scoped_raw_commands(page: &str) -> &'static [&'static str] {
             "conversation-link-resolve",
             "conversation-runs",
             "conversation-run",
+            "conversation-live",
             "conversation-inbox-op",
             "home-inbox",
             "conversation-attachment-upload",
@@ -395,7 +396,7 @@ fn user_origin_allowed(mux: &Mux, client: u64) -> bool {
 
 #[cfg(all(test, unix))]
 #[path = "client_hello_tests.rs"]
-mod tests;
+pub(super) mod tests;
 
 #[cfg(all(test, unix))]
 #[path = "untrusted_mint_tests.rs"]

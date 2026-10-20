@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// One notification in the panel: unread dot, title and time, the source
-/// workspace, the body (two lines), and a dismiss button. A click opens it;
+/// workspace, the body (two lines), and a dismiss button. A press opens it;
 /// a right click shows the row's actions.
 final class NotificationRowView: NSView {
     struct Callbacks {
@@ -17,7 +17,7 @@ final class NotificationRowView: NSView {
     private let dot = NSView()
     private var close: NSButton?
     /// Each label and the color it draws in, applied in the view's theme scope.
-    private var tinted: [(NSTextField, Tone)] = []
+    private var tinted: [(ChromeLabel, Tone)] = []
     var isSelected = false { didSet { needsDisplay = true } }
 
     private static let timeFormatter: RelativeDateTimeFormatter = {
@@ -44,7 +44,7 @@ final class NotificationRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     /// The text colors the panel uses.
     enum Tone {
@@ -114,7 +114,7 @@ final class NotificationRowView: NSView {
             // The list width less the dot, the close button and the gaps.
             body.preferredMaxLayoutWidth = NotificationsPanelView.listWidth - 4 * Metrics.space2 - Metrics.space2 - Metrics.space6
             body.lineBreakMode = .byTruncatingTail
-            body.cell?.wraps = true
+            body.wraps = true
             lines.append(body)
         }
         let text = NSStackView(views: lines)
@@ -151,8 +151,8 @@ final class NotificationRowView: NSView {
     }
 
     /// A one-line label; its owner sets the color in its theme scope.
-    static func label(_ text: String, font: NSFont) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
+    static func label(_ text: String, font: NSFont) -> ChromeLabel {
+        let label = ChromeLabel(labelWithString: text)
         label.font = font
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
@@ -161,11 +161,15 @@ final class NotificationRowView: NSView {
 
     @objc private func dismissPressed() { callbacks.dismiss() }
 
-    override func mouseDown(with event: NSEvent) {}
-
-    override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { callbacks.open() }
+    /// A click opens the notification on the press (Lawrence 2026-10-19: "mouse down to immediately
+    /// open"); a Control-click goes to AppKit, which shows the row's menu.
+    override func mouseDown(with event: NSEvent) {
+        guard !event.modifierFlags.contains(.control) else { return super.mouseDown(with: event) }
+        callbacks.open()
     }
+
+    /// The press already opened it.
+    override func mouseUp(with event: NSEvent) {}
 
     override func menu(for event: NSEvent) -> NSMenu? { callbacks.menu() }
 

@@ -9,6 +9,7 @@ import CmuxNextHistoryDaemon
 import CmuxNextSettings
 import Foundation
 import Observation
+import CmuxNextFocus
 
 /// The app's side of the location trail (plans/cmux-next/history.md 4.2):
 /// records each window's settled focus and runs Go Back / Go Forward / Go to

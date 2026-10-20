@@ -310,7 +310,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
         ]
         // Free text with the built-ins offered: `workspace:<id>` and
         // `app:<publisher>/<name>` put any workspace or app in the top rows
-        // (PINNED-ITEMS-END-TO-END P1).
+        // (PINNED-ITEMS-END-TO-END P1); an http(s) address adds a link.
         return ActionArgument(name: "item", title: t("argument.sidebar.item", "Item"), kind: .string,
                               suggestions: ActionSuggestions(source: ActionSuggestions.sidebarItems,
                                                              pinned: cases.map { ActionEnumCase(value: $0.0, title: $0.1) }))

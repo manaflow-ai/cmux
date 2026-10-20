@@ -93,8 +93,17 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
         }
+        #[cfg(unix)]
         Some(Command::Router(RouterCmd::Serve)) => {
             cmux_coderouter::serve(crate::config::home()).await
+        }
+        // Windows: the router's folder owner-only, its admin socket a local
+        // socket that refuses peers of another user (server/windows_socket.rs).
+        #[cfg(windows)]
+        Some(Command::Router(RouterCmd::Serve)) => {
+            let home = crate::config::home();
+            crate::owner_only::private_dir(&home.join("router"))?;
+            cmux_coderouter::serve_with_admin(home, crate::server::router_admin).await
         }
         Some(Command::DaemonRun {
             listen,
@@ -127,6 +136,32 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             // (a launcher `--version` check can take 20 s).
             std::process::exit(0)
         }
+        Some(Command::CliAgent {
+            last_block,
+            prompt_arg,
+            after_echo,
+            instructions,
+            tty,
+            command,
+        }) => {
+            crate::cli::cli_agent::run(crate::cli::cli_agent::Options {
+                command,
+                last_block,
+                prompt_arg,
+                after_echo,
+                instructions,
+                tty,
+            })
+            .await
+        }
+        Some(Command::UniichatAgent { url, home, whole_prompt }) => {
+            crate::cli::uniichat_agent::run(crate::cli::uniichat_agent::Options {
+                url,
+                home,
+                whole_prompt,
+            })
+            .await
+        }
         Some(Command::Stdio { model, preset, effort, policy }) => {
             let (harness, model) = match model {
                 Some(target) => {
@@ -158,9 +193,11 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Hand(cmd)) => crate::hand::run(cmd).await,
         Some(Command::CuaMcp) => crate::cua_v2::run_bridge().await,
         Some(Command::SecretMcp) => crate::secret_mcp::run().await,
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,
+        Some(Command::SubsessionMcp) => crate::subsession_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());

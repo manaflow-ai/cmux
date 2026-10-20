@@ -96,7 +96,7 @@ extension ChatColumnPlacement {
             TabMoves.toNewDockColumn(chat, anchor: controller.pane, edge: .left, role: .agentChat,
                                      respawn: respawn, services: services) { [weak content, weak controller] moved in
                 if moved, let content { PaneHandlers.focus(pane, in: content) }
-                // A hidden tab bar was the chat's choice: the tab left in the pane gets its kind's default.
+                // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
                 if moved, let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
                     services.paneTabBars.set(nil, for: controller.paneKey)
                     controller.apply(controller.snapshot())

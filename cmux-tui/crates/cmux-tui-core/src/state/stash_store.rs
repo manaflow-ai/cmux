@@ -117,7 +117,7 @@ pub(crate) fn stash_member(
     tab_id: &str,
 ) -> anyhow::Result<Result<Value, Refusal>> {
     let none = HashSet::new();
-    let Some(mut member) = tab_member(connection, tab_id, &none, &none)? else {
+    let Some(mut member) = tab_member(connection, tab_id, &none, &none, &none)? else {
         return Ok(Err(Refusal::Private));
     };
     let tab = &member["screens"][0]["tabs"][0];

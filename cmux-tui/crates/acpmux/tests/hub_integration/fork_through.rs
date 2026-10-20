@@ -26,9 +26,15 @@ mod claude_subagents;
 // Claude's "Allow for this session", which shares these helpers too.
 #[path = "claude_allow_always.rs"]
 mod claude_allow_always;
+#[path = "claude_allow_input.rs"]
+mod claude_allow_input;
 // The background-process registry over Claude's shells, which shares these helpers too.
 #[path = "processes.rs"]
 mod processes;
+// The same registry over Codex's background terminals (the fake app-server).
+#[cfg(unix)]
+#[path = "codex_processes.rs"]
+mod codex_processes;
 // Claude's skills in the slash command list, which share these helpers too.
 #[path = "claude_skill_commands.rs"]
 mod claude_skill_commands;
@@ -36,6 +42,9 @@ mod claude_skill_commands;
 #[cfg(target_os = "linux")]
 #[path = "session_scope.rs"]
 mod session_scope;
+// Each turn's model, tokens and cost, which share these helpers too.
+#[path = "turn_usage.rs"]
+mod turn_usage;
 
 const FORK_OP: &str = "acp.session.fork";
 

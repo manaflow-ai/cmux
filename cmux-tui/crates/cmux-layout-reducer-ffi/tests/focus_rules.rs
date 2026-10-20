@@ -1,4 +1,4 @@
-//! The window focus rules through the C ABI (`focus_reduce`), replayed
+//! The window focus rules (the machine behind `cmux_focus_*`), replayed
 //! against a corpus recorded from the macOS app's Swift `FocusReducer`
 //! before the rules moved to `cmux-focus-core`: every step's state (with
 //! its derived keyboard target and context) and effects must come back the
@@ -14,6 +14,9 @@
 //! the child-window key facts and seeded type-ahead queue sequences, each
 //! with the Swift rule's answers.
 
+use cmux_focus_core::event::{FocusEffect, FocusEvent};
+use cmux_focus_core::reducer;
+use cmux_focus_core::state::FocusState;
 use cmux_layout_reducer_ffi::{ERR_BUFFER, OK, cmux_layout_reducer_json};
 use serde_json::{Map, Value, json};
 
@@ -83,10 +86,23 @@ fn the_rust_focus_rules_reproduce_every_recorded_swift_step() {
     for sequence in sequences {
         let seed = &sequence["seed"];
         let mut expected: Map<String, Value> = sequence["initial"].as_object().unwrap().clone();
-        let mut state = Value::Object(expected.clone());
+        let mut state =
+            FocusState::import(&serde_json::to_vec(&Value::Object(expected.clone())).unwrap())
+                .unwrap();
+        let mut effects: Vec<FocusEffect> = Vec::new();
         for (index, step) in sequence["steps"].as_array().unwrap().iter().enumerate() {
             let event = &step["event"];
-            let response = call(c"focus_reduce", &json!({"state": state, "event": event}));
+            let decoded: FocusEvent = serde_json::from_value(event.clone()).unwrap();
+            // The app sends a topology through `set_topology` (an equal one returns at once).
+            match decoded {
+                FocusEvent::Topology { topology } => {
+                    reducer::set_topology(&mut state, topology, &mut effects);
+                }
+                event => {
+                    reducer::reduce(&mut state, &event, &mut effects);
+                }
+            }
+            let response = json!({"state": state.export(), "effects": effects});
             for (key, value) in step["state"].as_object().unwrap() {
                 match value {
                     Value::Null => {
@@ -108,7 +124,6 @@ fn the_rust_focus_rules_reproduce_every_recorded_swift_step() {
                 normalize_effects(&step["effects"]),
                 "seed {seed} step {index}: effects of {event}"
             );
-            state = response["state"].clone();
             steps_checked += 1;
         }
     }
@@ -120,8 +135,8 @@ fn view_changing_events_are_the_ones_the_swift_rule_named() {
     let corpus = corpus();
     for sequence in corpus["sequences"].as_array().unwrap() {
         for step in sequence["steps"].as_array().unwrap() {
-            let response = call(c"focus_changes_view", &json!({"event": step["event"]}));
-            assert_eq!(response["changesView"], step["changesView"], "{}", step["event"]);
+            let event: FocusEvent = serde_json::from_value(step["event"].clone()).unwrap();
+            assert_eq!(json!(event.changes_view()), step["changesView"], "{}", step["event"]);
         }
     }
 }

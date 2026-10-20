@@ -101,17 +101,36 @@ extension PageWebView {
 
     /// Clicks the first element matching `selector` from page script (not a user gesture);
     /// `metaKey` makes it a Cmd-click (a markdown link follows on Cmd-click while editing).
-    public func debugClick(_ selector: String, metaKey: Bool = false) async -> Bool {
+    /// `contextMenu`: a right-click (`contextmenu` at the element's top-left inset) instead of a click.
+    public func debugClick(_ selector: String, metaKey: Bool = false, contextMenu: Bool = false) async -> Bool {
         let script = """
         const el = document.querySelector(selector); if (!el) { return false; }
+        if (contextMenu) {
+          const r = el.getBoundingClientRect();
+          el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 4, clientY: r.top + 4, view: window }));
+          return true;
+        }
         if (!metaKey) { el.click(); return true; }
         for (const type of ['mousedown', 'mouseup', 'click']) {
           el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, metaKey: true, view: window }));
         }
         return true;
         """
-        let clicked = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector, "metaKey": metaKey], contentWorld: .page)
+        let clicked = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector, "metaKey": metaKey, "contextMenu": contextMenu],
+                                                             contentWorld: .page)
         return clicked as? Bool == true
+    }
+
+    /// Every element matching `selector` in document order: its `data-*` attributes, classes and
+    /// first 120 characters of text (a list's order and row state as the page draws it).
+    public func debugQuery(_ selector: String) async -> JSONValue {
+        let script = """
+        return JSON.stringify([...document.querySelectorAll(selector)].map((el) => ({
+          data: Object.assign({}, el.dataset), classes: [...el.classList], text: (el.innerText || '').slice(0, 120) })));
+        """
+        guard let text = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector], contentWorld: .page) as? String,
+              let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "query failed"] }
+        return ["elements": value]
     }
 
     /// Focuses the first element matching `selector` (or keeps the focused one) and inserts `text`

@@ -22,15 +22,16 @@
 //!   http(s) pages are kept. Pages without an engine reopen as
 //!   daemon-rendered browsers, so the app passes its engine.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::OptionalExtension;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use crate::Actor;
 use crate::mux::tab_groups::pane_by_public_id;
 use crate::mux::*;
-use crate::state::closed_history::{REOPEN, Reopened};
+use crate::state::closed_history::{REOPEN, Reopened, note_created, recording_created};
 use crate::state::closed_history_store::queue_change;
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;
@@ -242,21 +243,50 @@ impl Mux {
         }
         let restored_ids = restore.iter().map(|member| member["id"].clone()).collect::<Vec<_>>();
         let mut reopened = Reopened::default();
-        match target {
-            RestoreTarget::Here => {
-                for member in &restore {
-                    let member = self.placed_in(member, pane);
-                    self.reopen_closed_tab(&mutation.actor, &member, &mut reopened)?;
+        // All or nothing: when a member cannot reopen, or the commit fails,
+        // every surface this call created closes again and every member
+        // stays. Surfaces are recorded as they are created, so one a later
+        // step of its reopen failed on closes too.
+        let (committed, created) = recording_created(|| {
+            match target {
+                RestoreTarget::Here => restore.iter().try_for_each(|member| {
+                    self.restore_member_here(&mutation.actor, member, pane, &mut reopened)
+                }),
+                RestoreTarget::NewWorkspace => {
+                    self.restore_in_new_workspace(mutation, &record, &restore, &mut reopened)
                 }
             }
-            RestoreTarget::NewWorkspace => {
-                self.restore_in_new_workspace(mutation, &record, &restore, &mut reopened)?;
-            }
+            .and_then(|()| {
+                self.commit_restore(
+                    mutation,
+                    OPERATION,
+                    &fingerprint,
+                    stash_id,
+                    &restored_ids,
+                    reopened,
+                )
+            })
+        });
+        if committed.is_err() {
+            self.roll_back_restore(mutation, &created);
         }
+        committed
+    }
+
+    /// The commit of a restore: `restored_ids` leave the stash.
+    fn commit_restore(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        stash_id: &str,
+        restored_ids: &[Value],
+        reopened: Reopened,
+    ) -> anyhow::Result<StateCommit> {
         self.commit_state(
             mutation,
-            OPERATION,
-            &fingerprint,
+            operation,
+            fingerprint,
             None,
             StateEffects::EVENTS_ONLY,
             |transaction, _| {
@@ -286,31 +316,97 @@ impl Mux {
         )
     }
 
-    /// `member` as `here` restores it: in its own pane while that is live,
-    /// else in `pane` (at its end) when the user acted from one.
-    fn placed_in(&self, member: &Value, pane: Option<&str>) -> Value {
-        let Some(pane) = pane else { return member.clone() };
-        let own_pane_live = self.with_state(|state| {
-            member["pane_id"].as_str().and_then(|own| pane_by_public_id(state, own)).is_some()
-        });
-        if own_pane_live {
-            return member.clone();
+    /// Close what a failed restore created (`created`, the ones still open)
+    /// as a session end, never recorded in Recently Closed, under a key of
+    /// its own. A surface another client closes meanwhile is left out of a
+    /// second try; a close that still fails is logged, and the restore's own
+    /// error is what the caller sees.
+    fn roll_back_restore(self: &Arc<Self>, mutation: &WorkspaceMutation, created: &[SurfaceId]) {
+        let mut last_error = None;
+        for _ in 0..2 {
+            let open = self.with_state(|state| {
+                created
+                    .iter()
+                    .copied()
+                    .filter(|surface| state.pane_of(*surface).is_some())
+                    .collect::<Vec<_>>()
+            });
+            if open.is_empty() {
+                return;
+            }
+            let closed = WorkspaceMutation::new(
+                format!("stash-restore-rollback-{}", crate::workspace_registry::new_uuid_v4()),
+                mutation.origin.clone(),
+                mutation.actor.clone(),
+            )
+            .and_then(|close| {
+                self.close_tabs_for(open, true, Some(CloseReason::SessionEnd), &close)
+            });
+            match closed {
+                Ok(_) => return,
+                Err(error) => last_error = Some(error),
+            }
         }
-        let mut placed = member.clone();
-        placed["pane_id"] = json!(pane);
-        placed["workspace_id"] = Value::Null;
-        placed["index"] = Value::Null;
-        placed
+        if let Some(error) = last_error {
+            eprintln!(
+                "cmux-tui: stash.restore could not close the pages of a failed restore: {error:#}"
+            );
+        }
+    }
+
+    /// Restore one member `here`. With no pane named, as closed history
+    /// reopens a tab. With `pane` (the one the user acted from): back in its
+    /// own pane while that is still in its workspace and screen, else at the
+    /// end of `pane`, and nowhere else. When both are gone by the time the
+    /// member reopens, it is refused (`resource.not_found`) and stays in the
+    /// stash; it never opens in the active pane instead.
+    pub(super) fn restore_member_here(
+        self: &Arc<Self>,
+        actor: &Actor,
+        member: &Value,
+        pane: Option<&str>,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
+        let Some(pane) = pane else { return self.reopen_closed_tab(actor, member, reopened) };
+        let tab = &member["screens"][0]["tabs"][0];
+        let (target, own) = self
+            .with_state(|state| {
+                super::closed_pane_split::home_pane(state, member, &HashMap::new())
+                    .map(|own| (own, true))
+                    .or_else(|| pane_by_public_id(state, pane).map(|named| (named, false)))
+            })
+            .ok_or_else(|| state_not_found("pane", pane))?;
+        // Back in its own pane, at its recorded index (a pinned tab takes
+        // the place its pin gives it); in the named pane, at the end.
+        let index = member["index"]
+            .as_u64()
+            .and_then(|index| usize::try_from(index).ok())
+            .filter(|_| own && tab["pinned"].as_bool() != Some(true));
+        let created = match index {
+            Some(index) => tab_strip::tab_slot::scoped(target, index, || {
+                self.reopen_tab_record(actor, target, tab, true)
+            }),
+            None => self.reopen_tab_record(actor, target, tab, true),
+        };
+        // An explicit pane that closed meanwhile fails the creation.
+        let surface = created.map_err(|error| {
+            if self.with_state(|state| state.panes.contains_key(&target)) {
+                error
+            } else {
+                state_not_found("pane", pane)
+            }
+        })?;
+        let (workspace, screen) = self.public_screen_of_pane(target)?;
+        reopened.note_workspace(workspace);
+        reopened.screens.push(screen);
+        reopened.note_tab(member, self.public_tab_of(surface)?);
+        Ok(())
     }
 
     /// One new workspace named after the stash holding `restore` in order.
     /// It starts with a shell (every new workspace does), which closes once
-    /// the pages are in, unrecorded (`session_end`).
-    ///
-    /// Known limitation: the starter close commits under a key derived from
-    /// the request's, before the restore's own commit. A retry after a
-    /// failure between the two creates another workspace whose starter close
-    /// conflicts with the first one's receipt.
+    /// the pages are in, unrecorded (`session_end`). The shell is recorded
+    /// as created, so a failed restore closes it with the pages.
     fn restore_in_new_workspace(
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,
@@ -321,6 +417,7 @@ impl Mux {
         let actor = &mutation.actor;
         let name = record["name"].as_str().map(str::to_string);
         let starter = self.new_workspace_as(actor, name, None)?.id;
+        note_created(starter);
         let pane =
             self.with_state(|state| state.pane_of(starter)).context("new workspace has no pane")?;
         let (workspace, screen) = self.public_screen_of_pane(pane)?;
@@ -332,11 +429,11 @@ impl Mux {
             reopened.tabs.push(self.public_tab_of(surface)?);
         }
         if !restore.is_empty() {
-            // A key of its own, derived from the request's, so the close
-            // never collides with the restore's receipt.
-            let derived = Sha256::digest(format!("stash.restore.starter\u{0}{}", mutation.id));
+            // A key of its own for each attempt: a retry after a failed one
+            // closes its own starter, never conflicting with the first's
+            // receipt, and a replay of the restore never gets here.
             let starter_close = WorkspaceMutation::new(
-                format!("stash-starter-{derived:x}"),
+                format!("stash-starter-{}", crate::workspace_registry::new_uuid_v4()),
                 mutation.origin.clone(),
                 mutation.actor.clone(),
             )?;

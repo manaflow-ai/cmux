@@ -5,6 +5,7 @@
 
 mod auxiliary;
 mod browser_engine;
+mod close_value;
 mod config;
 mod content;
 mod credential;
@@ -17,6 +18,7 @@ mod session;
 mod topology;
 
 pub(crate) use open_url::CAPABILITY as OPEN_URL_CAPABILITY;
+pub(crate) use open_url::is_web_url;
 pub(crate) use open_url::right_pane_beside_focused_dock;
 pub(crate) use owner::requires_connection_context;
 use owner::{OperationOwner, operation_owner};
@@ -244,10 +246,13 @@ pub(crate) fn validate_resource_envelope(
 
 fn dispatch_resource_request(
     mux: &Arc<Mux>,
-    request: ParsedResourceRequest,
+    mut request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
+    crate::debug_spans::mark("router.dispatch");
+    browser_engine::route_to_frontend(mux, &mut request)?;
     browser_engine::refuse_without_provider(mux, &request)?;
+    crate::debug_spans::mark("router.provider_checked");
     match operation_owner(operation) {
         OperationOwner::Session => session::dispatch(mux, request),
         OperationOwner::Content => content::dispatch(mux, request),

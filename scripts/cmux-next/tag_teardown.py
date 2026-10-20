@@ -4,7 +4,7 @@ The app keeps cmux-tui (headless), acpmux and their terminal and agent hosts run
 (keep-on-quit), so a live script that only quits the app leaves them behind. Each one holds PTYs,
 and a host that runs many scripts runs out of them. `TagTeardown.end()`:
 
-1. `acpmux daemon shutdown` with the tag daemon's own ACPMUX_HOME and ACPMUX_SOCKET;
+1. `acpmux daemon shutdown --end-agents` with the tag daemon's own ACPMUX_HOME and ACPMUX_SOCKET;
 2. `cmux-tui --socket <its socket> session <its session> shutdown --force` for the tag's headless
    session;
 3. waits for every process whose executable is inside the app bundle to exit, then stops each
@@ -82,7 +82,12 @@ class TagTeardown:
             env = dict(os.environ, ACPMUX_HOME=home)
             if sock:
                 env["ACPMUX_SOCKET"] = sock
-            self.log(f"teardown: acpmux daemon shutdown (ACPMUX_HOME={home}): {self._run([acpmux, 'daemon', 'shutdown'], env)}")
+            # The tag's own agents end (`--end-agents`, cx-qryd0); a bundle of a build before the
+            # flag refuses it, and its plain shutdown ends them.
+            result = self._run([acpmux, 'daemon', 'shutdown', '--end-agents'], env)
+            if "unexpected argument" in result:
+                result = self._run([acpmux, 'daemon', 'shutdown'], env)
+            self.log(f"teardown: acpmux daemon shutdown --end-agents (ACPMUX_HOME={home}): {result}")
         # 2. The tag's cmux-tui headless session.
         tui = os.path.join(self.bin, "cmux-tui")
         for pid, cmd in before:

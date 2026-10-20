@@ -7,8 +7,8 @@ import CmuxNextDesign
 final class PageUnresponsiveView: NSView {
     var onWait: (() -> Void)?
     var onExit: (() -> Void)?
-    private let titleLabel = NSTextField(labelWithString: Strings.pageUnresponsiveTitle)
-    private let messageLabel = NSTextField(wrappingLabelWithString: Strings.pageUnresponsiveMessage)
+    private let titleLabel = ChromeLabel(labelWithString: Strings.pageUnresponsiveTitle)
+    private let messageLabel = ChromeLabel(wrappingLabelWithString: Strings.pageUnresponsiveMessage)
     private let density = DensityBinding()
     /// The card's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?

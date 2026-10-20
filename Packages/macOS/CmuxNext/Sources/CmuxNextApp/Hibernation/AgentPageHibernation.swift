@@ -78,7 +78,7 @@ final class AgentPageHibernation {
         let cache = services.cache
         cache.presentationChanges.subscribe("agent-page-hibernation") { [weak self, weak cache] in
             guard let cache else { return }
-            self?.sync { cache.isRendering($0) }
+            self?.sync(cache.presentationChanges.changedKeys) { cache.isRendering($0) }
         }
         followTurns(AgentTurnStateStore.shared)
     }
@@ -88,7 +88,7 @@ final class AgentPageHibernation {
     func followTurns(_ turns: AgentTurnStateStore) {
         turnObservation?.cancel()
         turnObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (turns.states, turns.watching) }) {
+            for await _ in ObservationStream({ (turns.stateRevision, turns.watching) }) {
                 self?.replan()
             }
         }
@@ -104,9 +104,10 @@ final class AgentPageHibernation {
     /// Whether the tab draws, not whether its view is still in a window: presentation changes
     /// come before the pane swaps its content, so the outgoing page is still on screen then.
     /// (A release checks the window again.)
-    func sync(_ isRendering: (String) -> Bool) {
+    /// `changed`: the tabs this change is about (nil: every page), so a switch is O(changed tabs).
+    func sync(_ changed: Set<String>? = nil, _ isRendering: (String) -> Bool) {
         guard let tabs = store() else { return }
-        for key in tabs.views.keys {
+        for key in changed ?? Set(tabs.views.keys) where tabs.existingView(key) != nil {
             let visible = isRendering(key)
             if visible != shown.contains(key) { pageVisibility(key, visible: visible) }
         }

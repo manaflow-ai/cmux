@@ -103,14 +103,12 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("chief.profile.avatar.get", CHIEF_REGISTRY_REASON),
     ("participant.avatar.set", AVATAR_REASON),
     ("participant.avatar.get", AVATAR_REASON),
-    ("machine.list", MACHINE_REASON),
-    ("machine.get", MACHINE_REASON),
-    ("session.list", MACHINE_REASON),
-    ("session.open", MACHINE_REASON),
-    ("session.get", MACHINE_REASON),
-    ("session.snapshot", MACHINE_REASON),
-    ("session.ping", MACHINE_REASON),
-    ("session.creation.resolve", MACHINE_REASON),
+    ("session.list", SESSION_REASON),
+    ("session.open", SESSION_REASON),
+    ("session.get", SESSION_REASON),
+    ("session.snapshot", SESSION_REASON),
+    ("session.ping", SESSION_REASON),
+    ("session.creation.resolve", SESSION_REASON),
     ("session.shutdown", LIFECYCLE_REASON),
     ("session.reload_config", LIFECYCLE_REASON),
     ("session.terminal_defaults.update", SESSION_SETTING_REASON),
@@ -197,6 +195,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
 /// reason. Unlike [`EXCLUDED`], the parity test lets `cmux` reach these.
 pub(super) const CLI_ONLY: &[(&str, &str)] = &[
     ("agent.message.release", AGENT_MESSAGE_RELEASE_REASON),
+    ("agent.message.unsend", AGENT_MESSAGE_UNSEND_REASON),
     ("history.entries.list", HISTORY_MCP_PENDING_REASON),
     ("history.entries.remove", HISTORY_MCP_PENDING_REASON),
     ("history.site.remove", HISTORY_MCP_PENDING_REASON),
@@ -216,9 +215,12 @@ const AGENT_MESSAGE_REASON: &str = "Agent messages go through `cmux agent messag
 const AGENT_MESSAGE_RELEASE_REASON: &str = "Releasing a held agent message is the person's \
      decision (`cmux agent message release`); an agent gets no tool to approve messages.";
 
+const AGENT_MESSAGE_UNSEND_REASON: &str = "Agent messages go through `cmux agent message`; \
+     taking one back is `cmux agent message unsend`, beside the send it undoes.";
+
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
-const MACHINE_REASON: &str =
-    "Machine and session plumbing in the cmux-tui-only scopes; the curated cmux CLI omits it.";
+const SESSION_REASON: &str =
+    "Session plumbing in the cmux-tui-only scope; the curated cmux CLI omits it.";
 const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon); \
      cmux-tui-only, and the cmux CLI's `server` scope does not send it.";
 const SESSION_SETTING_REASON: &str = "A session-wide setting in the cmux-tui-only scope.";
@@ -400,6 +402,10 @@ impl V2Tool {
                 "Reads the cmux session daemon and changes nothing."
             }
         );
+        if matches!(self.operation, ResourceOperation::MachineList | ResourceOperation::MachineGet)
+        {
+            text.push_str(" By default reads the original local-only machine shape. catalog:true explicitly includes owner metadata and currently published admitted routes. Metadata grants no execution rights and opens no machine connection.");
+        }
         if let Some(constraints) = schema::joined(&self.descriptor["params"]["constraints"]) {
             text.push(' ');
             text.push_str(&constraints);
@@ -432,7 +438,7 @@ impl V2Tool {
             }),
         );
         for (selector, requiredness) in self.selectors() {
-            if matches!(selector.as_str(), "machine" | "session") {
+            if !self.selector_argument(selector) {
                 continue;
             }
             properties.insert(selector.clone(), schema::id(selector));
@@ -485,6 +491,9 @@ impl V2Tool {
     /// a unique prefix (resolved with a list read on the request's own
     /// connection), `<session>:<id>`, `current` or a name.
     pub(super) fn plan(&self, arguments: &Map<String, Value>) -> Result<CallPlan, Value> {
+        if self.operation == ResourceOperation::MachineGet {
+            text("machine", arguments.get("machine").unwrap_or(&Value::Null))?;
+        }
         let selectors = self.descriptor["params"]["selectors"].as_object();
         let fields = self.fields().as_object();
         let mut params = Map::new();
@@ -499,7 +508,7 @@ impl V2Tool {
         let (mut offset, mut limit) = (None, None);
         for (name, value) in arguments {
             let selector = selectors.is_some_and(|selectors| selectors.contains_key(name))
-                && !matches!(name.as_str(), "machine" | "session");
+                && self.selector_argument(name);
             let field = fields.and_then(|fields| fields.get(name));
             match name.as_str() {
                 "session" => set_session(&mut session, text(name, value)?)?,
@@ -569,6 +578,12 @@ impl V2Tool {
             page,
             prefixes,
         })
+    }
+
+    /// Machine selection is a metadata lookup only on machine.get; other tools keep their owner scope.
+    fn selector_argument(&self, selector: &str) -> bool {
+        (selector == "machine" && self.operation == ResourceOperation::MachineGet)
+            || !matches!(selector, "machine" | "session")
     }
 
     fn waits(&self) -> bool {
@@ -720,6 +735,10 @@ fn summary(wire: &str, target: &str) -> String {
         "back" | "forward" => format!("Go {action} in a browser's history"),
         "reload" => "Reload a browser's page".into(),
         "activate" => format!("Activate a {target}"),
+        "profile list" => "List the browser profiles: names and ids, never their data".into(),
+        "profile create" => "Create an empty browser profile".into(),
+        "profile open" => "Open a browser tab in a browser profile".into(),
+        "tab set profile" => "Move a browser tab to another browser profile".into(),
         _ => format!("{} a {target}", capitalized(&action)),
     }
 }

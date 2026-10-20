@@ -14,7 +14,8 @@ pub(super) enum OperationOwner {
     Git,
     /// The daemon history module (history_ops.rs).
     History,
-    /// `browser.tab.set_profile` (browser_profile_ops.rs).
+    /// `browser.tab.set_profile` and `browser.profile.*`
+    /// (browser_profile_ops.rs).
     BrowserProfile,
     Credential,
     Connection,
@@ -156,7 +157,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::HistoryVisitSummaries
         | ResourceOperation::HistoryVisitImport
         | ResourceOperation::HistoryTrailRecord => OperationOwner::History,
-        ResourceOperation::BrowserTabSetProfile => OperationOwner::BrowserProfile,
+        ResourceOperation::BrowserTabSetProfile
+        | ResourceOperation::BrowserProfileList
+        | ResourceOperation::BrowserProfileCreate
+        | ResourceOperation::BrowserProfileOpen => OperationOwner::BrowserProfile,
         ResourceOperation::WorkspaceOpenUrl => OperationOwner::OpenUrl,
         ResourceOperation::StashCreate
         | ResourceOperation::StashList
@@ -263,7 +267,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::AgentMessageSend
         | ResourceOperation::AgentMessageList
         | ResourceOperation::AgentMessageMark
-        | ResourceOperation::AgentMessageRelease => OperationOwner::State,
+        | ResourceOperation::AgentMessageRelease
+        | ResourceOperation::AgentMessageUnsend => OperationOwner::State,
         ResourceOperation::SessionEvents
         | ResourceOperation::SessionJournalSubscribe
         | ResourceOperation::SessionJournalProducerList

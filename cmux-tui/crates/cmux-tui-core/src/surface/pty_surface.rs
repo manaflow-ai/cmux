@@ -444,18 +444,16 @@ impl PtySurface {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let mut geometry = self.geometry.lock().unwrap();
         let next = PtyGeometry { cols, rows, ..*geometry };
-        next.pty_size()?;
         #[cfg(any(unix, windows))]
         {
             let runtime = self.runtime.lock().unwrap();
             if let PtyRuntime::Hosted(host) = &*runtime {
-                if *geometry == next && host.viewer_size() == Some((cols, rows)) {
-                    return Ok(false);
-                }
                 // Do not speculatively reflow the mirror. The host orders
                 // either a compact smart-renderer marker or a legacy
                 // Resized+Colors replay on its authoritative byte stream.
-                return Ok(host.send_viewer_size(cols, rows).is_ok());
+                // `true` only when a new size went to the host, so callers
+                // wait for a `Resized` only when one can come.
+                return Ok(host.send_viewer_size(cols, rows)?);
             }
             if matches!(&*runtime, PtyRuntime::ExitedHosted) {
                 return Ok(false);
@@ -486,8 +484,6 @@ impl PtySurface {
             if (geometry.cell_width, geometry.cell_height) == requested {
                 return Ok(false);
             }
-            PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry }
-                .pty_size()?;
         }
         #[cfg(any(unix, windows))]
         {
@@ -526,7 +522,6 @@ impl PtySurface {
         }
         let mut geometry = self.geometry.lock().unwrap();
         let next = PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry };
-        next.pty_size()?;
         self.commit_geometry(&mut geometry, next, false)
     }
 
@@ -567,8 +562,8 @@ impl PtySurface {
         }
         let grid_changed = (geometry.cols, geometry.rows) != (next.cols, next.rows);
         let previous = *geometry;
-        let next_pty_size = next.pty_size()?;
-        let previous_pty_size = previous.pty_size()?;
+        let next_pty_size = next.pty_size();
+        let previous_pty_size = previous.pty_size();
         // Hold the terminal lock while resizing and while sending the attach
         // marker, so mirrors observe bytes and geometry in server order.
         let mut term = self.term.lock().unwrap();

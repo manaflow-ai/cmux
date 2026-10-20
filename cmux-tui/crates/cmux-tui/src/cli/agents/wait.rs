@@ -212,7 +212,7 @@ fn wait_for<B: Backend>(
     }
     let mut outcome = None;
     let mut last = Instant::now();
-    let _ = backend.session_events(session, deadline, RECHECK, &mut |item| {
+    let _ = backend.session_events(session, None, deadline, RECHECK, &mut |item| {
         if item.is_some() && last.elapsed() < MIN_CHECK_GAP {
             return false;
         }

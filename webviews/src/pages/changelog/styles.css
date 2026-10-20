@@ -84,8 +84,11 @@ html[data-cmux-page="changelog"] body {
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
-.cl-row-title { font-weight: 600; flex: none; max-width: 100%; }
-.cl-row-summary { color: var(--page-text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Title and line run as one paragraph that wraps, rather than either being cut short (Leo
+   2026-10-18). */
+.cl-row-text { flex: 1 1 auto; min-width: 0; }
+.cl-row-title { font-weight: 600; }
+.cl-row-summary { color: var(--page-text-2); }
 .cl-row-action {
   margin-left: auto;
   flex: none;
@@ -123,6 +126,12 @@ html[data-cmux-page="changelog"] body {
   gap: 8px;
   align-items: baseline;
   padding: 3px 0;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.cl-changes-internal {
+  margin: 3px 0 0;
+  color: var(--page-text-3);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }

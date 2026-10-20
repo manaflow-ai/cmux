@@ -19,14 +19,17 @@ Two commands:
       request is over the limit (default 50,000), when no request was
       recorded, or when the largest request names no cmux MCP tool
       (mcp__cmux__): then the cmux MCP server never reached the turn and the
-      guard would measure nothing. A 503 from the router exits 3 (stop: the
-      route is down); any other router error exits 4.
+      guard would measure nothing. When count_tokens fails (the team subrouter
+      answers 502: Claude subscriptions do not serve it and Bedrock has none),
+      the request's tokens are estimated from its bytes (ESTIMATE_RULE) with a
+      WARNING line, and the limit still applies; it never passes silently.
 """
 import argparse
 import glob
 import hashlib
 import http.server
 import json
+import math
 import os
 import sys
 import threading
@@ -136,7 +139,42 @@ def requests(out):
         yield os.path.basename(p), head, body
 
 
-def count(out, url, limit):
+# The fallback when count_tokens fails (the team subrouter answers 502: Claude
+# subscriptions do not serve count_tokens and Bedrock has none): the request's
+# JSON bytes without the deferred tools (the API does not count those either)
+# over 3.2 bytes per token. Real Claude requests run about 3.5-4 bytes per token,
+# so this overstates the tokens: it fails early, never passes a large request.
+ESTIMATE_BYTES_PER_TOKEN = 3.2
+ESTIMATE_RULE = "ceil(bytes of the request JSON without defer_loading tools / 3.2)"
+
+
+def referenced(messages):
+    """Tool names a ToolSearch result loaded (tool_reference blocks): counted in full."""
+    names = set()
+    stack = [messages]
+    while stack:
+        v = stack.pop()
+        if isinstance(v, dict):
+            if v.get("type") == "tool_reference" and isinstance(v.get("tool_name"), str):
+                names.add(v["tool_name"])
+            stack.extend(v.values())
+        elif isinstance(v, list):
+            stack.extend(v)
+    return names
+
+
+def estimate(payload):
+    """None when the request has tools the bytes do not hold (mcp_servers): no safe estimate."""
+    if payload.get("mcp_servers"):
+        return None
+    p = dict(payload)
+    if p.get("tools"):
+        loaded = referenced(p.get("messages"))
+        p["tools"] = [t for t in p["tools"] if not t.get("defer_loading") or t.get("name") in loaded]
+    return math.ceil(len(json.dumps(p).encode()) / ESTIMATE_BYTES_PER_TOKEN)
+
+
+def count(out, url, limit, timeout=120):
     rows = []
     for name, head, body in requests(out):
         req = json.loads(body)
@@ -148,24 +186,34 @@ def count(out, url, limit):
             send["anthropic-beta"] = hdrs["anthropic-beta"]
         r = urllib.request.Request(url.rstrip("/") + "/v1/messages/count_tokens", data=json.dumps(payload).encode(),
                                    headers=send, method="POST")
+        source = "count_tokens"
         try:
-            with urllib.request.urlopen(r, timeout=120) as resp:
+            with urllib.request.urlopen(r, timeout=timeout) as resp:
                 tokens = json.load(resp)["input_tokens"]
         except urllib.error.HTTPError as e:
-            text = e.read()[:400].decode("utf-8", "replace")
-            if e.code == 503:
-                print(f"FIRST-TURN-COST router answered 503 for {name}: {text}. Stop: the route is down.", file=sys.stderr)
-                sys.exit(3)
-            print(f"FIRST-TURN-COST router error: count_tokens {e.code} for {name}: {text}", file=sys.stderr)
-            sys.exit(4)
+            tokens = estimate(payload)
+            source = "estimate"
+            try:
+                detail = e.read()[:200].decode("utf-8", "replace")
+            except OSError as read_error:
+                detail = repr(read_error)
+            why = f"count_tokens {e.code}: {detail}"
+            print(f"FIRST-TURN-COST WARNING {name}: {why}; using the local estimate {ESTIMATE_RULE} = {tokens}",
+                  file=sys.stderr)
         except (urllib.error.URLError, TimeoutError, OSError, KeyError, ValueError) as e:
-            print(f"FIRST-TURN-COST router error: count_tokens for {name}: {e!r}", file=sys.stderr)
-            sys.exit(4)
+            tokens = estimate(payload)
+            source = "estimate"
+            print(f"FIRST-TURN-COST WARNING {name}: count_tokens failed ({e!r}); using the local estimate "
+                  f"{ESTIMATE_RULE} = {tokens}", file=sys.stderr)
+        if tokens is None:
+            print(f"FIRST-TURN-COST FAIL: {name}: count_tokens failed and the request names mcp_servers, whose tools "
+                  "its bytes do not hold: no safe estimate", file=sys.stderr)
+            return 1
         names = [t.get("name", "") for t in req.get("tools") or []]
         rows.append({"request": name, "model": req.get("model"), "bytes": len(body), "tools": len(names),
                      "deferred_tools": sum(1 for t in req.get("tools") or [] if t.get("defer_loading")),
                      "cmux_mcp_tools": sum(1 for n in names if n.startswith("mcp__cmux__")),
-                     "cmux_mcp": b"mcp__cmux__" in body, "tokens": tokens})
+                     "cmux_mcp": b"mcp__cmux__" in body, "tokens": tokens, "source": source})
         print("FIRST-TURN-COST-REQUEST " + json.dumps(rows[-1]))
     if not rows:
         print("FIRST-TURN-COST no /v1/messages request was recorded: the turn never reached the stand-in", file=sys.stderr)
@@ -196,11 +244,12 @@ def main():
     c.add_argument("dir")
     c.add_argument("--url", required=True)
     c.add_argument("--limit", type=int, default=50000)
+    c.add_argument("--timeout", type=float, default=120, help="seconds per count_tokens call (short when the route is down)")
     a = ap.parse_args()
     if a.cmd == "proxy":
         proxy(a.dir)
     else:
-        sys.exit(count(a.dir, a.url, a.limit))
+        sys.exit(count(a.dir, a.url, a.limit, a.timeout))
 
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@
 //! Tests fail when the committed IR is stale or when the dispatcher serves
 //! a name this registry lacks (`protocol/tests.rs`).
 
+pub mod inventory;
+pub mod mailbox;
 pub mod permission;
 pub mod session;
 #[cfg(test)]
@@ -103,6 +105,7 @@ fn notification<P: JsonSchema>(name: &'static str) -> MethodDecl {
 /// within each group.
 pub fn registry() -> Vec<MethodDecl> {
     use Kind::*;
+    use mailbox::*;
     use permission::*;
     use session::*;
     vec![
@@ -142,6 +145,13 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_RENAME, Request),
         untyped(method::MUX_OFFER_SESSION, Request),
         untyped(method::MUX_OFFER_RESPOND, Request),
+        // Sub-sessions (`server/subsessions.rs`).
+        untyped(method::MUX_SUBSESSION_GET, Request),
+        untyped(method::MUX_SUBSESSION_LIMITS, Request),
+        untyped(method::MUX_SUBSESSION_LIST, Request),
+        untyped(method::MUX_SUBSESSION_SEND, Request),
+        untyped(method::MUX_SUBSESSION_START, Request),
+        untyped(method::MUX_SUBSESSION_STOP, Request),
         untyped(method::MUX_SET_TOOLS, Request),
         untyped(method::MUX_SUBAGENT_STOP, Request),
         untyped(method::MUX_STATS, Request),
@@ -149,6 +159,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BOOKMARK_SET, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
         untyped(method::MUX_PROCESS_LIST, Request),
+        untyped(method::MUX_PROCESS_TAIL, Request),
         untyped(method::MUX_PROCESS_KILL, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         untyped(method::MUX_KILL, Request),
@@ -158,7 +169,13 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAG, Request),
         untyped(method::MUX_INFO, Request),
         untyped(method::MUX_EVENTS, Request),
+        untyped(method::MUX_ATTACHMENT, Request),
+        request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
+        request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
+        request::<MailWaitParams, MailPageResult>(method::MUX_MAIL_WAIT),
+        request::<MailAckParams, MailAckResult>(method::MUX_MAIL_ACK),
         untyped(method::MUX_HISTORY, Request),
+        untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_WAIT, Request),
         untyped(method::MUX_ASK, Request),
         untyped(method::MUX_WARM, Request),
@@ -221,7 +238,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_HARNESS_REMOVE, Request),
         untyped(method::MUX_HARNESS_RESTORE, Request),
         untyped(method::MUX_HARNESS_DOCTOR, Request),
+        untyped(method::MUX_HARNESS_SECRET_SET, Request),
         untyped(method::MUX_HARNESS_HEALTH, Request),
+        request::<inventory::InventoryWatchParams, Value>(method::MUX_HARNESS_INVENTORY_WATCH),
+        request::<inventory::InventoryRefreshParams, Value>(method::MUX_HARNESS_INVENTORY_REFRESH),
+        request::<inventory::HarnessUpdatePlanParams, Value>(method::MUX_HARNESS_UPDATE_PLAN),
+        request::<inventory::HarnessUpdatePlanParams, Value>(method::MUX_HARNESS_UPDATE_PREPARE),
         untyped(method::MUX_HARNESS_UPDATE, Request),
         untyped(method::MUX_SESSIONS_RESTART_HARNESS, Request),
         untyped(method::MUX_REGISTRY, Request),
@@ -253,6 +275,7 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
+        untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
         untyped("_acpmux/lagged", Notification),

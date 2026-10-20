@@ -91,9 +91,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// whether an override is on the page, and the calls in flight.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
     @ObservationIgnored var deviceEmulationViewport: BrowserEmulation.Viewport?
+    /// View points per CSS px the emulation applies now (the viewport's scale; 1 for none). Observed:
+    /// the app announces it to the browser host, which scales an agent's mouse input by it (cx-mogig).
+    public internal(set) var emulationInputScale: Double = 1
+    /// The emulation turned touch on (a phone or tablet preset). Observed: the app announces it, and the
+    /// browser host sends an agent's pointer input as touch, which Chromium answers (cx-3ny35).
+    public internal(set) var emulationTouch = false
     @ObservationIgnored var deviceEmulationApplied = false
     @ObservationIgnored var deviceEmulationTask: Task<Void, Never>?
     @ObservationIgnored var deviceEmulationDirty = false
+    /// The next emulation run clears this session's metrics first (after DevTools device mode).
+    @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
     @ObservationIgnored private var isOccluded = false

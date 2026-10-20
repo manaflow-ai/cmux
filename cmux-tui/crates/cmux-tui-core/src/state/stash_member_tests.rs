@@ -128,6 +128,36 @@ fn stash_restore_here_opens_a_member_without_a_live_pane_in_the_named_pane() {
     mux.shutdown();
 }
 
+/// The named pane closes after the request checked it but before the
+/// member reopens: the member is refused (`resource.not_found`) and never
+/// lands in the active pane instead.
+#[test]
+fn stash_restore_here_never_falls_back_to_the_active_pane_when_the_named_pane_is_gone() {
+    let mux = Mux::new_for_test("stash-restore-gone-pane", SurfaceOptions::default());
+    mux.new_workspace(Some("One".into()), None).unwrap();
+    let stash = import(&mux, &["https://a.example/"], "import");
+    let record = mux
+        .read_registry_state(|connection| {
+            crate::state::stash_store::stash_record(connection, &stash)
+        })
+        .unwrap()
+        .expect("the imported stash");
+    let member = record["members"][0].clone();
+    let tabs = || mux.with_state(|state| state.resource_indexes.tab_ids.len());
+    let before = tabs();
+
+    let mut reopened = crate::state::closed_history::Reopened::default();
+    let gone = "pane_00000000000000000000000000000000";
+    let error = mux
+        .restore_member_here(&crate::Actor::Daemon, &member, Some(gone), &mut reopened)
+        .expect_err("a gone pane refuses the member");
+    let error = error.downcast_ref::<ResourceError>().expect("a typed refusal");
+    assert_eq!(error.code, "resource.not_found");
+    assert_eq!(tabs(), before, "nothing opened in the active pane");
+    assert!(reopened.tabs.is_empty());
+    mux.shutdown();
+}
+
 /// App tabs are never stashed: named, they refuse the request; a
 /// workspace stash leaves them open as `skipped`.
 #[test]

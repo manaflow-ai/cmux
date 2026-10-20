@@ -11,7 +11,7 @@ nonisolated extension ActionSurfaceCatalog {
             // A tab's menu offers New Tab to the Right and, in its New submenu, New <Kind> Tab and the kinds; Cmd-T's
             // setting-driven New Tab stays in the File menu and the palette.
             "newTab.default",
-            // The pane's menu offers Show Tab Bar, and the bar's + adds a tab once it shows.
+            // The pane's menu offers Show Tab Bar (Hide Tab Bar while shown), and the bar's + adds a tab once it shows.
             "newTab.horizontal",
         ],
         .secondaryEngine: [
@@ -20,8 +20,6 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .unimplemented: [
             "palette.browserToggleOmnibar",
-            "toggleReactGrab",
-            "palette.openCloudPane",
             "palette.openVaultPane",
             "palette.openFindPane",
             "palette.openFilesPane",
@@ -34,7 +32,7 @@ nonisolated extension ActionSurfaceCatalog {
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
             "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV", "browser.importFromFiles", "browser.allowAgentWithExtensions",
-            "workspace.importClassic", "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
+            "workspace.importClassic", "fileEditor.importEditorSettings", "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
             "switchRightSidebarToFind", "switchRightSidebarToSessions", "switchRightSidebarToFeed",
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
             "showNotifications", "feed.show", "markAllNotificationsRead",
@@ -120,6 +118,8 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.extension.run", "browser.extension.options", "browser.extension.pin", "browser.extension.unpin",
             "browser.extension.enable", "browser.extension.disable", "browser.extension.reload",
             "browser.extension.remove", "browser.extension.command", "palette.attemptUpdate",
+            // The tab menu's Mute Tab / Unmute Tab is the toggle, titled for the tab.
+            "tab.muteAudio", "tab.unmuteAudio",
         ],
         .liveInput: [
             "browserLinkHints", "browserLinkHintsNewSplit", "hints.show",
