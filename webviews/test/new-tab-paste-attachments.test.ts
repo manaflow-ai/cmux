@@ -59,7 +59,11 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       const newTab = { kind: "agent", hotkeys: {}, home: "/Users/you", projects: [] };
       Object.assign(window, {
         __cmuxNewTabContext: newTab,
-        webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
+        webkit: {
+          messageHandlers: {
+            agentSession: { postMessage: async () => ({ ok: true, value: null }) },
+          },
+        },
         cmuxAcpmuxActions: {
           ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true, newTab }),
         },
@@ -136,6 +140,78 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       await page.locator(".nt-box .acpmux-attachment-image").waitFor();
       await page.keyboard.press("Enter");
       await page.locator(".cv-user__images img").first().waitFor({ timeout: 30_000 });
+      await page.close();
+    },
+  );
+
+  // A pasted screenshot's chip stayed blank in Chief until a click: the chip drew the full-size
+  // image first, WebKit decoded it off the main thread, and the composer's blurred box did not
+  // repaint when the decode finished. The chip now draws only its small thumbnail, decoded in the
+  // paint that shows it.
+  test.each(engines.map(([name]) => name))(
+    "%s: a pasted screenshot's chip draws only its thumbnail, decoded with the paint",
+    async (name) => {
+      const page = await newTab(name);
+      // Every picture the chip is given, from the moment it mounts.
+      await page.evaluate(() => {
+        const drawn: { length: number; decoding: string | null }[] = [];
+        Object.assign(window, { __chipPictures: drawn });
+        const note = (node: Node) => {
+          for (const img of node instanceof Element ? node.querySelectorAll("img") : [])
+            if (img.closest(".acpmux-attachment-image"))
+              drawn.push({ length: img.src.length, decoding: img.getAttribute("decoding") });
+        };
+        new MutationObserver((records) => {
+          for (const record of records) {
+            if (record.type === "attributes") note(record.target.parentNode ?? record.target);
+            for (const node of record.addedNodes) note(node.parentNode ?? node);
+          }
+        }).observe(document.body, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ["src"],
+        });
+      });
+      const field = page.locator(".nt-field");
+      await field.click();
+      // A screenshot-sized image of noise, so its PNG stays megabytes, far past its thumbnail.
+      const data = await page.evaluateHandle(async () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 1200;
+        canvas.height = 800;
+        const context = canvas.getContext("2d")!;
+        const pixels = context.createImageData(canvas.width, canvas.height);
+        for (let at = 0; at < pixels.data.length; at += 1)
+          pixels.data[at] = at % 4 === 3 ? 255 : Math.imul(at, 2654435761) >>> 24;
+        context.putImageData(pixels, 0, 0);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        Object.assign(window, { __fullLength: Math.ceil(blob.size / 3) * 4 });
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+        return transfer;
+      });
+      await field.evaluate(
+        (node, data) =>
+          node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true })),
+        data,
+      );
+      const img = page.locator(".nt-box .acpmux-attachment-image img");
+      await img.waitFor();
+      expect(await img.evaluate((node: HTMLImageElement) => node.naturalHeight)).toBe(160);
+      const { drawn, full } = await page.evaluate(() => {
+        const state = window as unknown as {
+          __chipPictures: { length: number; decoding: string | null }[];
+          __fullLength: number;
+        };
+        return { drawn: state.__chipPictures, full: state.__fullLength };
+      });
+      expect(full).toBeGreaterThan(1_000_000);
+      expect(drawn.length).toBeGreaterThan(0);
+      for (const picture of drawn) {
+        expect(picture.decoding).toBe("sync");
+        expect(picture.length).toBeLessThan(full / 4);
+      }
       await page.close();
     },
   );
