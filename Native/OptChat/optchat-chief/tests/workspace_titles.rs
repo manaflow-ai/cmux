@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use common::*;
 use optchat_chief::state::SubStatus;
 use optchat_chief::subagents::{Spawner, SubagentSettings};
+use optchat_chief::tools::Orchestrator;
 use optchat_chief::workspaces::{self, AGENTS_GROUP_NAME, Workspaces};
 
 /// Real spawn tasks of 2026-10-19 and the titles they must give.
@@ -84,6 +85,7 @@ fn tasks_go_into_topic_groups() {
         ("Title: Mermaid parser\n...", "Markdown & editor"),
         ("Title: Centered pane divider\n...", "Panes & layout"),
         ("Title: Chief default Claude\n...", "Agents & routing"),
+        ("Title: Idle power + wakeups\n...", "Performance"),
         (
             "Title: Domains\nGroup: Accounts & billing\n...",
             "Accounts & billing",

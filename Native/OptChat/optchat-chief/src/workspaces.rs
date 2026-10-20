@@ -201,10 +201,11 @@ fn clip(s: &str) -> String {
             .unwrap_or(head.len());
         format!("{}…", head[..cut].trim_end_matches([',', ';', ':', ' ']))
     };
-    if let Some(c) = out.chars().next() {
-        if c.is_lowercase() && !out.starts_with("cmux") {
-            out = c.to_uppercase().collect::<String>() + &out[c.len_utf8()..];
-        }
+    if let Some(c) = out.chars().next()
+        && c.is_lowercase()
+        && !out.starts_with("cmux")
+    {
+        out = c.to_uppercase().collect::<String>() + &out[c.len_utf8()..];
     }
     out
 }
