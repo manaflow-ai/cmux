@@ -34,10 +34,12 @@ mod outbox;
 mod previews;
 mod prewarm;
 mod recover;
+mod replies;
 mod side;
 mod spawns;
 mod steer;
 mod turns;
+pub use replies::{REACTIONS, tapback};
 pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -180,6 +182,18 @@ pub enum Input {
         id: String,
         message: String,
         key: Option<String>,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `react(id, reaction)` (replies.rs).
+    React {
+        id: u64,
+        reaction: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `reply(id, text)` (replies.rs): the answer goes to `reply`.
+    Reply {
+        id: u64,
+        text: String,
         reply: Sender<Result<String, String>>,
     },
     /// `control(action, ...)` (control.rs).
@@ -561,6 +575,15 @@ pub struct Brain {
     /// id: `(thread_root, parent)` (`membership::thread_target`). In memory
     /// only: after a restart such a reply goes to the top level.
     reply_threads: HashMap<String, (String, String)>,
+    /// The seq of each user message of the Chief conversation, by id, and
+    /// the newest seq it has (any author): whether a reply would sit right
+    /// under the message it answers (`replies.rs`). In memory only: after a
+    /// restart an unknown message counts as not the newest.
+    message_seqs: HashMap<String, u64>,
+    newest_seq: u64,
+    /// The keys of the reactions this host posted (`react` dedupe, besides
+    /// the message's own reactions).
+    reacted: std::collections::HashSet<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
 }
@@ -656,6 +679,9 @@ impl Brain {
             mux_pending: HashMap::new(),
             side_member: HashMap::new(),
             reply_threads: HashMap::new(),
+            message_seqs: HashMap::new(),
+            newest_seq: 0,
+            reacted: std::collections::HashSet::new(),
             previewer: None,
         };
         // Each cut turn runs again first, on the reference client's note;
@@ -883,6 +909,16 @@ impl Brain {
                 let answer = self.tell_keyed(&id, &message, key.as_deref());
                 let _ = reply.send(answer);
             }
+            Input::React {
+                id,
+                reaction,
+                reply,
+            } => {
+                let _ = reply.send(self.react(id, &reaction));
+            }
+            Input::Reply { id, text, reply } => {
+                let _ = reply.send(self.reply_now(id, &text));
+            }
             Input::Control { request, reply } => {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
@@ -1029,7 +1065,20 @@ impl Brain {
     /// (an approved shell command reaches the host the same way). Turning
     /// it off is always allowed.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
-        use crate::chief_settings::{CACHE_TTL, REMOTE_AUTO_APPROVE, parse_bool, parse_ttl};
+        use crate::chief_settings::{
+            CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, parse_bool, parse_reply_threads,
+            parse_ttl,
+        };
+        if key == REPLY_THREADS {
+            let threads = parse_reply_threads(value)?;
+            let mut next = self.chief;
+            next.reply_threads = threads;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {}", threads.as_str()));
+            return Ok(format!("{key} = {}", threads.as_str()));
+        }
         if key == CACHE_TTL {
             // From the next turn on (the native engine: the next host start).
             let ttl = parse_ttl(value)?;
@@ -1046,7 +1095,7 @@ impl Brain {
         }
         if key != REMOTE_AUTO_APPROVE {
             return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL})"
+                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS})"
             ));
         }
         let on = parse_bool(value)?;

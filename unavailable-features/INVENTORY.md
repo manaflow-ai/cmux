@@ -36,7 +36,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 8 | Feature Flags | `help.featureFlags` | needs app capability `feature-flags` | Handlers/SettingsHandlers.swift | S | todo |
 | 9 | Mark agent chat unread | `palette.toggleTabUnread` on a read agent chat | Marking as unread is not available yet | Handlers/TabHandlers+More.swift | S | todo |
 | 10 | Restore Previous App Launch | `reopenPreviousSession` | needs daemon capability `closed-history-v1` | Handlers/WorkspaceHandlers.swift | M | done 9ed6bc901ed |
-| 11 | Toggle Full Width Tab | `palette.toggleFullWidthTab` | needs full-width tab support in the tab strip | Handlers/TabHandlers+More.swift | M | todo |
+| 11 | Toggle Full Width Tab | `palette.toggleFullWidthTab` | needs full-width tab support in the tab strip | Handlers/TabHandlers+More.swift | M | done 034aa40ca6f |
 | 12 | Sleepy Mode | `palette.sleepyMode` | needs app capability `sleepy-mode` | Handlers/WindowHandlers.swift | M | done f7ac14bca75 (left: classic theme/mascot/colors settings section, Low Power toggle, pets) |
 | 13 | Task Manager (2) | `palette.openTaskManager`, `taskManager.killProcess` | needs app capability `task-manager` | Handlers/WindowHandlers.swift | M | done f4c2e82984 (test) + next commit (fix); Kill Process ends local processes only, a remote machine's processes are refused |
 | 14 | Workspace description (2) | `editWorkspaceDescription`, `palette.clearWorkspaceDescription` | needs daemon capability `workspace-description-v1` | Handlers/WorkspaceMetadataHandlers.swift | M (Rust + app) | done 4656386e677 |

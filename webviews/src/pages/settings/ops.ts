@@ -450,6 +450,7 @@ export const settingsPageActions = [
   "palette.openCmuxSettingsFile",
   "openSettings",
   "browserProfile.new",
+  "server.addServer",
   "browserProfile.rename",
   "browserProfile.setColor",
   "browserProfile.clearColor",
