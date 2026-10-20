@@ -18,7 +18,7 @@ optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node 
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
-optchat-chief settings [show | set remote.autoApprove true|false] [--mux-home DIR]
+optchat-chief settings [show | set remote.autoApprove true|false | set replies.thread auto|always|never] [--mux-home DIR]
                                                            per-Chief settings (on only from the Mac, outside a remote-origin turn)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
@@ -86,7 +86,10 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
-        Some(tool @ ("zoom" | "date" | "spawn" | "tell" | "control" | "profile" | "chiefs")) => {
+        Some(
+            tool @ ("zoom" | "date" | "spawn" | "tell" | "react" | "reply" | "control" | "profile"
+            | "chiefs"),
+        ) => {
             let socket = flags
                 .value("socket")
                 .map(PathBuf::from)

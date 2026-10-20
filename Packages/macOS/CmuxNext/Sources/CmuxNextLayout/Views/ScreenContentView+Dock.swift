@@ -219,13 +219,13 @@ extension ScreenContentView {
 }
 
 /// Sort keys for `ensureStacking`, passed through `sortSubviews`' context.
-private nonisolated final class StackingTable: Sendable {
+nonisolated final class StackingTable: Sendable {
     let ranks: [ObjectIdentifier: Int]
     init(ranks: [ObjectIdentifier: Int]) { self.ranks = ranks }
 }
 
 /// `sortSubviews` comparator: reads only the table's immutable ranks.
-private nonisolated func compareStacking(_ a: NSView, _ b: NSView, _ context: UnsafeMutableRawPointer?) -> ComparisonResult {
+nonisolated func compareStacking(_ a: NSView, _ b: NSView, _ context: UnsafeMutableRawPointer?) -> ComparisonResult {
     guard let context else { return .orderedSame }
     let table = Unmanaged<StackingTable>.fromOpaque(context).takeUnretainedValue()
     let x = table.ranks[ObjectIdentifier(a)] ?? 0

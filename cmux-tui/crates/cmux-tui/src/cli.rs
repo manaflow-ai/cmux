@@ -18,6 +18,7 @@ mod app;
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+mod capability_cache;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
@@ -405,8 +406,10 @@ fn run_app_action_fallback(args: &[String]) -> Option<i32> {
         return None;
     }
     let name = command_args[..words].join(" ");
-    app::run_cli_action(&global, &name, &command_args[words..])
-        .or_else(|| action_hint::report(&name, global.output))
+    // `<noun> move-to-window --new` is `<noun> move-to-new-window`.
+    let (name, rest) = app::new_window_spelling(&name, &command_args[words..])
+        .unwrap_or_else(|| (name, command_args[words..].to_vec()));
+    app::run_cli_action(&global, &name, &rest).or_else(|| action_hint::report(&name, global.output))
 }
 
 fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailure> {

@@ -61,8 +61,10 @@ mod prompt_mode_reset;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
+mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;
+pub mod release;
 mod request_origin;
 pub mod resource;
 mod resource_api;

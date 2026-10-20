@@ -90,6 +90,7 @@ final class RootViewController: UIViewController {
         let navigation = UINavigationController(rootViewController: home)
         navigation.navigationBar.prefersLargeTitles = true
         install(navigation)
+        container.chiefCall.homeReady(account: account, presenter: self)
         DebugLaunchTasks.homeShown(store: store, window: view.window)
         #if DEBUG
         if let kind = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_CONVERSATION"] {

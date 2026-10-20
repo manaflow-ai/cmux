@@ -127,8 +127,21 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// beyond the ports and pr entries: the row's status block. Nil when
     /// nothing is reported.
     public var reported: SidebarWorkspaceStatus?
+    /// The sound of the workspace's tabs: a speaker on the row while a tab
+    /// plays sound or is muted; a click on it mutes or unmutes them. Nil
+    /// while every tab is silent.
+    public var audio: SidebarWorkspaceAudio?
+    /// The workspace's checklist in list order (`workspace-checklist-v1`); empty without items.
+    public var checklist: [SidebarChecklistItem] = []
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
     public var detail = SidebarWorkspaceDetail()
+    /// The person's notes for the workspace (Edit Workspace Description…): its first line leads
+    /// the row's second line and the hover card shows it whole. Nil while unset.
+    public var workspaceDescription: String?
+    /// The task lane the person pinned (Mark as Done, Set Workspace Status): the row draws its
+    /// glyph before the title when the workspace has no icon of its own, and the hover card
+    /// names it. Nil while automatic.
+    public var taskStatus: SidebarTaskStatus?
     /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
     /// default (regular).
     public var titleWeight: SidebarRowDecoration.Weight?

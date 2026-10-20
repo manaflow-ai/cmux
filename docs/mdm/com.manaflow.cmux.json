@@ -1128,6 +1128,21 @@
       "title" : "Default Engine",
       "type" : "string"
     },
+    "browser.enabled" : {
+      "default" : true,
+      "description" : "When off, cmux opens no browser tabs for web pages and every link opens in your default browser.",
+      "title" : "Enable cmux Browser",
+      "type" : "boolean"
+    },
+    "browser.freezeHiddenTabs" : {
+      "default" : 30,
+      "description" : "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake. Also accepts a number from 5 to 3600 in a raw profile.",
+      "enum" : [
+        "off"
+      ],
+      "title" : "Freeze Hidden Tabs",
+      "type" : "string"
+    },
     "browser.hibernatePinnedTabs" : {
       "default" : false,
       "description" : "browser.hibernatePinnedTabs",
@@ -1317,6 +1332,12 @@
       "default" : false,
       "description" : "A soft shadow under the glass address bar.",
       "title" : "Address Bar Shadow",
+      "type" : "boolean"
+    },
+    "browser.omnibar.showFullURLs" : {
+      "default" : false,
+      "description" : "Shows the whole address, with https:// and www., when you are not editing it.",
+      "title" : "Always Show Full URLs",
       "type" : "boolean"
     },
     "browser.openLinksInCmuxBrowser" : {
@@ -2050,6 +2071,16 @@
       "title" : "Channels",
       "type" : "boolean"
     },
+    "home.chiefBubbleStyle" : {
+      "default" : "imessage",
+      "description" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors.",
+      "enum" : [
+        "imessage",
+        "theme"
+      ],
+      "title" : "Bubble Style",
+      "type" : "string"
+    },
     "home.chiefPetEnabled" : {
       "default" : false,
       "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
@@ -2137,6 +2168,12 @@
       "title" : "Dock Column Mode",
       "type" : "string"
     },
+    "layout.focusPaneOnScroll" : {
+      "default" : true,
+      "description" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is.",
+      "title" : "Focus Pane on Scroll",
+      "type" : "boolean"
+    },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
       "description" : "layout.frameOrientation",
@@ -2145,6 +2182,17 @@
         "rowMajor"
       ],
       "title" : "Dock Corners",
+      "type" : "string"
+    },
+    "layout.linkPlacement" : {
+      "default" : "split-right",
+      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
+      "enum" : [
+        "split-right",
+        "new-column",
+        "same-pane"
+      ],
+      "title" : "Open Links and Files",
       "type" : "string"
     },
     "layout.minimumPaneHeight" : {
@@ -2465,7 +2513,7 @@
       "type" : "string"
     },
     "notifications.dismissal" : {
-      "default" : "keystroke",
+      "default" : "focus",
       "description" : "notifications.dismissal",
       "enum" : [
         "keystroke",
@@ -2784,6 +2832,23 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "screenshots.findTools" : {
+      "default" : true,
+      "description" : "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap.",
+      "title" : "Find Screenshot Apps",
+      "type" : "boolean"
+    },
+    "screenshots.folders" : {
+      "default" : [
+
+      ],
+      "description" : "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "More Screenshot Folders",
+      "type" : "array"
+    },
     "sessions.keepAwake" : {
       "default" : "pluggedIn",
       "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
@@ -2885,6 +2950,57 @@
       "title" : "Show Hover Cards",
       "type" : "boolean"
     },
+    "sidebar.hoverCards.layout" : {
+      "default" : "timeline",
+      "description" : "What a workspace's hover card shows: its history of prompts and waits, its details, or both.",
+      "enum" : [
+        "timeline",
+        "compact",
+        "log",
+        "classic",
+        "minimal"
+      ],
+      "title" : "Workspace Card Layout",
+      "type" : "string"
+    },
+    "sidebar.hoverCards.maxRows" : {
+      "default" : 20,
+      "description" : "The most prompts, waits and finished turns a workspace's card lists. The list scrolls.",
+      "maximum" : 100,
+      "minimum" : 1,
+      "title" : "Workspace Card History Lines",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.sections.git" : {
+      "default" : true,
+      "description" : "The workspace's branch and pull request.",
+      "title" : "Show Branch in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.ports" : {
+      "default" : true,
+      "description" : "The ports the workspace listens on.",
+      "title" : "Show Ports in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.prompts" : {
+      "default" : true,
+      "description" : "Each prompt you sent and when, in the card's history.",
+      "title" : "Show Prompts in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.timings" : {
+      "default" : true,
+      "description" : "How long the workspace has worked or waited, and how long its command has run.",
+      "title" : "Show Running Times in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.waiting" : {
+      "default" : true,
+      "description" : "When an agent waited for your input or finished its turn, in the card's history.",
+      "title" : "Show Waits in Workspace Cards",
+      "type" : "boolean"
+    },
     "sidebar.minimal" : {
       "default" : false,
       "description" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
@@ -2905,7 +3021,7 @@
     },
     "sidebar.nowPlaying.enabled" : {
       "default" : false,
-      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "description" : "A player for what is playing, at the bottom of the sidebar.",
       "title" : "Show Now Playing",
       "type" : "boolean"
     },
@@ -2960,6 +3076,12 @@
       "default" : true,
       "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
+      "type" : "boolean"
+    },
+    "sidebar.showTimestamps" : {
+      "default" : false,
+      "description" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does.",
+      "title" : "Show Timestamps",
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
@@ -3508,6 +3630,12 @@
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
     },
+    "tabs.newTabNowPlaying" : {
+      "default" : true,
+      "description" : "A player for what is playing, on the New Tab page.",
+      "title" : "Show Now Playing on New Tab",
+      "type" : "boolean"
+    },
     "tabs.newTabPosition" : {
       "default" : "end",
       "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
@@ -3519,9 +3647,10 @@
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
-      "default" : "default",
+      "default" : "cards",
       "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
       "enum" : [
+        "cards",
         "default",
         "composer",
         "threads",

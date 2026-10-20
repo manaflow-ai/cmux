@@ -61,25 +61,41 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
     }
 
     /// Places `event`'s cursor where its target is now.
-    private func draw(_ event: AutomationInputEvent, cursor: inout Cursor, pulse: Bool) {
+    /// A drag glides to the grab, then on to the drop in one plan; `replay`
+    /// (a visibility change, not a new input) puts it at the drop at once.
+    private func draw(_ event: AutomationInputEvent, cursor: inout Cursor, pulse: Bool, replay: Bool = false) {
         let session = event.sessionID
         switch resolver.placement(forTarget: event.targetID) {
         case let .visible(content, clip, zoom, magnification):
-            guard let target = AgentCursorGeometry.overlayPoint(
+            guard var target = AgentCursorGeometry.overlayPoint(
                 of: event, content: content, clip: clip, zoom: zoom, magnification: magnification
             ) else {
                 return
             }
+            var drop = AgentCursorGeometry.dropPoint(of: event, content: content, clip: clip, zoom: zoom, magnification: magnification)
+            if replay, let end = drop {
+                target = end
+                drop = nil
+            }
             if let from = cursor.point {
+                var plan: GlidePlan?
                 if from != target {
-                    host.apply(.glide(session: session, plan: motion.plan(
-                        fromX: from.x, fromY: from.y, toX: target.x, toY: target.y, endHeading: Self.restingHeading
-                    )))
+                    plan = motion.plan(fromX: from.x, fromY: from.y, toX: target.x, toY: target.y, endHeading: Self.restingHeading)
                 }
+                if let drop, drop != target {
+                    let carry = motion.plan(fromX: target.x, fromY: target.y, toX: drop.x, toY: drop.y, endHeading: Self.restingHeading)
+                    if plan == nil { plan = carry } else { plan?.samples += carry.samples }
+                }
+                if let plan { host.apply(.glide(session: session, plan: plan)) }
             } else {
                 host.apply(.place(session: session, point: target))
+                if let drop, drop != target {
+                    host.apply(.glide(session: session, plan: motion.plan(
+                        fromX: target.x, fromY: target.y, toX: drop.x, toY: drop.y, endHeading: Self.restingHeading
+                    )))
+                }
             }
-            cursor.point = target
+            cursor.point = drop ?? target
             if pulse {
                 host.apply(.pulse(session: session))
             }
@@ -103,7 +119,7 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
         for session in cursors.keys.sorted() {
             guard var cursor = cursors[session], !cursor.paused,
                   let event = cursor.lastEvent, event.targetID == target else { continue }
-            draw(event, cursor: &cursor, pulse: false)
+            draw(event, cursor: &cursor, pulse: false, replay: true)
             cursors[session] = cursor
         }
     }
