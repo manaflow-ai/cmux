@@ -179,8 +179,11 @@ key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
   echo "fixture: the merge has the head's tree key" >&2; exit 1; }
 set_runs "$none"
 unset CMUX_TUI_TREE_DISPATCH
+# A fork PR: main's merge-tree publisher never starts, so path routing looks once (wait 0).
+export CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0
 expect "pull request, changed hash, dispatch off (fork)" pull_request failed "no cmux-tui artifacts run"
 [[ "$(posts dispatches)" == 0 ]] || fail "(b) a fork PR (no CMUX_TUI_TREE_DISPATCH) must not dispatch"
+unset CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS
 export CMUX_TUI_TREE_DISPATCH=1
 expect "pull request, changed hash" pull_request deferred
 [[ "$(posts dispatches)" == 1 && "$(posts git/refs)" == 1 ]] || fail "(b) a changed hash needs one pin ref and one dispatch: $(cat "$TMP/posts.log")"
@@ -224,6 +227,30 @@ probe pull_request
 [[ "$state" == failed ]] || fail "(d) with no publisher the probe must still fail"
 (( took < 15 )) || fail "(d) the wait must be bounded"
 unset REFUSE_WRITES CMUX_TUI_TREE_DISPATCH CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS
+
+# (e) Path routing is read-only since e93faa5f1fb0 (CMUX_TUI_TREE_DISPATCH is
+# empty), so a same-repository PR with its own merge tree never reaches the
+# dispatch path. Main's cmux-next-pr-merge-tree.yml has already pinned the merge
+# commit and its cmux-tui artifacts run is active: the probe must look for that
+# run (reads only) and defer, not fail with "no cmux-tui artifacts run can
+# publish tree" (PR #22580, run 39491343806, 2026-10-20).
+: > "$TMP/posts.log"
+set_runs "$active"
+expect "pull request, own merge tree, read-only probe, main's publisher active" pull_request deferred "active cmux-tui artifacts run"
+[[ ! -s "$TMP/posts.log" ]] || fail "(e) the read-only probe must not write: $(cat "$TMP/posts.log")"
+# The publisher appears during the bounded wait.
+set_runs "$none"
+export CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=8 CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS=1
+fake_clock_at 2 "printf '%s\\n' '$active' > '$runs_dir/runs'"
+probe pull_request
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(e) a publish started from main during the wait must be deferred to"
+# Nothing starts: the bounded wait ends and the check still fails, without writing.
+set_runs "$none"
+probe pull_request
+[[ "$state" == failed ]] || fail "(e) with no publisher the read-only probe must still fail"
+(( took < 15 )) || fail "(e) the wait must be bounded"
+[[ ! -s "$TMP/posts.log" ]] || fail "(e) the read-only probe must not write: $(cat "$TMP/posts.log")"
+unset CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS
 
 
 # (d) A pull request that changes no cmux-tui or ghostty-next path is not
