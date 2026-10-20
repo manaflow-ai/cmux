@@ -498,6 +498,24 @@ struct RemoteTmuxMirrorTargetingTests {
         ])
     }
 
+    @Test func sanitizedMetadataDoesNotOverwriteLivePaneHeader() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows(["@2 abcd,120x40,0,0,5 abcd,120x40,0,0,5 [] logs"])
+        let header = "HDR cmux_title_metadata_v1 quoted"
+        harness.connection.handleMessageForTesting(.subscriptionChanged(
+            name: "\(RemoteTmuxControlConnection.headerSubscriptionPrefix)5",
+            paneId: 5,
+            value: header
+        ))
+        // A C-locale tmux control client sanitizes each 0x1f separator to '_'.
+        try harness.drainThroughPaneRects([2: [
+            "%5 0 0 120 40 1 off :\(header)cmux_title_metadata_v1_build_host.example_host",
+        ]])
+        #expect(harness.connection.paneHeaderLabels[5] == header)
+        #expect(harness.connection.paneTitleMetadataByPane[5] == nil)
+    }
+
     @Test func cmuxPaneRenameTargetsItsTmuxPaneAndRemoteRenameReturnsToCmux() throws {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
