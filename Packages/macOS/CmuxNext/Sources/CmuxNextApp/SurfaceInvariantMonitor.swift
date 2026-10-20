@@ -3,7 +3,8 @@ import os
 import CmuxNextWakeups
 
 /// Checks, once layout and presentation settle after a change, that every
-/// visible pane's selected tab shows an installed, drawing surface with a
+/// visible pane with tabs has a shown selected tab (pane-active-tab-DESIGN.md)
+/// and that its selected tab shows an installed, drawing surface with a
 /// non-zero grid (no blank panes). A violation is logged (a fault in debug
 /// builds) and counted for `debug.surfaces`; nothing is repaired here, so a
 /// lifecycle bug stays visible instead of being papered over.
@@ -57,6 +58,11 @@ final class SurfaceInvariantMonitor {
     func check() {
         guard let services else { return }
         checks += 1
+        for row in SurfaceDiagnosticsReport.statuses(services) where row.status.isSelectionMissing {
+            violations += 1
+            let status = row.status
+            logger.error("pane without a shown active tab \(status.paneKey, privacy: .public) tabs=\(status.tabCount) selected=\(status.selectedTab ?? "-", privacy: .public) hidden=\(status.selectedHidden)")
+        }
         for row in SurfaceDiagnosticsReport.statuses(services) where row.status.isBlank {
             violations += 1
             let status = row.status

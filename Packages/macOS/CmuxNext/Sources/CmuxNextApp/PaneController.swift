@@ -46,6 +46,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
+    /// The collapsed group this pane last asked the daemon to expand for its selected tab (once per selection).
+    private var expandRequested: (tab: String, group: TabGroupID)?
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     #if DEBUG
     private var debugSnapshotRuns = 0
@@ -56,7 +58,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var tabs: [TabModel] // the daemon tabs shown, in order
         var items: [StripTabItem]
         var groups: [TabGroupItem]
-        var defaultIndex: Int
+        /// The daemon's active tab (its shared default) by id: the strip's list has
+        /// another shape (dock-bound tabs left out, local tabs added), so never an index.
+        var defaultTab: String?
         var generation: String?
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
         var fullWidthTab = false // PaneFullWidthTabs: the strip shows only the selected tab
@@ -178,7 +182,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // (plans/cmux-next/home-chief-pane.md).
         let homeChief = dock.map { LayoutMapping.dock($0).hidesTabBar(shownTabs: tabs.count + local.count) } ?? false
         return Snapshot(tabs: tabs, items: local, groups: groups,
-                         defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
+                         defaultTab: pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil,
+                         generation: store.generation?.rawValue,
                          // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
                          hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
@@ -275,8 +280,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
         let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
         let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue),
-                                                defaultIndex: snapshot.defaultIndex, hidden: hidden) { services.cache.pageRequests.openers.relations(among: pane.tabs) }
+                                                defaultTab: snapshot.defaultTab, hidden: hidden) { services.cache.pageRequests.openers.relations(among: pane.tabs) }
         setStripSelection(selected.map { StripTabID($0) })
+        expandGroupHiding(selected, items: snapshot.items, collapsed: collapsed)
         let selectedID = stripModel.selectedID
         if selectNew {
             // A tab this window created: show it now (focus is the
@@ -293,6 +299,19 @@ final class PaneController: SurfacePresenter, PresentablePane {
         sendTopologyIfChanged()
         dropClosedParked(snapshot)
         remapViewedTab()
+    }
+
+    /// The selection stays hidden only when the user picked a member of a collapsed group
+    /// (`TabSelectionMemory`); the strip's own expansion is overwritten by the daemon's next
+    /// snapshot, so the daemon expands the group. Asked once per tab and group.
+    private func expandGroupHiding(_ selected: String?, items: [StripTabItem], collapsed: Set<TabGroupID>) {
+        guard let selected, let group = items.first(where: { $0.id.rawValue == selected })?.groupID, collapsed.contains(group) else {
+            expandRequested = nil
+            return
+        }
+        guard expandRequested?.tab != selected || expandRequested?.group != group else { return }
+        expandRequested = (selected, group)
+        handleGroup(.toggleGroupCollapsed(group))
     }
 
     /// Maps the strip again for a tab whose attention dot went (`setStripSelection`), once.

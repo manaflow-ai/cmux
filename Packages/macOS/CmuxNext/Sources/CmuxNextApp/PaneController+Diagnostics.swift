@@ -13,6 +13,10 @@ struct PaneSurfaceStatus {
     var presence: String
     var selectedTab: String?
     var shownTab: String?
+    /// Tabs in the pane's strip (daemon and local).
+    var tabCount = 0
+    /// The selected tab is a member of a collapsed group (the strip does not show it).
+    var selectedHidden = false
     var kind: String
     var contentInstalled: Bool
     var contentInWindow: Bool
@@ -50,6 +54,12 @@ struct PaneSurfaceStatus {
         return foreignPages > 0
     }
 
+    /// A visible pane with tabs but no selected tab, or a selected tab its strip hides
+    /// (plans/cmux-next/pane-active-tab-DESIGN.md I2/I5): the user sees no active tab.
+    var isSelectionMissing: Bool {
+        isVisible && tabCount > 0 && (selectedTab == nil || selectedHidden)
+    }
+
     /// An off-screen pane in the keep-alive band whose selected tab has no
     /// live, installed content: scrolling to it would show blank frames
     /// while it re-attaches.
@@ -73,6 +83,8 @@ struct PaneSurfaceStatus {
             "content_in_window": .bool(contentInWindow),
             "content_size": .string("\(Int(contentSize.width))x\(Int(contentSize.height))"),
             "blank": .bool(isBlank),
+            "tab_count": JSONValue(tabCount),
+            "selection_missing": .bool(isSelectionMissing),
             "collapsed": .bool(isCollapsed),
             "content_visible": .bool(page?.isVisible ?? (terminal?.isPresentable ?? contentInstalled)),
             "foreign_pages": JSONValue(foreignPages),
@@ -166,6 +178,9 @@ extension PaneController {
             presence: presenceName,
             selectedTab: stripModel.selectedID?.rawValue,
             shownTab: currentTabKey,
+            tabCount: stripModel.tabs.count,
+            selectedHidden: stripModel.selectedID.flatMap { stripModel.tab($0)?.groupID }
+                .map { group in stripModel.groups.contains { $0.id == group && $0.isCollapsed } } ?? false,
             kind: kind,
             contentInstalled: installed,
             contentInWindow: view?.window != nil,

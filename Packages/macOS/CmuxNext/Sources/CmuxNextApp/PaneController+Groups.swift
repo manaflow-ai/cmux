@@ -22,9 +22,12 @@ extension PaneController {
         case .toggleGroupCollapsed(let id):
             let group = TabGroupID_(id)
             let collapsed = !(stripModel.group(id)?.isCollapsed ?? false)
-            if collapsed, let selected = stripModel.selectedID, stripModel.tab(selected)?.groupID == id,
-               let outside = stripModel.orderedTabs.first(where: { $0.groupID != id }) {
-                select(outside.id)
+            // The one collapse rule (`TabGroupOrdering`), the same `TabSelectionMemory` applies
+            // when the collapse comes from elsewhere: nearest shown tab right, else left.
+            if collapsed, let next = TabGroupOrdering.selectionBeforeCollapsing(
+                id, in: stripModel.orderedTabs, collapsed: Set(stripModel.groups.filter(\.isCollapsed).map(\.id)),
+                selected: stripModel.selectedID) {
+                select(next)
             }
             groupCommand("update-tab-group", intent: .setTabGroupCollapsed(group, collapsed: collapsed)) { connection, transaction in
                 if v2 { return try await connection.state.updateTabGroup(group.rawValue, collapsed: collapsed) }
