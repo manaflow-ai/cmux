@@ -40,8 +40,27 @@ def nightly_workflows() -> list[Path]:
     return sorted(paths)
 
 
+# Jobs in a nightly file that are not part of any nightly build. nightly.yml
+# `refresh-test-compilation-cache` warms the pull-request admission cache on the
+# Blacksmith pools that admission reads (tests/test_seed_derived_data.py pins
+# its pools to seed-derived-data.yml). It runs only from the main schedule
+# while CI_PR_POOL_OWNED != '1', or on a seed_only dispatch, never on a
+# nightly-next push, and nothing in the nightly needs it.
+NOT_NIGHTLY_JOBS = {"nightly.yml": ("refresh-test-compilation-cache",)}
+JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
+
+
 def code_lines(path: Path):
+    skipped = NOT_NIGHTLY_JOBS.get(path.name, ())
+    current_job = None
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        header = JOB_HEADER.match(line)
+        if header:
+            current_job = header.group(1)
+        elif line and not line.startswith(" "):
+            current_job = None
+        if current_job in skipped:
+            continue
         if line.lstrip().startswith("#"):
             continue
         yield number, line.split(" # ", 1)[0]
@@ -112,6 +131,42 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
             self.assertIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", runs_on)
             self.assertIn("glaeda-trusted-next-nightly", runs_on)
 
+    def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
+        """The jobs that start a NEXT nightly are part of the nightly path.
+
+        A feat-cmux-next push asks main to promote nightly-next from
+        cmux-next.yml and cmux-tui-artifacts.yml (`request-nightly-next`). On
+        Blacksmith those requests queued behind its pool like the nightly's own
+        jobs, so no nightly started. They must run on GitHub-hosted Linux.
+        """
+        for name in ("cmux-next.yml", "cmux-tui-artifacts.yml"):
+            text = (WORKFLOWS / name).read_text(encoding="utf-8")
+            if "\n  request-nightly-next:" not in text:
+                continue
+            job = text[text.index("\n  request-nightly-next:") + 1:]
+            following = re.search(r"\n  [A-Za-z0-9_-]+:\n", job[1:])
+            job = job[: following.start() + 1] if following else job
+            runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
+            with self.subTest(workflow=name):
+                self.assertNotRegex(runs_on.split(" # ", 1)[0], BLACKSMITH)
+                self.assertNotRegex(runs_on, SHARED_RUNNER_VARIABLES)
+
+    @unittest.skipUnless((WORKFLOWS / "cmux-next.yml").exists(), "no cmux-next on this branch")
+    def test_a_schedule_starts_a_nightly_next_at_least_twice_a_day(self) -> None:
+        """Pushes alone are not a trigger: a red or cancelled push run asks nothing.
+
+        GitHub runs `schedule` only from the default branch, so the tick
+        workflow must exist on main too; it asks for the newest green
+        feat-cmux-next commit and can also be started by hand.
+        """
+        path = WORKFLOWS / "nightly-next-tick.yml"
+        self.assertTrue(path.exists(), "nightly-next-tick.yml must exist")
+        text = path.read_text(encoding="utf-8")
+        crons = re.findall(r"^\s+- cron: \"([^\"]+)\"", text, re.MULTILINE)
+        self.assertGreaterEqual(len(crons), 2)
+        self.assertIn("workflow_dispatch:", text)
+        self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
+        self.assertIn("cancel-in-progress: false", text)
 
 if __name__ == "__main__":
     unittest.main()
