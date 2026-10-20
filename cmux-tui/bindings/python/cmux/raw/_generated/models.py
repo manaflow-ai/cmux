@@ -2019,6 +2019,13 @@ class TerminalResourcesResult:
 
 
 @dataclass(frozen=True)
+class TerminalResumeCommandResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalResumeCommandResult'
+    terminal_id: str
+    command: Union[str, None]
+
+
+@dataclass(frozen=True)
 class Tree:
     __cmux_schema_path__: ClassVar[str] = 'types/Tree'
     workspaces: List[Workspace]
@@ -4656,6 +4663,14 @@ class TerminalResourcesRequest:
 
 
 @dataclass(frozen=True)
+class TerminalResumeCommandRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-resume-command/request'
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    command: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class UndoLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/undo-layout/request'
     pane: Id
@@ -6043,6 +6058,7 @@ __all__ = [
     'TerminalResourceProcess',
     'TerminalResources',
     'TerminalResourcesResult',
+    'TerminalResumeCommandResult',
     'Tree',
     'ViewportPaneWidthResult',
     'VtStateResult',
@@ -6353,6 +6369,7 @@ __all__ = [
     'TerminalHistoryRequest',
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
+    'TerminalResumeCommandRequest',
     'UndoLayoutRequest',
     'UngroupScreenGroupRequest',
     'UngroupTabGroupRequest',
