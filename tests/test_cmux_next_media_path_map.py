@@ -35,6 +35,9 @@ class TourFilePathTests(unittest.TestCase):
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/RowBadgeView.swift"), ["core"])
         self.assertEqual(
             path_map.tours_for_path("webviews/src/agent-session/acpmux/harnesses/harnesses.css"), ["agent-pane"])
+        self.assertEqual(
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceHoverCard.swift"),
+            ["hover-card"])
 
     def test_the_home_list_routes_to_the_home_tour(self) -> None:
         for path in ("Packages/macOS/CmuxNext/Sources/CmuxNextHome/Sidebar/HomeSidebarView.swift",
