@@ -99,10 +99,13 @@ struct WorkspaceCanvasHostView: View {
         }
     }
 
+    /// Canvas tab chrome for one panel. The title resolves through the
+    /// workspace like the split tab bar's, so a rename-tab custom title
+    /// (and the terminal's reported title) wins over the panel default.
     static func tabChrome(panelId: UUID, panel: any Panel, workspace: Workspace) -> CanvasTabChrome {
         CanvasTabChrome(
             id: panelId,
-            title: panel.displayTitle,
+            title: workspace.panelTitle(panelId: panelId) ?? panel.displayTitle,
             iconSystemName: panel.displayIcon ?? defaultIcon(for: panel.panelType)
         )
     }
