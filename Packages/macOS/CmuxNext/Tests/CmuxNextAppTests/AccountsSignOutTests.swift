@@ -1,5 +1,6 @@
 import CmuxNextAccounts
 import CmuxNextCodeRouter
+import Foundation
 import Testing
 
 /// Settings > Accounts: Sign Out per provider runs the provider's own logout,
