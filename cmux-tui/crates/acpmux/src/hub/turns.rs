@@ -564,6 +564,7 @@ impl Hub {
         // preview) are applied before the turn settles, so every record below
         // and the chat activity it sends see them.
         Self::drain_inbound(session).await;
+        let git = super::turn_git::turn_git(session).await;
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -585,8 +586,7 @@ impl Hub {
                     }
                     o.extend(super::turn_usage::turn_usage(session, v));
                 }
-                self.record_last_turn(session, &msg);
-                self.append(session, "mux", "turn_result", msg);
+                self.write_turn_result(session, msg, git);
             }
             Err(e) => {
                 self.append(
@@ -608,8 +608,7 @@ impl Hub {
                         o.extend(info.clone());
                     }
                 }
-                self.record_last_turn(session, &msg);
-                self.append(session, "mux", "turn_result", msg);
+                self.write_turn_result(session, msg, git);
             }
         }
         self.reset_stream(session);

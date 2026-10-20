@@ -56,13 +56,11 @@ class RunChecksConcurrently(unittest.TestCase):
         document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         step = next(step for step in document["jobs"]["checks"]["steps"] if step.get("id") == "script-tests")
         self.assertIn("scripts/ci/run-checks-concurrently.sh <<'CHECKS'", step["run"])
-        pool, timed = step["run"].split("--jobs 2 <<'CHECKS'", 1)
-        # These two assert wall-clock limits: never in the wide pool.
+        # The waits these two assert run on a virtual clock, so the wide pool cannot slow them into a failure.
         for script in ("pin-cmux-tui-run-check.test.sh", "pin-cmux-tui-probe.test.sh"):
-            self.assertNotIn(script, pool)
-            self.assertIn(f"bash scripts/cmux-next/tests/{script}", timed)
-        self.assertIn('exit "$status"', step["run"])
-
+            self.assertIn(f"bash scripts/cmux-next/tests/{script}", step["run"])
+            source = (ROOT / "scripts/cmux-next/tests" / script).read_text(encoding="utf-8")
+            self.assertIn('fake_clock_install "$TMP/clock"', source)
 
 if __name__ == "__main__":
     unittest.main()

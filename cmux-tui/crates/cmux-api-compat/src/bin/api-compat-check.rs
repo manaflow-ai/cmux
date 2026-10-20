@@ -15,6 +15,7 @@ use std::process::ExitCode;
 
 use cmux_api_compat::Schema;
 use cmux_api_compat::coverage::{Snapshot, Verdict, check, surface_from_sdk_schema};
+use cmux_api_compat::fixtures::{Fixtures, check_fixtures};
 
 const HELP: &str = "\
 How to fix: add a revision to spec/api-compat.json with one rule per break
@@ -55,6 +56,19 @@ fn run(root: &std::path::Path, write: bool) -> Result<ExitCode, Box<dyn std::err
     let snapshot_path = spec.join("api-compat.surface.json");
     let surface = surface_from_sdk_schema(&sdk);
     let snapshot: Snapshot = serde_json::from_slice(&std::fs::read(&snapshot_path)?)?;
+    let fixtures: Fixtures =
+        serde_json::from_slice(&std::fs::read(spec.join("api-compat-fixtures.json"))?)?;
+    let fixture_problems = check_fixtures(&compat, &fixtures);
+    if !fixture_problems.is_empty() {
+        eprintln!("api-compat-check: spec/api-compat-fixtures.json does not match the rules:");
+        for problem in &fixture_problems {
+            eprintln!("  - {problem}");
+        }
+        eprintln!(
+            "Every rule needs a fixture case crossing it in both directions; the cross-version matrix replays them."
+        );
+        return Ok(ExitCode::FAILURE);
+    }
     match check(&snapshot, &surface, &compat) {
         Verdict::Clean => {
             println!("api-compat-check: protocol surface matches revision {}", compat.current());
