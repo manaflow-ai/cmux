@@ -89,3 +89,26 @@ fn import_rejects_oversized_visit_fields() {
     assert!(error.contains("field is too large"), "{error}");
     assert_eq!(target.count().unwrap(), 0, "a refused import committed partial rows");
 }
+
+#[test]
+fn import_prunes_expired_visits_in_the_import_transaction() {
+    let scratch = Scratch::new("retention");
+    let source_path = scratch.path("History.sqlite");
+    let source = source(&source_path);
+    source
+        .execute(
+            "INSERT INTO visits(url, title, visit_time_ms, tab)
+             VALUES ('https://expired.example.test', 'expired', 1, NULL)",
+            [],
+        )
+        .unwrap();
+    drop(source);
+    let target = VisitStore::open(&scratch.path("target.sqlite")).unwrap();
+
+    assert_eq!(target.import(&source_path).unwrap(), 1);
+    assert_eq!(
+        target.count().unwrap(),
+        0,
+        "an expired import survived until the next hourly prune"
+    );
+}
