@@ -419,3 +419,153 @@ describe("markdown table width memory", () => {
     expect(widthTables.parseSavedTableWidths("nope")).toEqual([]);
   });
 });
+
+// The column line and the resize cursor show together (user 2026-10-20: hovering a column line
+// "sometimes highlights the line but the cursor doesn't change", so it looks draggable but is
+// not). The cursor comes from the handle element (`cursor: col-resize`), so: wherever the hover
+// shows the line, the pointer is over the handle, and wherever it is over the handle, a press
+// drags. jsdom lays nothing out, so cells get real rects here: column c spans [c*100, (c+1)*100)
+// minus the wrapper's scroll offset, rows 30px each, and the handle's box comes from its inline
+// style plus the stylesheet's defaults (width 9px, margin-left -5px) where it sets none.
+describe("markdown table resize hover", () => {
+  const ROW = 30;
+  let scroll = 0;
+  let wrapperWidth = 200;
+  let boxed: unknown;
+  const rect = (left: number, top: number, width: number, height: number) => ({
+    left,
+    top,
+    right: left + width,
+    bottom: top + height,
+    width,
+    height,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  });
+  beforeAll(() => {
+    const prototype = dom.window.Element.prototype as unknown as Record<string, unknown>;
+    boxed = prototype.getBoundingClientRect;
+    prototype.getBoundingClientRect = function (this: Element) {
+      if (this.tagName === "TD" || this.tagName === "TH") {
+        const cell = this as HTMLTableCellElement;
+        const row = (cell.parentElement as HTMLTableRowElement).rowIndex;
+        return rect(cell.cellIndex * CELL - scroll, row * ROW, CELL, ROW);
+      }
+      if (this.tagName === "TABLE") return rect(-scroll, 0, 2 * CELL, 3 * ROW);
+      if (this.classList.contains("tableWrapper")) return rect(0, 0, wrapperWidth, 3 * ROW);
+      return rect(0, 0, 0, 0);
+    };
+  });
+  afterAll(() => {
+    (dom.window.Element.prototype as unknown as Record<string, unknown>).getBoundingClientRect = boxed;
+  });
+  afterEach(async () => {
+    scroll = 0;
+    wrapperWidth = 200;
+    for (const editor of widthEditors.splice(0)) await editor.destroy();
+  });
+
+  async function table() {
+    const md = await openWithWidths(
+      PLAIN_TABLE,
+      widthTables.storedTableWidths(() => undefined, null),
+    );
+    const wrapper = md.view.dom.querySelector(".tableWrapper") as HTMLElement;
+    Object.defineProperty(wrapper, "scrollLeft", { configurable: true, get: () => scroll, set: () => {} });
+    Object.defineProperty(wrapper, "clientWidth", { configurable: true, get: () => wrapperWidth });
+    Object.defineProperty(wrapper, "scrollWidth", { configurable: true, get: () => Math.max(wrapperWidth, 2 * CELL) });
+    const handle = wrapper.querySelector(".md-col-resize") as HTMLElement;
+    const cells = (row: number) => [...wrapper.querySelectorAll("tr")[row]!.children] as HTMLElement[];
+    /** The handle's box in client x (its style, the stylesheet's defaults where it sets none). */
+    const handleBox = () => {
+      const px = (value: string, fallback: number) => (value ? parseFloat(value) : fallback);
+      const left = px(handle.style.left, 0) + px(handle.style.marginLeft, -5) - scroll;
+      return { left, right: left + px(handle.style.width, 9) };
+    };
+    /** Whether the pointer at `x` is over the shown handle (where the col-resize cursor shows). */
+    const overHandle = (x: number) => !handle.hidden && x >= handleBox().left && x < handleBox().right;
+    /** The element under the pointer at (x, y): the shown handle on top, else the cell, else the wrapper. */
+    const under = (x: number, y: number): Element => {
+      if (overHandle(x)) return handle;
+      const row = Math.floor(y / ROW);
+      const column = Math.floor((x + scroll) / CELL);
+      return row >= 0 && row < 2 && column >= 0 && column < 2 ? cells(row)[column]! : wrapper;
+    };
+    const hover = (x: number, y: number) =>
+      under(x, y).dispatchEvent(new dom.window.MouseEvent("mousemove", { bubbles: true, clientX: x, clientY: y }));
+    return { md, wrapper, handle, cells, handleBox, overHandle, hover, under };
+  }
+
+  test("the line shows exactly where the resize cursor does, in the header and in the body", async () => {
+    const t = await table();
+    const mismatches: string[] = [];
+    for (const y of [ROW / 2, ROW + ROW / 2]) {
+      for (let x = 80; x <= 120; x += 0.5) {
+        t.hover(x, y);
+        // The line shows (the handle is not hidden) only with the pointer on the handle.
+        if (!t.handle.hidden && !t.overHandle(x)) mismatches.push(`y=${y} x=${x}: line without cursor`);
+        // Near the boundary between the two columns, the line shows.
+        if (Math.abs(x - CELL) < 3 && t.handle.hidden) mismatches.push(`y=${y} x=${x}: no line at the boundary`);
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  test("the last column's handle stays inside the table's box", async () => {
+    const t = await table();
+    for (let x = 190; x < 200; x += 0.5) {
+      t.hover(x, ROW / 2);
+      if (t.handle.hidden) continue;
+      expect(t.overHandle(x)).toBe(true);
+      expect(t.handleBox().right).toBeLessThanOrEqual(wrapperWidth);
+    }
+    t.hover(198, ROW / 2);
+    expect(t.handle.hidden).toBe(false);
+  });
+
+  test("a press wherever the line shows drags the column", async () => {
+    const t = await table();
+    const scope = globalThis as Record<string, unknown>;
+    const saved = [scope.addEventListener, scope.removeEventListener];
+    scope.addEventListener = dom.window.addEventListener.bind(dom.window);
+    scope.removeEventListener = dom.window.removeEventListener.bind(dom.window);
+    try {
+      for (let x = 90; x <= 110; x += 0.5) {
+        t.hover(x, ROW / 2);
+        if (t.handle.hidden) continue;
+        const target = t.under(x, ROW / 2);
+        target.dispatchEvent(
+          new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0, detail: 1, clientX: x, clientY: 15 }),
+        );
+        expect([x, t.wrapper.classList.contains("md-col-resizing")]).toEqual([x, true]);
+        dom.window.dispatchEvent(new dom.window.MouseEvent("mouseup", { clientX: x, clientY: 15 }));
+      }
+    } finally {
+      [scope.addEventListener, scope.removeEventListener] = saved;
+    }
+  });
+
+  test("a scrolled wide table: the line follows the pointer, never a stale spot", async () => {
+    wrapperWidth = 150;
+    const t = await table();
+    t.hover(CELL - 1, ROW / 2);
+    expect(t.overHandle(CELL - 1)).toBe(true);
+    // The table scrolls 30px under a still pointer: the line it showed moved away with it.
+    scroll = 30;
+    t.wrapper.dispatchEvent(new dom.window.Event("scroll"));
+    expect(t.handle.hidden || t.overHandle(CELL - 1)).toBe(true);
+    // Over the scrolled boundary (now at x=70), the line and the cursor show together.
+    t.hover(CELL - 30 - 1, ROW / 2);
+    expect(t.overHandle(CELL - 30 - 1)).toBe(true);
+  });
+
+  test("after a resize the new boundary has the line and the cursor", async () => {
+    const t = await table();
+    t.md.drag(0, 50, 2);
+    // The stub keeps 100px cells, so the boundary the hover sees stays at 100: it still lines up.
+    t.hover(CELL + 1, ROW + ROW / 2);
+    expect(t.handle.hidden).toBe(false);
+    expect(t.overHandle(CELL + 1)).toBe(true);
+  });
+});
