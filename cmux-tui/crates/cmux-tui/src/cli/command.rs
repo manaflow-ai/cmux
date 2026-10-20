@@ -717,6 +717,22 @@ fn parse_pane_strings(
                 )?;
             }
             insert_optional_string(&mut params, flags, "cwd", "cwd");
+            // The new pane runs this instead of a shell, so no empty shell
+            // tab is left beside the command's (agent evals, mode 3).
+            match (argv, flags.take("shell")) {
+                (None, None) => {}
+                (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
+                    params.insert("argv".into(), json!(argv));
+                }
+                (None, Some(script)) if !script.is_empty() => {
+                    params.insert("shell".into(), Value::String(script));
+                }
+                _ => return Err(UsageError::new("give exact argv after -- or one --shell script")),
+            }
+            // A script's split keeps the user's focus unless it asks.
+            if flags.boolean("focus") {
+                params.insert("focus".into(), Value::Bool(true));
+            }
             add_size(&mut params, flags)?;
             request(ResourceOperation::PaneSplit, selectors, flags, params)
         }
@@ -843,6 +859,7 @@ fn parse_tab_strings(
             }
             params.insert("url".into(), Value::String(url));
             insert_optional_string(&mut params, flags, "name", "name");
+            browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
@@ -3095,6 +3112,39 @@ mod tests {
     }
 
     #[test]
+    fn browser_open_and_tab_create_browser_take_an_engine() {
+        let chromium = protocol(&["browser", "open", "https://a.test", "--engine", "chromium"]);
+        assert_eq!(chromium.params["engine"], "cef");
+        let chrome = protocol(&[
+            "tab",
+            "create",
+            "browser",
+            "--url",
+            "https://a.test",
+            "--engine",
+            "Chrome",
+        ]);
+        assert_eq!(chrome.params["engine"], "cef");
+        let webkit = protocol(&["browser", "open", "https://a.test", "--engine", "webkit"]);
+        assert_eq!(webkit.params["engine"], "webkit");
+        // No flag: no field, so `browser.defaultEngine` decides.
+        assert!(protocol(&["browser", "open", "https://a.test"]).params.get("engine").is_none());
+        let profile = protocol(&[
+            "browser",
+            "profile",
+            "open",
+            "https://a.test",
+            "--profile",
+            "p",
+            "--engine",
+            "chromium",
+        ]);
+        assert_eq!(profile.params["engine"], "cef");
+        let unknown = strings(&["browser", "open", "https://a.test", "--engine", "gecko"]);
+        assert!(parse(&unknown, super::super::Surface::CmuxTui).is_err());
+    }
+
+    #[test]
     fn terminal_keep_maps_to_the_private_set_terminal_keep_command() {
         const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
         let on = raw_request(&["terminal", TERMINAL, "keep", "on"]);
@@ -3345,6 +3395,16 @@ mod tests {
         assert_eq!(terminal.params["initial_content"], "terminal");
         let empty = protocol(&["workspace", "create", "--empty"]);
         assert_eq!(empty.params["initial_content"], "empty");
+    }
+
+    /// Agents pass `--no-focus` out of habit (`cmux open`, other CLIs).
+    /// Creating a workspace never moves focus, so the flag is accepted and
+    /// changes nothing.
+    #[test]
+    fn workspace_create_accepts_no_focus_as_a_no_op() {
+        let plain = protocol(&["workspace", "create", "--name", "w"]);
+        let quiet = protocol(&["workspace", "create", "--no-focus", "--name", "w"]);
+        assert_eq!(quiet.params, plain.params);
     }
 
     #[test]
@@ -4313,6 +4373,7 @@ mod tests {
     }
 
     mod name_source_tests;
+    mod split_focus_tests;
     mod transport_path_coverage_tests;
 
     fn record_covered_fields<'a>(

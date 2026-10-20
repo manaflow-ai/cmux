@@ -306,8 +306,7 @@ enum PartRenderer {
                 ctx.drawLinearGradient(Fixture.outgoingGradient, start: CGPoint(x: 0, y: -windowY),
                                        end: CGPoint(x: 0, y: Fixture.gradientHeight - windowY), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
             } else {
-                BubbleView.drawBubble(ctx, body: RowDraw.balloon(body, row: p), lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY,
-                                      cornersOf: body.size, circularEnds: RowDraw.circularEnds(p))
+                BubbleView.drawBubble(ctx, shape: BubblePath.balloon(frame: body, row: p), outgoing: p.outgoing, windowY: windowY) // cmux: shared outline
             }
             ctx.restoreGState()
             _ = lines
@@ -358,8 +357,7 @@ enum PartRenderer {
             if p.outgoing, SoftBalloon.clip(ctx, frame: body, row: p) {
                 ctx.fill(ctx.boundingBoxOfClipPath)
             } else {
-                BubblePath.make(body: RowDraw.balloon(body, row: p), outgoing: p.outgoing, tail: p.tail, cornersOf: body.size,
-                                circularEnds: RowDraw.circularEnds(p)).fill()
+                BubblePath.balloon(frame: body, row: p).fill() // cmux: shared outline
             }
             ctx.restoreGState()
         }
@@ -577,53 +575,11 @@ enum PartRenderer {
         }
     }
 
-    /// Thread preview (measured, macOS 26): an outlined bubble with the root's
-    /// thumbnail, title and site; or, for a photo, a small thumbnail bubble.
-    /// Then a 2.5 pt stub at x 33.75 and "N Replies" (2 or more replies).
+    /// cmux: thread preview: the quoted root (a copy of its bubble, `drawQuoteBubble`) at the left edge, then a 2.5 pt
+    /// stub at x 33.75 and "N Replies" (2 or more replies).
     static func drawThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, width: CGFloat) {
-        let left = Fixture.leftEdge
-        let box = CGRect(x: left, y: top, width: pv.box.width, height: pv.box.height)
-        if pv.isThumbnail, case let .attachment(a) = pv.part {
-            ctx.saveGState()
-            BubblePath.make(body: box, outgoing: false, tail: true).addClip()
-            Fixture.incoming.setFill()
-            ctx.fill(box.insetBy(dx: -10, dy: -10))
-            if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let img = Images.load(ref) {
-                let s = max(box.width / img.size.width, box.height / img.size.height)
-                let w = img.size.width * s, h = img.size.height * s
-                // The tail shows the image too: draw it a little past the body.
-                img.draw(in: CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h + 6))
-            }
-            ctx.restoreGState()
-        } else if pv.isText {
-            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: false, tail: true)
-            path.lineWidth = 1
-            PreviewStyle.stroke.setStroke()
-            path.stroke()
-            for (i, line) in pv.textLines.enumerated() {
-                TextDraw.line(line, font: ThreadPreview.textFont, color: PreviewStyle.textGray, x: box.minX + 8,
-                              baseline: box.minY + 16.5 + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
-            }
-        } else {
-            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: false, tail: true)
-            path.lineWidth = 1
-            PreviewStyle.stroke.setStroke()
-            path.stroke()
-            let thumb = CGRect(x: box.minX + 6.5, y: box.minY + 10.5, width: 26, height: 26)
-            ctx.saveGState()
-            UIBezierPath(roundedRect: thumb, cornerRadius: 6).addClip()
-            UIColor(white: 0.56, alpha: 1).setFill()
-            ctx.fill(thumb)
-            if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
-                let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
-                let w = img.size.width * s, h = img.size.height * s
-                img.draw(in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
-            }
-            ctx.restoreGState()
-            let (title, sub) = pv.lines
-            TextDraw.line(title, font: ThreadPreview.titleFont, color: PreviewStyle.title, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
-            TextDraw.line(sub, font: ThreadPreview.subFont, color: PreviewStyle.subtitle, x: box.minX + 39, baseline: box.minY + 34, in: ctx)
-        }
+        let box = CGRect(x: Fixture.leftEdge, y: top, width: pv.box.width, height: pv.box.height)
+        drawQuoteBubble(ctx, pv, box: box)
         let stubTop = box.maxY + pv.stubGap
         let stubH = pv.stubHeight
         Fixture.connector.setFill()
@@ -635,45 +591,56 @@ enum PartRenderer {
         }
     }
 
-    /// The preview of my own root (macOS 27, outgoing-thread-reply-take4, 2x window capture of
-    /// "Maybe: Instinct", 2026-10-11): the outlined bubble with an outgoing tail at the right edge
-    /// (outline outside 225-608 pt, its colour 44, 77, 121), the text 8.5 pt in from the outline, its
-    /// baseline 16 pt under the outline's top (32 px at 2x in both captures after this), in blue
-    /// (glyph core 48, 102, 203); "N Replies" right-aligned at 6 pt left of the edge (602 pt),
-    /// baseline 13.75 pt under the outline's bottom; no stub. Media and card roots take the same side,
-    /// tail and label (not measured: the take has a text root).
+    /// cmux: the preview of my own root at the right edge (the side of its root, not of the reply), with
+    /// "N Replies" right-aligned at 6 pt left of the edge, baseline 13.75 pt under the quote; no stub.
     static func drawOutgoingThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, rightEdge: CGFloat) {
         let box = CGRect(x: rightEdge - pv.box.width, y: top, width: pv.box.width, height: pv.box.height)
+        drawQuoteBubble(ctx, pv, box: box)
+        if pv.count >= 2 {
+            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
+            let s = Strings.replies(pv.count)
+            let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
+            TextDraw.line(s, font: f, color: Fixture.repliesTint, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx, // cmux: themed link tint
+                          kern: RowDraw.captionKern)
+        }
+    }
+
+    /// cmux: (2026-10-20, plans/cmux-next/reply-thread-gallery.html variant A): a quoted root is its own bubble,
+    /// smaller. The same fill and text colour as the root's bubble (`Fixture.outgoing`/`outgoingText` for mine,
+    /// `incoming`/`incomingText` for others; themed), the same outline as every bubble (`BubblePath.balloon` of
+    /// `ThreadPreview.shapeRow`: half-circle ends on one line, the 15 pt continuous corner when taller), no tail, all drawn in one transparency layer at
+    /// `ThreadPreview.quoteOpacity` so the text does not show the fill through it. Replaces the 1 pt outline with
+    /// blue or gray text and a full-size tail on a 24 pt body, which did not match the quoted message.
+    static func drawQuoteBubble(_ ctx: CGContext, _ pv: ThreadPreview, box: CGRect) {
+        let out = pv.outgoing
+        let fill = out ? Fixture.outgoing : Fixture.incoming
+        let ink = out ? Fixture.outgoingText : Fixture.incomingText
+        let shape = BubblePath.balloon(frame: box, row: pv.shapeRow)
+        ctx.saveGState()
+        ctx.setAlpha(ThreadPreview.quoteOpacity)
+        ctx.beginTransparencyLayer(in: box.insetBy(dx: -2, dy: -2), auxiliaryInfo: nil)
+        fill.setFill()
+        shape.fill()
         if pv.isThumbnail, case let .attachment(a) = pv.part {
             ctx.saveGState()
-            BubblePath.make(body: box, outgoing: true, tail: true).addClip()
-            Fixture.incoming.setFill()
-            ctx.fill(box.insetBy(dx: -10, dy: -10))
+            shape.addClip()
             if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let img = Images.load(ref) {
                 let s = max(box.width / img.size.width, box.height / img.size.height)
                 let w = img.size.width * s, h = img.size.height * s
-                img.draw(in: CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h + 6))
+                img.draw(in: CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h))
             }
             ctx.restoreGState()
         } else if pv.isText {
-            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: true, tail: true)
-            path.lineWidth = 1
-            PreviewStyle.outgoingStroke.setStroke()
-            path.stroke()
-            // A long root wraps: the next line's baseline is 11 pt lower (27 pt under the top, measured).
+            let first = pv.textFirstBaseline()
             for (i, line) in pv.textLines.enumerated() {
-                TextDraw.line(line, font: ThreadPreview.textFont, color: PreviewStyle.outgoingText, x: box.minX + 8.5,
-                              baseline: box.minY + 16 + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
+                TextDraw.line(line, font: ThreadPreview.textFont, color: ink, x: box.minX + ThreadPreview.textPadX / 2,
+                              baseline: box.minY + first + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
             }
         } else {
-            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: true, tail: true)
-            path.lineWidth = 1
-            PreviewStyle.outgoingStroke.setStroke()
-            path.stroke()
-            let thumb = CGRect(x: box.minX + 6.5, y: box.minY + 10.5, width: 26, height: 26)
+            let thumb = CGRect(x: box.minX + 8, y: box.minY + 11.25, width: 26, height: 26)
             ctx.saveGState()
             UIBezierPath(roundedRect: thumb, cornerRadius: 6).addClip()
-            UIColor(white: 0.56, alpha: 1).setFill()
+            ink.withAlphaComponent(0.25).setFill()
             ctx.fill(thumb)
             if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
                 let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
@@ -682,16 +649,11 @@ enum PartRenderer {
             }
             ctx.restoreGState()
             let (title, sub) = pv.lines
-            TextDraw.line(title, font: ThreadPreview.titleFont, color: PreviewStyle.title, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
-            TextDraw.line(sub, font: ThreadPreview.subFont, color: PreviewStyle.subtitle, x: box.minX + 39, baseline: box.minY + 34, in: ctx)
+            TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
+            TextDraw.line(sub, font: ThreadPreview.subFont, color: ink.withAlphaComponent(0.7), x: box.minX + 39, baseline: box.minY + 34, in: ctx)
         }
-        if pv.count >= 2 {
-            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
-            let s = Strings.replies(pv.count)
-            let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
-            TextDraw.line(s, font: f, color: Fixture.repliesTint, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx, // cmux: themed link tint
-                          kern: RowDraw.captionKern)
-        }
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
     }
 
     private static func fillBubble(_ ctx: CGContext, _ shape: UIBezierPath, outgoing: Bool, windowY: CGFloat) {
@@ -1160,7 +1122,11 @@ enum Reclaimer {
 enum BubbleView {
     static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
                            cornersOf frame: CGSize? = nil, circularEnds: Bool = false) {
-        let shape = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame, circularEnds: circularEnds)
+        drawBubble(ctx, shape: BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame, circularEnds: circularEnds),
+                   outgoing: outgoing, windowY: windowY)
+    }
+    /// cmux: fills `shape` (a part's `BubblePath.balloon`) as a bubble of its side.
+    static func drawBubble(_ ctx: CGContext, shape: UIBezierPath, outgoing: Bool, windowY: CGFloat = 0) {
         if outgoing {
             if windowY.isNaN { return }     // filled by the row's gradient layer
             ctx.saveGState()
@@ -1175,18 +1141,9 @@ enum BubbleView {
     }
 }
 
-/// Thread preview colours, measured in an inactive macOS 26 window (outline
-/// 80, title 143, site 86, "N Replies" blue). Here, not in `Fixture`, because
-/// ios/ compiles this file with its own `Fixture`.
+/// Thread preview colours. Here, not in `Fixture`, because ios/ compiles this file with its own `Fixture`.
+/// (cmux: the quote's own colours are its source bubble's, `PartRenderer.drawQuoteBubble`.)
 enum PreviewStyle {
-    static let stroke = UIColor(white: 80 / 255, alpha: 1)
-    static let title = UIColor(white: 143 / 255, alpha: 1)
-    static let subtitle = UIColor(white: 86 / 255, alpha: 1)
     /// "N Replies" (thread previews and reply labels), Display P3 (screencapture -l).
     static let repliesBlue = Fixture.p3(63, 143, 247)
-    /// A text root's line (screencapture -l, macOS 27: glyph core 129).
-    static let textGray = UIColor(white: 129 / 255, alpha: 1)
-    /// My root's preview (outgoing-thread-reply-take4, screencapture -l, macOS 27): outline and glyph core.
-    static let outgoingStroke = Fixture.p3(44, 77, 121)
-    static let outgoingText = Fixture.p3(48, 102, 203)
 }

@@ -856,10 +856,29 @@ class SameTreeIsAnEvent(unittest.TestCase):
         uploads = [step for step in route["steps"] if "upload-artifact" in str(step.get("uses", ""))]
         self.assertEqual(len(uploads), 1)
         self.assertTrue(uploads[0]["with"]["name"].startswith("cmux-next-tree-wait-"))
-        # The probe dispatches one cmux-tui artifacts run for a same-repository
-        # PR's unpublished merge tree: a pin ref (contents) and a dispatch (actions).
-        self.assertEqual(route["permissions"].get("actions"), "write")
-        self.assertEqual(route["permissions"].get("contents"), "write")
+        # This job executes checked-out PR scripts, so it can inspect but never
+        # mutate Actions or repository contents.
+        self.assertEqual(route["permissions"].get("actions"), "read")
+        self.assertEqual(route["permissions"].get("contents"), "read")
+
+    def test_untrusted_routing_jobs_have_no_write_token_or_dispatch_switch(self):
+        jobs = self.jobs()
+        route = jobs["path_route"]
+        self.assertEqual(route["permissions"].get("actions"), "read")
+        self.assertEqual(route["permissions"].get("contents"), "read")
+        probes = [step for step in route["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
+        self.assertTrue(probes)
+        self.assertTrue(all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == "" for step in probes))
+
+        wait = jobs["dev-daily-tree-wait"]
+        self.assertEqual(wait["permissions"].get("actions"), "read")
+        self.assertEqual(wait["permissions"].get("contents"), "read")
+        dispatches = [
+            step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH")
+            for step in wait["steps"]
+            if "wait-dev-daily-tree.sh" in step.get("run", "")
+        ]
+        self.assertEqual(dispatches, [""])
 
     def test_tree_jobs_need_a_ready_tree_and_no_waiter(self):
         jobs = self.jobs()
@@ -1147,7 +1166,12 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertNotIn("setup-cmux-tui-rust", yaml.safe_dump(build), "nothing restores a Mac cargo seed")
         self.assertLess(tier, steps.index(saves[0]))
         self.assertIn(FAST_CACHE_MANIFEST, steps[record]["run"])
-        self.assertIn("'blacksmith-12vcpu-macos-26'", str(build["runs-on"]))
+        # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
+        # cascade fills it first, so a seed pinned there sat queued (run
+        # 39351410275, 85+ minutes) while its concurrency group held every later
+        # feat-cmux-next push, and no seed ever landed.
+        self.assertIn("'blacksmith-6vcpu-macos-26'", str(build["runs-on"]))
+        self.assertNotIn("12vcpu", str(build["runs-on"]))
         self.assertIn("needs.due.outputs.due == 'true'", build.get("if", ""))
 
     def test_seed_key_matches_the_fast_tier_key_for_one_tree(self):

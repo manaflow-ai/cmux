@@ -83,6 +83,11 @@ import UniformTypeIdentifiers
 
     private static func ms(_ t0: CFTimeInterval) -> Double { (CACurrentMediaTime() - t0) * 1000 }
 
+    /// This thread's CPU time in ms: the work the frame did, without time the scheduler gave other
+    /// processes (a shared ci-step mini preempts the test now and then; the user's main thread is not
+    /// what lost that time).
+    private static func cpuMs() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1_000_000 }
+
     private static func p(_ xs: [Double], _ q: Double) -> Double {
         guard !xs.isEmpty else { return 0 }
         let s = xs.sorted()
@@ -175,6 +180,7 @@ import UniformTypeIdentifiers
         var draft = HomeTurnDraft(participant: chief, turn: turn)
         let fieldFrame0 = field.convert(field.bounds, to: nil)
         var fieldMoves = 0
+        var frameCPU: [Double] = []
         var token: [Double] = [], layout: [Double] = [], dragOver: [Double] = [], frame: [Double] = []
         var text = ""
         var transcriptMs: [Double] = [], commitMs: [Double] = [], stepMs: [Double] = [], attachMs: [Double] = []
@@ -199,8 +205,9 @@ import UniformTypeIdentifiers
             projection.refreshAttachments()
             attachMs.append(Self.ms(a0))
             MessagesWindowView.commitLog = []
+            let c0 = Self.cpuMs()
             let f0 = CACurrentMediaTime()
-            store.drafts[Self.conversation] = draft
+            store.showDraft(draft, turn: draft.turn, author: draft.participant, in: Self.conversation)
             projection.refresh()
             token.append(Self.ms(f0))
             var c = 0.0
@@ -228,6 +235,12 @@ import UniformTypeIdentifiers
             let op = field.draggingUpdated(drag)
             dragOver.append(Self.ms(d0))
             frame.append(Self.ms(f0))
+            frameCPU.append(Self.cpuMs() - c0)
+            // A slow frame says where its time went (the commit log of its token).
+            if let ms = frame.last, ms > 6 {
+                print(String(format: "DRAGSPIKE pictures=%d i=%d cpu %.2f frame %.2f token %.2f layout %.2f drag %.3f commits %@", draftPictures, i, frameCPU.last ?? 0, ms,
+                             token.last ?? 0, layout.last ?? 0, dragOver.last ?? 0, (MessagesWindowView.commitLog ?? []).joined(separator: " | ")))
+            }
             #expect(op == .copy)
             if field.convert(field.bounds, to: nil) != fieldFrame0 { fieldMoves += 1 }
             // The store's own observation refresh (a no-op: nothing changed since).
@@ -261,6 +274,12 @@ import UniformTypeIdentifiers
         // A token changes only the stream: diffing the unchanged snapshot maps no row (it cost 3.5 ms p50
         // at 60 rows on an M4 Pro mini, every token, before ProjectionCore.step returned early).
         #expect(Self.p(stepMs, 0.5) < 0.5, "an unchanged snapshot's diff p50 \(Self.p(stepMs, 0.5)) ms")
-        #expect(Self.p(frame, 0.95) < 16, "token + drag-over p95 \(Self.p(frame, 0.95)) ms")
+        // Zero dropped frames: every frame (token + layout + drag-over) fits one 60 Hz frame, and after
+        // the reply's first paint (frame 0: its bubble and the rows' bitmaps) one 120 Hz frame.
+        let worst = frameCPU.max() ?? 0, worstAfterFirst = frameCPU.dropFirst().max() ?? 0
+        print(String(format: "DRAGLAG %@ worst frame cpu %.2f ms (wall %.2f), after the first cpu %.2f ms (wall %.2f), wall p99 %.2f ms",
+                     label, worst, frame.max() ?? 0, worstAfterFirst, frame.dropFirst().max() ?? 0, Self.p(frame, 0.99)))
+        #expect(worst < 1000.0 / 60, "a frame took \(worst) ms of main-thread CPU: a dropped frame at 60 Hz")
+        #expect(worstAfterFirst < 1000.0 / 120, "a frame after the first took \(worstAfterFirst) ms of main-thread CPU: a dropped frame at 120 Hz")
     }
 }

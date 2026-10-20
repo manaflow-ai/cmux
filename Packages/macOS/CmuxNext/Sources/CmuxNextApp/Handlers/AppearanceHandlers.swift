@@ -3,7 +3,7 @@ import CoreGraphics
 import CmuxNextDesign
 import CmuxNextSettings
 
-/// Density, animation speed, titlebar style, interface size (the chrome body
+/// Animation speed, titlebar style, interface size (the chrome body
 /// font; terminal fonts come from the Ghostty config) and pane chrome
 /// (border, padding). Applied to `DesignSettings` at once, then
 /// written to cmux.json through the validated `setSetting` path
@@ -28,8 +28,6 @@ enum AppearanceHandlers {
                 try settings.show(section: .appearance, focus: invocation.allowsViewChange)
             }
         })
-        registry.bind("appearance.density.compact", run: { _ in try setDensity(.compact, context) })
-        registry.bind("appearance.density.comfortable", run: { _ in try setDensity(.comfortable, context) })
         let save: SettingChoiceActions.Save = { path, value in
             if let managed = context.services.settings?.managedKey(forPath: path) { return RefusalStrings.settingManaged(managed.key) }
             context.writeSetting("set \(path.joined(separator: "."))", path, value, reloadOnFailure: true)
@@ -70,12 +68,6 @@ enum AppearanceHandlers {
     }
 
     private static let uiScalePath = UIScaleSetting().configPath
-
-    private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
-        try requireUnmanaged(["appearance", "density"], context)
-        context.design.density = density
-        context.writeSetting("set density", ["appearance", "density"], .string(density.rawValue), reloadOnFailure: true)
-    }
 
     /// Subtle border on or off. Subtle is the default, so turning it back
     /// on removes the key instead of writing it.
