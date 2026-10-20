@@ -52,6 +52,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case setColor([WorkspaceID], GroupColor?)
     case setIcon([WorkspaceID], WorkspaceIcon)
     case setPinned([WorkspaceID], Bool)
+    /// The row's speaker was clicked: mute the workspace's tabs that play
+    /// sound, or unmute its muted tabs (`SidebarWorkspaceAudio`). No local change.
+    case toggleWorkspaceAudio(WorkspaceID)
     /// New workspace on a machine (nil = the machine of the active workspace,
     /// else local), optionally inside a group.
     case newWorkspace(machine: MachineID?, group: GroupID?)

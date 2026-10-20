@@ -6385,8 +6385,11 @@ marked_unread:bool}` (the new state).
 | status | implemented |
 | since | protocol 12 additive extension; capability `conversation-inbox-state-v1` (with `cloud-conversations-v1`) |
 
-The Cloud form of `conversation-inbox-op`: forwards `inbox.pin` or
-`inbox.mark_unread` (the same `op` shapes) for one conversation to the
+The Cloud form of `conversation-inbox-op`: forwards `inbox.pin`,
+`inbox.mark_unread` (the same `op` shapes) or `inbox.mute`
+(`{kind:"inbox.mute", muted:bool, until?:uint64}`, `until` in Unix ms; the
+owner refuses an `until` in the past; approvals still notify a muted
+conversation) for one conversation to the
 person's UserDO inbox with the client's `idempotency_key` (`POST /v1/ops`) and
 answers from a worker thread with the `cloud-conversation-op` reply shape
 (`value` is the inbox entry). Other kinds are refused before anything is sent
@@ -7322,7 +7325,9 @@ Forward to the cloud owners (ConversationDO, UserDO inbox) with the lease and
 answer from a worker thread, so replies may arrive out of order (match by
 `id`). `cloud-conversation-op {conversation?, idempotency_key, origin?, op}`
 forwards one op tagged by `kind` (`dm.open`, `conversation.create`,
-`participants.add`, `participants.remove`, `message.send`, `message.edit`,
+`participants.add`, `participants.remove`, `participants.set_role`,
+`participants.unban`, `ownership.transfer`, `grant.create`, `grant.revoke`,
+`message.send`, `message.edit`,
 `message.retract`, `reaction.add`, `reaction.remove`, `read_cursor.set`,
 `title.set`, `thread.update`, `invite.create`, `invite.accept_verified`,
 `request.dismiss {block?}`) with the client's key and origin and returns
