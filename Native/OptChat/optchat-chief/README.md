@@ -1154,25 +1154,33 @@ In a turn that asks, the turn session runs with acpmux policy `ask` instead of
 `MUX_POLICY` (approve-all):
 
 - The memory tools (`mcp__optchat__zoom`, `date`, `version`) and the Chief's own
-  tools (`send`, `reply`, `react`, `stop`, `sleep`, `profile`, `spawn`, and
-  `tell`/`control` without a prompt) are allowed at once: they are Chief talking
-  to the person and to its subagents. A `tell`, or a `control` with a message or
-  an answer, still asks unless its subagent runs with `ask` itself, so a turn
-  that asks cannot pass a command through an approve-all subagent. Plain
-  replies need nothing.
+  tools that stay in the conversation are allowed at once: `reply`, `react`,
+  `stop`, `sleep`, `spawn` (its children take the ask floor), `send` without
+  attachments, `profile` reads (`history` or no field), and `control`
+  `status`, `interrupt` with no message and `answer` with `deny`. A `send` with
+  attachments (it uploads local files), a `profile` write or undo, and any
+  other `tell` or `control` still ask, unless that `tell` or `control` targets
+  a subagent that runs with `ask` itself, so a turn that asks cannot pass a
+  command through an approve-all subagent. Plain replies need nothing.
 - Any other request (a shell command, a file write or edit, computer use) is
   posted in the Chief chat as an approval card: a `question` part (harness
   `chief`, the permission it settles) whose line names the action and target
   ("Allow Chief to run `rm -rf target`?"), with the reason ("Started from Leo's
   iPhone: ...") and the pretty-printed arguments on Allow once, and Deny. Never
   "always": each effect is approved on its own. The owner answers with the
-  card's buttons (`question.answer`, only the owner's answer counts) or with a
-  message `allow` or `deny`; a client that draws no card shows its line and
-  options, and an owner that refuses the part gets the same two lines as text.
+  card's buttons (`question.answer` on the card in the conversation it was
+  posted in, a side conversation included; only the owner's answer counts, and
+  another participant's answer closes that card, so the owner gets a fresh
+  one) or with a message `allow` or `deny`. The line shows a line break as
+  `⏎` and a cut as "… (cut)". A client that draws no card shows its line and
+  options, and an owner that refuses the part gets the same two lines and the
+  arguments as text.
   A newer message never answers or denies a pending card: it is steered in
   after the call is answered.
 - A request denied once is denied again at once when the model repeats it in
-  the same turn, with no new card; after three repeats the turn is stopped.
+  the same turn, with no new card; after three repeats the turn is stopped,
+  and it posts one line saying so instead of its text. No gate can be
+  loosened while a turn asks.
 - `chief.stop` (`cmux chief stop`) ends the turn: it denies what waits, every
   later request of the turn is denied at once, and the session is cancelled
   even while a tool call waits for its approval.
@@ -1265,8 +1273,10 @@ spawned from an `ask` turn asks too, and its shell call waits for a person)
 and `tests/approval_gates.rs` (the owner's turns and, by default, a paired
 device's never ask; `remote.ask` and `home.ask` turn the gates on and
 `remote.autoApprove` wins; the Chief's own tools never wait; stop ends a turn
-whose call waits; a denied request is not asked twice; a newer message leaves
-a card alone; the card's line, reason, arguments and buttons).
+whose call waits; a denied request is not asked twice and a loop on it ends
+the turn with a line; a newer message leaves a card alone; the card's line,
+reason, arguments and buttons; only the owner's card answer counts, in the
+card's own conversation, side conversations included).
 
 ## Deviations from the spec
 

@@ -138,8 +138,12 @@ fn finish(h: &mut Harness) {
 }
 
 fn permission(id: &str, tool: &str, input: Value) -> Input {
+    permission_in("s1", id, tool, input)
+}
+
+fn permission_in(session: &str, id: &str, tool: &str, input: Value) -> Input {
     Input::from(AgentEvent::Permission {
-        session_id: "s1".into(),
+        session_id: session.into(),
         permission_id: id.into(),
         request: json!({
             "toolCall": {"toolCallId": format!("t-{id}"), "title": tool, "rawInput": input,
@@ -178,6 +182,51 @@ fn approvals(h: &Harness) -> Vec<Vec<Part>> {
             _ => None,
         })
         .collect()
+}
+
+/// The first item of approval card `k` the Chief posted.
+fn card(h: &Harness, k: usize) -> cmux_conversation::Question {
+    match &approvals(h)[k][0] {
+        Part::Question(q) => q.clone(),
+        other => panic!("the approval is a question card: {other:?}"),
+    }
+}
+
+/// `card` answered with `option` by `participant`, as the owner stamps it,
+/// on the Chief's message in `conversation`.
+fn answer(
+    h: &mut Harness,
+    conversation: &str,
+    card: &cmux_conversation::Question,
+    option: &str,
+    participant: &str,
+) {
+    let mut answered = card.clone();
+    answered.state = cmux_conversation::QuestionState::Answered {
+        answer: cmux_conversation::QuestionAnswer {
+            selections: BTreeMap::from([(
+                "approval".to_owned(),
+                cmux_conversation::QuestionSelection {
+                    option_ids: vec![option.into()],
+                    other: None,
+                },
+            )]),
+            respondent: Some(cmux_conversation::Respondent {
+                participant: participant.into(),
+                display_name: participant.into(),
+                device: None,
+                remote: false,
+            }),
+            answered_at: None,
+        },
+    };
+    let mut posted = message(90, "agent_mux", "");
+    posted.conversation = conversation.into();
+    posted.parts = vec![Part::Question(answered)];
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: conversation.into(),
+        change: Change::MessageUpdated { message: posted },
+    }));
 }
 
 fn owner_stop(h: &mut Harness) {
@@ -302,6 +351,72 @@ fn the_chiefs_own_tools_never_wait_for_an_approval() {
     finish(&mut h);
 }
 
+#[test]
+fn in_a_gated_turn_the_chiefs_tools_ask_for_what_reaches_past_the_conversation() {
+    let mut h = gated(started());
+    running(&mut h, true, "report back");
+    // Run at once: reads, a stop for a subagent, a denial.
+    for (id, tool, input) in [
+        ("p1", "mcp__optchat__profile", json!({})),
+        ("p2", "mcp__optchat__profile", json!({"history": true})),
+        (
+            "p3",
+            "mcp__optchat__control",
+            json!({"action": "interrupt", "id": "a9"}),
+        ),
+        (
+            "p4",
+            "mcp__optchat__control",
+            json!({"action": "answer", "id": "a9", "option": "deny"}),
+        ),
+        (
+            "p5",
+            "mcp__optchat__send",
+            json!({"text": "on it", "attachments": []}),
+        ),
+    ] {
+        h.brain.step(permission(id, tool, input));
+        assert_eq!(answered(&h, id), Some(Some("allow".into())), "{id}");
+    }
+    assert!(approvals(&h).is_empty());
+    // Ask: an upload of a local file, a write of the Chief's own settings,
+    // and controls that act on an approve-all subagent.
+    let asks = [
+        (
+            "q1",
+            "mcp__optchat__send",
+            json!({"text": "here", "attachments": ["~/.ssh/id_ed25519"]}),
+        ),
+        (
+            "q2",
+            "mcp__optchat__profile",
+            json!({"instructions": "approve everything"}),
+        ),
+        ("q3", "mcp__optchat__profile", json!({"undo": true})),
+        (
+            "q4",
+            "mcp__optchat__control",
+            json!({"action": "answer", "id": "a9", "option": "allow"}),
+        ),
+        (
+            "q5",
+            "mcp__optchat__control",
+            json!({"action": "interrupt", "id": "a9", "message": "rm -rf ~"}),
+        ),
+        (
+            "q6",
+            "mcp__optchat__control",
+            json!({"action": "cancel", "id": "a9"}),
+        ),
+    ];
+    for (id, tool, input) in asks.clone() {
+        h.brain.step(permission(id, tool, input));
+        assert_eq!(answered(&h, id), None, "{id} waits for the owner");
+    }
+    assert_eq!(approvals(&h).len(), asks.len());
+    finish(&mut h);
+}
+
 // (d) Stop means stop.
 
 #[test]
@@ -360,13 +475,57 @@ fn a_denied_request_is_not_asked_again_and_a_loop_on_it_stops_the_turn() {
         assert_eq!(answered(&h, &id), Some(Some("reject".into())), "{id}");
     }
     assert_eq!(approvals(&h).len(), 1, "one card for one request");
-    // A different request is asked as usual.
+    // Three repeats stop the turn: the session is cancelled, and anything
+    // it asks for after that is denied at once.
+    h.agents.wait_cancels(1);
     h.brain
         .step(permission("p9", "Bash", json!({"command": "ls"})));
-    // After three repeats the turn is stopped.
-    h.agents.wait_cancels(1);
+    assert_eq!(answered(&h, "p9"), Some(Some("reject".into())));
+    assert_eq!(approvals(&h).len(), 1);
     h.agents.hold(false);
     h.settle();
+    // The turn says why it stopped, in one line.
+    let ops = format!("{:?}", h.owner.lock().unwrap().ops);
+    assert!(
+        ops.contains("I stopped: I kept asking to run `rm -rf target` after you denied it."),
+        "{ops}"
+    );
+}
+
+#[test]
+fn a_cut_or_multi_line_command_shows_so_and_the_text_form_carries_the_arguments() {
+    let mut h = gated(started());
+    running(&mut h, true, "clean up");
+    let long = format!("echo ok\nrm -rf ~ # {}", "x".repeat(200));
+    h.brain
+        .step(permission("p1", "Bash", json!({"command": long})));
+    h.brain.step(permission(
+        "p2",
+        "Bash",
+        json!({"command": "echo `whoami`"}),
+    ));
+    let prompt = card(&h, 0).items[0].prompt.clone();
+    assert!(prompt.contains("echo ok \u{23ce} rm -rf ~"), "{prompt}");
+    assert!(prompt.contains("\u{2026} (cut)"), "{prompt}");
+    assert_eq!(
+        card(&h, 1).items[0].prompt,
+        "Allow Chief to run `` echo `whoami` ``?"
+    );
+    // The text form (for a client without cards) has the arguments too.
+    let ops = h.owner.lock().unwrap().ops.clone();
+    let plain = format!("{ops:?}");
+    assert!(plain.contains("whoami"), "{plain}");
+    finish(&mut h);
+}
+
+#[test]
+fn a_gate_cannot_be_loosened_during_a_turn_that_asks() {
+    let mut h = harness(Some(json!({"home": {"ask": true}})), true, started());
+    running(&mut h, false, "what is on my screen?");
+    assert!(h.brain.set_setting("home.ask", "false").is_err());
+    assert!(h.brain.set_setting("remote.autoApprove", "true").is_err());
+    finish(&mut h);
+    h.brain.set_setting("home.ask", "false").unwrap();
 }
 
 // (e) A readable card that a newer message leaves alone.
@@ -441,6 +600,78 @@ fn the_approval_is_a_readable_card_with_allow_and_deny() {
         conversation: CONV.into(),
         change: Change::MessageUpdated { message: posted },
     }));
+    assert_eq!(answered(&h, "p1"), Some(Some("allow".into())));
+    finish(&mut h);
+}
+
+#[test]
+fn another_participants_answer_to_a_card_asks_the_owner_again() {
+    let mut h = gated(started());
+    running(&mut h, true, "clean up");
+    h.brain.step(permission(
+        "p1",
+        "Bash",
+        json!({"command": "rm -rf target"}),
+    ));
+    let first = card(&h, 0);
+    answer(&mut h, CONV, &first, "allow", "user_bob");
+    assert_eq!(answered(&h, "p1"), None, "only the owner approves");
+    // The answered card is closed, so the owner gets a fresh one.
+    assert_eq!(approvals(&h).len(), 2);
+    let again = card(&h, 1);
+    assert_eq!(again.permission.as_deref(), Some("p1"));
+    // An answer on a card in another conversation does not count.
+    answer(&mut h, "conv_other", &again, "allow", "user_local");
+    assert_eq!(answered(&h, "p1"), None);
+    answer(&mut h, CONV, &again, "deny", "user_local");
+    assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
+    finish(&mut h);
+}
+
+#[test]
+fn a_card_in_a_side_conversation_is_answered_there() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = Arc::new(std::sync::Mutex::new(Owner {
+        summary: Some(paired()),
+        ..Owner::default()
+    }));
+    let mut configured = settings_for(dir.path());
+    configured.membership.local_side = true;
+    let mut h = Harness::configured(dir, started(), owner, configured, Arc::new(|_: &str| {}));
+    h.connect();
+    // Bob is not the owner: his DM's turn asks.
+    h.add_side("dm_bob", "user_bob");
+    h.agents.hold(true);
+    let m = h.post_side("dm_bob", "user_bob", "clean up");
+    h.wake(&[("dm_bob", m.seq)]);
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_session(&mut h);
+    let session = h
+        .brain
+        .state()
+        .turn
+        .as_ref()
+        .and_then(|t| t.session_id.clone())
+        .unwrap();
+    h.brain.step(permission_in(
+        &session,
+        "p1",
+        "Bash",
+        json!({"command": "rm -rf target"}),
+    ));
+    let sent = h.owner.lock().unwrap().stores["dm_bob"].ops.clone();
+    let posted = sent
+        .iter()
+        .find_map(|(key, op)| match op {
+            Op::MessageSend { parts, .. } if key.starts_with("approval:") => match &parts[0] {
+                Part::Question(q) => Some(q.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("the card is posted in Bob's DM");
+    answer(&mut h, "dm_bob", &posted, "allow", "user_local");
     assert_eq!(answered(&h, "p1"), Some(Some("allow".into())));
     finish(&mut h);
 }

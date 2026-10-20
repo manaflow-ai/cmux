@@ -421,6 +421,7 @@ impl Brain {
         self.phase = Phase::Running;
         self.stop_wanted = false;
         self.tool_stopped = false;
+        self.denial_stopped = None;
         // A user message or a report replaces the `until: event` wakes.
         self.drop_event_wakes(
             items
@@ -827,7 +828,7 @@ impl Brain {
         // its turn is never passed by later ones).
         // Messages never set the interrupt now; only chief.stop does, and a
         // boundary must not clear it.
-        if !self.owner_stopped && !self.tool_stopped {
+        if !self.owner_stopped && !self.tool_stopped && self.denial_stopped.is_none() {
             self.interrupt.clear();
         }
         let side = self.turn_side();
@@ -1192,7 +1193,10 @@ impl Brain {
         // meant to say went by send, reply or react, so its last text is not
         // posted and the cancel is no failure; unlike an owner stop, the
         // turn still closes its messages.
-        let tool_stopped = std::mem::take(&mut self.tool_stopped);
+        // A turn stopped for asking again for what it was denied ends like
+        // a Chief stop, but says so in one line.
+        let denial_stopped = self.denial_stopped.take();
+        let tool_stopped = std::mem::take(&mut self.tool_stopped) || denial_stopped.is_some();
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
         let quiet = superseded || owner_stopped;
@@ -1239,6 +1243,13 @@ impl Brain {
             String::new()
         } else {
             text
+        };
+        let text = match &denial_stopped {
+            Some(what) if !quiet => {
+                (self.log)(&format!("turn {key} stopped: it asked again for {what}"));
+                format!("I stopped: I kept asking to {what} after you denied it.")
+            }
+            _ => text,
         };
         if let Some(note) = &failure_note
             && let Err(e) = self.chat.append(Kind::Note, note)
@@ -1454,6 +1465,7 @@ impl Brain {
         if self.stop_wanted
             || self.owner_stopped
             || self.tool_stopped
+            || self.denial_stopped.is_some()
             || self.cuts >= MAX_CUTS
             || self.state.turn.as_ref().is_none_or(|t| t.key != key)
         {
@@ -1570,6 +1582,7 @@ impl Brain {
         self.turn_why = None;
         self.turn_denied.clear();
         self.repeat_denials = 0;
+        self.denial_stopped = None;
         self.clear_turn_approvals();
         self.interrupt.set_gate(false);
         self.stop_wanted = false;

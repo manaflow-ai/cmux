@@ -63,6 +63,10 @@ impl Brain {
             self.respond(&pending, Answer::Deny, "the owner stopped the turn", None);
             return;
         }
+        if self.denial_stopped.is_some() {
+            self.respond(&pending, Answer::Deny, "the turn was stopped", None);
+            return;
+        }
         // A request denied once in this turn is not asked again.
         if self
             .turn_denied
@@ -76,7 +80,10 @@ impl Brain {
                     "{} was denied and asked for again {} times: stopping the turn",
                     pending.tool, self.repeat_denials
                 ));
-                self.owner_stopped = true;
+                self.denial_stopped = Some(crate::approval::describe(
+                    &pending.tool,
+                    pending.request.pointer("/toolCall/rawInput"),
+                ));
                 self.interrupt.request_hard();
             }
             return;
@@ -114,12 +121,17 @@ impl Brain {
     }
 
     /// Whether one of the Chief's own tools runs without asking in this
-    /// turn. `send`, `reply`, `react`, `stop`, `sleep` and `profile` touch
-    /// only the conversation and the Chief itself; `spawn`'s children take
-    /// the ask floor in an ask turn. `tell` and `control` reach a subagent:
-    /// without asking only when it asks for its own effects (policy `ask`)
-    /// or the action carries no prompt, so an untrusted turn cannot launder
-    /// a command through an approve-all subagent.
+    /// turn. Outside an ask turn, all of them. In an ask turn, only what
+    /// stays in the conversation or under the ask floor:
+    /// - `reply`, `react`, `stop`, `sleep`, and `spawn` (its children take
+    ///   the ask floor);
+    /// - `send` without attachments (an attachment uploads a local file);
+    /// - `profile` reads (`history`, or no field), never a write or undo;
+    /// - `control` `status`, `interrupt` with no message, and `answer` with
+    ///   `deny`;
+    /// - any other `tell` or `control` only to a subagent that asks for its
+    ///   own effects (policy `ask`), so an untrusted turn cannot launder a
+    ///   command through an approve-all subagent.
     pub(super) fn internal_allowed(&self, tool: &str, request: &Value) -> bool {
         if !crate::approval::CHIEF_TOOLS.contains(&tool) {
             return false;
@@ -128,16 +140,35 @@ impl Brain {
             return true;
         }
         let input = request.pointer("/toolCall/rawInput");
-        let field = |key: &str| input.and_then(|i| i.get(key)).and_then(Value::as_str);
-        let carries_prompt = match tool {
-            "mcp__optchat__tell" => true,
-            "mcp__optchat__control" => {
-                field("message").is_some() || field("action") == Some("answer")
+        let get = |key: &str| input.and_then(|i| i.get(key));
+        let field = |key: &str| get(key).and_then(Value::as_str);
+        match tool {
+            "mcp__optchat__send" => {
+                return match get("attachments") {
+                    None | Some(Value::Null) => true,
+                    Some(Value::Array(a)) => a.is_empty(),
+                    Some(_) => false,
+                };
             }
+            "mcp__optchat__profile" => {
+                let Some(fields) = input.and_then(Value::as_object) else {
+                    return input.is_none_or(Value::is_null);
+                };
+                return fields.iter().all(|(k, v)| k == "history" && v.is_boolean());
+            }
+            "mcp__optchat__control" => {
+                let action = field("action").unwrap_or("status");
+                let no_message = field("message").is_none_or(|m| m.trim().is_empty());
+                let deny = field("option").is_none_or(|o| o.eq_ignore_ascii_case("deny"));
+                if action == "status"
+                    || (action == "interrupt" && no_message)
+                    || (action == "answer" && deny && no_message)
+                {
+                    return true;
+                }
+            }
+            "mcp__optchat__tell" => {}
             _ => return true,
-        };
-        if !carries_prompt {
-            return true;
         }
         let Some(id) = field("id") else {
             return false;
@@ -196,7 +227,7 @@ impl Brain {
 
     /// A card was answered (`question.answer` on the Chief's own message):
     /// the owner's selection answers the approval it names, once.
-    pub(super) fn answer_card(&mut self, message: &Message) {
+    pub(super) fn answer_card(&mut self, conversation: &str, message: &Message) {
         for part in &message.parts {
             let cmux_conversation::Part::Question(q) = part else {
                 continue;
@@ -210,32 +241,52 @@ impl Brain {
             let Some(respondent) = answer.respondent.as_ref() else {
                 continue;
             };
-            // Only the owner approves (a paired device answers as its person).
+            // The card answers only the approval it was posted for, in the
+            // conversation it was posted in.
+            let main = self.state.conversation.clone();
+            let Some(k) = self.approvals.iter().position(|p| {
+                p.permission_id == permission
+                    && p.session_id == q.session
+                    && p.conversation
+                        .as_ref()
+                        .or(main.as_ref())
+                        .map(String::as_str)
+                        == Some(conversation)
+            }) else {
+                continue;
+            };
+            // Only the owner approves (a paired device answers as its
+            // person). Another participant's answer closed this card, so
+            // the owner gets a fresh one; the request stays pending.
             if respondent.participant != self.settings.membership.owner {
                 (self.log)(&format!(
-                    "approval {permission}: answered by {}, not the owner; ignored",
+                    "approval {permission}: answered by {}, not the owner; asking the owner again",
                     respondent.participant
                 ));
+                if let Some(pending) = self.approvals.remove(k) {
+                    let key = format!("approval:again:{}:{}", message.id, pending.permission_id);
+                    self.ask_person(pending, &key);
+                }
                 continue;
             }
             let Some(decision) = crate::approval::card_answer(answer) else {
                 continue;
             };
-            let Some(k) = self
-                .approvals
-                .iter()
-                .position(|p| p.permission_id == permission && p.session_id == q.session)
-            else {
-                continue;
-            };
             let Some(pending) = self.approvals.remove(k) else {
                 continue;
             };
-            let approver = respondent
-                .device
-                .clone()
-                .unwrap_or_else(|| respondent.display_name.clone());
-            let install = respondent.remote.then(|| approver.clone());
+            let approver = format!(
+                "{} ({})",
+                respondent
+                    .device
+                    .as_deref()
+                    .unwrap_or(respondent.display_name.as_str()),
+                respondent.participant
+            );
+            let install = respondent
+                .remote
+                .then(|| respondent.device.clone())
+                .flatten();
             self.respond(&pending, decision, &approver, install.as_deref());
         }
     }

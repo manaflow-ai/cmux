@@ -716,6 +716,10 @@ pub struct Brain {
     /// The running turn was ended by the Chief's own `stop` or `sleep`
     /// (wakes.rs): its final text is not posted, and it is no failure.
     tool_stopped: bool,
+    /// The running turn was stopped for asking again and again for a tool
+    /// call it was denied (approvals.rs): later requests are denied, and the
+    /// turn posts one line saying so (what it asked for) instead of its text.
+    denial_stopped: Option<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
@@ -841,6 +845,7 @@ impl Brain {
             reacted: std::collections::HashSet::new(),
             sent_keys: std::collections::HashSet::new(),
             tool_stopped: false,
+            denial_stopped: None,
             previewer: None,
             cuts: 0,
             resume_at: None,
@@ -1429,11 +1434,15 @@ impl Brain {
             )
         });
         if loosens
-            && (self.turn_remote || self.remote_taint || remote_queued || self.ask_child_live())
+            && (self.turn_ask
+                || self.turn_remote
+                || self.remote_taint
+                || remote_queued
+                || self.ask_child_live())
         {
             (self.log)(&format!("refused: {key} = {on} during remote-origin work"));
             return Err(format!(
-                "refused: {key} can be set to {on} only from the Mac, outside a turn a paired device started"
+                "refused: {key} can be set to {on} only from the Mac, outside a turn that asks or a paired device started"
             ));
         }
         let mut next = self.chief;

@@ -149,9 +149,9 @@ pub fn describe(tool: &str, input: Option<&Value>) -> String {
     };
     let short = tool.rsplit("__").next().unwrap_or(tool);
     match tool {
-        "Bash" => {
-            field("command").map_or("run a shell command".to_owned(), |c| format!("run `{c}`"))
-        }
+        "Bash" => field("command").map_or("run a shell command".to_owned(), |c| {
+            format!("run {}", code_span(&c))
+        }),
         "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => field("file_path")
             .or_else(|| field("notebook_path"))
             .map_or("edit a file".to_owned(), |f| format!("edit {f}")),
@@ -181,14 +181,37 @@ pub fn describe(tool: &str, input: Option<&Value>) -> String {
     }
 }
 
-/// `text` on one line, at most `max` characters (an ellipsis when cut).
+/// `text` on one line, at most `max` characters: a line break shows as
+/// `⏎` (two commands never read as one), and a cut ends with "… (cut)" so
+/// the reader knows to look at the arguments for the rest.
 fn one_line(text: &str, max: usize) -> String {
-    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let line = text
+        .lines()
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" \u{23ce} ");
     if line.chars().count() <= max {
         return line;
     }
     let cut: String = line.chars().take(max.saturating_sub(1)).collect();
-    format!("{cut}\u{2026}")
+    format!("{}\u{2026} (cut)", cut.trim_end())
+}
+
+/// The longest run of backticks in `text`.
+fn longest_backticks(text: &str) -> usize {
+    text.split(|c| c != '`').map(str::len).max().unwrap_or(0)
+}
+
+/// `text` as a Markdown code span whose fence no backtick in it can close
+/// (CommonMark: a longer fence, padded when the text touches a backtick).
+fn code_span(text: &str) -> String {
+    let fence = "`".repeat(longest_backticks(text) + 1);
+    if text.contains('`') {
+        format!("{fence} {text} {fence}")
+    } else {
+        format!("{fence}{text}{fence}")
+    }
 }
 
 /// Why the card asks, one muted line ("Started from your iPhone: local
@@ -244,8 +267,14 @@ pub fn arguments(pending: &Pending, max: usize) -> Option<String> {
 /// draws no question card, the CLI, and the fallback when the owner
 /// refuses the question part). No JSON.
 pub fn question(pending: &Pending) -> String {
+    // The arguments too, in a fence no backtick in them can close: the
+    // headline's command may be cut.
+    let args = arguments(pending, 1_500).map_or(String::new(), |a| {
+        let fence = "`".repeat(longest_backticks(&a).max(2) + 1);
+        format!("\n{fence}\n{a}\n{fence}")
+    });
     format!(
-        "{}\n{} Reply allow or deny.",
+        "{}\n{}{args}\nReply allow or deny.",
         headline(pending),
         reason(pending)
     )
