@@ -555,7 +555,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // seen). The first width change of a frame runs the pass now; a later one in the
             // same frame only records its width, and the next frame's tick runs one pass at the
             // last width (`widthTick`).
-            if widthChanged, !captureMode, widthFrameScheduler != nil, widthPassInFrame,
+            // cmux: only a wider width waits. Rows of a wider, older width in a narrower view put my
+            // bubbles (right-aligned to the width they were laid out for) past the view's right edge for
+            // that frame: they showed cut off in a divider drag while a reply streamed (u2891, 2026-10-19).
+            // Rows of a narrower width in a wider view only leave a gap at the right for one frame.
+            if widthChanged, !captureMode, widthFrameScheduler != nil, widthPassInFrame, bounds.width > rowsWidth,
                widthPassCostInFrame >= MessagesWindowView.widthPassFrameBudget {
                 MessagesWindowView.widthPassesDeferred += 1
                 widthPassPending = true
@@ -673,6 +677,28 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
            let rows = RowBuilder.rewidth(d.rows, messages: st.ui.streams.isEmpty ? msgs : msgs + st.ui.streams.map(\.message),
                                          width: bounds.width, exact: near, scale: renderScale) {
             return rows
+        }
+        // cmux: while a reply streams, each chunk changes `streams` and nothing else. The rows of every
+        // other message stay: they are re-measured, and only the newest message's rows and the trailing rows
+        // (the stream, typing, notice) are derived again. Deriving every loaded message per chunk made each
+        // width pass of a drag long, so the next width change waited a frame (see layoutSubviews).
+        if let d = widthDerived, d.streams != st.ui.streams, let last = msgs.last, d.messages.count == msgs.count, d.me == st.me,
+           d.atNewest == st.atNewest, d.typing == st.ui.typing, d.notice == st.ui.notice, d.day == day, d.strings == strings,
+           d.messages.withUnsafeBufferPointer({ $0.baseAddress }) == msgs.withUnsafeBufferPointer({ $0.baseAddress }) {
+            let lastID = Substring(last.id)
+            var drop = 0
+            for row in d.rows.reversed() {
+                guard RowBuilder.isTrailing(row.key) || RowBuilder.owner(row.key) == lastID else { break }
+                drop += 1
+            }
+            if drop > 0, let head = RowBuilder.rewidth(Array(d.rows.dropLast(drop)), messages: msgs, width: bounds.width,
+                                                        exact: near, scale: renderScale) {
+                let tail = RowBuilder.rows(st, messages: msgs, now: now, range: (msgs.count - 1)..<msgs.count,
+                                           previousRow: head.last?.kind, width: bounds.width, scale: renderScale)
+                let rows = head + tail
+                widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, st.ui.notice, st.ui.streams, day, strings, rows)
+                return rows
+            }
         }
         MessagesWindowView.widthRowsDerived += 1  // cmux
         let rows = RowBuilder.rows(st, messages: msgs, now: now, width: bounds.width, exact: near, scale: renderScale)
