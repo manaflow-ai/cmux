@@ -52,7 +52,10 @@ import Testing
         // The avatar leads, then the name.
         let circle = control.convert(control.avatarView.circleFrame, from: control.avatarView)
         #expect(circle.minX >= 0 && circle.maxX <= control.titleFrame.minX, "avatar \(circle) before name \(control.titleFrame)")
-        #expect(control.titleFrame.maxX <= control.bounds.width)
+        // One chevron at the trailing edge, after the name (#14893).
+        #expect(!control.icon.isHidden && control.icon.image != nil, "the chevron draws")
+        #expect(control.icon.frame.minX >= control.titleFrame.maxX && control.icon.frame.maxX <= control.bounds.width,
+                "chevron \(control.icon.frame) after name \(control.titleFrame)")
 
         // The band's items end after the chip; Search and the dots sit after it.
         let row = try #require(h.sidebar.footerBand.bandFirstRow)

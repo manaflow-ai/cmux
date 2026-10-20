@@ -218,11 +218,11 @@ final class SidebarRegionView: NSView {
             || (section.arrangement.layout == .grid && section.items.contains { $0.span != nil }) {
             for item in section.items {
                 let info = content.infos[item.id] ?? .fallback(for: item)
-                // The profile control on an inline line shows its name whether or not the item
-                // asks for a label (Leo 2026-10-20); without room it stays the avatar alone.
-                if let avatar = info.avatar, section.arrangement.layout == .inline {
-                    widths[item.id] = SidebarItemRowView.profileChipWidth(name: avatar.name, font: font,
-                                                                          rowHeight: content.metrics.rowHeight, available: line)
+                // The profile control alone on an inline line (the default footer) is one chip,
+                // avatar, name and chevron, whether or not the item asks for a label (Leo
+                // 2026-10-20, #14893); without room, or beside other items, it keeps its look.
+                if info.avatar != nil, section.arrangement.layout == .inline, section.items.count == 1 {
+                    widths[item.id] = SidebarItemRowView.profileChipWidth(rowHeight: content.metrics.rowHeight, available: line)
                 } else if item.showsLabel {
                     widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, activity: info.activity != .idle)
                 }

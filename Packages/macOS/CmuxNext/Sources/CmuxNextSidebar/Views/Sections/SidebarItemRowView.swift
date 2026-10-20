@@ -70,8 +70,8 @@ class SidebarItemRowView: NSView {
     var showsMenu = false {
         didSet {
             guard showsMenu != oldValue else { return }
-            // The menu's tracking took the release: no mouseUp ends the press.
-            if !showsMenu { isPressed = false }
+            // The menu's tracking takes the release: no mouseUp ends the press.
+            isPressed = false
             pointerChanged()
         }
     }
@@ -157,7 +157,7 @@ class SidebarItemRowView: NSView {
             title.textColor = Palette.textPrimary
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
-            let strong = style == .icon && (isHovered || isPressed || showsKeyFocus)
+            let strong = (style == .icon || isProfileChip) && (isHovered || isPressed || showsMenu || showsKeyFocus)
             // The chip's avatar sits beside its name at full strength, as the name does.
             avatarView.isStrong = strong || isProfileChip
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
