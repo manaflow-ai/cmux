@@ -97,13 +97,20 @@ enum PeerProcess {
     }
 
     private static func socketAddress(_ socket: in_sockinfo, local: Bool) -> Address? {
-        let address = local ? socket.insi_laddr : socket.insi_faddr
         if socket.insi_vflag & UInt8(clamping: INI_IPV4) != 0 {
-            var raw = address.ina_46.i46a_addr4
+            if local {
+                var raw = socket.insi_laddr.ina_46.i46a_addr4
+                return .v4(withUnsafeBytes(of: &raw) { Array($0) })
+            }
+            var raw = socket.insi_faddr.ina_46.i46a_addr4
             return .v4(withUnsafeBytes(of: &raw) { Array($0) })
         }
         if socket.insi_vflag & UInt8(clamping: INI_IPV6) != 0 {
-            var raw = address.ina_6
+            if local {
+                var raw = socket.insi_laddr.ina_6
+                return .v6(withUnsafeBytes(of: &raw) { Array($0) })
+            }
+            var raw = socket.insi_faddr.ina_6
             return .v6(withUnsafeBytes(of: &raw) { Array($0) })
         }
         return nil

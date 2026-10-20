@@ -45,8 +45,9 @@ import PackageDescription
 //   CmuxNextFocusUI -> Actions, Design (AppKit overlays of keys: the shortcut hint overlay and capture
 //     waiter, the which-key controller, overlay, rows and strings; the focus state machine, key rules
 //     and key delivery stay in the App)
-//   CmuxNextComputerUse -> AgentActivity, Compat, Settings (the macOS Computer Use helper: launch,
-//     v2 helper and its disclaimed spawner, the cua helper manifest reader; setup stays in the App)
+//   CmuxNextComputerUse -> AgentActivity, Compat, Settings, Wakeups (the macOS Computer Use helper:
+//     launch, v2 helper and its disclaimed spawner, signed Unix peer checks, the cua helper manifest
+//     reader; setup stays in the App)
 //   CmuxNextHistory -> Design, Icons (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
@@ -543,7 +544,7 @@ let package = Package(
         // reader. Setup (ComputerUseSetup) stays in the App.
         .target(
             name: "CmuxNextComputerUse",
-            dependencies: ["CmuxNextAgentActivity", "CmuxNextCompat", "CmuxNextSettings"],
+            dependencies: ["CmuxNextAgentActivity", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Resource usage for hover cards and `resources` (CPU and memory per
