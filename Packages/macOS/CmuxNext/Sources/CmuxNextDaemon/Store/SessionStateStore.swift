@@ -117,6 +117,7 @@ public final class SessionStateStore {
         let groups = state.flatMap { state in id.map { Self.screenGroups(state, workspace: $0, screens: workspace.screens) } }
         workspace.applyState(ephemeral: id.map { state?.ephemeralWorkspaces.contains($0) ?? false } ?? false,
                              agentFolder: id.flatMap { state?.agentFolders[$0] },
+                             notes: id.flatMap { state?.workspaceNotes[$0] } ?? .init(),
                              status: id.flatMap { state?.workspaceStatus[$0] }, screenGroups: groups)
     }
 
