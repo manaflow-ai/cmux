@@ -47,8 +47,11 @@ fn run<T: Send + 'static>(h: &mut Harness, f: impl FnOnce() -> T + Send + 'stati
     worker.join().unwrap()
 }
 
-/// Every `message.send` the owner took: (key, parts, reply_to, thread_root).
-fn sends(h: &Harness) -> Vec<(String, Vec<Part>, Option<PartRef>, Option<String>)> {
+/// One `message.send` the owner took: (key, parts, reply_to, thread_root).
+type Sent = (String, Vec<Part>, Option<PartRef>, Option<String>);
+
+/// Every `message.send` the owner took.
+fn sends(h: &Harness) -> Vec<Sent> {
     h.owner
         .lock()
         .unwrap()
@@ -84,10 +87,7 @@ fn texts(parts: &[Part]) -> String {
 
 /// The sends whose text contains `needle`, stepping the brain until one
 /// lands (an attachment goes through the upload thread first).
-fn wait_send(
-    h: &mut Harness,
-    needle: &str,
-) -> Vec<(String, Vec<Part>, Option<PartRef>, Option<String>)> {
+fn wait_send(h: &mut Harness, needle: &str) -> Vec<Sent> {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let found: Vec<_> = sends(h)
@@ -156,7 +156,7 @@ fn send(text: &str) -> SendCall {
 }
 
 #[test]
-fn send_posts_a_top_level_message_now_and_a_repeat_is_a_noop() {
+fn turn_tools_send_posts_a_top_level_message_now_and_a_repeat_is_a_noop() {
     let mut h = Harness::new(default_script());
     running(&mut h, "two asks: the build and the docs");
     let sp = spawner(&h);
@@ -175,7 +175,7 @@ fn send_posts_a_top_level_message_now_and_a_repeat_is_a_noop() {
 }
 
 #[test]
-fn send_with_reply_to_goes_into_that_messages_thread() {
+fn turn_tools_send_with_reply_to_goes_into_that_messages_thread() {
     let mut h = Harness::new(default_script());
     h.connect();
     h.say("user_local", "the build?");
@@ -197,7 +197,7 @@ fn send_with_reply_to_goes_into_that_messages_thread() {
 }
 
 #[test]
-fn send_attaches_any_file_and_refuses_a_missing_one() {
+fn turn_tools_send_attaches_any_file_and_refuses_a_missing_one() {
     let mut h = Harness::new(default_script());
     h.connect();
     h.say("user_local", "send me the report");
@@ -236,7 +236,7 @@ fn send_attaches_any_file_and_refuses_a_missing_one() {
 }
 
 #[test]
-fn stop_ends_the_turn_with_no_final_text_and_no_failure() {
+fn turn_tools_stop_ends_the_turn_with_no_final_text_and_no_failure() {
     let mut h = Harness::new(endless_first_turn());
     running(&mut h, "start the work");
     let sp = spawner(&h);
@@ -269,7 +269,7 @@ fn stop_ends_the_turn_with_no_final_text_and_no_failure() {
 }
 
 #[test]
-fn stop_outside_a_turn_is_a_noop() {
+fn turn_tools_stop_outside_a_turn_is_a_noop() {
     let mut h = Harness::new(default_script());
     h.connect();
     let sp = spawner(&h);
@@ -278,7 +278,7 @@ fn stop_outside_a_turn_is_a_noop() {
 }
 
 #[test]
-fn sleep_ends_the_turn_and_wakes_the_chief_with_its_note() {
+fn turn_tools_sleep_ends_the_turn_and_wakes_the_chief_with_its_note() {
     let mut h = Harness::new(endless_first_turn());
     running(&mut h, "watch the nightly");
     let sp = spawner(&h);
@@ -318,7 +318,7 @@ fn sleep_ends_the_turn_and_wakes_the_chief_with_its_note() {
 }
 
 #[test]
-fn sleep_until_event_is_dropped_when_a_message_comes_first() {
+fn turn_tools_sleep_until_event_is_dropped_when_a_message_comes_first() {
     let mut h = Harness::new(default_script());
     h.connect();
     h.say("user_local", "wait for a12");
@@ -342,7 +342,7 @@ fn sleep_until_event_is_dropped_when_a_message_comes_first() {
 }
 
 #[test]
-fn sleep_zero_clears_wakes_and_bounds_hold() {
+fn turn_tools_sleep_zero_clears_wakes_and_bounds_hold() {
     assert!(
         Call::parse("sleep", &json!({"seconds": 5})).is_err(),
         "under 30 s"
@@ -389,7 +389,7 @@ fn sleep_zero_clears_wakes_and_bounds_hold() {
 }
 
 #[test]
-fn the_chief_has_send_stop_and_sleep_and_a_subagent_does_not() {
+fn turn_tools_the_chief_has_send_stop_and_sleep_and_a_subagent_does_not() {
     let names = |v: serde_json::Value| -> Vec<String> {
         v.as_array()
             .unwrap()
