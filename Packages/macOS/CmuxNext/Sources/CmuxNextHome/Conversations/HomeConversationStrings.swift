@@ -41,6 +41,55 @@ enum HomeConversationStrings {
     }
     static var untitled: String { String(localized: "home.list.untitled", defaultValue: "Conversation", bundle: .module) }
 
+    // MARK: Group chats with Chiefs (chief-group-chats-DESIGN.md)
+
+    /// Group info's Chiefs Reply row label.
+    static var infoChiefReplies: String { String(localized: "home.groupInfo.chiefReplies", defaultValue: "Chiefs Reply", bundle: .module) }
+
+    /// One choice of the Chiefs Reply row.
+    static func chiefReplies(_ policy: ChiefReplyPolicy) -> String {
+        switch policy {
+        case .auto: String(localized: "home.groupInfo.chiefReplies.auto", defaultValue: "Automatically", bundle: .module)
+        case .mentions: String(localized: "home.groupInfo.chiefReplies.mentions", defaultValue: "Only When @Mentioned", bundle: .module)
+        case .all: String(localized: "home.groupInfo.chiefReplies.all", defaultValue: "To Every Message", bundle: .module)
+        }
+    }
+
+    /// The line under the Chiefs Reply row that says what the choice does.
+    static func chiefRepliesDetail(_ policy: ChiefReplyPolicy) -> String {
+        switch policy {
+        case .auto:
+            String(localized: "home.groupInfo.chiefReplies.auto.detail",
+                   defaultValue: "A Chief answers when you @mention it or reply to it. With only you and one Chief, it answers every message.",
+                   bundle: .module)
+        case .mentions:
+            String(localized: "home.groupInfo.chiefReplies.mentions.detail",
+                   defaultValue: "A Chief answers only when you @mention it or reply to it.", bundle: .module)
+        case .all:
+            String(localized: "home.groupInfo.chiefReplies.all.detail",
+                   defaultValue: "Every Chief answers every message that a person sends.", bundle: .module)
+        }
+    }
+
+    /// The label before New Message's Chiefs strip.
+    static var composeChiefs: String { String(localized: "home.compose.chiefs", defaultValue: "Chiefs", bundle: .module) }
+
+    /// A Chiefs strip button's accessibility label.
+    static func composeAddChief(_ name: String) -> String {
+        String(format: String(localized: "home.compose.addChief", defaultValue: "Add %@", bundle: .module), name)
+    }
+
+    // MARK: Chiefs (HomeChiefRoster)
+
+    /// The main Chief's tag in the list.
+    static var mainChief: String { String(localized: "home.list.chief.main", defaultValue: "Main", bundle: .module) }
+    /// A Chief that runs on this Mac.
+    static var placeThisMac: String { String(localized: "home.list.chief.thisMac", defaultValue: "This Mac", bundle: .module) }
+    /// A Chief that runs in the cloud (the Hosted Chief).
+    static var placeCloud: String { String(localized: "home.list.chief.cloud", defaultValue: "Cloud", bundle: .module) }
+    /// A Chief on a paired server whose name is not known yet.
+    static var placeServer: String { String(localized: "home.list.chief.server", defaultValue: "Paired server", bundle: .module) }
+
     // MARK: Message requests (home-messaging-invites DESIGN 2.3, 2.5)
 
     /// The sender's row while the other person has not joined.

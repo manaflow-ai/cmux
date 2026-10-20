@@ -14,7 +14,7 @@
    the bridge's accent text, which AgentPaneTheme.swift sets to the page color made
    opaque (the accent is the text color). A host that sends a different accent text must
    change this base too; without the bridge the base is the system Canvas. */
-.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:color-mix(in srgb,var(--agent-text) 6%,transparent);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-warning,var(--agent-danger));--acpmux-send-off-bg:color-mix(in srgb,var(--agent-text) 18%,transparent);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 60%,transparent);--acpmux-send-fill:var(--cmux-messages-blue);--acpmux-send-ink:var(--cmux-on-messages-blue)}
+.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:color-mix(in srgb,var(--agent-text) 6%,transparent);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-warning,var(--agent-danger));--acpmux-send-off-bg:color-mix(in srgb,var(--agent-text) 18%,transparent);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 60%,transparent);--acpmux-send-fill:var(--agent-text);--acpmux-send-ink:var(--acpmux-composer-solid,var(--cmux-surface-solid,Canvas))}
 /* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the solid popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
 .acpmux-shell,.ui-positioner{--surface-popup:var(--cmux-popup-surface,var(--acpmux-menu-bg))}
 .ui-positioner{--ui-popup-fg:var(--agent-text)}
@@ -96,9 +96,8 @@
 .acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-effort .acpmux-picker-button,.acpmux-picker-button .acpmux-icon:last-child{color:var(--agent-muted)}
 .acpmux-mp-refresh-spinner{width:12px;height:12px;border:1.5px solid color-mix(in srgb,currentColor 35%,transparent);border-top-color:currentColor;border-radius:50%}
-@media (prefers-reduced-motion: no-preference){.acpmux-mp-refresh-spinner{animation:acpmux-mp-spin 700ms linear infinite}}
+@media (prefers-reduced-motion: no-preference){.acpmux-mp-refresh-spinner{animation:cmux-spin var(--cmux-spinner-period,900ms) linear infinite}}
 :root[data-status-indicators=static] .acpmux-mp-refresh-spinner{animation:none}
-@keyframes acpmux-mp-spin{to{transform:rotate(360deg)}}
 /* The context ring is a button the size of the mic; a click opens the usage details above the bar. */
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
@@ -587,7 +586,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-host-error-card button:disabled{opacity:.6}
 .acpmux-harness-notice{display:block}.acpmux-harness-notice .acpmux-host-error-card{border-color:color-mix(in srgb,var(--agent-text) 14%,transparent);background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg))}.acpmux-host-error-actions{display:flex;flex-wrap:wrap;gap:6px}.acpmux-harness-notice button[data-notice-action=skip],.acpmux-harness-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-harness-spinner{display:inline-block;margin-right:6px;vertical-align:-1px;color:var(--agent-muted)}
-@media (prefers-reduced-motion: no-preference){.acpmux-harness-spinner{animation:acpmux-mp-spin 900ms linear infinite}}
+@media (prefers-reduced-motion: no-preference){.acpmux-harness-spinner{animation:cmux-spin var(--cmux-spinner-period,900ms) linear infinite}}
 :root[data-status-indicators=static] .acpmux-harness-spinner{animation:none}
 .acpmux-instructions-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
@@ -751,3 +750,15 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
   animation: none !important;
   transition: none !important;
 }
+
+/* The ··· menu's Text & Width popover (ChatDisplaySettings.tsx, chatDisplay.ts). */
+.acpmux-display { width: 300px; max-width: calc(100vw - 16px); }
+.acpmux-display-body { display: grid; gap: 10px; padding: 12px; font-size: var(--text-detail); color: var(--agent-text); }
+.acpmux-display-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.acpmux-display-row > span { color: var(--agent-muted); }
+.acpmux-display-row output { min-width: 44px; text-align: end; font-variant-numeric: tabular-nums; color: var(--agent-muted); }
+.acpmux-display-row input[type="range"] { width: 100%; margin: 0; accent-color: var(--agent-muted); }
+.acpmux-display-row select, .acpmux-display-row input[type="text"] { grid-column: 2 / -1; min-width: 0; font: inherit; color: inherit; background: var(--agent-input-bg, transparent); border: 1px solid var(--agent-border, transparent); border-radius: 6px; padding: 3px 6px; }
+.acpmux-display-check { grid-template-columns: auto 1fr; }
+.acpmux-display-reset { justify-self: end; font: inherit; color: var(--agent-muted); background: none; border: 0; padding: 2px 4px; border-radius: 6px; cursor: default; }
+.acpmux-display-reset:hover { background: color-mix(in srgb, var(--agent-text) 8%, transparent); }

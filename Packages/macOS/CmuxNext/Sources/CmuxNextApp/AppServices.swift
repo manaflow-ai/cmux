@@ -10,6 +10,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextFeed
 import CmuxNextPalette
@@ -60,6 +61,8 @@ final class AppServices {
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
+    /// iPhone connections for the cmux-next iPhone app (cnx-ios, Settings > Mobile).
+    let iphone = IPhoneHostService()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
@@ -102,6 +105,18 @@ final class AppServices {
     }()
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
+    /// The session vault (past agent sessions); tests may set one over a fixed source.
+    lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
+    /// `cmux://vault`: Open Vault as Pane.
+    private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
+    /// Where each window's right sidebar remembers its state (tests set a suite of their own).
+    var rightSidebarDefaults: UserDefaults = .standard
+    /// The right sidebar's sections by mode (the file explorer adds Files and Find).
+    private(set) lazy var rightSidebarSections: RightSidebarSections = {
+        let sections = RightSidebarSections()
+        sections.registerAppSections()
+        return sections
+    }()
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).

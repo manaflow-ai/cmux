@@ -351,6 +351,42 @@ body {
   max-width: 100%;
 }
 
+.md-image-node {
+  display: inline;
+}
+
+.md-remote-image-placeholder {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: var(--cmux-md-code-radius);
+  background: var(--cmux-md-code-background);
+  color: var(--cmux-md-muted-color);
+  font-size: var(--cmux-md-toolbar-font-size);
+  vertical-align: middle;
+  user-select: none;
+}
+
+.md-remote-image-placeholder > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-remote-image-placeholder .md-button {
+  flex: 0 0 auto;
+  color: var(--cmux-md-text-color);
+  font: inherit;
+}
+
+.md-remote-image-placeholder .md-button:disabled {
+  color: var(--cmux-md-faint-color);
+}
+
 /* Wide tables (MARKDOWN-TABLE-SCROLL, user 2026-10-19). The editor draws every table inside a
    `.tableWrapper` (prosemirror-tables TableView) and gives the table an inline `min-width` of
    100px a column. That wrapper is the table's horizontal scroller: the table keeps its natural

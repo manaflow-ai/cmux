@@ -1038,9 +1038,9 @@ impl Terminal {
             cell_width: cell_width_px,
             cell_height: cell_height_px,
         };
-        self.bump_history_epoch();
-        self.reset_history_anchor();
         if reflows {
+            self.bump_history_epoch();
+            self.reset_history_anchor();
             self.history_markers_reflowed();
         }
         Ok(())

@@ -353,6 +353,8 @@ enum TabLifecycle {
                 case .close: break
                 case .select(let next): return pane.select(next)
                 case .keep: return ctx.refuse(RefusalStrings.pinnedTabKept)
+                // Cmd-W in the Home Chief pane: nothing to close there, so no notice either.
+                case .ignore: return
                 }
             }
             // A user's Cmd-W gets an undo toast (REOPEN-CLOSED); automation does not.
