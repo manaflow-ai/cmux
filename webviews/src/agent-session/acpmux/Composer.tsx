@@ -55,7 +55,7 @@ import { useComposerSettings } from "./composerSettings";
 import { usePromptHistory } from "./composer/promptHistory";
 import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
 import type { SendBlock } from "./useFolderTrustAsk";
-import { promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
+import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -131,6 +131,10 @@ export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /// The native tab's folder, which the header's PR chip describes. A fresh chat's folder pick
+  /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
+  /// header's PR belongs to another folder then.
+  headerCwd?: string;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
@@ -228,6 +232,7 @@ type Props = {
 /// so its arguments can follow.
 export function Composer({
   snapshot,
+  headerCwd,
   chips: Chips,
   onSend,
   onStop,
@@ -950,15 +955,18 @@ export function Composer({
   // The chat folder's own PR, which the App reads with gh for the header's chip: no session summary
   // reports a PR yet, so this is the live source.
   const headerPullRequest = useHeaderState().pullRequest;
+  const headerHere = headerCwd === undefined || folder(headerCwd) === folder(cwd);
   const livePullRequest = useMemo<LivePullRequest | undefined>(
     () =>
-      headerPullRequest && {
-        number: headerPullRequest.number,
-        title: headerPullRequest.title,
-        state: headerPullRequest.state,
-        checks: headerPullRequest.checks.state,
-      },
-    [headerPullRequest],
+      headerPullRequest && headerHere
+        ? {
+            number: headerPullRequest.number,
+            title: headerPullRequest.title,
+            state: headerPullRequest.state,
+            checks: headerPullRequest.checks.state,
+          }
+        : undefined,
+    [headerPullRequest, headerHere],
   );
   const suggestion = useMemo<PromptSuggestion | undefined>(
     () =>

@@ -22,15 +22,19 @@ export function promptSuggestion(
   now: number,
   live?: LivePullRequest,
 ): PromptSuggestion | undefined {
-  if (!here.cwd) return undefined;
+  const cwd = folder(here.cwd);
+  if (!cwd) return undefined;
   sessions ??= [];
+  const other = (entry: AcpmuxSessionEntry) => entry.sessionId !== here.sessionId && !entry.archived;
   // Another chat in this checkout: a worktree chat's own folder is its cwd, and a known branch must agree.
   const sameCheckout = (entry: AcpmuxSessionEntry) =>
-    entry.sessionId !== here.sessionId &&
-    !entry.archived &&
-    entry.cwd === here.cwd &&
-    (!entry.worktree || entry.worktree === here.cwd) &&
+    other(entry) &&
+    folder(entry.cwd) === cwd &&
+    (!entry.worktree || folder(entry.worktree) === cwd) &&
     (!here.branch || !entry.branch || entry.branch === here.branch);
+  // Another chat changing these files, whatever branch it last recorded.
+  const sameTree = (entry: AcpmuxSessionEntry) =>
+    other(entry) && (folder(entry.cwd) === cwd || folder(entry.worktree) === cwd);
   const working = (entry: AcpmuxSessionEntry) => entry.indicator === "working" || entry.indicator === "input";
   const source = sessions
     .filter(
@@ -43,14 +47,18 @@ export function promptSuggestion(
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
   const pr = source?.pullRequest ?? (live && (live.state === "open" || live.state === "draft") ? live : undefined);
   if (!pr) return undefined;
-  // A chat already working on (or waiting about) this PR has it; a second agent would collide. Live
-  // session summaries name no PR, so for the folder's own PR any working chat in this checkout may be
-  // on it: the suggestion stays quiet then.
+  // A second agent would collide with a chat working (or waiting) in this working tree, whatever PR
+  // it reports (live session summaries name none), and with one working on this PR in any folder.
   const busy = sessions.some(
-    (entry) => sameCheckout(entry) && working(entry) && (pr === live || entry.pullRequest?.number === pr.number),
+    (entry) => working(entry) && (sameTree(entry) || (other(entry) && entry.pullRequest?.number === pr.number)),
   );
   if (busy) return undefined;
   const title = pr.title.length > TITLE_MAX ? `${pr.title.slice(0, TITLE_MAX - 1).trimEnd()}…` : pr.title;
   const kind = pr.checks === "failing" ? "failing" : pr.state === "draft" ? "draft" : "open";
   return { kind, number: pr.number, title };
+}
+
+/** A folder path without its trailing slashes, so `/x/app/` and `/x/app` are one checkout. */
+export function folder(path: string | undefined): string | undefined {
+  return path?.replace(/\/+$/, "") || undefined;
 }

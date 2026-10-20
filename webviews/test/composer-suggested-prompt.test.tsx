@@ -75,7 +75,7 @@ function Chips() {
   return null;
 }
 
-async function render(snapshot: AcpmuxSnapshot) {
+async function render(snapshot: AcpmuxSnapshot, headerCwd?: string) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
@@ -83,6 +83,7 @@ async function render(snapshot: AcpmuxSnapshot) {
     root!.render(
       <Composer
         snapshot={snapshot}
+        headerCwd={headerCwd}
         sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
         chips={Chips}
         onSend={() => {
@@ -151,12 +152,26 @@ test("nothing is suggested from another folder, another worktree, a merged PR, a
     [prChat({ updatedAt: Date.now() - 4 * 24 * 60 * 60 * 1000 })],
     [prChat({ indicator: "working" })],
     [prChat(), prChat({ sessionId: "busy", indicator: "input" })],
+    // Review on #21882: another agent in this working tree collides whatever PR it reports, or
+    // whatever branch it last recorded; one on this PR collides from any folder.
+    [prChat(), prChat({ sessionId: "busy", indicator: "working", pullRequest: undefined })],
+    [prChat(), prChat({ sessionId: "busy", indicator: "working", branch: "old" }, { number: 9 })],
+    [prChat(), prChat({ sessionId: "busy", cwd: "/Users/you/src/app-wt", indicator: "working" })],
     [prChat({ archived: true })],
   ]) {
     await render(fresh(sessions));
     expect(shown()).toBe("Do anything");
     expect(key()).toBeUndefined();
   }
+});
+
+test("a folder with a trailing slash is the same checkout", async () => {
+  await render(fresh([prChat({ cwd: `${APP}/` })]));
+  expect(shown()).toStartWith("Continue PR #123");
+  await render(
+    fresh([prChat(), prChat({ sessionId: "busy", cwd: `${APP}/`, indicator: "working", pullRequest: undefined })]),
+  );
+  expect(shown()).toBe("Do anything");
 });
 
 test("a chat that knows its branch takes no PR from another branch", async () => {
@@ -235,6 +250,13 @@ test("the chat folder's PR from the header's gh read is suggested when no sessio
     expect(shown()).toStartWith("Finish draft PR #77: Stream tool output");
     await header({ ...live, state: "merged", checks: { state: "passing", passed: 3, total: 3 } });
     expect(shown()).toBe("Do anything");
+    // Greptile on #21882: the header reads the tab's folder. A fresh chat's folder pick moves the
+    // composer, not the tab, until the chat starts: that PR is another folder's then.
+    await header(live);
+    await render(fresh([]), "/Users/you/src/other");
+    expect(shown()).toBe("Do anything");
+    await render(fresh([]), `${APP}/`);
+    expect(shown()).toStartWith("Fix the failing checks on PR #77");
     // A chat already working on that PR keeps it.
     await header({ ...live, checks: { state: "passing", passed: 3, total: 3 } });
     await render(fresh([prChat({ sessionId: "busy", indicator: "working" }, { number: 77 })]));

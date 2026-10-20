@@ -5735,6 +5735,7 @@ function AcpmuxPane() {
       <ImageViewerContext.Provider value={openImage}>
         <Composer
           snapshot={composerSnapshot}
+          headerCwd={snapshot.summary?.cwd ?? ""}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           switching={Boolean(switchView.intent)}
           chips={ComposerChips}
