@@ -91,6 +91,7 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     const rings = await page.$$eval(".acpmux-context-ring", (buttons) =>
       buttons.map((button) => button.querySelectorAll("svg circle").length),
     );
+    expect(rings.length).toBeGreaterThan(0);
     for (const marks of rings) expect(marks).toBe(1);
     await page.close();
   });
