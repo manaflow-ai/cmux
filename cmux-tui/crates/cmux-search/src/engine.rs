@@ -2,8 +2,10 @@
 //! all of it.
 
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::ops::Range;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use memchr::memmem::Finder;
@@ -13,7 +15,7 @@ use crate::context::{ContextEntry, Contexts, TargetContext};
 use crate::fold::{ends_word, fold, fold_into, fold_with_map, starts_word};
 use crate::frecency::{FOCUS, Frecency, OPENS};
 use crate::names::{NameDoc, NameTable};
-use crate::segment::{BlockData, DocMeta, Live, LiveScratch, NONE_I64, NONE_U32, Segment};
+use crate::segment::{BlockData, DocMeta, Live, LiveScratch, NONE_I64, NONE_U32, Sealed, Segment};
 use crate::trigram;
 
 /// Sizes the engine packs and seals at.
@@ -156,7 +158,38 @@ pub struct SearchEngine {
     pub(crate) opens: Frecency,
     pub(crate) focus: Frecency,
     pub(crate) read_errors: std::sync::atomic::AtomicUsize,
+    /// Seal full segments off the owner's lock ([`SearchEngine::take_seal_jobs`]).
+    background_seal: bool,
+    /// Frozen segments waiting for their owner to run them.
+    pending_seals: Vec<SealJob>,
     scratch: LiveScratch,
+}
+
+/// Sealing one frozen segment: encoding its image and writing its file,
+/// with no access to the engine. Take it with
+/// [`SearchEngine::take_seal_jobs`], [`SealJob::run`] it without holding the
+/// engine's lock (queries keep reading the frozen segment meanwhile), then
+/// hand the result to [`SearchEngine::finish_seal`].
+pub struct SealJob {
+    id: u64,
+    live: Arc<Live>,
+    dir: Option<PathBuf>,
+}
+
+/// A sealed segment ready to replace its frozen one.
+pub struct SealDone {
+    id: u64,
+    sealed: io::Result<Sealed>,
+}
+
+impl SealJob {
+    /// Encodes the segment and writes its file (the slow part of sealing).
+    pub fn run(self) -> SealDone {
+        let image = self.live.encode();
+        let store = crate::persist::store_image(self.dir.as_deref(), self.id, image);
+        // Deleted bits are taken from the frozen segment at finish time.
+        SealDone { id: self.id, sealed: Sealed::open(self.id, store, Vec::new()) }
+    }
 }
 
 /// A content candidate, copied out of its block.
@@ -173,7 +206,7 @@ impl SearchEngine {
         Self {
             config,
             dir: None,
-            segments: vec![Segment::Live(Live::new(0))],
+            segments: vec![Segment::Live(Arc::new(Live::new(0)))],
             next_segment: 1,
             strings: Vec::new(),
             string_ids: HashMap::new(),
@@ -184,6 +217,8 @@ impl SearchEngine {
             opens: Frecency::default(),
             focus: Frecency::default(),
             read_errors: std::sync::atomic::AtomicUsize::new(0),
+            background_seal: false,
+            pending_seals: Vec::new(),
             scratch: LiveScratch::new(),
         }
     }
@@ -228,10 +263,10 @@ impl SearchEngine {
         let segment_bytes = self.config.segment_bytes;
         let scratch = &mut self.scratch;
         let appended = match self.segments.last_mut() {
-            Some(Segment::Live(live)) => {
+            Some(Segment::Live(live)) => Arc::get_mut(live).map(|live| {
                 let index = live.append(meta, text, block_bytes, scratch);
-                Some((live.id, index, live.text_len() >= segment_bytes))
-            }
+                (live.id, index, live.text_len() >= segment_bytes)
+            }),
             _ => None,
         };
         if let Some((segment, index, full)) = appended {
@@ -239,34 +274,81 @@ impl SearchEngine {
                 self.keyed.insert(key, (segment, index));
             }
             if full {
-                self.seal();
+                if self.background_seal {
+                    if let Some(job) = self.freeze() {
+                        self.pending_seals.push(job);
+                    }
+                } else {
+                    self.seal();
+                }
             }
         }
     }
 
-    /// Seals the live segment (when it holds docs) and opens a new one. With
-    /// an index directory the sealed image goes to a file and leaves memory.
-    pub fn seal(&mut self) {
-        let Some(Segment::Live(live)) = self.segments.last() else { return };
-        if live.doc_count() == 0 {
+    /// Seal full segments in the background: [`SearchEngine::append`] only
+    /// freezes a full segment (constant time) and queues a [`SealJob`] the
+    /// owner takes with [`SearchEngine::take_seal_jobs`]. Off by default:
+    /// `append` then seals in place.
+    pub fn set_background_seal(&mut self, background: bool) {
+        // Red: append still seals in place, under the owner's lock.
+        let _ = background;
+    }
+
+    /// The seal jobs `append` queued; run each with [`SealJob::run`] off the
+    /// engine's lock, then pass the result to [`SearchEngine::finish_seal`].
+    pub fn take_seal_jobs(&mut self) -> Vec<SealJob> {
+        std::mem::take(&mut self.pending_seals)
+    }
+
+    /// Swaps a frozen segment for its sealed image (constant time apart
+    /// from the deleted bits). A failed seal leaves the frozen segment in
+    /// memory, still searchable.
+    pub fn finish_seal(&mut self, done: SealDone) {
+        let Some(segment) = self
+            .segments
+            .iter_mut()
+            .find(|segment| matches!(segment, Segment::Frozen(..)) && segment.id() == done.id)
+        else {
             return;
-        }
-        let image = live.encode(&mut self.scratch);
-        let deleted = live.deleted().to_vec();
-        let id = live.id;
-        let store = crate::persist::store_image(self.dir.as_deref(), id, image);
-        match crate::segment::Sealed::open(id, store, deleted) {
-            Ok(sealed) => {
-                if let Some(last) = self.segments.last_mut() {
-                    *last = Segment::Sealed(sealed);
+        };
+        match done.sealed {
+            Ok(mut sealed) => {
+                if let Segment::Frozen(_, deleted) = segment {
+                    sealed.deleted = std::mem::take(deleted);
                 }
-                self.segments.push(Segment::Live(Live::new(self.next_segment)));
-                self.next_segment += 1;
+                *segment = Segment::Sealed(sealed);
             }
-            // The image could not be read back: keep the live segment.
             Err(_) => {
                 self.read_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
+        }
+    }
+
+    /// Freezes the live segment (when it holds docs), opens a new one, and
+    /// returns the job that seals the frozen one.
+    fn freeze(&mut self) -> Option<SealJob> {
+        let last = self.segments.last_mut()?;
+        let Segment::Live(live) = last else { return None };
+        if live.doc_count() == 0 {
+            return None;
+        }
+        let live = Arc::clone(live);
+        let id = live.id;
+        *last = Segment::Frozen(Arc::clone(&live), live.deleted().to_vec());
+        self.segments.push(Segment::Live(Arc::new(Live::new(self.next_segment))));
+        self.next_segment += 1;
+        Some(SealJob { id, live, dir: self.dir.clone() })
+    }
+
+    /// Seals now: the live segment and every queued or frozen-but-unsealed
+    /// segment. With an index directory the images go to files and leave
+    /// memory.
+    pub fn seal(&mut self) {
+        let mut jobs = self.take_seal_jobs();
+        jobs.extend(self.freeze());
+        for job in jobs {
+            let done = job.run();
+            self.finish_seal(done);
         }
     }
 

@@ -2,6 +2,8 @@
 //! workspaces with large scrollback, resident memory per GB of text,
 //! incremental appends that never rescan, and zero idle CPU.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use cmux_search::{
@@ -180,6 +182,97 @@ fn cmux_search_budget_keystrokes_memory_and_incremental_appends() {
         full_rate >= empty_rate * 0.5,
         "appends slow down with index size: {full_rate} vs {empty_rate}"
     );
+}
+
+/// The daemon holds the engine behind a lock: appends and seals take it to
+/// write, queries to read. Sealing a full 64 MiB segment (encode + write the
+/// file) must not hold that lock, or the next keystroke waits for it.
+#[test]
+fn cmux_search_budget_queries_stay_fast_while_a_segment_seals() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = SearchEngine::open(dir.path(), EngineConfig::default()).unwrap();
+    engine.set_background_seal(true);
+    for doc in SyntheticCorpus::with_bytes(11, 192 << 20) {
+        engine.append(doc);
+    }
+    for job in engine.take_seal_jobs() {
+        let done = job.run();
+        engine.finish_seal(done);
+    }
+    let engine = Arc::new(RwLock::new(engine));
+    let done = Arc::new(AtomicBool::new(false));
+
+    // The writer appends 160 MiB (two or more 64 MiB seals) in 256 KiB
+    // batches, the way the daemon's search worker drains its channel, and
+    // runs every seal job off the lock.
+    let writer = {
+        let engine = Arc::clone(&engine);
+        let done = Arc::clone(&done);
+        std::thread::spawn(move || {
+            let mut seals = Vec::new();
+            let mut batch = Vec::new();
+            let mut bytes = 0;
+            let mut docs = SyntheticCorpus::with_bytes(12, 160 << 20).peekable();
+            while docs.peek().is_some() {
+                for doc in docs.by_ref() {
+                    bytes += doc.text.len();
+                    batch.push(doc);
+                    if bytes >= 256 << 10 {
+                        break;
+                    }
+                }
+                bytes = 0;
+                let jobs = {
+                    let mut engine = engine.write().unwrap();
+                    for doc in batch.drain(..) {
+                        engine.append(doc);
+                    }
+                    engine.take_seal_jobs()
+                };
+                for job in jobs {
+                    let begin = Instant::now();
+                    let sealed = job.run();
+                    seals.push(begin.elapsed());
+                    engine.write().unwrap().finish_seal(sealed);
+                }
+            }
+            done.store(true, Ordering::Release);
+            seals
+        })
+    };
+
+    // The reader types: a query every 5 ms, timed with its lock wait.
+    let queries =
+        ["migration", "mismatched types", "error", "deploy staging", "qqzv", "request id="];
+    let mut times = Vec::new();
+    let mut index = 0;
+    while !done.load(Ordering::Acquire) {
+        let mut query = Query::new(queries[index % queries.len()], NOW);
+        query.budget = Some(Duration::from_millis(10));
+        let begin = Instant::now();
+        let hits = engine.read().unwrap().search(&query).hits.len();
+        times.push(begin.elapsed());
+        std::hint::black_box(hits);
+        index += 1;
+        // Typing cadence, not a synchronization.
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let seals = writer.join().unwrap();
+    times.sort();
+    let p50 = times[times.len() / 2];
+    let p99 = times[times.len() * 99 / 100];
+    let slowest = times[times.len() - 1];
+    eprintln!(
+        "search while sealing: {} seals ({seals:?} each off the lock), {} queries, p50 {p50:?}, p99 {p99:?}, slowest {slowest:?}",
+        seals.len(),
+        times.len()
+    );
+    assert!(seals.len() >= 2, "only {} seals ran", seals.len());
+    assert!(
+        p99 <= KEYSTROKE_BUDGET,
+        "query p99 {p99:?} while sealing is over {KEYSTROKE_BUDGET:?}"
+    );
+    assert!(slowest <= KEYSTROKE_BUDGET * 2, "slowest query {slowest:?} while sealing");
 }
 
 #[test]
