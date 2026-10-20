@@ -120,7 +120,7 @@ public final class MouseSideButtons {
                         browser = chrome
                         return
                     }
-                    if let forwarding = current as? MouseButtonForwarding {
+                    if let forwarding = current as? any MouseButtonForwarding {
                         forwardsButtons = forwarding.forwardsMouseButtons
                         return
                     }
