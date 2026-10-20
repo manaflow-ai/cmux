@@ -25,6 +25,10 @@ extension AppServices {
         let incognito = tab.kind == .browser && cache.browserTabs.isIncognitoTab(tab.id)
         let favicon = tab.kind != .browser ? nil
             : browserFavicon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL).map { SidebarFavicon($0.cgImage) }
-        return .init(title: WorkspaceAutoNameWiring(services: self).reader.label(workspace, front: tab, work: work), favicon: favicon)
+        let names = WorkspaceAutoNameWiring(services: self).reader
+        // The media hub's tab list version: a page made or closed later maps the row again.
+        if tab.kind == .browser { _ = cache.pageRequests.media.tabsVersion }
+        let audio = tab.kind != .browser ? nil : BrowserTabAudio.rowAudio(cache.existingBrowser(tab.id)?.tab.state)
+        return .init(title: names.label(workspace, front: tab, work: work), favicon: favicon, audio: audio)
     }
 }
