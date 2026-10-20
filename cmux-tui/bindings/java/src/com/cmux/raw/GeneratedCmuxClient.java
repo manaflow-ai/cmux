@@ -742,6 +742,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object moveColumn(MoveColumnRequest request) throws CmuxException {
+        Object result = execute(Commands.MOVE_COLUMN, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object movePersonalGroup(MovePersonalGroupRequest request) throws CmuxException {
         Object result = execute(Commands.MOVE_PERSONAL_GROUP, request.toWire());
         return Wire.immutableJson(result);

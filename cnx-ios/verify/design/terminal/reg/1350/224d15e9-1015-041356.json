@@ -1,0 +1,64 @@
+{
+ "scenario": "1350",
+ "build": "224d15e9",
+ "sha": "224d15e90f",
+ "bundle": "dev.cmux.cnx.r224d15e9",
+ "agent": "codex",
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tq10/reg-1350-224d15e9-041112.mp4",
+ "time": "2026-10-15 04:13:56",
+ "load": 24.02,
+ "rows": {
+  "T-REG-1350-a": {
+   "red": true,
+   "evidence": {
+    "shot": "/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-termqa/cnx-ios/verify/termqa/artifacts/shots/reg-1350-224d15e9-041112-grid.jpg",
+    "prompt_in_card": false,
+    "history_rows": []
+   }
+  },
+  "T-REG-1350-b": {
+   "red": false,
+   "evidence": {
+    "cards": [
+     "e2e-t1, tab",
+     "e2e-t2, tab"
+    ],
+    "menu": true,
+    "menu_labels": [
+     "2 Tabs",
+     "Add",
+     "Add attachment",
+     "Aziz\u2019s MacBook Pro \u00b7 2 tabs",
+     "Close",
+     "Close e2e-t1",
+     "Done",
+     "Horizontal scroll bar, 1 page",
+     "More",
+     "New Claude Chat",
+     "New Tab",
+     "New Terminal",
+     "Return",
+     "Scroll to bottom",
+     "Send to e2e-t1",
+     "Terminal",
+     "Vertical scroll bar, 1 page",
+     "Vertical scroll bar, 11 pages",
+     "Workspaces",
+     "apple.terminal",
+     "cnx r224d15e9",
+     "e2e-030628",
+     "e2e-t1, tab",
+     "e2e-t2, tab",
+     "sparkle"
+    ],
+    "phantom": [],
+    "samples": 10
+   }
+  },
+  "T-REG-1350-c": {
+   "red": null,
+   "note": "toast placement: read the recording (not automated)"
+  }
+ },
+ "red": true
+}

@@ -27,6 +27,12 @@ nonisolated struct HTTPSUpgradeFallback {
         pending = nil
     }
 
+    /// The omnibar committed `url`: only the upgraded load just noted
+    /// (`expect`) may fall back; any other commit cancels it.
+    mutating func committed(_ url: URL) {
+        if pending != url { cancel() }
+    }
+
     /// The http address to load now, when `state` reports the upgraded
     /// load failed in a way http may fix. Clears once the load connected.
     mutating func observe(_ state: BrowserTabState) -> URL? {

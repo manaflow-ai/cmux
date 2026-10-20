@@ -696,7 +696,7 @@ export default agentPaneEntry({
           cmuxAcpmuxBridge?: { command?(name: string): void };
         };
         page.cmuxAcpmuxBridge?.command?.("find");
-        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("find-pill__field") ?? false);
         // A key at a time, as a person types: the play's type inserts its whole text in one task,
         // which ran seven query updates and the fold opening in one frame (cx-ncc.76).
         for (const key of "thought") await ctx.type(key);

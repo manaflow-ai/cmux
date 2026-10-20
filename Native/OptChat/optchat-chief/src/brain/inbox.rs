@@ -252,7 +252,8 @@ impl Brain {
         let has_images = message.parts.iter().any(|part| {
             matches!(part, Part::Attachment { mime_type, .. } if mime_type.starts_with("image/"))
         });
-        if (!text.trim().is_empty() || has_images)
+        let has_files = message.parts.iter().any(super::files::is_file_part);
+        if (!text.trim().is_empty() || has_images || has_files)
             && chief_wakes(
                 &self.settings.membership.rule(false),
                 summary,
@@ -264,7 +265,10 @@ impl Brain {
             // answers, is logged, and is not a new message (it neither
             // queues nor interrupts the turn).
             match crate::approval::Answer::parse(&text) {
-                Some(answer) if self.has_approval(None) => {
+                Some(answer)
+                    if self.settings.membership.is_owner_message(summary, &message)
+                        && self.has_approval(None) =>
+                {
                     self.answer_approval(answer, &message, None);
                     if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
                         (self.log)(&format!("logging an approval failed: {e}"));
@@ -282,7 +286,18 @@ impl Brain {
                         }
                         _ => Vec::new(),
                     };
-                    let logged = super::images::logged_text(&text, &images);
+                    // The turn opens other files from this Mac; the line names where.
+                    let files = match self.daemon.as_mut() {
+                        Some(daemon) if has_files => {
+                            let root = self.file.attachments_dir();
+                            super::files::read_files(daemon.as_mut(), &message, &root)
+                        }
+                        _ => Vec::new(),
+                    };
+                    let logged = super::files::logged_text(
+                        &super::images::logged_text(&text, &images),
+                        &files,
+                    );
                     self.queue_with_images(
                         logged,
                         images,
@@ -290,6 +305,10 @@ impl Brain {
                             seq: message.seq,
                             id: message.id.clone(),
                             remote,
+                            requires_approval: !self
+                                .settings
+                                .membership
+                                .is_owner_message(summary, &message),
                         },
                     );
                     return;

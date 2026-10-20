@@ -14,7 +14,8 @@ import QuartzCore
 /// near-black, whichever reads better (`GroupTint.headerChip`, 4.5:1 also on
 /// hover, drop and pressed). The + and the
 /// more button show only on hover, keyboard focus or while the editor is
-/// open, in slots that are always reserved, so nothing moves. Hover and a
+/// open, in slots that are always reserved, so nothing moves; a hover fades
+/// them in and out (opacity only, `MotionFade.hoverReveal`, u2397). Hover and a
 /// drop take tonal steps over the bar's color. Type and glyphs scale with the row height
 /// (the sidebar density setting). A collapsed group shows its member count
 /// after the name (cg-design-judge 2026-10-14), and its members' activity and
@@ -32,7 +33,8 @@ final class GroupHeaderRowView: SidebarRowView {
     private let pin = DecorativeImageView()
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
-    private let pill = CALayer()
+    /// The row's fill (internal so tests can read its frame and radius).
+    let pill = CALayer()
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     private let dot = CALayer()
@@ -227,7 +229,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let b = layoutBounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
+        defer { fadesNextHover = false; CATransaction.commit() }
 
         // One full-width rounded bar (the Chrome tab group header) whose
         // radius, padding, type and glyphs scale with the row height
@@ -241,9 +243,10 @@ final class GroupHeaderRowView: SidebarRowView {
         name.isHidden = renaming
         name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
         count.font = name.font
-        // The chevron sits where a workspace row's disclosure does, at its size (cx-fo2t).
-        let chevronSide = min(b.height, SidebarStyle.controlSize)
-        chevronFrame = CGRect(x: b.width - Metrics.space3 - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
+        // The chevron sits where a workspace row's disclosure does, at its size (cx-fo2t), centered
+        // on the trailing column every row's dot and spinner share (SidebarStyle+TrailingColumn).
+        let chevronSide = min(b.height, SidebarStyle.trailingSlotSide)
+        chevronFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: chevronSide)
         chevron.frame = chevronFrame
         let control = barHeight - Metrics.space1
         // The more button keeps a stable slot left of the chevron.
@@ -254,13 +257,15 @@ final class GroupHeaderRowView: SidebarRowView {
         // a click there collapses the group, and VoiceOver uses the header's
         // custom actions.
         let showsActions = (isHovered || isKeyboardFocused || isEditing) && !renaming
-        moreButton.isHidden = !showsActions
-        moreButton.alphaValue = 1
+        // Lawrence 2026-10-19 (u2397): a hover fades them in and out (opacity
+        // only); focus, the editor and Reduce Motion show them at once.
+        let fades = fadesNextHover
+        setHoverShown(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
         addButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
         addButton.frame.origin.x = max(pad, addButton.frame.minX)
         let offersAdd = onAdd != nil && !isEmpty
-        addButton.isHidden = !offersAdd || !showsActions
+        setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
         // The badge and activity keep their place whether or not the buttons show.
         var trailing = (offersAdd ? addButton.frame.minX : moreButton.frame.minX) - Metrics.space2
@@ -298,7 +303,7 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.isHidden = renaming
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
         pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
-        pill.cornerRadius = (barHeight * 0.23).rounded()
+        pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
         // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
@@ -311,6 +316,8 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
+        // The fill still shows at once on entry; the + and more fade both ways (u2397).
+        fadesNextHover = true
         needsLayout = true
     }
 }

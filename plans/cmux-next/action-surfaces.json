@@ -7304,9 +7304,9 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "unimplemented",
+      "cli" : "offered",
       "cli_name" : "pane open-vault-as",
-      "context_menu" : "unimplemented",
+      "context_menu" : "noObject",
       "context_menus" : [
 
       ],
@@ -7317,7 +7317,7 @@
       "default_shortcut" : null,
       "id" : "palette.openVaultPane",
       "main_menu" : null,
-      "mcp" : "unimplemented",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.pane",
@@ -9405,17 +9405,7 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "n",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
-        }
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -9797,6 +9787,62 @@
       "palette_suggested" : null,
       "title" : "Show Alerts",
       "title_key" : "action.home.unmuteConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "chat create",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.createGroup",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Group Chat…",
+      "title_key" : "action.home.createGroup",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "chat replies",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.setChiefReplies",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set When Chiefs Reply…",
+      "title_key" : "action.home.setChiefReplies",
       "title_table" : "HomeActions"
     },
     {
@@ -21031,74 +21077,6 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-previous-turn",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "",
-        "modifiers" : [
-          "ctrl",
-          "opt"
-        ]
-      },
-      "id" : "agentPane.previousTurn",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Previous Turn",
-      "title_key" : "action.agentPane.previousTurn",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-next-turn",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "",
-        "modifiers" : [
-          "ctrl",
-          "opt"
-        ]
-      },
-      "id" : "agentPane.nextTurn",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Next Turn",
-      "title_key" : "action.agentPane.nextTurn",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
       "cli_name" : "action agent-pane-permission-allow-once",
       "context_menu" : "guiOnly",
       "context_menus" : [
@@ -21875,6 +21853,130 @@
       "palette_suggested" : null,
       "title" : "Stop Computer Use",
       "title_key" : "action.computerUseStop",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-previous-turn",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "",
+        "modifiers" : [
+          "ctrl",
+          "opt"
+        ]
+      },
+      "id" : "agentPane.previousTurn",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Previous Turn",
+      "title_key" : "action.agentPane.previousTurn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-next-turn",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "",
+        "modifiers" : [
+          "ctrl",
+          "opt"
+        ]
+      },
+      "id" : "agentPane.nextTurn",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Next Turn",
+      "title_key" : "action.agentPane.nextTurn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-previous-bookmarked-prompt",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.previousBookmarkedPrompt",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Previous Bookmarked Prompt",
+      "title_key" : "action.agentPane.previousBookmarkedPrompt",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-next-bookmarked-prompt",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.nextBookmarkedPrompt",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Next Bookmarked Prompt",
+      "title_key" : "action.agentPane.nextBookmarkedPrompt",
       "title_table" : "ActionCatalog"
     },
     {
@@ -25966,6 +26068,202 @@
       "title" : "Change Background…",
       "title_key" : "action.appearance.changeBackground",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "pane set-background",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "pane.setBackground",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Pane Background…",
+      "title_key" : "action.pane.setBackground",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "pane set-tint",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "pane.setTint",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Pane Tint…",
+      "title_key" : "action.pane.setTint",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "pane clear-background",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "pane.clearBackground",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reset Pane Background",
+      "title_key" : "action.pane.clearBackground",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace set-tint",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.setTint",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Workspace Tint…",
+      "title_key" : "action.workspace.setTint",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab set-tint",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.setTint",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.terminal",
+        "order" : 105,
+        "title" : "Terminal",
+        "title_key" : "category.terminal",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Tab Tint…",
+      "title_key" : "action.tab.setTint",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "appearance set",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.set",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Appearance…",
+      "title_key" : "action.appearance.set",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "appearance reset",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.reset",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reset Appearance to Inherited",
+      "title_key" : "action.appearance.reset",
+      "title_table" : "LayoutActions"
     },
     {
       "cli" : "offered",
@@ -34420,6 +34718,155 @@
             {
               "children" : [
                 {
+                  "choices" : {
+                    "argument" : "background",
+                    "more_opens_palette" : true,
+                    "values" : [
+                      {
+                        "title" : "Same as Workspace",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "inherit"
+                      },
+                      {
+                        "title" : "None",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "none"
+                      },
+                      {
+                        "title" : "Shuffle Daily",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "daily"
+                      },
+                      {
+                        "title" : "Desktop Wallpaper",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "desktop"
+                      }
+                    ]
+                  },
+                  "enabled_when" : "can_perform",
+                  "id" : "pane.setBackground",
+                  "kind" : "choices",
+                  "order" : 0,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "choices" : {
+                    "argument" : "color",
+                    "more_opens_palette" : true,
+                    "values" : [
+                      {
+                        "title" : "None",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "none"
+                      },
+                      {
+                        "title" : "Red",
+                        "title_key" : "argument.value.red",
+                        "title_table" : "Localizable",
+                        "value" : "red"
+                      },
+                      {
+                        "title" : "Orange",
+                        "title_key" : "argument.value.orange",
+                        "title_table" : "Localizable",
+                        "value" : "orange"
+                      },
+                      {
+                        "title" : "Yellow",
+                        "title_key" : "argument.value.yellow",
+                        "title_table" : "Localizable",
+                        "value" : "yellow"
+                      },
+                      {
+                        "title" : "Green",
+                        "title_key" : "argument.value.green",
+                        "title_table" : "Localizable",
+                        "value" : "green"
+                      },
+                      {
+                        "title" : "Teal",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "teal"
+                      },
+                      {
+                        "title" : "Blue",
+                        "title_key" : "argument.value.blue",
+                        "title_table" : "Localizable",
+                        "value" : "blue"
+                      },
+                      {
+                        "title" : "Purple",
+                        "title_key" : "argument.value.purple",
+                        "title_table" : "Localizable",
+                        "value" : "purple"
+                      },
+                      {
+                        "title" : "Pink",
+                        "title_key" : "argument.value.pink",
+                        "title_table" : "Localizable",
+                        "value" : "pink"
+                      },
+                      {
+                        "title" : "Gray",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "gray"
+                      }
+                    ]
+                  },
+                  "enabled_when" : "can_perform",
+                  "id" : "pane.setTint",
+                  "kind" : "choices",
+                  "order" : 1,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "pane.clearBackground",
+                  "kind" : "action",
+                  "order" : 2,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                }
+              ],
+              "folder" : "appearance",
+              "kind" : "folder",
+              "order" : 2,
+              "title" : "Appearance",
+              "title_key" : "menu.folder.appearance",
+              "title_table" : "Localizable"
+            },
+            {
+              "kind" : "separator",
+              "order" : 3
+            },
+            {
+              "children" : [
+                {
                   "enabled_when" : "can_perform",
                   "id" : "pane.moveToNewWorkspace",
                   "kind" : "action",
@@ -34526,14 +34973,14 @@
               ],
               "folder" : "move",
               "kind" : "folder",
-              "order" : 2,
+              "order" : 4,
               "title" : "Move",
               "title_key" : "menu.folder.move",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 3
+              "order" : 5
             },
             {
               "children" : [
@@ -34789,14 +35236,14 @@
               ],
               "folder" : "layout",
               "kind" : "folder",
-              "order" : 4,
+              "order" : 6,
               "title" : "Layout",
               "title_key" : "menu.folder.layout",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 5
+              "order" : 7
             },
             {
               "children" : [
@@ -34829,20 +35276,20 @@
               ],
               "folder" : "connection",
               "kind" : "folder",
-              "order" : 6,
+              "order" : 8,
               "title" : "Connection",
               "title_key" : "menu.folder.connection",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 7
+              "order" : 9
             },
             {
               "enabled_when" : "can_perform",
               "id" : "triggerFlash",
               "kind" : "action",
-              "order" : 8,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -34895,20 +35342,20 @@
               ],
               "folder" : "copy",
               "kind" : "folder",
-              "order" : 9,
+              "order" : 11,
               "title" : "Copy",
               "title_key" : "menu.folder.copy",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 10
+              "order" : 12
             },
             {
               "enabled_when" : "can_perform",
               "id" : "pane.closeOthers",
               "kind" : "action",
-              "order" : 11,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -37857,11 +38304,90 @@
                   }
                 },
                 {
+                  "choices" : {
+                    "argument" : "color",
+                    "more_opens_palette" : true,
+                    "values" : [
+                      {
+                        "title" : "None",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "none"
+                      },
+                      {
+                        "title" : "Red",
+                        "title_key" : "argument.value.red",
+                        "title_table" : "Localizable",
+                        "value" : "red"
+                      },
+                      {
+                        "title" : "Orange",
+                        "title_key" : "argument.value.orange",
+                        "title_table" : "Localizable",
+                        "value" : "orange"
+                      },
+                      {
+                        "title" : "Yellow",
+                        "title_key" : "argument.value.yellow",
+                        "title_table" : "Localizable",
+                        "value" : "yellow"
+                      },
+                      {
+                        "title" : "Green",
+                        "title_key" : "argument.value.green",
+                        "title_table" : "Localizable",
+                        "value" : "green"
+                      },
+                      {
+                        "title" : "Teal",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "teal"
+                      },
+                      {
+                        "title" : "Blue",
+                        "title_key" : "argument.value.blue",
+                        "title_table" : "Localizable",
+                        "value" : "blue"
+                      },
+                      {
+                        "title" : "Purple",
+                        "title_key" : "argument.value.purple",
+                        "title_table" : "Localizable",
+                        "value" : "purple"
+                      },
+                      {
+                        "title" : "Pink",
+                        "title_key" : "argument.value.pink",
+                        "title_table" : "Localizable",
+                        "value" : "pink"
+                      },
+                      {
+                        "title" : "Gray",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "gray"
+                      }
+                    ]
+                  },
+                  "enabled_when" : "can_perform",
+                  "id" : "tab.setTint",
+                  "kind" : "choices",
+                  "order" : 6,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
                   "enabled_when" : "can_perform",
                   "id" : "tab.clearIcon",
                   "kind" : "action",
                   "label" : "Remove Icon",
-                  "order" : 6,
+                  "order" : 7,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -37874,7 +38400,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "tab.muteOtherAudio",
                   "kind" : "action",
-                  "order" : 7,
+                  "order" : 8,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -37887,7 +38413,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "terminal.keep",
                   "kind" : "action",
-                  "order" : 8,
+                  "order" : 9,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -37898,13 +38424,13 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 9
+                  "order" : 10
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "palette.toggleFullWidthTab",
                   "kind" : "action",
-                  "order" : 10,
+                  "order" : 11,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -37915,24 +38441,11 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 11
+                  "order" : 12
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "hibernateTab",
-                  "kind" : "action",
-                  "order" : 12,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "wakeTab",
                   "kind" : "action",
                   "order" : 13,
                   "visible_when" : {
@@ -37945,9 +38458,22 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "disconnectRemoteTab",
+                  "id" : "wakeTab",
                   "kind" : "action",
                   "order" : 14,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "disconnectRemoteTab",
+                  "kind" : "action",
+                  "order" : 15,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : "remoteHosts",
@@ -37958,13 +38484,13 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 15
+                  "order" : 16
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "tab.showResources",
                   "kind" : "action",
-                  "order" : 16,
+                  "order" : 17,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -40334,6 +40860,85 @@
                   "id" : "workspace.clearTheme",
                   "kind" : "action",
                   "order" : 4,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "choices" : {
+                    "argument" : "color",
+                    "more_opens_palette" : true,
+                    "values" : [
+                      {
+                        "title" : "None",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "none"
+                      },
+                      {
+                        "title" : "Red",
+                        "title_key" : "argument.value.red",
+                        "title_table" : "Localizable",
+                        "value" : "red"
+                      },
+                      {
+                        "title" : "Orange",
+                        "title_key" : "argument.value.orange",
+                        "title_table" : "Localizable",
+                        "value" : "orange"
+                      },
+                      {
+                        "title" : "Yellow",
+                        "title_key" : "argument.value.yellow",
+                        "title_table" : "Localizable",
+                        "value" : "yellow"
+                      },
+                      {
+                        "title" : "Green",
+                        "title_key" : "argument.value.green",
+                        "title_table" : "Localizable",
+                        "value" : "green"
+                      },
+                      {
+                        "title" : "Teal",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "teal"
+                      },
+                      {
+                        "title" : "Blue",
+                        "title_key" : "argument.value.blue",
+                        "title_table" : "Localizable",
+                        "value" : "blue"
+                      },
+                      {
+                        "title" : "Purple",
+                        "title_key" : "argument.value.purple",
+                        "title_table" : "Localizable",
+                        "value" : "purple"
+                      },
+                      {
+                        "title" : "Pink",
+                        "title_key" : "argument.value.pink",
+                        "title_table" : "Localizable",
+                        "value" : "pink"
+                      },
+                      {
+                        "title" : "Gray",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "gray"
+                      }
+                    ]
+                  },
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.setTint",
+                  "kind" : "choices",
+                  "order" : 5,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,

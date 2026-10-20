@@ -1,13 +1,12 @@
 import CmuxNextPages
 import Foundation
 
-/// What the host fetches for a markdown file's remote images (coordinator decision for S6: the
-/// host fetches them, `markdown.remoteImages`, default on, so the page CSP stays strict; the
-/// fetch replaces `img-src https:`). A document chose the URL, so the fetch follows the network
-/// rules of ``GuardedRemoteFetch`` (https only, no URL credentials, no `localhost` or `.local`
-/// names, every address public and the connection pinned to a checked one, at most
-/// ``GuardedRemoteFetch/maximumRedirects`` redirects each checked the same way), image types
-/// only, at most ``maximumBytes``.
+/// What the host fetches after the reader approves a markdown document's remote images. The host
+/// fetch replaces `img-src https:`, so the page CSP stays strict. A document chose the URL, so the
+/// fetch follows the network rules of ``GuardedRemoteFetch`` (https only, no URL credentials, no
+/// `localhost` or `.local` names, every address public and the connection pinned to a checked one,
+/// at most ``GuardedRemoteFetch/maximumRedirects`` redirects each checked the same way), image
+/// types only, at most ``maximumBytes``.
 nonisolated enum RemoteImagePolicy {
     static let maximumBytes = 10 * 1024 * 1024
     static let timeout: Duration = .seconds(15)
