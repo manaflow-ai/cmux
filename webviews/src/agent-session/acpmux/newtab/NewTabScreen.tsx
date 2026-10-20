@@ -735,17 +735,6 @@ export function NewTabScreen(props: Props) {
           />
         </div>
         <div ref={setBox} className="nt-box">
-          {/* What was pasted on the field or dropped on the page, as a chat's composer shows it. */}
-          <AttachmentStrip
-            attachments={attachments}
-            {...(attachError ? { error: attachError } : {})}
-            dropping={dropping}
-            codex={harness === "codex"}
-            onRemove={(id) => {
-              setAttachments((current) => current.filter((item) => item.id !== id));
-              field.current?.focus();
-            }}
-          />
           {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
@@ -819,6 +808,19 @@ export function NewTabScreen(props: Props) {
               </span>
             )}
           </div>
+          {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
+            the field: the box's top is where the page anchors it, so the strip grows away from the
+            text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}
+          <AttachmentStrip
+            attachments={attachments}
+            {...(attachError ? { error: attachError } : {})}
+            dropping={dropping}
+            codex={harness === "codex"}
+            onRemove={(id) => {
+              setAttachments((current) => current.filter((item) => item.id !== id));
+              field.current?.focus();
+            }}
+          />
           {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
             this page draws no context ring. */}
           <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>

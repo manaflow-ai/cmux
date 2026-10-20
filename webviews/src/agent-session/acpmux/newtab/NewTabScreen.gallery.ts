@@ -125,6 +125,54 @@ async function waitForTabJump(
   );
 }
 
+/// Types a prompt, pastes an image and starts Now Playing, then checks that the composer's card
+/// and its field are where the empty page drew them (Leo 2026-10-19: the composer kept moving).
+async function holdsItsPlace(ctx: PlayContext): Promise<void> {
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+  const place = () => {
+    const box = ctx.document.querySelector(".nt-box")!.getBoundingClientRect();
+    const field = ctx.document.querySelector(".nt-field")!.getBoundingClientRect();
+    return `${box.top},${box.left},${box.width} ${field.top},${field.left}`;
+  };
+  const start = place();
+  await ctx.type("why does the release build fail", { selector: ".nt-field" });
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-popover .nt-row") !== null);
+  const view = ctx.document.defaultView as unknown as typeof globalThis & {
+    cmuxAcpmuxBridge?: { applyNowPlaying?(track: unknown): void };
+  };
+  const canvas = ctx.document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 200;
+  const paint = canvas.getContext("2d")!;
+  paint.fillStyle = "#3a7bd5";
+  paint.fillRect(0, 0, 320, 200);
+  const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+  const data = new view.DataTransfer();
+  data.items.add(new view.File([blob], "Screenshot.png", { type: "image/png" }));
+  ctx
+    .find({ selector: ".nt-field" })
+    .dispatchEvent(new view.ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-box .acpmux-attachment-image") !== null);
+  view.cmuxAcpmuxBridge?.applyNowPlaying?.({
+    title: "Weightless",
+    artist: "Marconi Union",
+    artwork: ALBUM_ART,
+    playing: false,
+    position: 132,
+    duration: 480,
+    rate: 1,
+    positionDate: Date.now(),
+    canPrevious: true,
+    canNext: true,
+    labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
+  });
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-player") !== null);
+  // The suggestions close, so the capture shows the image under the text.
+  await ctx.press("Escape");
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-popover") === null);
+  if (place() !== start) throw new Error(`the composer moved from ${start} to ${place()}`);
+}
+
 export default agentPaneEntry({
   id: "agent-pane.new-tab",
   title: "New Tab page",
@@ -789,6 +837,18 @@ export default agentPaneEntry({
       note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",
       ready: newTab({ template: "composer" }),
       snapshot: noChat(manySessions(4)),
+    },
+    "composer-holds-its-place": {
+      note: "After typing, a pasted image and Now Playing: the composer and the typed text are where the empty page drew them; the image sits under the text (Leo 2026-10-19: the composer kept moving).",
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: holdsItsPlace,
+    },
+    "composer-template-holds-its-place": {
+      note: "Composer template after typing, a pasted image and Now Playing: the card stays where the empty page drew it, about the middle, instead of re-centering on what grew under it.",
+      ready: newTab({ template: "composer", projects: [CWD] }),
+      snapshot: noChat(manySessions(4)),
+      play: holdsItsPlace,
     },
     "template-threads": {
       note: "Threads template: the field and the recent chats as a list.",
