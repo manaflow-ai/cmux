@@ -170,7 +170,9 @@ public final class AgentCLIUpdateActions {
                     }
                 case .failure(let error):
                     // The owner's refusal says the key created nothing; anything else may follow a creation.
-                    guard Self.refusedBeforeCreation(error) else { continue }
+                    // Busy is answered before the key is looked up, so on a replay it can mean the key's
+                    // original request is still running: keep the job and replay again next refresh.
+                    guard Self.refusedBeforeCreation(error), !Self.busy(error) else { continue }
                     intent.unsent[family] = nil
                     intent.jobs.remove(at: index)
                 }
@@ -312,5 +314,11 @@ public final class AgentCLIUpdateActions {
     static func refusedBeforeCreation(_ error: any Error) -> Bool {
         guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
         return code.hasPrefix("agent_cli_job.")
+    }
+
+    /// The owner's execution lock or inventory reservation is held.
+    static func busy(_ error: any Error) -> Bool {
+        guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
+        return code == "agent_cli_job.busy"
     }
 }
