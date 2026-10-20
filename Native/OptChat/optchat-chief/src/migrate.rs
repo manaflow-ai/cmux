@@ -1313,6 +1313,26 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
     report
 }
 
+/// Sends one message to where this home's Chief moved (a cloud move only)
+/// and returns its reply: the first-turn check after a move.
+fn ask_moved(home: &Path, text: &str, token_file: Option<&Path>) -> Result<String, String> {
+    if text.is_empty() {
+        return Err("move ask needs --text".into());
+    }
+    let m = moved(home).ok_or("this home has not moved")?;
+    let rest = m
+        .to
+        .strip_prefix("cloud:")
+        .ok_or("move ask reaches a cloud Chief; on an ssh target run `cmux chief --chief-home DIR -p TEXT` there")?;
+    let (base, chief) = rest.rsplit_once('/').ok_or("bad cloud target")?;
+    let api = crate::migrate_cloud::Api::new(
+        base.to_owned(),
+        crate::migrate_cloud::session_token(token_file)?,
+    );
+    let conversation = crate::migrate_cloud::chief_main_conversation(chief);
+    crate::migrate_cloud::first_turn(&api, chief, &conversation, text, Duration::from_secs(600))
+}
+
 /// Milliseconds since the epoch.
 pub fn now_millis() -> u128 {
     std::time::SystemTime::now()
@@ -1510,8 +1530,13 @@ pub fn rollback(
     }
     std::fs::remove_file(home.join(MOVED_FILE)).map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(home.join(SHUTDOWN_FILE));
+    let there = if target.starts_with("cloud:") {
+        "its brain is off (the hosted copy stays, with what it learned after the move)"
+    } else {
+        "is marked moved back (its host will not start)"
+    };
     Ok(format!(
-        "rolled back: {} answers again; {target} is marked moved back",
+        "rolled back: {} answers again; {target} {there}",
         home.display()
     ))
 }
@@ -1526,6 +1551,7 @@ optchat-chief move rollback [--home DIR] [--remote-bin PATH]   the source answer
 optchat-chief move checkpoint --out DIR [--home DIR] [--without-transcripts] [--live]
 optchat-chief move restore --from DIR --home DIR            into an empty home (prints JSON)
 optchat-chief move verify [--home DIR]                      what a home holds (JSON)
+optchat-chief move ask --text TEXT [--home DIR] [--session-token-file FILE]  one message to the cloud Chief this home moved to; prints its reply
 optchat-chief move reach [--home DIR]                       probe from here what the moved Chief reached before (SSH hosts, tailnet, fleet, model route)
 optchat-chief move probe --home DIR                         can this host take a Chief there (JSON)
 optchat-chief move retire --home DIR --to WHERE             mark a home moved (its host will not start)";
@@ -1628,6 +1654,14 @@ pub fn cli(args: &[String]) -> i32 {
         },
         Some("verify") => verify_home(&home).map(|v| json(&v)),
         Some("reach") => crate::migrate_reach::probe(&home).map(|v| json(&v)),
+        Some("ask") => ask_moved(
+            &home,
+            a.values.get("text").map(String::as_str).unwrap_or(""),
+            a.values
+                .get("session-token-file")
+                .map(|p| expand_home(p))
+                .as_deref(),
+        ),
         Some("probe") => {
             let empty = absent_or_empty(&home);
             Ok(json(&serde_json::json!({
