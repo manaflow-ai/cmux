@@ -779,6 +779,17 @@ if [ "$has_ci" -eq 0 ]; then
     fi
     case "$co" in
       success|neutral|skipped) ;;
+      failure)
+        # The lint loop above already printed the --override waiver for a red
+        # god-file, l10n or concurrency check (risk evidence refused there).
+        lowered=$(tr '[:upper:]' '[:lower:]' <<<"$name")
+        if [ -n "$override_reason" ] && [[ "$lowered" =~ god[\ -]?files?|l10n|locali[sz]ation|concurrency ]]; then
+          continue
+        fi
+        refuse \
+          "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
+          "wait for or repair '$name'; success, neutral, and skipped pass without the aggregate workflow"
+        ;;
       *)
         refuse \
           "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
@@ -840,7 +851,7 @@ if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excus
   printf '%s\n' "$excused" | sed 's/^/note: /' >&2
 fi
 failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
-if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
+if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]:-every reported check} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
 gate_checked="${must[*]:-every reported check}"
 }
 

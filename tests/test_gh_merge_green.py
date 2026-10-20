@@ -1201,6 +1201,26 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 self.assertFalse(merged)
                 self.assertIn('REPAIR.md#merging', result.stderr)
 
+    def test_no_ci_workflow_override_waives_only_a_red_lint_check(self):
+        """--full --override waives a red lint check without the aggregate workflow too;
+        risk evidence and any other red still refuse."""
+        reason = "the lint red is a known base failure unrelated to this change"
+        lint = {'id': 2, 'name': 'cmux-next checks (god files, concurrency, crash safety, l10n)', 'status': 'completed', 'conclusion': 'failure'}
+        green = {'id': 1, 'name': 'tests', 'status': 'completed', 'conclusion': 'success'}
+        result, merged, _ = self.run_case(checks=[green, lint], extra_args=("--override", reason))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+        self.assertIn("--override waives " + lint['name'], result.stderr)
+        result, merged, _ = self.run_case(checks=[green, lint])
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(merged)
+        for other in ({'id': 3, 'name': 'tests', 'status': 'completed', 'conclusion': 'failure'},
+                      {'id': 3, 'name': 'risk evidence', 'status': 'completed', 'conclusion': 'failure'}):
+            with self.subTest(other=other['name']):
+                result, merged, _ = self.run_case(checks=[lint, other], extra_args=("--override", reason))
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(merged)
+
     def test_no_ci_workflow_refuses_pending_status_context(self):
         result, merged, _ = self.run_case(statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}])
         self.assertNotEqual(result.returncode, 0)
