@@ -29855,8 +29855,8 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
