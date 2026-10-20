@@ -30,6 +30,15 @@ struct MovedTabWorkspaceNameTests {
         #expect(NewWorkspaceName.forTab(Self.page("README.md", userName: "Docs")) == "Docs")
     }
 
+    /// The What's New tab dragged out of an unnamed workspace to the sidebar named its workspace
+    /// "workspace-42" (Leo 2026-10-20): its record's title is the placeholder, read as a terminal's
+    /// with no folder. As a page it takes the title it shows, even as its workspace's last tab.
+    @Test func theWhatsNewTabNamesItsWorkspace() {
+        #expect(NewWorkspaceName.forTab(Self.page("What’s New")) == "What’s New")
+        #expect(NewWorkspaceName.forLastTab(workspaceName: "workspace-42", workspaceTitle: nil, tab: Self.page("What’s New")) == "What’s New")
+        #expect(NewWorkspaceName.forLastTab(workspaceName: "workspace-42", workspaceTitle: nil, tab: Self.page("Settings")) == "Settings")
+    }
+
     /// A New Tab page, a chat, an untitled Home tab or an app with no page names nothing, and never its folder.
     @Test(arguments: [nil, "", "about:blank", "chrome://newtab/"] as [String?])
     func aPageTabWithNoNameOfItsOwnNamesNothing(_ title: String?) {
