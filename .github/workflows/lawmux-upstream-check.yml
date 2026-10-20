@@ -29,13 +29,24 @@ jobs:
       ISSUE_TITLE: "lawmux: upstream updates pending"
     steps:
       - name: Disable workflows inherited from upstream
+        # By id through the REST API, one per second: `gh workflow disable <file>`
+        # resolves names loosely and a burst of mutations hits the secondary rate
+        # limit, both of which failed silently when first tried by hand.
         run: |
-          gh workflow list --all --limit 500 --json path,state \
-            --jq '.[] | select(.state == "active") | .path | select(test("/lawmux-[^/]+\\.ya?ml$") | not)' |
-          while read -r path; do
-            echo "disable $path"
-            gh workflow disable "$(basename "$path")"
+          set -euo pipefail
+          failed=0
+          gh api --paginate "repos/$GH_REPO/actions/workflows" \
+            --jq '.workflows[] | select(.state == "active") | select(.path | test("/lawmux-[^/]+\\.ya?ml$") | not) | "\(.id) \(.path)"' |
+          while read -r id path; do
+            if gh api -X PUT "repos/$GH_REPO/actions/workflows/$id/disable" >/dev/null; then
+              echo "disabled $path"
+            else
+              echo "::warning::could not disable $path"
+              failed=1
+            fi
+            sleep 1
           done
+          exit "$failed"
 
       - name: Report pending upstream commits
         run: |
