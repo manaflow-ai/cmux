@@ -203,6 +203,7 @@ public final class FilesPaneView: NSView {
         layoutControl.target = self
         layoutControl.action = #selector(layoutChanged)
         filterField.placeholderString = FilesStrings.filter
+        filterField.focusRingType = .none
         filterField.target = self
         filterField.action = #selector(filterChanged)
         filterField.sendsSearchStringImmediately = true

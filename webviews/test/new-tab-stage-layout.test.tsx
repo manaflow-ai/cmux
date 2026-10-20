@@ -1,6 +1,6 @@
-// The default New Tab layout follows Claude Code desktop's new-session screen (Leo 2026-10-19): the
-// composer at the foot of the page with the plain footer, and over it, centered, an environment card
-// and a suggested actions card; the recent chats never sit between the composer and its footer.
+// The Default template's page follows Claude Code desktop's new-session screen (Leo 2026-10-19): the
+// composer at the foot of the page, and over it, centered, an environment card and a suggested
+// actions card; the recent chats never sit between them and the composer.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -128,7 +128,7 @@ async function render(template?: "default" | "threads", projects = PROJECTS) {
   return root;
 }
 
-test("the default New Tab is Claude Code desktop's layout: cards over the composer at the foot", async () => {
+test("the Default template is Claude Code desktop's page: cards over the composer at the foot", async () => {
   const root = await render();
   try {
     const screen = host.querySelector(".nt-screen")!;
@@ -161,12 +161,12 @@ test("the default New Tab is Claude Code desktop's layout: cards over the compos
     ]);
     // No ghost pills: the create actions are rows of the card.
     expect(host.querySelector(".nt-create.ui-ghost-row")).toBeNull();
-    // The footer under the box: the folder strip, before the chips, with the plain look.
-    const footer = composer!.querySelector(":scope > .nt-footer")!;
-    expect(footer.getAttribute("data-footer-look")).toBe("plain");
-    expect(footer.querySelector(".nt-location")).toBeTruthy();
+    // Default's own composer, only placed at the foot (#22285 keeps the second dot's composer): the
+    // folder strip over the box, Send in it, and no Claude Code quiet row under it.
+    expect(composer!.querySelector(".nt-above .nt-location")).toBeTruthy();
     expect(composer!.querySelector(".nt-box .nt-location")).toBeNull();
-    expect(composer!.querySelector(":scope > .nt-location")).toBeNull();
+    expect(composer!.querySelector(".nt-box .nt-send")).toBeTruthy();
+    expect(composer!.querySelector(".nt-foot")).toBeNull();
   } finally {
     act(() => root.unmount());
   }
@@ -178,7 +178,7 @@ test("the other templates keep the composer at the top of the page", async () =>
     const screen = host.querySelector(".nt-screen")!;
     expect(screen.getAttribute("data-layout")).toBeNull();
     expect(screen.querySelector(".nt-stage")).toBeNull();
-    expect(screen.querySelector(".nt-composer > .nt-location")).toBeTruthy();
+    expect(screen.querySelector(".nt-composer .nt-above .nt-location")).toBeTruthy();
   } finally {
     act(() => root.unmount());
   }

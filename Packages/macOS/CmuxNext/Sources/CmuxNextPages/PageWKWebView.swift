@@ -118,6 +118,16 @@ final class PageWKWebView: WKWebView {
         return super.acceptsFirstMouse(for: event)
     }
 
+    /// Called each time this view becomes first responder (pane focus, a click, a restore); the
+    /// owning ``PageWebView`` tells the page (`focusContent`), which focuses its primary input.
+    var onBecameFirstResponder: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onBecameFirstResponder?() }
+        return became
+    }
+
     override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
     override func keyUp(with event: NSEvent) { noteUserEvent(event); super.keyUp(with: event) }
     override func mouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.mouseDown(with: event) }

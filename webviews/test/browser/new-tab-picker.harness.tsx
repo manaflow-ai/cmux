@@ -1,8 +1,10 @@
 // The New Tab screen as the agent pane lays it out (App.tsx): the screen is the page's one scroller,
 // with the template pager under it, and its composer carries the pane's own model chip
 // (NewTabComposerChips). The host's actions answer nothing. `?reported` gives the chips a session
-// that reported its reasoning levels and access modes, so the effort and access menus show;
-// `?template=threads` draws a top-composer template instead of the default (stage) layout.
+// that reported its reasoning levels and access modes, so the effort and access menus show.
+// `?template=cards` draws the Cards page, the app's default, with Claude Code's split (the mode,
+// model and effort in the quiet row under the box); with no template it draws Default, the stage layout
+// (the composer at the foot of the page).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { noChat } from "../../src/gallery/fixtures/acpmux";
@@ -26,9 +28,9 @@ import "../../src/agent-session/acpmux/newtab/screen.css";
 );
 
 const noop = () => {};
-const params = new URLSearchParams(location.search);
-const reported = params.has("reported");
-const template = (params.get("template") ?? undefined) as ScreenTemplate | undefined;
+const query = new URLSearchParams(location.search);
+const reported = query.has("reported");
+const template = (query.get("template") ?? undefined) as ScreenTemplate | undefined;
 const snapshot = noChat(
   [],
   reported
@@ -69,8 +71,8 @@ Object.assign(root.style, { height: "100%", display: "flex", flexDirection: "col
 createRoot(root).render(
   <QueryClientProvider client={client}>
     <NewTabScreen
+      {...(template ? { template } : {})}
       snapshot={snapshot}
-      template={template}
       lastAgent="claude"
       cwd="/Users/you/src/app"
       inputToken="opening-1"

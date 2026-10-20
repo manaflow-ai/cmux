@@ -65,9 +65,7 @@ function Chips() {
   return <span className="acpmux-chips">Claude Opus 5.5</span>;
 }
 
-async function mount(
-  options: { machineName?: string; snapshot?: AcpmuxSnapshot; template?: "default" | "threads" } = {},
-) {
+async function mount(options: { machineName?: string; snapshot?: AcpmuxSnapshot } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -81,7 +79,6 @@ async function mount(
         cwd="/Users/you"
         startCwd="/Users/you/src/app"
         projects={[{ cwd: "/Users/you/src/app", label: "app" }]}
-        {...(options.template ? { template: options.template } : {})}
         chips={Chips}
         onAsk={noop}
         onOpen={noop}
@@ -96,9 +93,7 @@ async function mount(
 }
 
 test("the New Tab card is the composer's: the project strip on its top edge, then field, model and Send", async () => {
-  // The templates that keep the composer at the top of the page (the default is the stage layout,
-  // whose footer holds the strip: the next test).
-  await mount({ template: "threads" });
+  await mount();
   const composer = host.querySelector<HTMLElement>(".nt-composer")!;
   const card = composer.querySelector<HTMLElement>(".nt-box")!;
   const parts = [
@@ -115,27 +110,6 @@ test("the New Tab card is the composer's: the project strip on its top edge, the
   const row = composer.querySelector<HTMLElement>(".acpmux-composer-strip .acpmux-composer-context")!;
   expect(row.textContent).toContain("app");
   expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button")).toBeNull();
-});
-
-// The stage layout (Leo 2026-10-19, Claude Code desktop's footer; the composer's split): the box
-// holds the field, the mic and Send; the quiet footer under it the folder strip first, then the
-// chips (permission mode, model, effort). Neither is ever in the field's row.
-test("in the default layout the box holds the field and Send, the footer under it the strip and chips", async () => {
-  await mount();
-  const composer = host.querySelector<HTMLElement>(".nt-composer")!;
-  const parts = [
-    ...composer.querySelectorAll<HTMLElement>(".acpmux-composer-strip, .nt-field, .acpmux-chips, .nt-send"),
-  ];
-  expect(parts.map((part) => part.className.split(" ")[0])).toEqual([
-    "nt-field",
-    "acpmux-send",
-    "acpmux-composer-strip",
-    "acpmux-chips",
-  ]);
-  const box = composer.querySelector<HTMLElement>(".nt-box")!;
-  expect(box.querySelector(".acpmux-chips, .acpmux-composer-strip")).toBeNull();
-  expect(composer.querySelector(":scope > .nt-footer .acpmux-composer-context")!.textContent).toContain("app");
-  expect(composer.querySelector(".nt-input .acpmux-composer-context")).toBeNull();
 });
 
 // Review (#20148): the composer's Computer menu listed a remote chat's machine, so the row could

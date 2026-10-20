@@ -39,20 +39,20 @@
     },
     {
       "name": "waiting",
-      "for": "waiting on you (a question, or blocked with no reason): an empty speech bubble",
+      "for": "waiting on you (a question, or no reason): the attention dot, no talk bubble",
       "tint": "attention",
-      "master": [["M", 5, 2], ["L", 15, 2], ["arc", 15, 6, 4, -90, 0], ["L", 19, 11], ["arc", 15, 11, 4, 0, 90], ["L", 10, 15], ["L", 4, 19], ["L", 5, 15], ["arc", 5, 11, 4, 90, 180], ["L", 1, 6], ["arc", 5, 6, 4, 180, 270], ["Z"], ["M", 5, 4], ["L", 15, 4], ["arc", 15, 6, 2, -90, 0], ["L", 17, 11], ["arc", 15, 11, 2, 0, 90], ["L", 5, 13], ["arc", 5, 11, 2, 90, 180], ["L", 3, 6], ["arc", 5, 6, 2, 180, 270], ["Z"]],
+      "master": [["circle", 10, 10, 6]],
       "x1art": [
         "..........",
+        "..........",
+        "...####...",
         "..######..",
-        ".#......#.",
-        ".#......#.",
-        ".#......#.",
-        ".#......#.",
-        ".#......#.",
         "..######..",
-        "..##......",
-        "..#......."
+        "..######..",
+        "..######..",
+        "...####...",
+        "..........",
+        ".........."
       ]
     },
     {
@@ -178,9 +178,9 @@
   },
   "sets": {
     "codex": {
-      "about": "Codex-like (Leo's team, 2026-10-14): Codex's sidebar. Work spins in a neutral grey (a still ring when nothing may move), done is Codex's blue dot, waiting is a muted line symbol, and only an error is red.",
+      "about": "Codex-like (Leo's team, 2026-10-14): Codex's sidebar. Work spins in a neutral grey (a still ring when nothing may move), done is Codex's blue dot, a permission wait is a muted line shield, any other wait an attention dot (no talk bubble, Lawrence 2026-10-20), and only an error is red.",
       "working": ["idle", "spinner"],
-      "waiting": ["waiting", "loading"],
+      "waiting": ["dot", "attention"],
       "permission": ["shieldLine", "loading"],
       "done": ["dot", "unread"],
       "error": ["info", "danger"]

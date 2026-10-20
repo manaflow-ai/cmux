@@ -50,6 +50,8 @@ import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
 import { useComposerSettings } from "../composerSettings";
+import { ComposerFoot } from "../ComposerFoot";
+import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 
@@ -169,7 +171,8 @@ export function NewTabScreen(props: Props) {
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
   const template = props.template ?? "default";
   const sections = screenSections(template);
-  // Claude Code desktop's layout (templates.ts stage): the composer at the foot, the cards over it.
+  // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
+  // at the foot, the environment and suggestions cards over it.
   const stage = sections.stage;
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
@@ -321,6 +324,14 @@ export function NewTabScreen(props: Props) {
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
   const { plainFooter } = useComposerSettings();
+  // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
+  const foot = useRef<HTMLDivElement>(null);
+  // Claude Code's split (Leo 2026-10-19, "the claude code style composer on the first dot ... the
+  // existing composer on the second one"): with the plain footer on, every template but Default
+  // (the page's second dot) draws the chat composer's split, the mode, model and effort in a quiet
+  // row under the box. Default keeps the chips in the box, as before the split.
+  const split = plainFooter && props.chips !== undefined && template !== "default";
+  useRowFit(foot, split);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
   const pushed = useDeviceChats();
@@ -347,8 +358,8 @@ export function NewTabScreen(props: Props) {
   const allChats = sections.allChats && !!props.loadChatsPage && !!props.onOpenChat;
   const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
   // The stage layout's suggested actions start with the chats waiting on the user: one asking for
-  // input, or one that hit an error or lost its agent.
-  // Picked from every chat, not the trimmed recent cards (needsYouCards).
+  // input, or one that hit an error or lost its agent. Picked from every chat, not the trimmed
+  // recent cards (needsYouCards).
   const needsYou = useMemo(
     () => (stage ? needsYouCards(snapshot.sessions, at, t) : []),
     [stage, snapshot.sessions, at, t],
@@ -378,8 +389,13 @@ export function NewTabScreen(props: Props) {
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
-  useEscapingPopup(host, shown, () => box, {
-    // At the foot of the page the rows open over the composer.
+  // With the split, the mode, model and effort sit in the quiet row under the box: the rows hang
+  // under the whole composer instead, so they never cover those controls (a press there would pick
+  // a row).
+  const [composer, setComposer] = useState<HTMLDivElement | null>(null);
+  const anchor = split ? (composer ?? box) : box;
+  useEscapingPopup(host, shown, () => anchor, {
+    // At the foot of the page (the stage layout) the rows open over the composer.
     side: stage ? "top" : "bottom",
     align: "start",
     gap: UI_ANCHOR_GAP,
@@ -391,11 +407,10 @@ export function NewTabScreen(props: Props) {
   useEffect(() => {
     if (!suggesting || !box) return;
     const document = box.ownerDocument;
+    // A press in the box, or with the split in the quiet row under it, keeps the rows.
     const press = (event: Event) => {
       const target = event.target as Element | null;
-      // The stage layout's footer chips are the box's own controls, moved under it: a press there
-      // keeps the rows, as it did in the box.
-      if (target && (box.contains(target) || target.closest?.(".nt-popover, .nt-footer .acpmux-chips"))) return;
+      if (target && (box.contains(target) || target.closest?.(".nt-popover, .nt-foot"))) return;
       setDismissed(textRef.current);
     };
     document.addEventListener("pointerdown", press, true);
@@ -612,7 +627,7 @@ export function NewTabScreen(props: Props) {
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, []);
-  const focusFromRow = (event: React.MouseEvent<HTMLDivElement>) => {
+  const focusFromRow = (event: React.MouseEvent<HTMLElement>) => {
     const input = field.current;
     if (!input || event.button !== 0 || event.target === input) return;
     // Keep the press from moving focus to the row; a field that had no focus gets the caret at
@@ -749,12 +764,12 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
-  /// The Cards template (u2851): the field is a pill of its own and the chips sit under it.
-  const pill = template === "cards";
+  /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
+  /// split draws the chat composer's box instead.
+  const pill = template === "cards" && !split;
   // Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent composer's
-  // location strip; never the home ~ the tab inherited (cx-7fje0). Over the box, or in the stage
-  // layout the footer's first item, before the permission mode (Claude Code desktop's footer).
-  const locationStrip = (
+  // location strip; never the home ~ the tab inherited (cx-7fje0).
+  const folderStrip = (
     <div className="nt-location" data-project-pending={projectPending || undefined} onPointerDownCapture={touch}>
       <ComposerContext
         summary={{
@@ -776,6 +791,67 @@ export function NewTabScreen(props: Props) {
         {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
       />
     </div>
+  );
+  // The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
+  // this page draws no context ring.
+  const pickers = (
+    <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
+      <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
+        {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
+        switch is the one Enter reuses. */}
+        {!split && Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+        <span className="acpmux-composer-actions">
+          {props.accessory}
+          {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
+              none, as Aside's New Tab: Return sends. */}
+          {!pill && (
+            <button
+              type="button"
+              className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
+              aria-label={t("composer.send")}
+              title={t("composer.sendTooltip")}
+              disabled={!text.trim()}
+              onClick={send}
+            >
+              <ArrowUpIcon />
+            </button>
+          )}
+        </span>
+      </div>
+    </ChromeArea>
+  );
+  // Search | Ask (Leo 2026-10-18): which row Return takes. It sits just above the box at its right
+  // edge, with its Tab hint (Lawrence 2026-10-20: "move tab to switch outside above the box"), so
+  // the box holds only the field, the mic and Send. A press on it keeps the caret in the field
+  // (focusFromRow), so a click never takes the keyboard away from the draft.
+  const modeRow = shell ? undefined : (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-interactions -- A pointer convenience only: the buttons inside are the controls.
+    <span
+      ref={modeSwitch}
+      className="nt-mode"
+      role="group"
+      aria-label={nt("mode.label")}
+      data-mode={mode}
+      onMouseDown={focusFromRow}
+    >
+      {/* The field's description, so a screen reader hears the key too. */}
+      <span id="nt-mode-hint" className="nt-mode-hint">
+        {nt("mode.hint")}
+      </span>
+      {/* The mode a Tab switched to, said aloud: the field keeps focus, so the pressed button is not. */}
+      <output className="nt-mode-status" aria-live="polite">
+        {nt(mode === "search" ? "mode.search" : "mode.ask")}
+      </output>
+      <span className="nt-mode-track">
+        <span className="nt-mode-thumb" aria-hidden="true" />
+        <button type="button" data-mode="search" aria-pressed={mode === "search"} onClick={() => chooseMode("search")}>
+          {nt("mode.search")}
+        </button>
+        <button type="button" data-mode="ask" aria-pressed={mode === "ask"} onClick={() => chooseMode("ask")}>
+          {nt("mode.ask")}
+        </button>
+      </span>
+    </span>
   );
   // The page's lists: the widget view (Debug Settings), the open tabs to move here, Recently Closed
   // and the recent chats. In the stage layout they sit under the cards, over the composer.
@@ -825,49 +901,23 @@ export function NewTabScreen(props: Props) {
       )}
     </>
   );
-  // The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
-  // switch is the one Enter reuses.
-  const chips = Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />;
-  // The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
-  // this page draws no context ring. In the stage layout it holds only the mic and Send (the chips
-  // are the quiet footer's under the box); Cards draws it under the pill, with no Send disc.
-  const pickers = (
-    <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-      <div
-        className="nt-pickers"
-        data-footer-look={plainFooter && !stage ? "plain" : undefined}
-        onPointerDownCapture={touch}
-      >
-        {!stage && chips}
-        <span className="acpmux-composer-actions">
-          {props.accessory}
-          {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
-              none, as Aside's New Tab: Return sends. */}
-          {!pill && (
-            <button
-              type="button"
-              className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
-              aria-label={t("composer.send")}
-              title={t("composer.sendTooltip")}
-              disabled={!text.trim()}
-              onClick={send}
-            >
-              <ArrowUpIcon />
-            </button>
-          )}
-        </span>
-      </div>
-    </ChromeArea>
-  );
-  const composer = (
+  // The composer: in the stage layout at the foot of the page, else at its top.
+  const composerCard = (
     <>
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
-          composer location strip; newtab/screen.css); in the stage layout it is the bar's first item. */}
-      <div className="nt-composer">
+          composer location strip; newtab/screen.css). */}
+      <div ref={setComposer} className="nt-composer">
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
-        {!stage && !pill && locationStrip}
+        {/* Above the box: the project strip on the left (Cards draws it under the field) and the
+            Search | Ask switch at the box's right edge. */}
+        {(!pill || modeRow) && (
+          <div className="nt-above">
+            {!pill && folderStrip}
+            {modeRow}
+          </div>
+        )}
         <div ref={setBox} className="nt-box">
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it. */}
           <AttachmentStrip
@@ -923,52 +973,24 @@ export function NewTabScreen(props: Props) {
                 composing.current = false;
               }}
             />
-            {!shell && (
-              // Search | Ask (Leo 2026-10-18): which row Return takes. The field's row keeps the focus
-              // in the field on a press (focusFromRow), so a click here never takes the caret away.
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              <span ref={modeSwitch} className="nt-mode" role="group" aria-label={nt("mode.label")} data-mode={mode}>
-                {/* The field's description, so a screen reader hears the key too. */}
-                <span id="nt-mode-hint" className="nt-mode-hint">
-                  {nt("mode.hint")}
-                </span>
-                {/* The mode a Tab switched to, said aloud: the field keeps focus, so the pressed button is not. */}
-                <output className="nt-mode-status" aria-live="polite">
-                  {nt(mode === "search" ? "mode.search" : "mode.ask")}
-                </output>
-                <span className="nt-mode-track">
-                  <span className="nt-mode-thumb" aria-hidden="true" />
-                  <button
-                    type="button"
-                    data-mode="search"
-                    aria-pressed={mode === "search"}
-                    onClick={() => chooseMode("search")}
-                  >
-                    {nt("mode.search")}
-                  </button>
-                  <button type="button" data-mode="ask" aria-pressed={mode === "ask"} onClick={() => chooseMode("ask")}>
-                    {nt("mode.ask")}
-                  </button>
-                </span>
-              </span>
-            )}
           </div>
           {!pill && pickers}
         </div>
+        {/* Claude Code's split, the chat composer's (ComposerFoot.tsx): the mode, model and effort in
+            a quiet row under the box; the box keeps the prompt, the mic and Send. */}
+        {split && Chips && (
+          <div className="nt-foot" onPointerDownCapture={touch}>
+            <ComposerFoot ref={foot}>
+              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
+            </ComposerFoot>
+          </div>
+        )}
         {/* Cards (u2851): the project, the agent's chips and the mic are a row under the field, as
             Aside's New Tab draws them; it steps aside while Search shows its suggestions. */}
         {pill && (
           <div className="nt-toolbar">
-            {locationStrip}
+            {folderStrip}
             {pickers}
-          </div>
-        )}
-        {stage && (
-          // Claude Code desktop's footer, under the box (Leo 2026-10-19; the composer's split): the
-          // folder and the permission mode on the left, the model and effort on the right, as text.
-          <div className="nt-footer" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
-            {locationStrip}
-            {chips}
           </div>
         )}
       </div>
@@ -980,6 +1002,7 @@ export function NewTabScreen(props: Props) {
       className="nt-screen"
       data-shell={shell || undefined}
       data-template={template}
+      data-pill={pill || undefined}
       data-mode={mode}
       data-all-chats={allChats || undefined}
       data-layout={stage ? "stage" : undefined}
@@ -1010,17 +1033,19 @@ export function NewTabScreen(props: Props) {
             {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
             {lists}
           </div>
-          {composer}
+          {composerCard}
           {props.notice}
         </>
       ) : (
         <>
-          {composer}
+          {composerCard}
           {props.notice}
           {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
               browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
               Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
-          {!allChats && !pill && (
+          {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
+              New Chat stay in the palette and the pane's + menu. With the split too, not only the pill. */}
+          {!allChats && template !== "cards" && (
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
               {props.onCreate && (
@@ -1061,13 +1086,13 @@ export function NewTabScreen(props: Props) {
           {lists}
         </>
       )}
-      {rows.length > 0 && box && (
+      {rows.length > 0 && anchor && (
         <Popover
           open
           // The rows follow the field (Escape there and a press outside close them): the popover
           // never closes itself.
           onOpenChange={() => undefined}
-          anchor={box}
+          anchor={anchor}
           side={stage ? "top" : "bottom"}
           label={nt("suggestions")}
           className="nt-popover"

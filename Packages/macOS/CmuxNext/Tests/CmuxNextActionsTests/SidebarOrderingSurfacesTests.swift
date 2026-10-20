@@ -60,14 +60,17 @@ import Testing
         }
     }
 
-    /// The group's Move ▸ lists Top, Up, Down, Bottom in that order.
-    @Test func groupMoveFolderOrdersTopUpDownBottom() throws {
+    /// Move to Top is a top-level row of the group's flat menu (Lawrence 2026-10-20); its Move ▸
+    /// lists Up, Down, Bottom in that order.
+    @Test func groupMenuShowsMoveToTopAndMoveFolderOrdersUpDownBottom() throws {
         let entries = ContextMenuCatalog.shared.entries(for: .workspaceGroup)
+        #expect(entries.contains { if case .action("workspaceGroup.moveToTop") = $0 { true } else { false } },
+                "Move to Top is not a top-level row of the group menu")
         let move = try #require(entries.lazy.compactMap { entry -> [ContextMenuEntry]? in
             if case .folder(.move, let children) = entry { children } else { nil }
         }.first, "the group menu has no Move folder")
         let ids = ContextMenuCatalog.shared.referencedIDs(move)
-        let order: [ActionID] = ["workspaceGroup.moveToTop", "workspaceGroup.moveUp", "workspaceGroup.moveDown", "workspaceGroup.moveToBottom"]
+        let order: [ActionID] = ["workspaceGroup.moveUp", "workspaceGroup.moveDown", "workspaceGroup.moveToBottom"]
         #expect(Array(ids.filter(order.contains)) == order, "group Move ▸ order: \(ids)")
     }
 }
