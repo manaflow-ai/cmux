@@ -1,0 +1,54 @@
+import Foundation
+
+/// Which agent drives which app browser tab through `browser.page.right`,
+/// so two agents never drive one tab (plans/cmux-next/chief-browser-use-DESIGN.md).
+///
+/// A lease names its agent and lapses `ttl` after the agent last resolved
+/// the tab, so an agent that stopped without `release` frees it. Each agent
+/// also remembers the tab it opened, which it gets back first.
+actor BrowserTabLeases {
+    private struct Lease {
+        var agent: String
+        var expires: ContinuousClock.Instant
+    }
+
+    private var leases: [String: Lease] = [:]
+    private var opened: [String: String] = [:]
+    private let ttl: Duration
+    private let now: @Sendable () -> ContinuousClock.Instant
+
+    /// - Parameters:
+    ///   - ttl: how long a lease outlives the agent's last use (default 5 minutes:
+    ///     longer than one Chief turn's pauses, short enough that a stopped Chief frees the tab).
+    ///   - now: the clock; tests pass a fixed one.
+    init(ttl: Duration = .seconds(300), now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }) {
+        self.ttl = ttl
+        self.now = now
+    }
+
+    /// The tab `agent` opened, if it still names one of `tabs`.
+    func openedTab(of agent: String, among tabs: Set<String>) -> String? {
+        guard let tab = opened[agent], tabs.contains(tab) else { return nil }
+        return tab
+    }
+
+    /// Gives `tab` to `agent` (renewing its lease) unless another agent's
+    /// lease on it has not lapsed; returns that agent then, nil once claimed.
+    /// `opened` records the tab as the agent's own. One step, so two agents
+    /// asking at once never both get the tab.
+    func acquire(_ tab: String, for agent: String, opened isOwn: Bool = false) -> String? {
+        let instant = now()
+        if let lease = leases[tab], lease.agent != agent, lease.expires > instant { return lease.agent }
+        leases[tab] = Lease(agent: agent, expires: instant + ttl)
+        if isOwn { opened[agent] = tab }
+        return nil
+    }
+
+    /// Drops every lease `agent` holds and forgets its tab; returns the tabs it held.
+    func release(_ agent: String) -> [String] {
+        let held = leases.filter { $0.value.agent == agent }.map(\.key).sorted()
+        for tab in held { leases[tab] = nil }
+        opened[agent] = nil
+        return held
+    }
+}

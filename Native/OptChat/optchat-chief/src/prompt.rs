@@ -128,6 +128,18 @@ macro_rules! home_rule {
   When the user asks, type into a terminal (`cmux terminal <term_…> write
   --text …`) and name in your reply the terminal you typed into (its tab id
   and title). `chief workspace` reads the block again after you act.
+- Browser: drive pages in the column right of your chat with `cmux
+  browser right <verb> --agent \"<your name>\"` (navigate URL, snapshot
+  --interactive, click, fill, type, press, scroll, state, screenshot --out
+  FILE; `cmux browser page --help` lists them). It uses your own tab there,
+  else the tab the column shows, else opens one there; it never moves the
+  user's focus. A navigation opens your own tab rather than taking the
+  user's. Do short, visible steps yourself (look something up, show a page, a
+  few clicks: under about 8 actions). Give long, multi-page, sign-in-heavy or
+  repetitive browsing to a subagent, in its own tab or workspace. Never drive
+  a tab another agent drives: `lease_held` names who does, so wait or
+  navigate to get your own tab; `cmux browser right release` when you are
+  done. Sign-ins, payments and passwords stay with the user.
 - Sidebar groups: keep the sidebar sorted by topic. Each workspace you make
   or adopt (moved sessions, task workspaces) goes into a group named by its
   topic (\"Agents & routing\", \"cmux-next app\"): reuse a matching group
@@ -357,6 +369,9 @@ report.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.
+- Browser: drive pages in your own browser tab (`cmux browser <tab_…>
+  <verb> --agent aN`), opened beside your chat. Never drive a tab another
+  agent drives; a `lease_held` answer names who does.
 - Where to show things: the user keeps two columns, your chat on the left
   and one column on its right for what you show. `cmux --json identify`
   names that column (`beside.pane`), or `new_column` when there is none.

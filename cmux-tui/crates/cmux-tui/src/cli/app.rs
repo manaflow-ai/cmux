@@ -35,6 +35,7 @@ mod events;
 mod keybinding;
 mod open;
 mod page;
+mod right;
 mod run;
 mod settings;
 mod skew;
@@ -124,6 +125,12 @@ pub(super) enum AppCommand {
     },
     /// `settings list|schema|validate` (app/settings.rs).
     Settings(settings::Command),
+    /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
+    /// tab right of the Home chat, then `then` runs on it.
+    Right {
+        params: Value,
+        then: Box<AppCommand>,
+    },
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -142,6 +149,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         && (target == "page" || target.starts_with("tab_"))
     {
         return parse_page(target, &args[2..]).map(Some);
+    }
+    if scope == "browser" && args.get(1).is_some_and(|target| target == "right") {
+        return right::parse(&args[2..]).map(Some);
     }
     if let Some(command) = agent_open::parse(args)? {
         return Ok(Some(command));
@@ -638,6 +648,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             return Ran::Done(call::run(global, stream, &method, params));
         }
         AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
+        AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
