@@ -61,11 +61,22 @@ public final class ChromeHover {
 
     /// The fill's color for a state, from theme tokens; `rest` when idle
     /// (a tile's faint fill), nil for no fill. Pressed wins over selected,
-    /// selected over hovered. Focus is an outline, never a fill.
+    /// selected over hovered. Focus is an outline, never a fill. A hover over a
+    /// resting fill takes `raisedHoverFill`, so it still shows a change.
     public static func fillColor(_ state: State, rest: NSColor? = nil) -> NSColor? {
         if state.pressed { return Palette.pressedFill }
         if state.selected { return Palette.selectionFill }
-        return state.hovering ? Palette.hoverFill : rest
+        guard state.hovering else { return rest }
+        return rest == nil ? Palette.hoverFill : raisedHoverFill
+    }
+
+    /// The hover over a control that already rests on `Palette.hoverFill` (a sidebar tile, a quiet
+    /// button): the same neutral ink at twice its weight, still translucent and under the pressed
+    /// fill. Never the selection fill, which is the theme's accent (Leo 2026-10-20: a hover is not
+    /// a selection, and sidebar hovers paint no theme color). Call inside the view's theme scope.
+    public static var raisedHoverFill: NSColor {
+        let hover = Palette.hoverFill
+        return hover.withAlphaComponent(min(hover.alphaComponent * 2, Palette.pressedFill.alphaComponent))
     }
 
     /// How a hover or pressed fill reaches `color`, as Edge draws it
