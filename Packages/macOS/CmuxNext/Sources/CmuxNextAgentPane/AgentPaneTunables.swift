@@ -84,6 +84,20 @@ public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIte
     }
 }
 
+/// What a click on the composer's model chip opens. `compact` is the short Claude Code style menu
+/// (numbered models, Effort, Account, More models); `full` opens the harness rail and search at once.
+public nonisolated enum AgentPaneModelMenuStyle: String, Sendable, CaseIterable, TunableChoice {
+    case compact
+    case full
+
+    public var tunableTitle: String {
+        switch self {
+        case .compact: "Compact (default)"
+        case .full: "Full picker (harness rail and search)"
+        }
+    }
+}
+
 /// Visual treatments for the session sidebar's latest-reply hover preview.
 public nonisolated enum AgentPaneSidebarPreviewVariant: String, Sendable, CaseIterable, TunableChoice {
     /// The elevated card used by the current sidebar.
@@ -150,6 +164,13 @@ public nonisolated struct AgentPaneTunables {
         }
     }
 
+    /// Claude Code desktop's in-session status in an agent chat: the live plan card and the recap
+    /// card. Off by default; each open agent page follows a change (``AgentPaneView/sessionStatus``).
+    public static let sessionStatus = Tunable<Bool>.toggle(
+        "agent.sessionStatus", PageTunables.section, "In-session status (plan card, recap card)",
+        help: "Agent chats show the live plan card and the recap card.",
+        default: false, code: "AgentPaneTunables.sessionStatus")
+
     /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
     /// beside it.
     /// Off by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
@@ -208,7 +229,7 @@ public nonisolated struct AgentPaneTunables {
     public static let composerPlainFooter = Tunable<Bool>.toggle(
         "agent.composerPlainFooter", PageTunables.section, "Agent composer: plain footer",
         help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
-        default: false, code: "AgentPaneTunables.composerPlainFooter")
+        default: true, code: "AgentPaneTunables.composerPlainFooter")
 
     /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews
     /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
@@ -284,6 +305,22 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the opt-in reasoning slider: today's accent treatment or a quieter outlined thumb.",
         default: .accent, code: "AgentPaneTunables.reasoningSliderStyle")
 
+    /// What the composer's model chip opens. It applies live, as the `composer` event's
+    /// `modelMenu` (AgentPaneComposerSetting, webviews composerSettings.ts).
+    public static let modelMenu = Tunable<AgentPaneModelMenuStyle>.choice(
+        "agent.modelMenu", PageTunables.section, "Composer model menu",
+        help: "Compact: a short menu of numbered models with Effort, Account and More models. Full: the harness rail and search.",
+        default: .compact, code: "AgentPaneTunables.modelMenu")
+
+    /// Whether a chat that has a message can still switch harness from its model menu. Off (the
+    /// default), its harness is fixed, as in Claude Code: the menu lists that harness's models alone,
+    /// with no harness rail and no Add harness…. It applies live, as the `composer` event's
+    /// `harnessSwitch` (AgentPaneComposerSetting, webviews composerSettings.ts).
+    public static let harnessSwitchInStartedChat = Tunable<Bool>.toggle(
+        "agent.harnessSwitchInStartedChat", PageTunables.section, "Allow switching harness in a started chat",
+        help: "A chat with a message keeps the model menu's harness rail and Add harness…, and a pick in another harness starts a new chat there.",
+        default: false, code: "AgentPaneTunables.harnessSwitchInStartedChat")
+
     /// The session sidebar's latest-reply hover preview treatment. User layout customization may
     /// still override this choice with `layout.sidebarPreviewVariant` for a prototype.
     public static let sidebarPreviewVariant = Tunable<AgentPaneSidebarPreviewVariant>.choice(
@@ -291,5 +328,28 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor, composerPlainFooter.descriptor] }
+    public static var all: [TunableDescriptor] {
+        [
+            chatWidth.descriptor,
+            codexToolRuns.descriptor,
+            composerPlainFooter.descriptor,
+            foldLongThoughts.descriptor,
+            harnessSwitchInStartedChat.descriptor,
+            liveThoughtViewport.descriptor,
+            modelMenu.descriptor,
+            newTabWidgets.descriptor,
+            pageHost.descriptor,
+            reasoningSlider.descriptor,
+            reasoningSliderStyle.descriptor,
+            sessionStatus.descriptor,
+            sidebarPreviewVariant.descriptor,
+            sideSessions.descriptor,
+            suggestedTasks.descriptor,
+            terminalButtonAdds.descriptor,
+            thoughtFoldThreshold.descriptor,
+            thoughtHeader.descriptor,
+            topStripStyle.descriptor,
+            turnActionsPlacement.descriptor,
+        ]
+    }
 }

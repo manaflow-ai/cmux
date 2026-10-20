@@ -3,7 +3,9 @@
 //! right (so it's left and right and easier to manage)"), sorts its
 //! workspaces into sidebar groups ("use groups more aggressively so that you
 //! can organize and the user feels less overwhelmed") and pushes straight to
-//! the feature branch ("we don't want to really use [PRs] at all").
+//! the feature branch ("we don't want to really use [PRs] at all"), and work counts only once
+//! it is on that branch (2026-10-19: every subagent's work must really land
+//! on feat-cmux-next).
 
 use optchat_chief::prompt::{Tools, chief_system_text, subagent_system_text};
 
@@ -60,6 +62,22 @@ fn every_agent_prompt_groups_workspaces_and_pushes_without_pull_requests() {
             "{name}: no push rule"
         );
         assert!(flat.contains("never force"), "{name}");
+    }
+}
+
+#[test]
+fn every_agent_prompt_counts_work_as_done_only_when_it_landed() {
+    for (name, text) in prompts() {
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains("a scratch or work branch is not landed")
+                || flat.contains("a scratch, work or red branch is not landed"),
+            "{name}: no landing rule"
+        );
+        assert!(
+            flat.contains("sha range"),
+            "{name}: report has no landed sha range"
+        );
     }
 }
 

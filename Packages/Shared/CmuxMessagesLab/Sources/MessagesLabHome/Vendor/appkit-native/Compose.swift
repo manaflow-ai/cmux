@@ -15,6 +15,9 @@ final class FieldTextView: NSTextView {
     /// A plain-text NSTextView enables Paste only for text types, so a
     /// picture alone (a copied screenshot) left Cmd+V disabled.
     var acceptsPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
+    /// cmux: a drop on the field that the host's intake takes (the paste's
+    /// type rule). A plain-text NSTextView would type a dropped file's path.
+    var onDropPasteboard: (NSPasteboard) -> Bool = { _ in false }
     /// Marked (IME) text changed. UITextView reports marked text through
     /// `textViewDidChange`, so the draft (and the field height) follows the
     /// composition; NSTextView does not post a text change for it.
@@ -107,6 +110,12 @@ final class FieldTextView: NSTextView {
         runLoopLog = o
     }
     var caretSuspended = false { didSet { updateCaret(reset: false) } }
+
+    /// cmux: the caret's colour after a palette change (it was set once, when the field was made).
+    func recolorCaret() {
+        caretLayer.backgroundColor = Fixture.caret.cgColor
+        if !Self.ownCaret, insertionPointColor != .clear { insertionPointColor = Fixture.caret }
+    }
 
     func installCaret() {
         guard Self.ownCaret else { return }
@@ -437,6 +446,23 @@ final class FieldTextView: NSTextView {
         if onPastePasteboard(pb) { return }  // cmux
         if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
         super.paste(sender)
+    }
+
+    // cmux: files and pictures dropped on the field go to the host's intake
+    // (Home's type rule, as paste); text drags keep NSTextView's own handling.
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingEntered(sender)
+    }
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingUpdated(sender)
+    }
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        acceptsPastePasteboard(sender.draggingPasteboard) || super.prepareForDragOperation(sender)
+    }
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let pb = sender.draggingPasteboard
+        if acceptsPastePasteboard(pb) { return onDropPasteboard(pb) }
+        return super.performDragOperation(sender)
     }
 }
 
@@ -846,6 +872,8 @@ final class ComposeView: UIView {
         if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
         renderPlaceholder()
         renderChips()
+        // cmux: the caret follows the palette too (the bubble style, the theme, the accent).
+        textView.view.recolorCaret()
     }
 
     /// The "+" button (opens the file picker).

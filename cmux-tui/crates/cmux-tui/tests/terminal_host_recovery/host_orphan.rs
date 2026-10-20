@@ -170,6 +170,13 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
     );
     assert!(wait_for_screen(&harness.socket, surface, "still-served").contains("still-served"));
 
+    let before = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"resolve-terminal","terminal_id":&terminal_id}),
+    );
+    let incarnation = before["terminal_incarnation"].as_str().unwrap_or_default().to_string();
+    assert!(!incarnation.is_empty(), "the served terminal has no incarnation: {before}");
+
     // Owner gone: the host ends its terminal after the grace, cleanly.
     let killed = Instant::now();
     kill_daemon(&mut harness);
@@ -192,7 +199,13 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
             &harness.socket,
             serde_json::json!({"cmd":"resolve-terminal","terminal_id":&terminal_id}),
         );
-        if resolved["lifecycle"] == "running" && resolved["surface"].as_u64().is_some() {
+        // A new incarnation: the old one adopted again would also read running.
+        let current = resolved["terminal_incarnation"].as_str().unwrap_or_default();
+        if resolved["lifecycle"] == "running"
+            && resolved["surface"].as_u64().is_some()
+            && !current.is_empty()
+            && current != incarnation
+        {
             break;
         }
         assert!(Instant::now() < deadline, "the orphan-ended terminal did not respawn: {resolved}");

@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var services: AppServices?
     private var settings: SettingsController?
     private let control = AppControl()
+    private let mouseSideButtons = MouseSideButtons()
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?
@@ -89,6 +90,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A main-thread hang still running after 2 s goes to crash reporting with its stack.
         let reporter = services.crashReporting.reporter
         control.watchdog.onHang = { hang in reporter.reportHang(duration: hang.duration, addresses: hang.addresses) }
+        // Shorter lag spikes (250 ms and up, rate-limited) go there too, once they end.
+        let lagSpikes = LagSpikeReporter(reporter: reporter)
+        lagSpikes.setContextProvider {
+            MainActor.assumeIsolated {
+                let windows = NSApp.windows
+                return ["windows": String(windows.count), "visible_windows": String(windows.filter(\.isVisible).count),
+                        "app_active": NSApp.isActive ? "yes" : "no"]
+            }
+        }
+        control.watchdog.onStall = { record in
+            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses)
+        }
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
@@ -154,15 +167,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: launchSettle)
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
+        // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
+        services.palette.openingEventTimestamp = { [weak router = services.keyRouter] in
+            let event = router?.syntheticKeyEvent ?? NSApp.currentEvent
+            return event?.type == .keyDown ? event?.timestamp : nil
+        }
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
-        services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
-                                      importStore: services.onboarding.importStore)
+        let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
+        services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.home.start()
+        mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start()
-        services.bookmarks.start(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
-                                 importStore: services.onboarding.importStore)
-        services.history.start(supportDirectory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
-            .deletingLastPathComponent())
+        services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
+        services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
         services.windows.restoreWhenLoaded()

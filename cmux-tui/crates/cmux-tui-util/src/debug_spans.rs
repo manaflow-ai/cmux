@@ -33,10 +33,16 @@ pub struct Trace {
 }
 
 /// What a followed terminal owes after its create's trace: the first output
-/// the daemon reads from its host, its first prompt mark (OSC 133;A), and
-/// the first output it sends an attachment.
-pub const FOLLOW_MARKS: [&str; 3] =
-    ["host.first_output", "first_prompt_mark", "attach.first_output_sent"];
+/// the daemon reads from its host, the first output with text a person sees
+/// (a printable byte outside escape sequences: login(1)'s "Last login", or
+/// the prompt), its first prompt mark (OSC 133;A), and the first output it
+/// sends an attachment.
+pub const FOLLOW_MARKS: [&str; 4] = [
+    "host.first_output",
+    "first_printable_output",
+    "first_prompt_mark",
+    "attach.first_output_sent",
+];
 
 /// Followed terminals kept at most; a terminal that never prints is dropped
 /// oldest first.

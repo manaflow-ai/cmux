@@ -108,9 +108,11 @@ final class OmnibarFieldEditor: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         // Return with modifiers never reaches doCommandBy as a plain newline.
-        if event.keyCode == 36 || event.keyCode == 76, !hasMarkedText(),
-           sink?.fieldEditorKey(.enter(.init(event.modifierFlags))) == true {
-            return
+        if event.keyCode == 36 || event.keyCode == 76, !hasMarkedText() {
+            let disposition = OmnibarInput.Disposition(event.modifierFlags)
+            // Control-Return adds www. and .com (Chromium's desired TLD).
+            let key: OmnibarInput.Key = event.modifierFlags.contains(.control) ? .enterAddingTLD(disposition) : .enter(disposition)
+            if sink?.fieldEditorKey(key) == true { return }
         }
         // Shift-Delete (forward delete) removes the highlighted history row
         // (Chromium `VKEY_DELETE` with Shift); otherwise it deletes forward.

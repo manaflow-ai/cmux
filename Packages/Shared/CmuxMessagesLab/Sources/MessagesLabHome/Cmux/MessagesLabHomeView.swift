@@ -135,7 +135,7 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
-    /// cmux: a click on a Chief subagent's link in agent text (`URL.isChiefSubagentLink`); the host
+    /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
     /// opens it in the app (`link.open`). Nil: the link opens nothing.
     public var onAppLink: ((URL) -> Void)? {
         get { controller.onAppLink }
@@ -150,11 +150,16 @@ public final class MessagesLabHomeView: NSView {
     }
 
     /// A click (or Space/Return with the keyboard) on the header's name
-    /// pill: cmux shows the Chief's settings sidebar there.
+    /// pill: cmux shows the Chief's settings popover under it.
     public var onNamePill: () -> Void {
         get { controller.host.paneHeader.onContact }
         set { controller.host.paneHeader.onContact = newValue }
     }
+
+    /// The header's name pill: the view a popover from it anchors to.
+    public var namePill: NSView { controller.host.paneHeader.pill }
+    /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
+    public var namePillToggles: [NSView] { [controller.host.paneHeader.pill, controller.host.paneHeader.avatar] }
 
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
@@ -200,6 +205,32 @@ public final class MessagesLabHomeView: NSView {
     /// paste in the box or a drop does).
     /// - Parameter sender: The paste's sender, passed to the box's `paste(_:)`.
     public func pasteIntoPrimaryInput(_ sender: Any?) { controller.pasteIntoCompose(sender) }
+
+    /// After a drop on Home or the file picker: the message box takes the
+    /// keyboard with the caret at the end of the draft, and its window
+    /// becomes key, so the person can type at once. Call it only for an
+    /// entry point aimed at Home (never for automation).
+    public func focusPrimaryInputForTyping() { controller.focusComposeForTyping() }
+
+    /// Whether a plain Up or Down arrow from `responder`, while Home has the
+    /// keyboard, recalls sent messages in the message box: not from a text
+    /// input (it moves its own caret) and not from a transcript text selection.
+    /// The box itself answers false: its own key handling recalls there.
+    /// - Parameter responder: The window's first responder now.
+    /// - Returns: True when the host should call ``recallPrimaryInputHistory(older:)``.
+    public func primaryInputHistoryTakesArrowKeys(from responder: NSResponder?) -> Bool {
+        controller.historyTakesArrowKeys(from: responder)
+    }
+
+    /// Up (`older`) or Down from outside the message box: the box takes the
+    /// keyboard, and Up shows the newest sent message (each further Up an
+    /// older one; Down steps back toward the draft, which is kept).
+    /// - Parameter older: True for Up, false for Down.
+    /// - Returns: True when the box took the key.
+    @discardableResult
+    public func recallPrimaryInputHistory(older: Bool) -> Bool {
+        controller.recallHistoryFromOutside(older ? .older : .newer)
+    }
 
     /// Puts text in the field (first-run suggestions).
     public func setDraft(_ text: String) {

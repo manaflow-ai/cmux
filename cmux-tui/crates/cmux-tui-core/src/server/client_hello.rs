@@ -396,7 +396,7 @@ fn user_origin_allowed(mux: &Mux, client: u64) -> bool {
 
 #[cfg(all(test, unix))]
 #[path = "client_hello_tests.rs"]
-mod tests;
+pub(super) mod tests;
 
 #[cfg(all(test, unix))]
 #[path = "untrusted_mint_tests.rs"]

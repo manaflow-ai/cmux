@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextWorkspaceRepair
 import Observation
 
 /// The content area of one window for one workspace: a `LayoutRootView`
@@ -36,8 +37,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
     private(set) var isApplying = false
     private var appliedTree = LayoutAppliedTree()
-    /// Daemon `transaction` for each layout gesture (undo coalescing).
-    var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.

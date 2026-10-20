@@ -525,137 +525,6 @@
         }
       }
     },
-    "handlers.refusal.cloudPaneUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs the Cloud panel as a pane (not in cmux-next yet)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペインとしての Cloud パネルが必要です(cmux-next にはまだありません)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب لوحة Cloud كجزء (غير متوفرة في cmux-next بعد)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potreban je Cloud panel kao panel (još nije u cmux-next)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver Cloud-panelet som rude (endnu ikke i cmux-next)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert das Cloud-Panel als Teilfenster (noch nicht in cmux-next)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere el panel de Cloud como panel (aún no está en cmux-next)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite le panneau Cloud en tant que volet (pas encore dans cmux-next)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede il pannello Cloud come pannello (non ancora in cmux-next)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការផ្ទាំង Cloud ជាផ្ទាំង (មិនទាន់មានក្នុង cmux-next)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud 패널을 분할 창으로 열어야 함(cmux-next에는 아직 없음)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever Cloud-panelet som rute (ikke i cmux-next ennå)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga panelu Cloud jako panelu (jeszcze nie w cmux-next)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer o painel Cloud como painel (ainda não existe no cmux-next)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна панель Cloud как панель (в cmux-next пока нет)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้แผง Cloud เป็นบานหน้าต่าง (ยังไม่มีใน cmux-next)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud panelinin bölme olarak açılması gerekiyor (cmux-next’te henüz yok)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна панель Cloud як панель (у cmux-next ще немає)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần bảng Cloud dưới dạng khung (chưa có trong cmux-next)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要将 Cloud 面板作为窗格（cmux-next 尚不支持）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要以窗格呈現 Cloud 面板（cmux-next 尚未提供）"
-          }
-        }
-      }
-    },
     "handlers.refusal.colorArgumentRequired": {
       "extractionState": "manual",
       "localizations": {
@@ -20698,6 +20567,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此欄保持停駐，無法關閉。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.homeTabStays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home stays open in its column."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームはその列で開いたままです。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبقى الصفحة الرئيسية مفتوحة في عمودها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Početna ostaje otvorena u svojoj koloni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjem forbliver åben i sin kolonne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home bleibt in seiner Spalte geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicio permanece abierto en su columna."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'accueil reste ouvert dans sa colonne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home resta aperta nella sua colonna."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រដើមនៅតែបើកក្នុងជួរឈររបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "홈은 해당 열에서 계속 열려 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjem forblir åpen i sin kolonne."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strona główna pozostaje otwarta w swojej kolumnie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Início permanece aberto em sua coluna."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Главная остаётся открытой в своей колонке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าหลักยังคงเปิดอยู่ในคอลัมน์ของตน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana Sayfa kendi sütununda açık kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Головна залишається відкритою у своїй колонці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang chủ luôn mở trong cột của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主页在其列中保持打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "首頁在其欄中保持開啟。"
           }
         }
       }
