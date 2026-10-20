@@ -32,10 +32,25 @@ extension PinCommands {
     /// layout ref for the workspace, the owner refuses, or no pin
     /// capability on its daemon).
     func setWorkspacePinned(_ id: String, pinned: Bool, origin: ActionOrigin) throws {
-        if let store = SidebarDocStore.current, store.isActive, let item = SidebarDocWiring.item(workspace: id, context.services.machines) {
-            pinned ? store.pin([item], title: PinStrings.pinWorkspace) : store.unpin([item], title: PinStrings.unpinWorkspace)
-            // The document is the home daemon's: the workspace's own daemon (any session) gets the flag too.
-            return WorkspacePinFlags.live(context.services.machines).mirror([id], pinned: pinned)
+        if let store = SidebarDocStore.current, store.isActive {
+            if let item = SidebarDocWiring.item(workspace: id, context.services.machines) {
+                pinned ? store.pin([item], title: PinStrings.pinWorkspace) : store.unpin([item], title: PinStrings.unpinWorkspace)
+                // The document is the home daemon's: the workspace's own daemon (any session) gets the flag too.
+                return WorkspacePinFlags.live(context.services.machines).mirror([id], pinned: pinned)
+            }
+            // A workspace the document does not place yet (a new one) is not pinned in it. The sidebar adopts
+            // and pins it in one change; before its adopt ref is known (no resource id yet), the daemon's pin flag
+            // is set instead, and the daemon adopts it into Pinned (`sidebar_doc_sync`). Unpin before that clears
+            // the flag. Never a silent no-op.
+            guard pinned else {
+                guard context.services.machines.workspace(id: id)?.0.pinned == true else { return }
+                return try setLegacyPinned(id, pinned: false, throughSidebar: false)
+            }
+            let drag = SidebarDocWiring.docMachines(context.services.machines).drag()
+            if let sidebar = context.activeWindow?.sidebar, drag?.adoptRef(SidebarWorkspaceID(id)) != nil {
+                return sidebar.handle(.setPinned([SidebarWorkspaceID(id)], true))
+            }
+            return try setLegacyPinned(id, pinned: true, throughSidebar: false)
         }
         if pinsAreTiles {
             guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }
@@ -188,14 +203,14 @@ extension PinCommands {
 
     /// The legacy flag through the window's sidebar (optimistic row move),
     /// else straight to the owning daemon.
-    private func setLegacyPinned(_ id: String, pinned: Bool) throws {
+    private func setLegacyPinned(_ id: String, pinned: Bool, throughSidebar: Bool = true) throws {
         guard let (workspace, daemon) = context.services.machines.workspace(id: id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
         guard daemon.supports(DaemonCapabilities.shared.workspacePin) else {
             throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.workspacePin))
         }
-        if let sidebar = context.activeWindow?.sidebar {
+        if throughSidebar, let sidebar = context.activeWindow?.sidebar {
             sidebar.handle(.setPinned([SidebarWorkspaceID(workspace.id)], pinned))
         } else if let key = workspace.key {
             daemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, pinned: pinned) }
