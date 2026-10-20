@@ -2042,13 +2042,15 @@ final class SessionIndexStore: ObservableObject {
         let target = offset + limit
         let maxWork = min(candidateCount, cap)
         var inspected = 0
-        var windowEnd = target >= maxWork / 2 ? maxWork : target * 2
+        // `min(2x, maxWork)` written so the doubling cannot overflow.
+        var windowEnd = target > maxWork / 2 ? maxWork : target * 2
         var matched: [SessionEntry] = []
         while inspected < windowEnd {
             matched.append(contentsOf: await parse(inspected..<windowEnd).filter(isIncluded))
             inspected = windowEnd
-            if !grows || matched.count >= target || Task.isCancelled { break }
-            windowEnd = windowEnd >= maxWork / 2 ? maxWork : windowEnd * 2
+            if Task.isCancelled { return [] }
+            if !grows || matched.count >= target { break }
+            windowEnd = windowEnd > maxWork / 2 ? maxWork : windowEnd * 2
         }
         return Array(matched.prefix(target).dropFirst(offset).prefix(limit))
     }

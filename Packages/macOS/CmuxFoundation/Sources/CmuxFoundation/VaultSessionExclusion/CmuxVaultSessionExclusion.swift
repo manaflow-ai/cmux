@@ -50,7 +50,7 @@ public struct CmuxVaultSessionExclusion: Codable, Hashable, Sendable {
         self.labelPattern = Self.normalized(labelPattern)
     }
 
-    public init(from decoder: Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         agent = Self.normalized(try container.decodeIfPresent(String.self, forKey: .agent))
         folder = Self.normalized(try container.decodeIfPresent(String.self, forKey: .folder))
@@ -69,7 +69,7 @@ public struct CmuxVaultSessionExclusion: Codable, Hashable, Sendable {
         }
     }
 
-    public func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(agent, forKey: .agent)
         try container.encodeIfPresent(folder, forKey: .folder)
