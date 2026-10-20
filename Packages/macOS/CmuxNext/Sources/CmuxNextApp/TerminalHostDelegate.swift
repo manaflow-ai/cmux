@@ -1,9 +1,11 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextTerminalLinks
 
 /// Handles terminal requests that need the app: Ghostty keybinds for splits,
 /// tabs, and windows, the right-click menu, and links. OSC 9/777/99
@@ -41,7 +43,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     func linkMenu(_ session: TerminalSession, text: String? = nil, services: AppServices) -> (rows: [LinkMenuRow], items: [NSMenuItem]) {
         let target = target(of: session, in: services)
         // main-actor-ok: a right-click resolves one path (a few stat calls), as the click does.
-        switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver.resolve($0, cwd: cwd(of: session)) }) {
+        switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver().resolve($0, cwd: cwd(of: session)) }) {
         case .url(let link)?:
             let menu = LinkMenu { [weak services] url in
                 services?.registry.perform("browser.link.openInNewTab", invocation: ActionInvocation(target: target, arguments: ["url": .string(url.absoluteString)]))
@@ -73,7 +75,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
         let request = linkRequest(session), cwd = cwd(of: session)
         Task { @MainActor [weak self] in
-            let target = await Task.detached(priority: .userInitiated) { TerminalLinkResolver.resolve(text, cwd: cwd) }.value
+            let target = await Task.detached(priority: .userInitiated) { TerminalLinkResolver().resolve(text, cwd: cwd) }.value
             switch target {
             case .url(let url)?: self?.openWeb(url, request)
             case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
@@ -95,7 +97,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// or a path that names a file or folder (``TerminalLinkResolver``, the click's own rule).
     func terminalSessionLinkCheck(_ session: TerminalSession) -> TerminalLinkCheck? {
         let start = services.flatMap { services in target(of: session, in: services).flatMap { services.cache.tabModel($0.id)?.cwd } }
-        return { text, cwd in TerminalLinkResolver.resolve(text, cwd: cwd ?? start) != nil }
+        return { text, cwd in TerminalLinkResolver().resolve(text, cwd: cwd ?? start) != nil }
     }
 
     /// What the click carried: Cmd-Option (`browserProfile.openLink` without a profile: the
@@ -108,7 +110,8 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     }
 
     /// Cmd-Option asks for cmux (a profile), so only the external rules and host list route it out;
-    /// every other link goes through the shared rule (``LinkRouter``).
+    /// every other link goes through the shared rule (``LinkRouter``), a cmux-browser one beside the
+    /// terminal as in classic cmux (``openBeside``).
     private func openWeb(_ url: URL, _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) {
         if let services, url.scheme == "http" || url.scheme == "https", request.option, services.browserProfiles.ordered.count > 1,
            LinkRouter.shared.target(for: url, explicit: true) == .cmuxBrowser {
@@ -116,7 +119,21 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 target: request.tab, arguments: ["url": .string(url.absoluteString)]))
             return
         }
-        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option)
+        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option) { [weak self] in
+            self?.openBeside($0, from: request.tab) ?? false
+        }
+    }
+
+    /// The nearest pane on the clicked terminal's right (``TerminalLinkBrowserPlacement``),
+    /// else a new right split; false (a focused-pane tab) only when the split has no room.
+    private func openBeside(_ url: URL, from tab: ActionTargetRef?) -> Bool {
+        guard let services, let source = tab.flatMap({ services.locateTab($0.id) }).flatMap({ services.paneController(for: $0.1) }),
+              let content = source.workspace else { return false }
+        let beside = TerminalLinkBrowserPlacement().pane(beside: source.layoutPaneID, in: content.layoutModel, frames: content.layoutView.navigationFrames)
+        // A refusal there is already shown (`newBrowserTab`), so the focused pane does not try again.
+        if let pane = beside.flatMap({ content.panes[$0] }) { pane.newBrowserTab(url: url); return true }
+        let context = AppActionContext(services: services)
+        return (try? BrowserHandlers.splitBrowser(from: source, direction: .right, url: url, byPerson: true, context: context)) != nil
     }
 
     /// Every surface's links go through ``LinkRouter`` (cx-ir3z4), wired here once: a Chief

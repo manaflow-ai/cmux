@@ -189,6 +189,7 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextTerminalLinks",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
                 "CmuxNextVSCodeServer",
@@ -1057,6 +1058,18 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Where a Cmd-clicked terminal link goes (a URL, a web host, a path
+        // that exists); pure, so it stays out of CmuxNextApp.
+        .target(
+            name: "CmuxNextTerminalLinks",
+            dependencies: ["CmuxNextBrowser"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextTerminalLinksTests",
+            dependencies: ["CmuxNextTerminalLinks"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Pure grid-geometry policy for terminal surfaces (which grid a
         // mirror renders, which grid it reports). No GhosttyKit, so it has
         // tests; CmuxNextTerminal applies it to the live surface.
@@ -1120,6 +1133,11 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextLayoutTests",
+            dependencies: ["CmuxNextLayout"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
