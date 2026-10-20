@@ -28,7 +28,7 @@ import Testing
     @Test func commandShiftVRunsPasteAndMatchStyleOnTheFocusedInput() throws {
         let menu = try editMenu()
         let plain = try #require(item(in: menu, key: "v", modifiers: [.command, .shift]))
-        #expect(!plain.title.isEmpty && plain.title != Strings.menuPaste)
+        #expect(plain.title == Strings.menuPasteAndMatchStyle)
         let probe = Probe()
         let action = try #require(plain.action)
         #expect(NSApp.sendAction(action, to: probe, from: plain))

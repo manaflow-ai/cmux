@@ -250,6 +250,8 @@ final class FieldTextView: NSTextView {
     }
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(paste(_:)), acceptsPastePasteboard(pasteboard) { return true }  // cmux
+        // cmux: Paste and Match Style reads the field's own pasteboard: text only.
+        if item.action == #selector(pasteAsPlainText(_:)) { return isEditable && plainText(pasteboard) != nil }
         if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
             (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
             return true
@@ -453,17 +455,31 @@ final class FieldTextView: NSTextView {
     /// The pasteboard Paste reads (a check injects its own).
     var pasteboard: NSPasteboard = .general
 
-    /// cmux: the plain text Paste and Match Style takes from a pasteboard (its
-    /// `.string`; nil for a picture or a file alone). A check stubs it: the CI
-    /// Macs' pasteboard server answers reads of a fresh private board inconsistently.
-    var plainText: (NSPasteboard) -> String? = { $0.string(forType: .string) }
-
     override func paste(_ sender: Any?) {
         let pb = pasteboard
         if onPastePasteboard(pb) { return }  // cmux
         if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
         super.paste(sender)
     }
+
+    /// cmux: Paste and Match Style (Edit menu, Cmd+Shift+V): the clipboard's
+    /// plain text only, at the caret (replacing the selection), as its own undo
+    /// step. Rich text, HTML, files and pictures never reach the host's intake.
+    override func pasteAsPlainText(_ sender: Any?) {
+        guard isEditable, let text = plainText(pasteboard), !text.isEmpty else { return }
+        let range = selectedRange()
+        guard shouldChangeText(in: range, replacementString: text), let storage = textStorage else { return }
+        breakUndoCoalescing()
+        storage.replaceCharacters(in: range, with: NSAttributedString(string: text, attributes: typingAttributes))
+        setSelectedRange(NSRange(location: range.location + (text as NSString).length, length: 0))
+        didChangeText()
+        breakUndoCoalescing()
+    }
+
+    /// cmux: the plain text Paste and Match Style takes from a pasteboard (its
+    /// `.string`; nil for a picture or a file alone). A check stubs it: the CI
+    /// Macs' pasteboard server answers reads of a fresh private board inconsistently.
+    var plainText: (NSPasteboard) -> String? = { $0.string(forType: .string) }
 
     // cmux: files and pictures dropped on the field go to the host's intake
     // (Home's type rule, as paste); text drags keep NSTextView's own handling.
