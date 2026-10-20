@@ -43,6 +43,7 @@ fn start(chat: &optchat_host::OptChat, n: u64, text: &str) -> TurnStart {
             peer: None,
         },
         blocks: turn_blocks(&view.text, &[text.to_owned()]),
+        restrict_shared_memory: false,
         limit: Some(Duration::from_secs(600)),
         idle_limit: None,
     }
@@ -474,6 +475,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
                 fast: false,
             },
             blocks,
+            restrict_shared_memory: false,
             system_prompt,
             limit: Some(Duration::from_secs(600)),
             idle_limit: None,

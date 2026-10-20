@@ -413,7 +413,7 @@ impl Brain {
         // Home view is untrusted: terminal/browser titles and URLs are just as
         // attacker-controlled as terminal screen text. Asking whenever Home is
         // available also covers a later `chief workspace` refresh in this turn.
-        let home = self
+        let mut home = self
             .settings
             .home_view
             .as_ref()
@@ -444,6 +444,33 @@ impl Brain {
                 }
             )
         });
+        // One Chief has one durable memory, but a conversation with another
+        // participant is a different disclosure boundary. Give that turn only
+        // its new messages; an explicit owner approval is required before its
+        // model can use zoom/date to read the shared memory.
+        let conversation_scoped = side.is_some()
+            || self
+                .summary
+                .as_ref()
+                .is_some_and(|summary| !self.settings.membership.is_private_conversation(summary))
+            || participant_requires_approval;
+        self.turn_shared_memory = !conversation_scoped;
+        let turn_system_text = if conversation_scoped {
+            self.settings.shared_system_text.clone()
+        } else {
+            self.settings.system_text.clone()
+        };
+        let turn_cli_system_text = if conversation_scoped {
+            self.settings.shared_cli_system_text.clone()
+        } else {
+            self.settings.cli_system_text.clone()
+        };
+        if conversation_scoped {
+            // Home includes terminal tails, browser URLs and titles from the
+            // owner's private workspace. It is never context for a group or
+            // non-owner turn, even though its presence already makes tools ask.
+            home = None;
+        }
         self.turn_ask = participant_requires_approval
             || ambient_requires_approval
             || (self.turn_remote && !self.chief.remote_auto_approve);
@@ -493,12 +520,17 @@ impl Brain {
         // Per-turn state goes after the delta, never in the system prompt and
         // never before a cache mark: the subagents at work now (the reference
         // client's line). Never logged.
-        let at_work = self.at_work_line();
+        let at_work = (!conversation_scoped)
+            .then(|| self.at_work_line())
+            .flatten();
+        let media_outbox = super::media::prepare_turn_outbox(&self.settings.session_dir, first)
+            .map(|path| format!("<cmux-media-outbox>{}</cmux-media-outbox>", path.display()));
         // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = at_work
             .iter()
             .chain(home.iter())
             .chain(resumes.iter())
+            .chain(media_outbox.iter())
             .cloned()
             .collect();
         // Spec 5a: the frozen view and the delta after it (this turn's new
@@ -515,15 +547,38 @@ impl Brain {
         self.state.frozen = Some(crate::state::FrozenRecord::of(&input.frozen));
         self.save();
         self.note_engine(&engine);
+        if family != crate::acpmux::Family::Claude
+            && let Err(e) =
+                crate::session_dir::set_agents_md(&self.settings.session_dir, &turn_cli_system_text)
+        {
+            (self.log)(&format!("updating the session's AGENTS.md: {e}"));
+        }
+        let (view_text, prompt_delta, view_parts) = if conversation_scoped {
+            let empty = optchat_core::Frozen {
+                parts: Vec::new(),
+                front: first_new,
+                unbuilt: Vec::new(),
+                cuts: Vec::new(),
+                starts: Vec::new(),
+            };
+            let (view, delta) = self.chat.turn_input_at(&empty, first_new, delta_end);
+            (view, delta, Vec::new())
+        } else {
+            (
+                input.view.clone(),
+                input.delta.clone(),
+                input.frozen.parts.clone(),
+            )
+        };
         let view = optchat_host::RenderedView {
-            marks: optchat_core::cache_marks(&input.view),
-            parts: input.frozen.parts.clone(),
-            text: input.view.clone(),
+            marks: optchat_core::cache_marks(&view_text),
+            parts: view_parts,
+            text: view_text,
         };
         let view = &view;
         // The previous request's end (the last cut before this one), when
         // this turn kept the frozen view: it gets a mark (see input_layout).
-        let prev_end = (!input.rerendered)
+        let prev_end = (!conversation_scoped && !input.rerendered)
             .then(|| {
                 input
                     .frozen
@@ -536,7 +591,7 @@ impl Brain {
             .flatten()
             .and_then(|end| crate::prompt::block_ending_at(&input.delta, end));
         let cached = cached.as_deref();
-        let (blocks, system_prompt, preset) = match cached {
+        let (blocks, mut system_prompt, preset) = match cached {
             Some(preset) => {
                 // Claude Code's own marks take the same TTL: the API refuses
                 // a 1h mark after a 5m one. A session the pool started
@@ -551,9 +606,9 @@ impl Brain {
                     (self.log)(&format!("updating the session's promptCacheTtl: {e}"));
                 }
                 let layout = input_layout(
-                    &self.settings.system_text,
+                    &turn_system_text,
                     &view.text,
-                    &input.delta,
+                    &prompt_delta,
                     prev_end,
                     &image_blocks,
                     &tail.join("\n\n"),
@@ -562,18 +617,19 @@ impl Brain {
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
             None => (
-                input_blocks(&view.text, &input.delta, &image_blocks, &tail.join("\n\n")),
+                input_blocks(&view.text, &prompt_delta, &image_blocks, &tail.join("\n\n")),
                 None,
                 plain_preset,
             ),
         };
+        if matches!(self.settings.engine, Engine::Native(_)) {
+            system_prompt = Some(turn_system_text.clone());
+        }
         let image_count = image_blocks.len();
         if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
             // layout; the old layout reads them from CLAUDE.md.
-            let text = system_prompt
-                .is_none()
-                .then_some(self.settings.system_text.as_str());
+            let text = system_prompt.is_none().then_some(turn_system_text.as_str());
             if let Err(e) = crate::session_dir::set_claude_md(&self.settings.session_dir, text) {
                 (self.log)(&format!("updating the session directory's CLAUDE.md: {e}"));
             }
@@ -592,22 +648,27 @@ impl Brain {
         };
         // The delta by its log range and cuts: the inspector renders it again.
         layout["delta"] = serde_json::json!({
-            "front": input.frozen.front,
+            "front": if conversation_scoped { first_new } else { input.frozen.front },
             "new_from": first_new,
             "end": delta_end,
-            "unbuilt": input.frozen.unbuilt.iter().map(|p| p.name()).collect::<Vec<_>>(),
+            "unbuilt": if conversation_scoped { Vec::<String>::new() } else { input.frozen.unbuilt.iter().map(|p| p.name()).collect::<Vec<_>>() },
             // The cuts this delta was built with (this request's own end is past it).
-            "cuts": input.frozen.cuts.iter().filter(|c| **c < delta_end).collect::<Vec<_>>(),
+            "cuts": if conversation_scoped { Vec::<u64>::new() } else { input.frozen.cuts.iter().filter(|c| **c < delta_end).copied().collect::<Vec<_>>() },
             // The forced block starts this delta was built with.
-            "starts": input.frozen.starts.iter().filter(|s| **s <= first_new).collect::<Vec<_>>(),
-            "bytes": input.delta.iter().map(String::len).sum::<usize>(),
-            "rendered": input.rerendered,
+            "starts": if conversation_scoped { Vec::<u64>::new() } else { input.frozen.starts.iter().filter(|s| **s <= first_new).copied().collect::<Vec<_>>() },
+            "bytes": prompt_delta.iter().map(String::len).sum::<usize>(),
+            "rendered": input.rerendered || conversation_scoped,
             "prev_end_block": prev_end,
         });
         if !resumes.is_empty() {
             layout["resumes"] = serde_json::json!(resumes);
         }
         layout["images"] = serde_json::json!(image_count);
+        layout["conversation_scoped"] = serde_json::json!(conversation_scoped);
+        layout["shared_system"] = serde_json::json!(conversation_scoped);
+        if let Some(block) = &media_outbox {
+            layout["media_outbox"] = serde_json::json!(block);
+        }
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
         }
@@ -618,7 +679,7 @@ impl Brain {
             &key,
             first,
             view,
-            &input.delta,
+            &prompt_delta,
             &texts,
             &done.ids,
             &items_sources,
@@ -647,6 +708,7 @@ impl Brain {
                 peer: None,
             },
             blocks,
+            restrict_shared_memory: conversation_scoped,
             system_prompt,
             key,
             limit: self.settings.turn_limit,
@@ -1180,6 +1242,7 @@ impl Brain {
         }
         self.turn_remote = false;
         self.turn_ask = false;
+        self.turn_shared_memory = true;
         self.clear_turn_approvals();
         self.interrupt.set_gate(false);
         if let Some(orphan) = outcome.orphan {
@@ -1491,6 +1554,7 @@ impl Brain {
         }
         self.turn_remote = false;
         self.turn_ask = false;
+        self.turn_shared_memory = true;
         self.clear_turn_approvals();
         self.interrupt.set_gate(false);
         self.stop_wanted = false;

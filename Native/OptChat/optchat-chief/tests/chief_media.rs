@@ -8,6 +8,8 @@
 mod common;
 
 use std::io::Cursor;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use cmux_conversation::{Op, Part};
 use common::*;
@@ -63,8 +65,16 @@ fn sent_reply(h: &mut Harness) -> Vec<Part> {
     }
 }
 
-fn turn(reply: String) -> (Vec<Part>, Harness) {
-    let mut h = Harness::new(reply_script(reply));
+fn turn(make_reply: impl FnOnce(&Path) -> String) -> (Vec<Part>, Harness) {
+    let dir = tempfile::tempdir().unwrap();
+    let outbox =
+        optchat_chief::brain::media::prepare_turn_outbox(&dir.path().join("session"), 0).unwrap();
+    let reply = make_reply(&outbox);
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let mut h = Harness::in_dir(dir, reply_script(reply), owner);
     h.connect();
     h.say("user_local", "send me the screenshot and the video");
     h.settle();
@@ -93,18 +103,19 @@ fn attachment(part: &Part) -> Option<(String, String, u64, Option<u32>, Option<u
 
 #[test]
 fn a_markdown_image_of_a_local_picture_or_video_goes_as_an_attachment() {
-    let dir = tempfile::tempdir().unwrap();
-    let shot = dir.path().join("shot.png");
     let picture = png(40, 30);
-    std::fs::write(&shot, &picture).unwrap();
-    let clip = dir.path().join("demo clip.mp4");
-    std::fs::write(&clip, b"\0\0\0\x18ftypmp42 not a real video").unwrap();
-    let reply = format!(
-        "Here is the screenshot:\n![shot]({})\nand the video ![clip](<{}>)",
-        shot.display(),
-        clip.display()
-    );
-    let (parts, h) = turn(reply);
+    let picture_file = picture.clone();
+    let (parts, h) = turn(move |outbox| {
+        let shot = outbox.join("shot.png");
+        std::fs::write(&shot, picture_file).unwrap();
+        let clip = outbox.join("demo clip.mp4");
+        std::fs::write(&clip, b"\0\0\0\x18ftypmp42 not a real video").unwrap();
+        format!(
+            "Here is the screenshot:\n![shot]({})\nand the video ![clip](<{}>)",
+            shot.display(),
+            clip.display()
+        )
+    });
     assert_eq!(
         parts[0],
         text("Here is the screenshot:\nand the video"),
@@ -141,11 +152,16 @@ fn a_markdown_image_of_a_local_picture_or_video_goes_as_an_attachment() {
 
 #[test]
 fn a_link_to_a_local_video_stays_a_link_and_is_attached() {
-    let dir = tempfile::tempdir().unwrap();
-    let clip = dir.path().join("run.mov");
-    std::fs::write(&clip, b"moov").unwrap();
-    let reply = format!("The recording: [run.mov]({})", clip.display());
-    let (parts, _) = turn(reply.clone());
+    let reply = Arc::new(Mutex::new(String::new()));
+    let seen = reply.clone();
+    let (parts, _) = turn(move |outbox| {
+        let clip = outbox.join("run.mov");
+        std::fs::write(&clip, b"moov").unwrap();
+        let text = format!("The recording: [run.mov]({})", clip.display());
+        *seen.lock().unwrap() = text.clone();
+        text
+    });
+    let reply = reply.lock().unwrap().clone();
     assert_eq!(parts[0], text(&reply));
     let files: Vec<_> = parts.iter().filter_map(attachment).collect();
     assert_eq!(
@@ -162,15 +178,20 @@ fn a_link_to_a_local_video_stays_a_link_and_is_attached() {
 
 #[test]
 fn a_missing_or_non_media_file_stays_text_and_is_never_read() {
-    let dir = tempfile::tempdir().unwrap();
-    let notes = dir.path().join("notes.txt");
-    std::fs::write(&notes, b"secret").unwrap();
-    let reply = format!(
-        "![notes]({})\n![gone]({}/gone.png)",
-        notes.display(),
-        dir.path().display()
-    );
-    let (parts, h) = turn(reply.clone());
+    let reply = Arc::new(Mutex::new(String::new()));
+    let seen = reply.clone();
+    let (parts, h) = turn(move |outbox| {
+        let notes = outbox.join("notes.txt");
+        std::fs::write(&notes, b"secret").unwrap();
+        let text = format!(
+            "![notes]({})\n![gone]({})",
+            notes.display(),
+            outbox.join("gone.png").display()
+        );
+        *seen.lock().unwrap() = text.clone();
+        text
+    });
+    let reply = reply.lock().unwrap().clone();
     assert_eq!(parts, vec![text(&reply)]);
     assert!(h.owner.lock().unwrap().uploads.is_empty());
 }
@@ -182,9 +203,10 @@ fn security_a_reply_cannot_attach_an_arbitrary_local_file() {
     std::fs::write(&private, png(8, 8)).unwrap();
     let reply = format!("![private]({})", private.display());
 
-    let (parts, h) = turn(reply.clone());
+    let expected = reply.clone();
+    let (parts, h) = turn(move |_| reply);
 
-    assert_eq!(parts, vec![text(&reply)]);
+    assert_eq!(parts, vec![text(&expected)]);
     assert!(
         h.owner.lock().unwrap().uploads.is_empty(),
         "a model-authored path outside this turn's media outbox was uploaded"
