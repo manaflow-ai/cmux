@@ -282,6 +282,8 @@ async fn a_burst_of_prompts_during_a_turn_never_queues_loses_or_reorders_one() {
 pub(super) struct Inbox {
     answers: std::collections::HashMap<i64, (Instant, Result<Value, String>)>,
     accepted: std::collections::HashMap<String, Value>,
+    /// The agent's answer text so far, all sessions.
+    text: String,
 }
 
 impl Inbox {
@@ -298,6 +300,14 @@ impl Inbox {
                         None => Ok(result.unwrap_or(Value::Null)),
                     };
                     self.answers.insert(id, (Instant::now(), r));
+                }
+            }
+            Message::Notification { method, params } if method == method::SESSION_UPDATE => {
+                let p = params.unwrap_or(Value::Null);
+                if p["update"]["sessionUpdate"] == "agent_message_chunk"
+                    && let Some(t) = p["update"]["content"]["text"].as_str()
+                {
+                    self.text.push_str(t);
                 }
             }
             Message::Notification { method, params } if method == method::MUX_PROMPT_ACCEPTED => {
@@ -318,6 +328,14 @@ impl Inbox {
             }
             self.read_one(c).await;
         }
+    }
+
+    /// The agent's answer text once it holds `needle`.
+    pub(super) async fn text_with(&mut self, c: &mut TestClient, needle: &str) -> String {
+        while !self.text.contains(needle) {
+            self.read_one(c).await;
+        }
+        self.text.clone()
     }
 
     /// The answer to request `id`, and when it arrived.

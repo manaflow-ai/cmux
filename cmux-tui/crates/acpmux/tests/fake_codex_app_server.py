@@ -186,10 +186,11 @@ for line in sys.stdin:
         reply({"id": rid, "result": {"turnId": turn}})
         said = " ".join(i.get("text") or "" for i in params.get("input") or [] if isinstance(i, dict))
         reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m-steer", "delta": "read: " + said + "\n"}})
-    elif method == "turn/interrupt":
-        params = message.get("params", {})
-        turn = params.get("turnId")
-        thread = open_turns.pop(turn, params.get("threadId"))
+    elif method == "turn/interrupt" and message.get("params", {}).get("turnId") in open_turns:
+        # Only a turn this fake left open ends here; any other interrupt gets the unknown-method
+        # answer it always got (a turn that already completed must not complete twice).
+        turn = message["params"]["turnId"]
+        thread = open_turns.pop(turn)
         reply({"id": rid, "result": {}})
         reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": "interrupted", "items": []}}})
     elif method == "thread/backgroundTerminals/terminate":

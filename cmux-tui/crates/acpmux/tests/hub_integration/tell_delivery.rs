@@ -76,15 +76,10 @@ async fn tells_during_a_long_tool_run_are_read_within_a_second_in_order_none_los
             );
             read.push(took);
         }
-        // The agent read them in the order they were sent, none lost or twice.
+        // The agent read them in the order they were sent, none lost or twice. A steer is
+        // answered when the agent reads it; its "read:" line can stream a moment after.
+        let text = inbox.text_with(&mut c, "read: tell 4").await;
         let events = hub.events(&id, 0, 5000).unwrap();
-        let text: String = events
-            .iter()
-            .filter(|e| {
-                e.msg.pointer("/params/update/sessionUpdate") == Some(&json!("agent_message_chunk"))
-            })
-            .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
-            .collect();
         let order: Vec<&str> = text.lines().filter_map(|l| l.strip_prefix("read: ")).collect();
         assert_eq!(order, ["tell 0", "tell 1", "tell 2", "tell 3", "tell 4"], "{name}: {text}");
         let shown: Vec<&str> = events
@@ -99,6 +94,7 @@ async fn tells_during_a_long_tool_run_are_read_within_a_second_in_order_none_los
             let _ = hub.cancel(&hub.resolve(&id).unwrap()).await;
         }
         let _ = inbox.answer(&mut c, turn).await;
+        hub.shutdown_all().await;
         let worst = read.iter().max().unwrap();
         eprintln!("TELL-DELIVERY {name}: worst {worst:?}");
     }
