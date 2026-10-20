@@ -54,7 +54,7 @@ different), **n/a** (no Mac equivalent).
 | Shift-Delete removes a history row | `OEM::TryDeletingPopupLine` | `.deleteSuggestion` | match |
 | History, bookmarks, open tabs (Switch to Tab), search suggestions, calculator, internal pages | providers | `OmniboxLocalIndex`, remote suggest, `OmniboxCalculator`, `OmniboxInternalPages`, Switch to Tab rows | match |
 | Hover highlights only after the pointer moves | `OmniboxPopupViewViews` | `popup.pointer` | match |
-| Site favicons in rows | favicon per match | page rows (history, bookmark, open tab, typed address) show the site's icon as the tab fetches icons (an open tab's icon, else `/favicon.ico`); the kind glyph until it loads, and for searches and answers | **fixed**; test `pageRowsShowTheSiteIcon` |
+| Site favicons in rows | favicon per match | page rows (history, bookmark, open tab) show the site's icon; the typed address keeps its globe, as in Chrome, so a half-typed host is never fetched; as the tab fetches icons (an open tab's icon, else `/favicon.ico`); the kind glyph until it loads, and for searches and answers | **fixed**; test `pageRowsShowTheSiteIcon` |
 | Tab to search a site's engine (`youtube.com` Tab) | keyword mode for search engines | the built-in engines and YouTube, Wikipedia, GitHub as keywords (their host): Tab or a space starts "Search YouTube"; Enter searches there, Enter with no text opens the site, Backspace at the start leaves. Chrome also adds sites that offer OpenSearch; cmux does not (yet) | **fixed** for the shipped engines; tests `tabAfterAnEngineSiteSearchesThatEngine` and 3 more |
 
 ## URL or search

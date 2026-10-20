@@ -168,6 +168,10 @@ struct OmnibarChromeGapsTests {
                                        faviconSource: source)
         #expect(search.faviconTask == nil)
         #expect(!search.showsFavicon)
+        let typed = SuggestionRowView(suggestion: BrowserSuggestion(kind: .navigate, title: "exam", detail: "", url: URL(string: "https://exam/")!, score: 1),
+                                      faviconSource: source)
+        #expect(typed.faviconTask == nil)
+        #expect(asked == [URL(string: "https://example.com/a")!])
     }
 
     // MARK: http fallback

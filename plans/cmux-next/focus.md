@@ -537,7 +537,7 @@ Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location 
   text the full URL, so nothing elides. The menu also has Manage Search Engines… (Settings).
 - Enter on a scheme-less address that loads over https (`example.com`) marks the load an
   upgrade: if https cannot connect (not a name error), the chrome loads it once over http.
-- Page rows (history, bookmark, open tab, typed address) show the site's icon once it loads.
+- Page rows (history, bookmark, open tab) show the site's icon once it loads. The typed-address row keeps its globe, as in Chrome, so a half-typed host is never fetched.
 
 Chrome comparison, behavior by behavior: plans/cmux-next/omnibar-parity/PARITY.md.
 

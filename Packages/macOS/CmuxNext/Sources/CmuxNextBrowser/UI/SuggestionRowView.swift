@@ -102,11 +102,12 @@ final class SuggestionRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Rows that name a web page show its site icon: history, bookmarks,
-    /// open tabs and a typed address. Searches, answers and extension rows
-    /// keep their glyph.
+    /// Rows that name a known web page show its site icon: history,
+    /// bookmarks and open tabs. The typed address keeps its globe (Chrome
+    /// too), so a half-typed host is never fetched; searches, answers and
+    /// extension rows keep their glyph.
     static func showsSiteIcon(_ suggestion: BrowserSuggestion) -> Bool {
-        guard [.history, .bookmark, .switchToTab, .navigate].contains(suggestion.kind),
+        guard [.history, .bookmark, .switchToTab].contains(suggestion.kind),
               let scheme = suggestion.url.scheme?.lowercased() else { return false }
         return scheme == "http" || scheme == "https"
     }
