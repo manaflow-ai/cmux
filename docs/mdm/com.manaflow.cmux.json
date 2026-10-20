@@ -588,6 +588,12 @@
       "title" : "Background",
       "type" : "string"
     },
+    "appearance.backgroundAvoidPanes" : {
+      "default" : true,
+      "description" : "Frames a painting so its subject shows beside the sidebar and the agent chat, not under them.",
+      "title" : "Keep Paintings Clear of Panes",
+      "type" : "boolean"
+    },
     "appearance.backgroundBlur" : {
       "description" : "Unset, the window follows Ghostty's background-opacity and background-blur.",
       "enum" : [
@@ -605,6 +611,27 @@
       "minimum" : 0,
       "title" : "Opacity",
       "type" : "number"
+    },
+    "appearance.backgroundVideo" : {
+      "default" : "play",
+      "description" : "A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion.",
+      "enum" : [
+        "play",
+        "whenActive",
+        "still"
+      ],
+      "title" : "Video Background",
+      "type" : "string"
+    },
+    "appearance.backgroundVideoOnBattery" : {
+      "default" : "play",
+      "description" : "Whether a video background keeps playing on battery. Low Power Mode always pauses it.",
+      "enum" : [
+        "play",
+        "pause"
+      ],
+      "title" : "On Battery",
+      "type" : "string"
     },
     "appearance.borders" : {
       "default" : "default",
@@ -1415,6 +1442,12 @@
       "title" : "URLs to Always Open Externally",
       "type" : "array"
     },
+    "browser.verificationAutofill.enabled" : {
+      "default" : false,
+      "description" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored.",
+      "title" : "Fill Codes from Verification Emails",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -2044,6 +2077,16 @@
       "title" : "Channels",
       "type" : "boolean"
     },
+    "home.chiefBubbleStyle" : {
+      "default" : "imessage",
+      "description" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors.",
+      "enum" : [
+        "imessage",
+        "theme"
+      ],
+      "title" : "Bubble Style",
+      "type" : "string"
+    },
     "home.chiefPetEnabled" : {
       "default" : false,
       "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
@@ -2065,6 +2108,17 @@
         "fox"
       ],
       "title" : "Character",
+      "type" : "string"
+    },
+    "home.chiefPictureMotion" : {
+      "default" : "hover",
+      "description" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame.",
+      "enum" : [
+        "always",
+        "hover",
+        "never"
+      ],
+      "title" : "Animated Pictures",
       "type" : "string"
     },
     "labs.classicHome" : {
