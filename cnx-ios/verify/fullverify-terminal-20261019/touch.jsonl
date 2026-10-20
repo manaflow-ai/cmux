@@ -1,0 +1,97 @@
+{"t": 1792461637.092109, "kind": "type", "dur": 0, "text": "python3 ~/cnx-ios-e2e/fvterm/fx/stream20.py 270 20"}
+{"t": 1792461699.642946, "kind": "type", "dur": 0, "text": "python3 cnx-ios-e2e/fvterm/fx/stream20.py 270 20"}
+{"t": 1792461868.445552, "kind": "tap", "what": "send"}
+{"t": 1792461874.114485, "kind": "tap", "what": "hide-kb"}
+{"t": 1792462786.710499, "kind": "type", "dur": 0, "text": "python3 cnx-ios-e2e/fvterm/fx/stream20.py 420 20"}
+{"t": 1792462937.366604, "kind": "tap", "what": "send"}
+{"t": 1792463039.911466, "kind": "tap", "what": "hide-kb"}
+{"t": 1792463043.823597, "kind": "drag", "dur": 0.9, "what": "read-drag"}
+{"t": 1792463135.177676, "kind": "drag", "dur": 0.9, "what": "read-drag"}
+{"t": 1792463204.7693188, "kind": "swipe", "dur": 0.15, "what": "fling-up"}
+{"t": 1792463207.2096372, "kind": "swipe", "dur": 0.15, "what": "fling-up"}
+{"t": 1792463209.630971, "kind": "swipe", "dur": 0.15, "what": "fling-up"}
+{"t": 1792463215.040509, "kind": "swipe", "dur": 0.15, "what": "fling-up-then-jump"}
+{"t": 1792463217.2417762, "kind": "tap", "what": "jump"}
+{"t": 1792463223.469525, "kind": "swipe", "dur": 0.15, "what": "fling2"}
+{"t": 1792463224.840588, "kind": "tap", "what": "jump2"}
+{"t": 1792463446.66489, "kind": "tap", "what": "send-probe"}
+{"t": 1792463507.352729, "kind": "tap", "what": "send-probe"}
+{"t": 1792463567.897841, "kind": "tap", "what": "send-probe"}
+{"t": 1792463627.8022149, "kind": "tap", "what": "send-probe"}
+{"t": 1792463781.1720388, "kind": "tap", "what": "send-after-relaunch"}
+{"t": 1792463921.4334788, "kind": "tap", "what": "hide-kb"}
+{"t": 1792463925.3083122, "kind": "drag", "dur": 0.9, "what": "read-drag"}
+{"t": 1792463995.815678, "kind": "swipe", "dur": 0.15, "what": "fling-up"}
+{"t": 1792463998.3502421, "kind": "swipe", "dur": 0.15, "what": "fling-up"}
+{"t": 1792464001.3582342, "kind": "swipe", "dur": 0.15, "what": "fling-up"}
+{"t": 1792464007.567468, "kind": "swipe", "dur": 0.15, "what": "fling-up-then-jump"}
+{"t": 1792464009.994555, "kind": "tap", "what": "jump"}
+{"t": 1792464016.1190279, "kind": "swipe", "dur": 0.15, "what": "fling2"}
+{"t": 1792464017.538302, "kind": "tap", "what": "jump2"}
+{"t": 1792466351.8128269, "kind": "tap", "what": "card"}
+{"t": 1792466353.976817, "kind": "type", "dur": 0, "text": "python3 cnx-ios-e2e/fvterm/fx/stream20.py 240 20"}
+{"t": 1792466491.2119849, "kind": "tap", "what": "send"}
+{"t": 1792466496.503176, "kind": "tap", "what": "hide-kb"}
+{"t": 1792466503.375113, "kind": "tap", "what": "grid"}
+{"t": 1792466512.678727, "kind": "tap", "what": "card"}
+{"t": 1792466517.705267, "kind": "tap", "what": "grid"}
+{"t": 1792466525.613802, "kind": "tap", "what": "card"}
+{"t": 1792466530.295213, "kind": "tap", "what": "grid"}
+{"t": 1792466537.936231, "kind": "tap", "what": "card"}
+{"t": 1792466542.650452, "kind": "tap", "what": "grid"}
+{"t": 1792466549.871798, "kind": "tap", "what": "card"}
+{"t": 1792466555.2988002, "kind": "tap", "what": "grid"}
+{"t": 1792466563.0171158, "kind": "tap", "what": "card"}
+{"t": 1792466567.952802, "kind": "tap", "what": "grid"}
+{"t": 1792466576.7076218, "kind": "tap", "what": "card"}
+{"t": 1792466596.985643, "kind": "tap", "what": "grid"}
+{"t": 1792466599.577161, "kind": "tap", "what": "close"}
+{"t": 1792466605.012562, "kind": "tap", "what": "card"}
+{"t": 1792466608.81746, "kind": "tap", "what": "grid"}
+{"t": 1792466611.366055, "kind": "tap", "what": "close"}
+{"t": 1792466616.607949, "kind": "tap", "what": "card"}
+{"t": 1792466620.617121, "kind": "tap", "what": "grid"}
+{"t": 1792466623.486364, "kind": "tap", "what": "close"}
+{"t": 1792466629.070938, "kind": "tap", "what": "card"}
+{"t": 1792466701.218051, "kind": "tap", "what": "newtab"}
+{"t": 1792466711.682795, "kind": "tap", "what": "close-idle"}
+{"t": 1792466753.214653, "kind": "type", "dur": 0, "text": "python3 cnx-ios-e2e/fvterm/fx/stream20.py 600 20"}
+{"t": 1792466895.7944698, "kind": "tap", "what": "send"}
+{"t": 1792466900.8761559, "kind": "tap", "what": "hide-kb"}
+{"t": 1792466907.70046, "kind": "tap", "what": "terminate"}
+{"t": 1792466909.721834, "kind": "tap", "what": "launch"}
+{"t": 1792467070.363167, "kind": "key", "what": "^C"}
+{"t": 1792467145.044435, "kind": "drag", "dur": 0.12, "what": "joy-flick"}
+{"t": 1792467147.477982, "kind": "drag", "dur": 0.12, "what": "joy-flick"}
+{"t": 1792467149.9616158, "kind": "drag", "dur": 0.12, "what": "joy-flick"}
+{"t": 1792467152.333077, "kind": "drag", "dur": 0.12, "what": "joy-flick"}
+{"t": 1792467154.67705, "kind": "drag", "dur": 0.12, "what": "joy-flick"}
+{"t": 1792467159.267463, "kind": "drag", "dur": 2.2, "what": "joy-hold"}
+{"t": 1792467285.992327, "kind": "drag", "dur": 1.2, "what": "joy-slow-hold"}
+{"t": 1792467293.1355689, "kind": "drag", "dur": 2.5, "what": "joy-slow-hold"}
+{"t": 1792467396.253504, "kind": "tap", "what": "send-top"}
+{"t": 1792467409.0526059, "kind": "drag", "dur": 0.7, "what": "tui-drag"}
+{"t": 1792467411.795866, "kind": "drag", "dur": 0.7, "what": "tui-drag"}
+{"t": 1792467414.611124, "kind": "drag", "dur": 0.7, "what": "tui-drag"}
+{"t": 1792467417.362981, "kind": "drag", "dur": 0.7, "what": "tui-drag"}
+{"t": 1792467420.114461, "kind": "drag", "dur": 0.7, "what": "tui-drag"}
+{"t": 1792467422.849171, "kind": "drag", "dur": 0.7, "what": "tui-drag"}
+{"t": 1792467425.56194, "kind": "drag", "dur": 0.7, "what": "tui-drag"}
+{"t": 1792467428.3009448, "kind": "drag", "dur": 0.7, "what": "tui-drag"}
+{"t": 1792467431.048691, "kind": "drag", "dur": 0.7, "what": "tui-drag"}
+{"t": 1792467433.8187158, "kind": "drag", "dur": 0.7, "what": "tui-drag"}
+{"t": 1792467572.744853, "kind": "tap", "what": "send-q"}
+{"t": 1792467682.0499442, "kind": "tap", "what": "send-exit"}
+{"t": 1792468214.9304562, "kind": "tap", "what": "restart"}
+{"t": 1792468566.607237, "kind": "drag", "dur": 0.12, "what": "joy-down"}
+{"t": 1792468570.1213639, "kind": "tap", "what": "return"}
+{"t": 1792468588.2723489, "kind": "drag", "dur": 0.12, "what": "joy-up"}
+{"t": 1792468591.877982, "kind": "tap", "what": "return"}
+{"t": 1792468644.711317, "kind": "tap", "what": "send-prompt"}
+{"t": 1792468735.180044, "kind": "drag", "dur": 0.9, "what": "read"}
+{"t": 1792468818.660083, "kind": "tap", "what": "send-prompt"}
+{"t": 1792468908.468726, "kind": "drag", "dur": 0.9, "what": "read"}
+{"t": 1792468993.1485188, "kind": "tap", "what": "send-prompt"}
+{"t": 1792469083.417166, "kind": "drag", "dur": 0.9, "what": "read"}
+{"t": 1792469167.5306182, "kind": "tap", "what": "send-prompt"}
+{"t": 1792469257.5416079, "kind": "drag", "dur": 0.9, "what": "read"}

@@ -1,0 +1,216 @@
+{
+ "ev": [
+  {
+   "n": "shrink",
+   "t": 1792466503.375335,
+   "k": 0
+  },
+  {
+   "n": "expand",
+   "t": 1792466513.390892,
+   "k": 0
+  },
+  {
+   "n": "shrink",
+   "t": 1792466517.705565,
+   "k": 1
+  },
+  {
+   "n": "expand",
+   "t": 1792466526.207384,
+   "k": 1
+  },
+  {
+   "n": "shrink",
+   "t": 1792466530.29541,
+   "k": 2
+  },
+  {
+   "n": "expand",
+   "t": 1792466538.5785768,
+   "k": 2
+  },
+  {
+   "n": "shrink",
+   "t": 1792466542.650817,
+   "k": 3
+  },
+  {
+   "n": "expand",
+   "t": 1792466550.461616,
+   "k": 3
+  },
+  {
+   "n": "shrink",
+   "t": 1792466555.299059,
+   "k": 4
+  },
+  {
+   "n": "expand",
+   "t": 1792466563.706017,
+   "k": 4
+  },
+  {
+   "n": "shrink",
+   "t": 1792466567.9532108,
+   "k": 5
+  },
+  {
+   "n": "expand",
+   "t": 1792466577.3938088,
+   "k": 5
+  }
+ ],
+ "a": {
+  "video": "/Users/azizalbahar/cnx-ios-e2e/fvterm-raw/tabs-a-grid.mp4",
+  "t0": 1792466500.769166
+ },
+ "cards": [
+  {
+   "k": 0,
+   "rep": 0,
+   "card_max": 8400,
+   "mac_last": 8400,
+   "t": 1792466505.206537,
+   "dt_mac": 3.66
+  },
+  {
+   "k": 0,
+   "rep": 1,
+   "card_max": 8400,
+   "mac_last": 8400,
+   "t": 1792466509.8716958,
+   "dt_mac": 1.28
+  },
+  {
+   "k": 1,
+   "rep": 0,
+   "card_max": 8400,
+   "mac_last": 8400,
+   "t": 1792466519.582618,
+   "dt_mac": 2.49
+  },
+  {
+   "k": 1,
+   "rep": 1,
+   "card_max": 8400,
+   "mac_last": 8400,
+   "t": 1792466523.075219,
+   "dt_mac": 1.07
+  },
+  {
+   "k": 2,
+   "rep": 0,
+   "card_max": 8400,
+   "mac_last": 8400,
+   "t": 1792466532.150707,
+   "dt_mac": 1.18
+  },
+  {
+   "k": 2,
+   "rep": 1,
+   "card_max": 8400,
+   "mac_last": 8400,
+   "t": 1792466534.3305302,
+   "dt_mac": 2.1
+  },
+  {
+   "k": 3,
+   "rep": 0,
+   "card_max": 8400,
+   "mac_last": 8400,
+   "t": 1792466544.49623,
+   "dt_mac": 1.59
+  },
+  {
+   "k": 3,
+   "rep": 1,
+   "card_max": 8400,
+   "mac_last": 8400,
+   "t": 1792466547.094008,
+   "dt_mac": 1.28
+  },
+  {
+   "k": 4,
+   "rep": 0,
+   "card_max": 78,
+   "mac_last": 143,
+   "t": 1792466557.120009,
+   "dt_mac": 1.39
+  },
+  {
+   "k": 4,
+   "rep": 1,
+   "card_max": 78,
+   "mac_last": 201,
+   "t": 1792466559.517303,
+   "dt_mac": 1.91
+  },
+  {
+   "k": 5,
+   "rep": 0,
+   "card_max": 331,
+   "mac_last": 405,
+   "t": 1792466569.788734,
+   "dt_mac": 1.84
+  },
+  {
+   "k": 5,
+   "rep": 1,
+   "card_max": 331,
+   "mac_last": 476,
+   "t": 1792466572.632344,
+   "dt_mac": 2.56
+  }
+ ],
+ "closes": [
+  {
+   "k": 0,
+   "asked": true,
+   "s": 2.35,
+   "texts": [
+    "Close",
+    "Close",
+    "Close e2e-t1",
+    "Close",
+    "Close \u201ce2e-t1\u201d?",
+    "Close \u201ce2e-t1\u201d?",
+    "Still running: python3.14.",
+    "Close"
+   ],
+   "kept": true
+  },
+  {
+   "k": 1,
+   "asked": true,
+   "s": 2.09,
+   "texts": [
+    "Close",
+    "Close",
+    "Close e2e-t1",
+    "Close",
+    "Close \u201ce2e-t1\u201d?",
+    "Close \u201ce2e-t1\u201d?",
+    "Still running: python3.14.",
+    "Close"
+   ],
+   "kept": true
+  },
+  {
+   "k": 2,
+   "asked": true,
+   "s": 2.36,
+   "texts": [
+    "Close",
+    "Close",
+    "Close e2e-t1",
+    "Close",
+    "Close \u201ce2e-t1\u201d?",
+    "Close \u201ce2e-t1\u201d?",
+    "Still running: python3.14.",
+    "Close"
+   ],
+   "kept": true
+  }
+ ]
+}

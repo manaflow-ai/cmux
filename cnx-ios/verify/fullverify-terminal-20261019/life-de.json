@@ -1,0 +1,98 @@
+{
+ "d_t0": 1792466905.290814,
+ "d": {
+  "t_kill": 2.0024220943450928,
+  "t_launch": 3.9130990505218506,
+  "composer_s": 5.59,
+  "live_pill_s": 7.13
+ },
+ "e_t0": 1792466938.010596,
+ "e_kill": 3.0061168670654297,
+ "e_pills": [
+  [
+   0.99,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   2.03,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   3.03,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   4.0,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   5.0,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   6.0,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   6.95,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   7.91,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   8.89,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   9.84,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   10.82,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   11.78,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   12.76,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   13.76,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   14.75,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   15.72,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   16.69,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   17.67,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   18.66,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   19.63,
+   "e2e-t1, Reattaching\u2026"
+  ],
+  [
+   20.67,
+   "e2e-t1, Reattaching\u2026"
+  ]
+ ],
+ "hostd_log": "2026-10-20T03:27:48.441138Z  INFO cnx_hostd::host: link up session_id=\"1365fd68-9d7f-4379-b5bd-945c94258707\" kind=WireGuard path=Turn phone=\n2026-10-20T03:28:31.275303Z  INFO cnx_hostd::host: link up session_id=\"c43970f2-a43f-4f1b-a6fe-d36a59919f3f\" kind=WebRtc path=Direct phone=\"\n2026-10-20T03:29:02.662588Z  INFO cnx_hostd::host: signaling connected device_id=\"a858b84f-7a66-45fb-a611-93bb18396452\"\n2026-10-20T03:29:27.763244Z  INFO cnx_hostd::host: link up session_id=\"0a48e907-1119-4943-abd4-8ea3fab9541d\" kind=WebRtc path=Direct phone=\"\n"
+}

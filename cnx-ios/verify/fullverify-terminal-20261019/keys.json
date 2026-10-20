@@ -1,0 +1,15 @@
+{
+ "ctrlc_stopped": true,
+ "term_keys": "FAIL: off screen: <Button 'Done' id=workspace.b3631627-c8b9-4c0e-a2d6-65b022955fbe v=None (316, 2536, 48, 48)>",
+ "joystick": {
+  "flicks": [
+   1,
+   1,
+   1,
+   1,
+   1
+  ],
+  "hold_2s_cols": 1,
+  "after_release_cols": 0
+ }
+}
