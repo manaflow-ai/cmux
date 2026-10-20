@@ -226,9 +226,7 @@ final class CEFRuntime {
             let started = clock.now
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
-            startChildMonitor()
-            windowGuard.start()
-            onReady?()
+            CEFStartSteps.shared.timed("ready_hooks") { startChildMonitor(); windowGuard.start(); onReady?() }
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
@@ -276,7 +274,7 @@ final class CEFRuntime {
             let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             return .failure(.framework(text))
         }
-        primeImageIO()
+        CEFFrameworkPrefetch.warm(layout)
         // Lists the framework's locale directories here, off the main thread.
         let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
         return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
@@ -350,11 +348,11 @@ final class CEFRuntime {
         shim.setFocusRequestHandler(cefFocusRequestCallback)
         let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
-                shim.initialize(
+                CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(
                     layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
                     storage.root.path, storage.logFile.path, 0, locale.locale, locale.acceptLanguages, list, context,
                     cefScheduleCallback, cefEventCallback, cefKeyCallback
-                )
+                ) }
             } ?? 0
         }
         guard ok == 1 else {

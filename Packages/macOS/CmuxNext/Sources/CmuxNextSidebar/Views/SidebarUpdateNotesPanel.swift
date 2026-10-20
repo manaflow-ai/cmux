@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// The update card's highlights popup (Leo 2026-10-13): the popup every cmux popover is, not
 /// AppKit's NSPopover with its stock arrow. A borderless child window of the sidebar's window
-/// holding the solid popup surface with its hairline and shadow (`Glass.makeOverlayPanel`,
+/// holding the popup surface (themed glass, or the solid card under Reduce Transparency) with its hairline and shadow (`Glass.makeOverlayPanel`,
 /// `PopupStyle`), beside the card toward the content (left of it for a sidebar on the right, or
 /// with no room on the right) and top-aligned with it, in the card's theme. It takes clicks
 /// ("See all changes") and never becomes key, so the keys stay with the window. The app going
@@ -15,6 +15,8 @@ final class SidebarUpdateNotesPanel: NSPanel {
     let glass: OverlaySurfaceView
     /// The close finished: the highlights page can go back to wait in the card.
     var onClosed: (() -> Void)?
+    /// A close starts (any cause: the card, an action, the app resigning active), before its animation.
+    var onDismiss: (() -> Void)?
     /// Shown (or opening) and not yet dismissed.
     private(set) var isPresented = false
     private let width: CGFloat
@@ -97,6 +99,7 @@ final class SidebarUpdateNotesPanel: NSPanel {
     func dismiss() {
         guard isPresented else { return }
         isPresented = false
+        onDismiss?()
         ignoresMouseEvents = true
         generation += 1
         let closing = generation

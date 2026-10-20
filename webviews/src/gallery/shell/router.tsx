@@ -14,6 +14,7 @@ import {
 import { readCompare, writeCompare, type CompareState } from "../compare";
 import { readEnv, writeEnv, type GalleryEnv } from "../env";
 import { readTunes, writeTunes } from "../../experiments/tunable";
+import { readOptions, writeOptions } from "../options";
 import { getEntryStore } from "../registry";
 import { DEFAULT_BROWSE, readBrowse, writeBrowse, type BrowseState } from "./browseModel";
 
@@ -25,7 +26,14 @@ const DEFAULT_ENTRY = "agent-pane.composer";
  * The controls, the view, the compare view's state (compare.ts; written only in that view), and
  * the edited tunables (experiments/tunable.ts; web only, so not in env.ts's shared contract).
  */
-export type ShellSearch = GalleryEnv & { view: View; compare: CompareState; tune: string; browse: BrowseState };
+export type ShellSearch = GalleryEnv & {
+  view: View;
+  compare: CompareState;
+  tune: string;
+  /** The entry's changed options (options.ts `opts`). */
+  opts: string;
+  browse: BrowseState;
+};
 
 /** Search params as flat strings, the way the stage frames and the matrix read them. */
 function parseSearch(text: string): Record<string, unknown> {
@@ -49,6 +57,8 @@ function stringifySearch(search: Record<string, unknown>): string {
   if (view === "compare") writeCompare(readCompare(new URLSearchParams(flat)), params);
   const tune = writeTunes(readTunes(flat.tune ?? ""));
   if (tune) params.set("tune", tune);
+  const opts = writeOptions(readOptions(flat.opts ?? ""));
+  if (opts) params.set("opts", opts);
   writeBrowse((search.browse as BrowseState | undefined) ?? DEFAULT_BROWSE, params);
   const text = params.toString();
   return text ? `?${text}` : "";
@@ -69,6 +79,7 @@ export function validateShellSearch(raw: Record<string, unknown>): ShellSearch {
     view,
     compare,
     tune: writeTunes(readTunes(strings.tune ?? "")),
+    opts: writeOptions(readOptions(strings.opts ?? "")),
     browse: readBrowse(params),
   };
 }

@@ -4,8 +4,8 @@ import CmuxNextIcons
 
 /// One suggestion: 16 pt icon, then "title – detail" on one line with the
 /// detail dimmed ("query - Engine Search"). The one highlighted row
-/// (keyboard or mouse, the state machine decides) gets an 8 pt rounded gray
-/// fill. The row itself only reports the pointer and clicks.
+/// (keyboard or mouse, the state machine decides) gets a rounded gray fill
+/// concentric with the card (`OmnibarStyle.rowCornerRadius`). The row itself only reports the pointer and clicks.
 final class SuggestionRowView: NSView {
     var onClick: ((NSEvent.ModifierFlags) -> Void)?
     /// Pointer inside (true) or leaving (false), at a screen point.
@@ -23,17 +23,35 @@ final class SuggestionRowView: NSView {
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
     private var tracking: NSTrackingArea?
-    private let title: String
-    private let detail: String
+    private var title = ""
+    private var detail = ""
+    private var iconKind: IconName?
+    /// The match shown now.
+    private(set) var suggestion: BrowserSuggestion
 
     init(suggestion: BrowserSuggestion) {
-        title = suggestion.title
-        detail = suggestion.detail
+        self.suggestion = suggestion
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = OmnibarStyle.rowCornerRadius
         layer?.cornerCurve = .continuous
+        icon.imageScaling = .scaleNone
+        label.lineBreakMode = .byTruncatingTail
+        label.cell?.truncatesLastVisibleLine = true
+        addSubview(icon)
+        addSubview(label)
 
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilitySelected(false)
+        show(suggestion, force: true)
+    }
+
+    /// Shows `suggestion` in this row, in place (Chromium
+    /// `OmniboxResultView::SetMatch`): typing changes the rows' text, it
+    /// never tears the card's views down. Touches only what changed.
+    func show(_ suggestion: BrowserSuggestion, force: Bool = false) {
+        guard force || suggestion != self.suggestion else { return }
+        self.suggestion = suggestion
         let kind: IconName = switch suggestion.kind {
         case .navigate: .browser
         case .search: .search
@@ -43,18 +61,16 @@ final class SuggestionRowView: NSView {
         case .switchToTab: .omnibarSwitchtab
         case .answer: .omnibarAnswer
         }
-        icon.image = NSImage.icon(kind, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
-        icon.imageScaling = .scaleNone
-        label.lineBreakMode = .byTruncatingTail
-        label.cell?.truncatesLastVisibleLine = true
-        addSubview(icon)
-        addSubview(label)
-
-        setAccessibilityElement(true)
-        setAccessibilityRole(.button)
+        if kind != iconKind {
+            iconKind = kind
+            icon.image = NSImage.icon(kind, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
+        }
         setAccessibilityLabel([suggestion.title, suggestion.detail].filter { !$0.isEmpty }.joined(separator: ", "))
-        setAccessibilitySelected(false)
+        guard force || suggestion.title != title || suggestion.detail != detail else { return }
+        title = suggestion.title
+        detail = suggestion.detail
         applyColors()
+        needsLayout = true
     }
 
     @available(*, unavailable)
@@ -62,6 +78,7 @@ final class SuggestionRowView: NSView {
 
     override func layout() {
         super.layout()
+        layer?.cornerRadius = OmnibarStyle.rowCornerRadius
         let side: CGFloat = 16
         icon.frame = NSRect(x: (leadingIconCenter - side / 2).rounded(), y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
         let height = label.intrinsicContentSize.height

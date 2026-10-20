@@ -94,7 +94,7 @@ import Testing
     // MARK: Fixtures
 
     /// How much a label draws (its pixels' summed alpha) at `width`; the label keeps its frame.
-    static func ink(_ label: NSTextField, width: CGFloat) -> Double {
+    static func ink(_ label: NSView, width: CGFloat) -> Double {
         let frame = label.frame
         defer { label.frame = frame }
         label.frame.size.width = width

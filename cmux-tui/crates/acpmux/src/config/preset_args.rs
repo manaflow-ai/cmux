@@ -57,9 +57,55 @@ pub struct Preset {
     pub system_prompt_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The mode a session started from this preset starts in. One that does
+    /// not ask is set by the person only, and used without the person only
+    /// while `mode_approval` holds (`hub/person.rs`, (b)).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// The person's approval of this preset's mode: the
+    /// [`Preset::approval_digest`] of the contents the person approved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_approval: Option<String>,
 }
 
 impl Preset {
+    /// The sha256 (lowercase hex) of everything this preset starts a
+    /// session with: every field but `description` and `mode_approval`.
+    /// None only if it cannot be serialized (then nothing is approved).
+    pub fn approval_digest(&self) -> Option<String> {
+        let bound = Self { description: None, mode_approval: None, ..self.clone() };
+        // A struct of strings, lists and a BTreeMap: its JSON is stable.
+        serde_json::to_vec(&bound).ok().map(|bytes| crate::sha256::sha256_hex(&bytes))
+    }
+
+    /// `approveMode` of a preset write (`hub/person.rs` (b); the person's
+    /// own for `true`): bind the approval to the contents as they are now,
+    /// or withdraw it. A later change of the contents drops it.
+    pub fn apply_mode_approval(&mut self, approve: Option<bool>) -> Result<(), String> {
+        match approve {
+            Some(true) if self.mode.is_none() => {
+                Err("this preset has no mode to approve: set mode first".into())
+            }
+            Some(true) => {
+                self.mode_approval = self.approval_digest();
+                Ok(())
+            }
+            Some(false) => {
+                self.mode_approval = None;
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// Whether the person approved this preset's mode for its current contents.
+    pub fn mode_approved(&self) -> bool {
+        match (&self.mode, &self.mode_approval, self.approval_digest()) {
+            (Some(_), Some(approved), Some(now)) => cmux_local_auth::tokens_match(approved, &now),
+            _ => false,
+        }
+    }
+
     /// Whether the preset changes the harness command line (args or a system
     /// prompt): never for a remote-origin session.
     pub fn shapes_command(&self) -> bool {

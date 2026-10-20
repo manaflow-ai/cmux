@@ -31,9 +31,13 @@ public final class LayoutRootView: NSView {
     /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
     private var appliedReveal: ColumnCenterRequest?
     private var reportedVisible: Set<PaneID> = []
+    /// The agent chat column last posted (`reportAgentChatColumn`).
+    var reportedAgentChatColumn: CGRect?
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
+    /// What scroll-to-focus reads besides the model (`LayoutRootView+ScrollFocus`).
+    let scrollFocusSignals: ScrollFocusSignals
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -77,9 +81,13 @@ public final class LayoutRootView: NSView {
     /// `contentProvider` is held weakly; the App keeps it alive.
     /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
     /// tests inject a manual clock.
+    /// `scrollFocusSignals` feeds scroll-to-focus (`layout.focusPaneOnScroll`);
+    /// tests inject fixed values.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
-                scrollbarClock: any Clock<Duration> = ContinuousClock()) {
+                scrollbarClock: any Clock<Duration> = ContinuousClock(),
+                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals()) {
         self.model = model
+        self.scrollFocusSignals = scrollFocusSignals
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
         super.init(frame: .zero)
         wantsLayer = true
@@ -97,6 +105,9 @@ public final class LayoutRootView: NSView {
         registerForDraggedTypes([LayoutTabDrag.pasteboardType])
         sync(snapshot())
         observe()
+        #if DEBUG
+        ScreenContentView.registerMotionSampler()
+        #endif
     }
 
     @available(*, unavailable)
@@ -313,6 +324,7 @@ public final class LayoutRootView: NSView {
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
+        reportAgentChatColumn()
         if needsFrames || snapshot.gestureActive { driver.start() }
     }
 
@@ -386,6 +398,7 @@ public final class LayoutRootView: NSView {
         if overlayPlane.syncFrame() { overlayIsStale = true }
         flushOverlaySync()
         planeHost?.planeDidLayout(overlayPlane)
+        reportAgentChatColumn()
     }
 
     override public func setFrameOrigin(_ newOrigin: NSPoint) {
@@ -448,6 +461,7 @@ public final class LayoutRootView: NSView {
             }
         }
         updateVisibility()
+        reportAgentChatColumn()
     }
 
 }

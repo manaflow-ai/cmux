@@ -145,7 +145,15 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
 /** The transcript row that draws the current match (`id` and whether it is an edited-files card)
  * and the query, while Find shows one; ToolRows passes it to that row only. `repaint` redraws the
  * highlights once a part opens (only that part re-renders otherwise). */
-export type FindRevealTarget = { rowId: string; card: boolean; needle: string; repaint: () => void };
+export type FindRevealTarget = {
+  rowId: string;
+  card: boolean;
+  needle: string;
+  repaint: () => void;
+  /** Opens the part that holds this call instead of the parts whose text holds `needle` (a count on
+   * the running line, WorkingFor.tsx). */
+  toolId?: string;
+};
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
 
 /** Whether `row` draws match row `rowId` itself: the row or its copy in an open fold. */
@@ -169,7 +177,14 @@ export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string): number 
 /** Calls `open` when the current match is in `items`, so a closed group or call shows it. */
 export function useFindReveal(items: readonly AcpmuxActivity[], open: () => void) {
   const reveal = useContext(FindReveal);
-  const hit = Boolean(reveal && items.some((item) => searchableActivityText(item).includes(reveal.needle)));
+  const hit = Boolean(
+    reveal &&
+    items.some((item) =>
+      reveal.toolId !== undefined
+        ? item.tool?.id === reveal.toolId
+        : searchableActivityText(item).includes(reveal.needle),
+    ),
+  );
   useLayoutEffect(() => {
     if (!hit) return;
     open();
