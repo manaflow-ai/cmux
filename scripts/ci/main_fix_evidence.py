@@ -38,6 +38,18 @@ class Refused(RuntimeError):
     """Evidence is insufficient to merge."""
 
 
+class RateLimited(Refused):
+    """A GitHub read hit the API rate limit; the message says when it resets."""
+
+
+def _rate_limit_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gh_rate_limit", Path(__file__).with_name("gh_rate_limit.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def json_documents(text: str) -> list:
     """Every JSON document in TEXT, in order (gh --paginate prints pages back to back)."""
     decoder = json.JSONDecoder()
@@ -68,7 +80,13 @@ class GitHub:
             output.seek(0)
             errors.seek(0)
             if process.returncode:
-                raise Refused("GitHub evidence request failed: " + errors.read(2000).decode(errors="replace"))
+                message = errors.read(2000).decode(errors="replace")
+                rate = _rate_limit_module()
+                if rate.is_rate_limited(message):
+                    # Every later read would fail the same way: stop now and say when it resets.
+                    raise RateLimited(f"GitHub rate-limited `gh {args[0]}` ({message.strip()[:200]}); "
+                                      + rate.describe(rate.read_limits()))
+                raise Refused("GitHub evidence request failed: " + message)
             return output.read().decode(errors="replace")
 
     def json(self, route: str, *, paginate: bool = False):

@@ -237,6 +237,20 @@ graphql_quota_error() {
   grep -Eiq '(^|[^[:alnum:]])(api[[:space:]]+rate[[:space:]]+limit[[:space:]]+exceeded|secondary[[:space:]]+rate[[:space:]]+limit|rate[[:space:]]+limit[[:space:]]+exceeded|graphql[^[:cntrl:]]*(api[[:space:]]+rate[[:space:]]+limit|secondary[[:space:]]+rate[[:space:]]+limit|quota))([^[:alnum:]]|$)' "$1"
 }
 
+# A GitHub read that hit the API rate limit refuses at once, with each pool's reset time
+# (scripts/ci/gh_rate_limit.py; `gh api rate_limit` costs no quota), and exits 75, not 1:
+# a rate limit is not a red, and the caller retries after the reset (2026-10-20: GraphQL
+# and its REST fallback were both spent and the refusal came about 30 minutes later).
+refuse_rate_limited() {
+  local limits
+  limits=$(python3 "$script_dir/ci/gh_rate_limit.py" 2>/dev/null) || limits='the reset time is unknown'
+  outcome='refused (GitHub rate limit)'
+  refusal_reported=1
+  printf 'rate-limited: %s; %s\n' "$1" "$limits" >&2
+  print_repair 'wait for the reset above, then rerun the same command; nothing was merged'
+  exit 75
+}
+
 rest_pull_request_metadata() {
   local raw
   raw=$(gh api "repos/$repo/pulls/$num") || return 1
@@ -247,6 +261,10 @@ graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
 if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository,headRepositoryOwner,headRepository,title,body 2>"$graphql_error_file"); then
   if graphql_quota_error "$graphql_error_file"; then
     if ! pr_json=$(rest_pull_request_metadata 2>"$graphql_error_file"); then
+      if graphql_quota_error "$graphql_error_file"; then
+        rm -f "$graphql_error_file"
+        refuse_rate_limited "GraphQL and its REST fallback are both rate-limited reading $ref"
+      fi
       rm -f "$graphql_error_file"
       refuse \
         "not green: GraphQL metadata was rate-limited and REST metadata failed for $ref" \
@@ -316,6 +334,15 @@ if [ "$fast" -eq 1 ] && jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/n
   refuse \
     "not merged: $ref is from an untrusted fork; the fast gate does not merge unreviewed fork code" \
     "review that code, then rerun with --trust-fork-head $sha; only teamleaderleo/cmux is owner-trusted"
+fi
+# Before any gate reads or waits: a spent REST pool fails every check-run, file and log read
+# below, and the fast gate polls GraphQL. Refuse now with the reset time rather than after a
+# chain of fallbacks. An unreadable rate_limit counts as not spent.
+if [ "$(python3 "$script_dir/ci/gh_rate_limit.py" --exhausted core 2>/dev/null || true)" = spent ]; then
+  refuse_rate_limited "GitHub's REST quota is spent, and every gate reads check runs through it"
+fi
+if [ "$fast" -eq 1 ] && [ "$(python3 "$script_dir/ci/gh_rate_limit.py" --exhausted graphql 2>/dev/null || true)" = spent ]; then
+  refuse_rate_limited "GitHub's GraphQL quota is spent, and the fast gate polls the pull request through it"
 fi
 if [ "$fix" -eq 1 ]; then
   validator="$script_dir/ci/main_fix_evidence.py"
@@ -846,10 +873,13 @@ if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excus
   done
   excuse_errors=$(mktemp)
   tmp_files+=("$excuse_errors")
-  if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
-      "${excuse_args[@]}" 2>"$excuse_errors"); then
+  excuse_status=0
+  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
+      "${excuse_args[@]}" 2>"$excuse_errors") || excuse_status=$?
+  if [ "$excuse_status" -ne 0 ]; then
     why=$(cat "$excuse_errors")
     rm -f "$excuse_errors"
+    [ "$excuse_status" -eq 3 ] && refuse_rate_limited "comparing $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') with $base: ${why#rate-limited: }"
     refuse \
       "not green: $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') on $sha, not excused by $base (${why:-the base comparison failed})" \
       "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"
@@ -909,15 +939,23 @@ fast_gate() {
   tmp_files+=("$files_list")
   printf '%s\n' "$files" >"$files_list"
   gate_waiting_since=$(date +%s)
-  if ! gate_out=$(python3 "$script_dir/ci/merge_fast_gate.py" "$repo" "$num" "$sha" --base "$base" \
+  local gate_status=0 still_waiting
+  gate_out=$(python3 "$script_dir/ci/merge_fast_gate.py" "$repo" "$num" "$sha" --base "$base" \
       --next-workflow "$workflow_dir/cmux-next.yml" --ci-workflow "$workflow_dir/ci.yml" \
       --web-workflow "$workflow_dir/ci-web.yml" --files-from "$files_list" \
-      "${covered_flag[@]+"${covered_flag[@]}"}" --timeout "$wait_seconds" 2>"$gate_err"); then
+      "${covered_flag[@]+"${covered_flag[@]}"}" --timeout "$wait_seconds" 2>"$gate_err") || gate_status=$?
+  if [ "$gate_status" -ne 0 ]; then
+    # The summary line says how long the gate really waited and, when --wait ran out, on what
+    # (2026-10-20: "nothing reported; waited 0m00s, 898s in all" with a lane still QUEUED).
+    waited_seconds=$(( $(date +%s) - gate_waiting_since ))
     gate_waiting_since=''
+    still_waiting=$(sed -n 's/^waiting=//p' <<<"$gate_out" | paste -sd ';' - | sed 's/;/, /g')
+    [ -z "$still_waiting" ] || gate_checked="--wait ran out with $still_waiting not done"
     rm -rf "$workflow_dir"
     local why
     why=$(cat "$gate_err")
     rm -f "$gate_err"
+    [ "$gate_status" -eq 3 ] && refuse_rate_limited "the fast gate's poll: ${why#rate-limited: }"
     refuse \
       "not green: fast gate on $sha: ${why:-merge_fast_gate.py failed}" \
       'wait for the named lane on the exact head (or pass --wait with more seconds), then retry'
@@ -941,11 +979,14 @@ fast_gate() {
   while IFS= read -r name; do excuse_args+=(--check "$name"); done <<<"$reds"
   excuse_errors=$(mktemp)
   tmp_files+=("$excuse_errors")
-  if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
-      "${excuse_args[@]}" 2>"$excuse_errors"); then
+  local excuse_status=0
+  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
+      "${excuse_args[@]}" 2>"$excuse_errors") || excuse_status=$?
+  if [ "$excuse_status" -ne 0 ]; then
     local why
     why=$(cat "$excuse_errors")
     rm -f "$excuse_errors"
+    [ "$excuse_status" -eq 3 ] && refuse_rate_limited "comparing $(paste -sd ';' - <<<"$reds" | sed 's/;/, /g') with $base: ${why#rate-limited: }"
     refuse \
       "not green: $(paste -sd ';' - <<<"$reds" | sed 's/;/; /g') red on $sha, not excused by $base (${why:-the base comparison failed})" \
       "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"

@@ -26,6 +26,19 @@ are lines such as `Localizable.xcstrings:key: missing uk`, not error lines, so a
 pull request adding one more missing translation to a base already red there
 would otherwise pass as the base's (2026-10-19: base reds in the cmux-next
 checks job refused every feat-cmux-next PR, and --override cannot waive lint).
+A red step that prints no test name and no error line (defaults-snapshot's
+`... is stale`) is compared the same way, by what its failed steps printed.
+
+Only a base run whose commit contains the merge-base of the head and the base
+counts: an older one predates the base reds the head inherited. feat-cmux-next's
+CI workflow runs only when dispatched, and on 2026-10-20 its newest run, from
+02:29Z, refused every red that landed after it. With no such run the refusal
+names the merge-base and base tip, the newest stale run and the command that
+dispatches one. It does not dispatch it itself: that is a write that starts a
+full CI run, and every lane asking at once would start one each.
+
+Exit 0: excused (audit lines on stdout); 1: not excused; 3: GitHub rate-limited
+the reads (the reset time on stderr).
 """
 from __future__ import annotations
 
@@ -40,6 +53,7 @@ _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file_
 _evidence = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_evidence)
 GitHub, Refused, job_for, latest_checks = _evidence.GitHub, _evidence.Refused, _evidence.job_for, _evidence.latest_checks
+RateLimited = _evidence.RateLimited
 
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 # Jobs that only report the run's other jobs: judged by those jobs, never by themselves.
@@ -224,9 +238,51 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
     return list(jobs.values())
 
 
+def base_window(repo: str, base: str, sha: str, github) -> tuple[str, str]:
+    """(base tip, merge-base of the head and the base), from one compare."""
+    compare = github.json(f"repos/{repo}/compare/{base}...{sha}")
+    tip = (compare.get("base_commit") or {}).get("sha")
+    merge_base = (compare.get("merge_base_commit") or {}).get("sha")
+    if not tip or not merge_base:
+        raise Refused(f"cannot find the merge-base of {sha} with {base} to tell a current base run from a stale one")
+    return tip, merge_base
+
+
+def contains(repo: str, ancestor: str, sha: str | None, tip: str, github, known: dict[str, bool]) -> bool:
+    """Whether commit SHA has ANCESTOR in its history: a base run there saw every base change the head has."""
+    if not sha:
+        return False
+    if sha in (ancestor, tip):
+        return True
+    if sha not in known:
+        status = github.json(f"repos/{repo}/compare/{ancestor}...{sha}?per_page=1").get("status")
+        known[sha] = status in ("ahead", "identical")
+    return known[sha]
+
+
+def missing_base_run(repo: str, base: str, name: str, workflow, path: str, tip: str, merge_base: str,
+                     stale: dict | None, github) -> str:
+    """Why no base run can judge NAME, which run is missing, and how to get one."""
+    file = path.rsplit("/", 1)[-1] if path else str(workflow)
+    what = (f"'{name}': no completed {base} run of {file} with a verdict for it contains the merge-base "
+            f"{merge_base[:12]} (base tip {tip[:12]})")
+    if stale is not None:
+        what += (f"; the newest with one, run {stale['id']} at {(stale.get('head_sha') or '?')[:12]}"
+                 f" ({stale.get('created_at') or stale.get('updated_at') or 'time unknown'}), predates it, so it "
+                 "cannot say whether this red came from the base")
+    pending = [run for run in github.json(
+        f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&head_sha={tip}&per_page=5").get("workflow_runs") or []
+        if run.get("status") != "completed"]
+    if pending:
+        return what + f"; run {pending[0]['id']} at the base tip is {pending[0].get('status')}: retry when it finishes"
+    return what + f"; dispatch one, then retry when it finishes: gh workflow run {file} --repo {repo} --ref {base}"
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = ()) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not."""
     audit: list[str] = []
+    window: tuple[str, str] | None = None
+    known: dict[str, bool] = {}
     base_runs: dict[int, list[dict]] = {}
     base_jobs: dict[int, list[dict]] = {}
     jobs = head_jobs(repo, sha, runs, list(checks), github)
@@ -242,14 +298,18 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         head_log = github.log(repo, job)
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
-        workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
+        head_run = github.json(f"repos/{repo}/actions/runs/{job['run_id']}")
+        workflow = head_run.get("workflow_id")
+        if window is None:
+            window = base_window(repo, base, sha, github)
+        tip, merge_base = window
         if workflow not in base_runs:
             listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed&per_page=20")
             base_runs[workflow] = [run for run in listed.get("workflow_runs") or []
                                    if run.get("event") != "pull_request" and run.get("conclusion") != "skipped"]
         # The newest base run where this job has a verdict decides: a base push
         # run's Mac job is often cancelled by the next push, or refused by a mini.
-        base_run = base_job = None
+        base_run = base_job = stale = None
         for candidate_run in base_runs[workflow]:
             if candidate_run["id"] not in base_jobs:
                 base_jobs[candidate_run["id"]] = [found for page in github.json(
@@ -257,30 +317,36 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     for found in page.get("jobs") or []]
             found = next((found for found in base_jobs[candidate_run["id"]] if found.get("name") == name), None)
             if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
+                # Runs come newest first: once one predates the merge-base, every older one does too.
+                if not contains(repo, merge_base, candidate_run.get("head_sha"), tip, github, known):
+                    stale = candidate_run
+                    break
                 base_run, base_job = candidate_run, found
                 break
         if base_run is None:
-            raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with")
+            raise Refused(missing_base_run(repo, base, name, workflow, head_run.get("path") or "", tip, merge_base,
+                                           stale, github))
         if base_job.get("conclusion") != "failure":
             raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}); "
                           "fix it on this head")
         head_steps, head_tests, head_errors = signature(job, head_log)
         head_crash = crash_signals(head_log)
         lint = bool(LINT.search(name))
-        head_printed = printed(job, head_log) if lint else Counter()
-        if lint and not head_printed:
+        # A red step with no test name and no error line (defaults-snapshot's `... is stale`) is
+        # compared like lint: by what its failed steps printed, numbers and hashes masked.
+        by_output = lint or not (head_tests or head_errors or head_crash)
+        head_printed = printed(job, head_log) if by_output else Counter()
+        if by_output and not head_printed:
             raise Refused(f"'{name}': its failed steps printed nothing to compare with the base")
-        if not lint and not head_tests and not head_errors and not head_crash:
-            raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
         if missing := sorted(head_crash - crash_signals(base_log)):
             raise Refused(f"'{name}': the test helper died on signal {', '.join(missing)}, "
                           f"and {base} run {base_run['id']} did not")
         compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
-        if lint:
+        if by_output:
             # By count: one more copy of a base finding (a second blocking call) is the head's.
-            compared.append(("findings", set(head_printed - printed(base_job, base_log)), set()))
+            compared.append(("findings" if lint else "output", set(head_printed - printed(base_job, base_log)), set()))
         elif not head_tests:
             compared.append(("errors", head_errors, base_errors))
         for kind, head, seen in compared:
@@ -303,6 +369,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check)
+    except RateLimited as error:
+        print(f"rate-limited: {error}", file=sys.stderr)
+        return 3
     except (Refused, KeyError, ValueError) as error:
         print(f"not excused: {error}", file=sys.stderr)
         return 1
