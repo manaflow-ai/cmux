@@ -486,7 +486,7 @@ mod linux {
         use std::time::Instant;
         use zeroize::Zeroizing;
         root();
-        let directory = tempfile::Builder::new().prefix("rd-").tempdir().unwrap();
+        let directory = cmux_unix_socket::short_test_dir("rd");
         chown(directory.path(), Some(WORK_UID), Some(WORK_UID)).unwrap();
         let path = directory.path().join("gate");
         let listener = UnixListener::bind(&path).unwrap();
