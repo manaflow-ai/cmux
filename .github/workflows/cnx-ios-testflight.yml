@@ -131,15 +131,20 @@ jobs:
           CNX_CI_ASC: "1"
         run: |
           set -euo pipefail
-          args=()
-          [ "$ALLOW_BACKEND_DOWN" != true ] || args+=(--allow-backend-down)
-          [ "$ALLOW_PACKAGE_DRIFT" != true ] || args+=(--allow-package-drift)
-          [ "$UPLOAD" != true ] || args+=(--upload)
-          # Dogfood builds stay with internal testers ("cmux family" is external).
+          # Archive unsigned (Swift package targets cannot take an App Store
+          # profile), then sign the archived app with the profile and its
+          # entitlements, check, validate and (when set) upload.
+          archive_args=(--unsigned)
+          [ "$ALLOW_BACKEND_DOWN" != true ] || archive_args+=(--allow-backend-down)
+          [ "$ALLOW_PACKAGE_DRIFT" != true ] || archive_args+=(--allow-package-drift)
+          CNX_BUILDS_ROOT="$RUNNER_TEMP/cnx-builds" cnx-ios/scripts/testflight-build.sh --ref "$GITHUB_SHA" "${archive_args[@]}"
+          archive="$(ls -d "$RUNNER_TEMP"/cnx-builds/*-testflight/CnxApp.xcarchive | head -1)"
+          sign_args=(--from-archive "$archive")
+          [ "$UPLOAD" != true ] || sign_args+=(--upload)
           if [ "$INTERNAL_DOGFOOD" = true ]; then
-            args+=(--internal-only --what-to-test "New app: cmux-next for iPhone. This replaces the previous cmux INTERNAL app. It needs a Mac running cmux-next with Settings > Mobile > Allow iPhone Connections on, signed in to the same account. Early team dogfood: expect rough edges and report anything odd.")
+            sign_args+=(--internal-only --what-to-test "New app: cmux-next for iPhone. This replaces the previous cmux INTERNAL app. It needs a Mac running cmux-next with Settings > Mobile > Allow iPhone Connections on, signed in to the same account. Early team dogfood: expect rough edges and report anything odd.")
           fi
-          CNX_BUILDS_ROOT="$RUNNER_TEMP/cnx-builds" cnx-ios/scripts/testflight-build.sh --ref "$GITHUB_SHA" "${args[@]}"
+          CNX_BUILDS_ROOT="$RUNNER_TEMP/cnx-builds" cnx-ios/scripts/testflight-build.sh --ref "$GITHUB_SHA" "${sign_args[@]}"
           out="$(ls -d "$RUNNER_TEMP"/cnx-builds/*-testflight | head -1)"
           echo "CNX_OUT=$out" >> "$GITHUB_ENV"
           cat "$out/MANIFEST.md" >> "$GITHUB_STEP_SUMMARY"
