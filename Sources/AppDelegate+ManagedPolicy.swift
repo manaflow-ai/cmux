@@ -102,15 +102,16 @@ extension AppDelegate {
     /// state instead of silently doing nothing. Returns true when the check
     /// may proceed.
     func managedAutoUpdateAllowsCheck() -> Bool {
-        guard ManagedDevicePolicy().isEnforced(.disableAutoUpdate) else { return true }
+        // lawmux: updates are always off (see `isDisabledByPolicy` in AppDelegate),
+        // so explain the fork's update path instead of the MDM message.
         let alert = NSAlert()
         alert.messageText = String(
-            localized: "managedPolicy.autoUpdate.disabled",
-            defaultValue: "Software updates are managed by your organization."
+            localized: "lawmux.update.disabled",
+            defaultValue: "lawmux has no automatic updates."
         )
         alert.informativeText = String(
-            localized: "managedPolicy.autoUpdate.disabledDetail",
-            defaultValue: "cmux does not check for or install updates on this Mac. Your organization deploys new versions."
+            localized: "lawmux.update.disabledDetail",
+            defaultValue: "lawmux is built from source. To update, pull the repository and run scripts/lawmux-build-release.sh --install. See LAWMUX.md."
         )
         alert.alertStyle = .informational
         alert.runModal()

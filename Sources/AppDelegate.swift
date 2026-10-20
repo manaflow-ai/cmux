@@ -995,7 +995,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         log: updateLog,
         // `DisableAutoUpdate` (MDM): the updater never starts and manual checks
         // are suppressed while forced; `managedAutoUpdateAllowsCheck()` explains.
-        isDisabledByPolicy: { ManagedDevicePolicy().isEnforced(.disableAutoUpdate) }
+        // lawmux: there is no update channel (source-only fork), so Sparkle never
+        // starts. Starting it without a signing key fails and shows an error badge.
+        isDisabledByPolicy: { true }
     )
     private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
