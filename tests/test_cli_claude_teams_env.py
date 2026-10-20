@@ -612,15 +612,21 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-stale-preload-") as td:
         stale_preload = Path(td) / "cmux-claude-node-options" / "restore-node-options.cjs"
         stale_node_options = f"--require={stale_preload} --max-old-space-size=4096 --trace-warnings"
-        for stale_label, stale_base_env in (
-            ("without recorded original", base_env),
+        unmarked_env = {
+            key: value
+            for key, value in base_env.items()
+            if key not in ("CMUX_ORIGINAL_NODE_OPTIONS", "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
+        }
+        for stale_label, stale_base_env, expected_user in (
+            ("without recorded original", unmarked_env, "--trace-warnings"),
             (
                 "with recorded original",
                 {
-                    **base_env,
+                    **unmarked_env,
                     "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "1",
-                    "CMUX_ORIGINAL_NODE_OPTIONS": "--trace-warnings",
+                    "CMUX_ORIGINAL_NODE_OPTIONS": "--trace-deprecation",
                 },
+                "--trace-deprecation",
             ),
         ):
             for block_preload in (False, True):
@@ -643,9 +649,9 @@ def main() -> int:
                     return 1
 
                 expected_launch = (
-                    "--trace-warnings"
+                    expected_user
                     if block_preload
-                    else "--max-old-space-size=4096 --trace-warnings"
+                    else f"--max-old-space-size=4096 {expected_user}"
                 )
                 launch_flags = node_options_value
                 if not block_preload:
@@ -657,9 +663,9 @@ def main() -> int:
                     print(f"FAIL: expected launch NODE_OPTIONS flags {expected_launch!r} ({case}), got {node_options_value!r}")
                     return 1
 
-                if runtime_node_options_value != "--trace-warnings" or child_node_options_value != "--trace-warnings":
+                if runtime_node_options_value != expected_user or child_node_options_value != expected_user:
                     print(
-                        f"FAIL: expected restored NODE_OPTIONS '--trace-warnings' ({case}), "
+                        f"FAIL: expected restored NODE_OPTIONS {expected_user!r} ({case}), "
                         f"got runtime={runtime_node_options_value!r} child={child_node_options_value!r}"
                     )
                     return 1
