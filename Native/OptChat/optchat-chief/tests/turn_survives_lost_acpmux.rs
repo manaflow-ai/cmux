@@ -258,3 +258,45 @@ fn a_turn_cut_by_an_upstream_502_runs_again_after_a_backoff() {
         "{sends:?}"
     );
 }
+
+/// An update relaunch (a248, 2026-10-20): the app stops the Chief's acpmux
+/// first (the running turn hears its link is lost), then stops the host.
+/// The next host resumes the cut turn once and answers it once.
+#[test]
+fn a_turn_cut_by_an_update_relaunch_resumes_in_the_next_host() {
+    let mut h = Harness::new(cut_first_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "tell a187 to rebase");
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        h.step();
+    }
+    h.brain.step(Input::from(AgentEvent::Down));
+    h.agents.inner.lock().unwrap().lose = true;
+    h.agents.hold(false);
+    h.agents.release();
+    drain(&mut h, Duration::from_millis(500));
+    assert!(failures(&h).is_empty(), "{:?}", failures(&h));
+    // The host stops before the next daemon is up.
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.connect();
+    h.settle_posts();
+    let prompts = h.agents.inner.lock().unwrap().prompts.len();
+    assert_eq!(prompts, 1, "the next host runs the cut turn once");
+    let resumed = prompt_text(&h, 0);
+    assert!(resumed.contains("nothing was lost: go on"), "{resumed}");
+    assert!(resumed.contains("tell a187 to rebase"), "{resumed}");
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "answered once: {sends:?}");
+    assert!(failures(&h).is_empty(), "{:?}", failures(&h));
+}
