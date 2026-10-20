@@ -10,6 +10,7 @@ import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import { Plugin, PluginKey, type EditorState } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
+import { isPointerSelecting, pointerChanged } from "./pointerSelect";
 
 const key = new PluginKey<{ folded: Set<number>; decorations: DecorationSet }>("cmuxMarkdownObsidian");
 
@@ -125,10 +126,14 @@ const PATTERNS = {
   math: /(?<![\\$\w])\$(?=[^\s$])([^$\n￼]*?[^\s$\\])\$(?![\w$])/g,
 };
 
-/** Whether the selection touches [from, to] (the caret inside or at an edge reveals the syntax). */
+/**
+ * Whether the selection reveals the syntax over [from, to]: a caret inside it or at an edge, or a
+ * selection that lies inside it. A selection that only crosses it (a drag over a paragraph, Cmd-A)
+ * reveals nothing, so the text it selects does not move (MARKDOWN-SELECTION).
+ */
 function touches(state: EditorState, from: number, to: number): boolean {
   const { from: a, to: b } = state.selection;
-  return a <= to && b >= from;
+  return a >= from && b <= to;
 }
 
 function decorate(
@@ -351,7 +356,16 @@ export function obsidianSyntaxPlugin(host: ObsidianHost) {
             if (folded.has(toggle)) folded.delete(toggle);
             else folded.add(toggle);
           }
-          if (!tr.docChanged && !tr.selectionSet && toggle === undefined && !tr.getMeta(key) && old.doc === state.doc)
+          // While the button is down, a selection change reveals nothing new (pointerSelect.ts).
+          const selectionOnly = !tr.selectionSet || isPointerSelecting(state);
+          if (
+            !tr.docChanged &&
+            selectionOnly &&
+            toggle === undefined &&
+            !tr.getMeta(key) &&
+            !pointerChanged(tr) &&
+            old.doc === state.doc
+          )
             return previous;
           return { folded, decorations: decorate(state, folded, host, view) };
         },

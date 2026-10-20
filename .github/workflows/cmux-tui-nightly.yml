@@ -100,9 +100,12 @@ jobs:
       attest_packages: true
       # Match stable native packages; the Cloudflare Worker deploys separately.
       # Nightlies never use Blacksmith (user decision 2026-10-19): macOS legs
-      # build on the owned minis' side lane (attempt 1), re-runs on ephemeral
-      # hosted macOS; Linux legs on GitHub-hosted Ubuntu. See docs/ci-runners.md.
-      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_SIDE_LANE_RUNNER || 'macos-15' }}
+      # build on the light-class minis' side lane (attempt 1), re-runs on
+      # ephemeral hosted macOS; Linux legs on GitHub-hosted Ubuntu. A literal
+      # light label, not vars.CI_SIDE_LANE_RUNNER: the std pools include the
+      # benchmark mini cmux11s, which nightlies must never reach (a153,
+      # 2026-10-20). See docs/ci-runners.md.
+      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-side-light-xcode-26.6' }}
       macos_retry_runner: macos-15
       linux_runner: ubuntu-24.04
       linux_arm64_runner: ubuntu-24.04-arm

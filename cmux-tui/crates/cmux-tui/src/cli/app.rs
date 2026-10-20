@@ -311,12 +311,16 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
-/// An action's `path` argument as the app must read it: a relative path
-/// names a folder or file of the caller's working directory, and the app
+/// An action's `path` or `out` argument as the app must read it: a relative
+/// path names a folder or file of the caller's working directory, and the app
 /// runs elsewhere, so it is made absolute here (`.` parts dropped). An
-/// absolute path, `~/…`, or a non-string value is sent unchanged.
+/// absolute path, `~/…`, `-` (stdout: `cmux window screenshot --out -`), or a
+/// non-string value is sent unchanged.
 fn caller_path(value: Value) -> Value {
     let Some(text) = value.as_str() else { return value };
+    if text == "-" {
+        return value;
+    }
     let path = Path::new(text);
     if text.is_empty() || path.is_absolute() || text.starts_with('~') {
         return value;
@@ -459,7 +463,7 @@ pub(super) fn run_action(
             }
             _ => {
                 let key = argument_name(&name);
-                let value = if key == "path" { caller_path(value) } else { value };
+                let value = if key == "path" || key == "out" { caller_path(value) } else { value };
                 arguments.insert(key, value);
             }
         }

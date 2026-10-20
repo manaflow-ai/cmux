@@ -15,6 +15,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-panic-log",
  "cmux-sdk",
  "cmux-unix-socket",
  "crossterm",
@@ -1239,6 +1240,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-panic-log"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-pty"
 version = "0.1.0"
 dependencies = [
@@ -1515,6 +1524,7 @@ dependencies = [
  "cmux-config",
  "cmux-host",
  "cmux-link",
+ "cmux-panic-log",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1539,6 +1549,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "ring",
  "rquickjs",
  "rusqlite",
  "rustls",
