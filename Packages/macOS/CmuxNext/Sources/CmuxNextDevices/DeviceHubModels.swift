@@ -162,19 +162,21 @@ public struct AuditEntry: Codable, Sendable, Equatable, Identifiable {
     public var event: String
     public var viewerId: String?
     public var hostId: String?
+    /// The device a `device_added` / `device_removed` entry is about.
+    public var deviceId: String?
     public var scope: String?
     public var sessionId: String?
     public var detail: String?
     public var durationS: Double?
 
-    public init(id: String, ts: Date? = nil, event: String, viewerId: String? = nil, hostId: String? = nil, scope: String? = nil,
-                sessionId: String? = nil, detail: String? = nil, durationS: Double? = nil) {
-        self.id = id; self.ts = ts; self.event = event; self.viewerId = viewerId; self.hostId = hostId
+    public init(id: String, ts: Date? = nil, event: String, viewerId: String? = nil, hostId: String? = nil, deviceId: String? = nil,
+                scope: String? = nil, sessionId: String? = nil, detail: String? = nil, durationS: Double? = nil) {
+        self.id = id; self.ts = ts; self.event = event; self.viewerId = viewerId; self.hostId = hostId; self.deviceId = deviceId
         self.scope = scope; self.sessionId = sessionId; self.detail = detail; self.durationS = durationS
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, ts, event, viewerId, hostId, scope, sessionId, detail, durationS, duration_s
+        case id, ts, event, viewerId, hostId, deviceId, scope, sessionId, detail, durationS, duration_s
     }
 
     public init(from decoder: any Decoder) throws {
@@ -184,6 +186,7 @@ public struct AuditEntry: Codable, Sendable, Equatable, Identifiable {
         event = c.lenient(String.self, .event) ?? ""
         viewerId = c.lenient(String.self, .viewerId)
         hostId = c.lenient(String.self, .hostId)
+        deviceId = c.lenient(String.self, .deviceId)
         scope = c.lenient(String.self, .scope)
         sessionId = c.lenient(String.self, .sessionId)
         detail = c.lenient(String.self, .detail)
@@ -197,6 +200,7 @@ public struct AuditEntry: Codable, Sendable, Equatable, Identifiable {
         try c.encode(event, forKey: .event)
         try c.encodeIfPresent(viewerId, forKey: .viewerId)
         try c.encodeIfPresent(hostId, forKey: .hostId)
+        try c.encodeIfPresent(deviceId, forKey: .deviceId)
         try c.encodeIfPresent(scope, forKey: .scope)
         try c.encodeIfPresent(sessionId, forKey: .sessionId)
         try c.encodeIfPresent(detail, forKey: .detail)

@@ -179,6 +179,11 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
             frame = Frame(type: "candidate", candidate: candidate.candidate, sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex)
         case .bye:
             frame = Frame(type: "bye")
+        case let .path(relay):
+            // `{type:'path', path:'direct'|'relay'}`: the hub stores it, the peer never sees it.
+            guard let socket = lock.withLock({ socket }) else { return }
+            try await socket.send(#"{"type":"path","path":"\#(relay ? "relay" : "direct")"}"#)
+            return
         case .hello, .peerJoined, .peerLeft:
             return
         }

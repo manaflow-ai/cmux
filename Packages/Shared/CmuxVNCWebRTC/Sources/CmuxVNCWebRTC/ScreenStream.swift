@@ -247,7 +247,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 log("the session ended")
                 endSession()
                 return
-            case .peerJoined, .answer: break
+            case .peerJoined, .answer, .path: break
             case .peerLeft:
                 // The viewer's room connection dropped. A connected session
                 // lives on (WebRTC reports its own end); a half-open one ends.
@@ -542,6 +542,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     private var lastButtons: UInt8 = 0
     private var offered = false
     private var isOpen = false
+    private var pathReported = false
     /// TURN relay only (ICE transport policy `relay`): for checking the relay path. Off by default.
     private let relayOnly: Bool
 
@@ -584,7 +585,13 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                     self?.onVideo?(track)
                 case let .message(data):
                     if let message = try? JSONDecoder().decode(ScreenHostMessage.self, from: data) { self?.onDisplays?(message) }
-                case let .path(local, remote): self?.onPath?(local == "relay" || remote == "relay" ? "Relay" : "Direct")
+                case let .path(local, remote):
+                    let relay = local == "relay" || remote == "relay"
+                    self?.onPath?(relay ? "Relay" : "Direct")
+                    // The hub records the session's path once (`sessions.path`).
+                    if let self, lock.withLock({ () -> Bool in defer { pathReported = true }; return !pathReported }) {
+                        try? await lock.withLock({ socket })?.send(.path(relay: relay))
+                    }
                 case .closed:
                     opened.fire(RFBError.connectionClosed)
                     // Before open, connect() reports the failure (it throws); reporting it here
@@ -656,7 +663,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
             // open, closing the link reports it through onState.
             if !lock.withLock({ isOpen }) { opened.fire(RFBError.transport("the session ended")) }
             link.close()
-        case .hello, .offer:
+        case .hello, .offer, .path:
             break
         }
     }

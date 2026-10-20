@@ -315,8 +315,11 @@ public final class MacScreenDevicesSettings {
         }
         return State.HistoryRow(id: entry.id, time: entry.ts.map(Self.timeText) ?? "—",
                                 event: entry.event, eventText: eventText(entry.event), tone: eventTone(entry.event),
-                                device: name(entry.viewerId), host: name(entry.hostId), scope: scope,
-                                detail: detailText(entry, viewer: name(entry.viewerId), host: name(entry.hostId)), duration: entry.durationS.map(durationText) ?? "")
+                                // A device_added/removed entry's device is in deviceId; it shows in the device column.
+                                device: entry.deviceId.map { name($0) } ?? name(entry.viewerId), host: name(entry.hostId), scope: scope,
+                                detail: detailText(entry, viewer: name(entry.viewerId), host: name(entry.hostId),
+                                                   subject: entry.deviceId.map { name($0) } ?? "—"),
+                                duration: entry.durationS.map(durationText) ?? "")
     }
 
     static func eventText(_ event: String) -> String {
@@ -345,10 +348,10 @@ public final class MacScreenDevicesSettings {
     }
 
     /// The entry's detail: an access change as "Ask → Full Control", a decision, an end reason.
-    static func detailText(_ entry: AuditEntry, viewer: String = "—", host: String = "—") -> String {
+    static func detailText(_ entry: AuditEntry, viewer: String = "—", host: String = "—", subject: String = "—") -> String {
         // A device joining or leaving names it (whichever id the entry carries).
         if entry.event == "device_added" || entry.event == "device_removed" {
-            let name = known(viewer) ? viewer : (known(host) ? host : nil)
+            let name = [subject, viewer, host].first(where: known)
             guard let name else { return entry.event == "device_added" ? "" : L.t("devices.history.someDeviceRemoved", "A device was removed") }
             return entry.event == "device_added" ? String(format: L.t("devices.history.deviceAdded", "%@ was added"), name)
                 : String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), name)
@@ -372,7 +375,6 @@ public final class MacScreenDevicesSettings {
         case "ended":
             switch detail {
             case "bye": return L.t("devices.history.bye", "Disconnected")
-            case "closed": return L.t("devices.history.closed", "Connection closed")
             default: return endText(MacScreenEndReason(detail), viewer: viewer, host: host)
             }
         default:
@@ -406,6 +408,7 @@ public final class MacScreenDevicesSettings {
         case .peerOffline: L.t("devices.history.offline", "A device went offline")
         case .failed: L.t("devices.history.failed", "The stream could not start")
         case .expired: L.t("devices.history.expired", "No answer in time")
+        case .approveFailed: L.t("devices.history.approveFailed", "Approved, but the session couldn’t start")
         case .other: L.t("devices.history.other", "Ended")
         }
     }

@@ -34,6 +34,8 @@ public enum ScreenSignal: Sendable, Equatable {
     case candidate(ScreenICECandidate)
     /// The session is over: the other side left it, or the server ended it.
     case bye
+    /// This side's media path is known (sent only; a device hub records it as `sessions.path`).
+    case path(relay: Bool)
 }
 
 /// How a screen stream's host and viewer reach each other before WebRTC
@@ -116,7 +118,7 @@ public final class RoomSignaling: ScreenSignaling {
         case let .offer(sdp): try await socket.send(SignalMessage(type: "offer", sdp: sdp))
         case let .answer(sdp): try await socket.send(SignalMessage(type: "answer", sdp: sdp))
         case let .candidate(candidate): try await socket.send(candidate.message)
-        case .hello, .peerJoined, .peerLeft, .bye: break
+        case .hello, .peerJoined, .peerLeft, .bye, .path: break
         }
     }
 

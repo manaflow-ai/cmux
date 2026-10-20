@@ -124,6 +124,8 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
     case failed
     /// The host did not answer the request within five minutes.
     case expired
+    /// The hub could not set up the session the host approved.
+    case approveFailed
     case other
 
     public init(_ reason: String?) {
@@ -139,6 +141,7 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case let text where text.hasPrefix("peer_offline"): self = .peerOffline
         case "failed": self = .failed
         case "expired": self = .expired
+        case "approve_failed": self = .approveFailed
         default: self = .other
         }
     }
@@ -173,6 +176,7 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case .signedOut: L.t("macScreen.hub.reason.signedOutOrQuit", "A Mac in this session signed out of cmux or quit it.")
         case .peerOffline: String(format: L.t("macScreen.hub.reason.offline", "%@ went offline."), host)
         case .failed: L.t("macScreen.hub.reason.failed", "The screen stream could not start.")
+        case .approveFailed: String(format: L.t("macScreen.hub.reason.approveFailed", "%@ allowed the session, but it couldn’t start. Try again."), host)
         case .expired: String(format: L.t("macScreen.hub.reason.expired", "%@ did not answer in time."), host)
         case .other: L.t("macScreen.hub.reason.other", "The session ended.")
         }
