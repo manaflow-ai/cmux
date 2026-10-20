@@ -473,7 +473,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   `rb.menu.result`, `rb.dialog.result`, `rb.open_tab.result`, `rb.find`,
   `rb.find.stop`); hostd drops anything else. One host per `tab` outlives
   its channel; a new channel for the same tab closes the older with
-  `replaced`. `url` must be http, https or `about:blank` (`forbidden`), and
+  `replaced`. At most a host limit of hosts run (`CNX_RB_MAX_TABS`, 4);
+  opening another stops an idle host first, then a hidden tab's, then the
+  least recently used, and that viewer's channel closes `evicted`
+  (2026-10-20; before, `replaced`). The phone opens an evicted tab again when
+  it is shown (at its current address), and on a new link it opens only the
+  tab on screen, never every tab it holds (transport-verify-20261019.md
+  defect 7). `url` must be http, https or `about:blank` (`forbidden`), and
   a Mac with no browser host refuses with `unavailable`. Under
   `CNX_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
@@ -485,7 +491,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   rides the link's media lane instead of the channel, on either carrier;
   rd control, input, clock probes and secondary surfaces stay on the
   channel. A newer `browser` channel that asks for the lane takes it, and the
-  older tab's video returns to its channel with a keyframe. A hostd without
+  older tab's video returns to its channel with a keyframe. The phone sends
+  `rb.visibility {visible}` when a tab is shown or hidden (hostd forwards it
+  to the host); `visible: true` on a channel that asked for the lane and lost
+  it takes the lane back, starting at a keyframe (2026-10-20). An older hostd
+  forwards it without moving the lane. A hostd without
   the lane, or an older one, ignores the field and streams on the channel.
   `"video_tag": N` (u32, random per channel): hostd appends it to each of
   this tab's lane access units as an H.264 SEI NAL unit after the slices
