@@ -109,6 +109,8 @@ public struct FileSortOrder: Sendable, Hashable, Codable {
     }
 
     private static func kindRank(_ entry: FileEntry) -> FileNameSortKey {
-        FileNameSortKey(entry.kind.isFolderLike ? "" : entry.pathExtension)
+        // Folders first (0), then files by extension (1 + its key); a file with
+        // no extension must still come after every folder.
+        entry.kind.isFolderLike ? FileNameSortKey(bytes: [0]) : FileNameSortKey(bytes: [1] + FileNameSortKey(entry.pathExtension).bytes)
     }
 }

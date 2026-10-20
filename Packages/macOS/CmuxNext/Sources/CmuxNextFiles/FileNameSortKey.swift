@@ -32,6 +32,9 @@ public struct FileNameSortKey: Sendable, Hashable, Comparable {
         bytes = out
     }
 
+    /// A key made of raw bytes (composite keys such as Kind order).
+    init(bytes: [UInt8]) { self.bytes = bytes }
+
     public static func < (lhs: FileNameSortKey, rhs: FileNameSortKey) -> Bool {
         lhs.compare(rhs) < 0
     }

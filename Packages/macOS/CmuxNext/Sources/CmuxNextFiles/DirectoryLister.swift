@@ -144,7 +144,9 @@ public struct DirectoryLister: DirectoryListing {
     /// True for a folder name Finder shows as one item (by its extension's type).
     public static func isPackage(_ name: String) -> Bool {
         let ext = (name as NSString).pathExtension
-        guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return false }
+        // Ask for a folder type: the plain lookup assumes data and can miss
+        // bundle types such as `.app` on hosts where LaunchServices is cold.
+        guard !ext.isEmpty, let type = UTType(filenameExtension: ext, conformingTo: .directory) else { return false }
         return type.conforms(to: .package)
     }
 
