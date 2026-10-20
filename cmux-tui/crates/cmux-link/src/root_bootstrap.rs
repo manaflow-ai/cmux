@@ -104,9 +104,10 @@ impl Host {
             Some((parent, inherited)) => (Some(Arc::new(parent)), Some(inherited)),
             None => (None, None),
         };
-        // Regression baseline: the existing spawner discards private stdin.
-        drop(inherited.map(OwnedFd::from));
-        command.stdin(Stdio::null());
+        command.stdin(match inherited {
+            Some(inherited) => Stdio::from(OwnedFd::from(inherited)),
+            None => Stdio::null(),
+        });
         let child = Arc::new(RootOwnedDaemon::capture(command.spawn()?, uid));
         // Even a poisoned optional bootstrap owner must not lose an already
         // spawned daemon. The caller always receives its actual child handle.
