@@ -564,6 +564,9 @@ pub struct Agents {
     pub trusted: Vec<std::path::PathBuf>,
     /// Every permission answer: (session, permission id, option id).
     pub responses: Vec<(String, String, Option<String>)>,
+    /// acpmux refuses an allow (the daemon wants the person's decision
+    /// proof, which a chat reply never carries); a reject still lands.
+    pub refuse_allows: bool,
     /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
     pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
     /// Every `set_mode`: (session, mode id, prompts sent before it).
@@ -903,7 +906,11 @@ impl AgentPort for FakeAgents {
         permission: &str,
         option: Option<&str>,
     ) -> Result<(), String> {
-        self.inner.lock().unwrap().responses.push((
+        let mut inner = self.inner.lock().unwrap();
+        if inner.refuse_allows && option.is_some_and(|o| o.starts_with("allow")) {
+            return Err("permission_respond: approve this on the Mac app: allowing a permission is accepted only from the cmux app, never from the CLI, a script or an agent".into());
+        }
+        inner.responses.push((
             session.to_owned(),
             permission.to_owned(),
             option.map(str::to_owned),

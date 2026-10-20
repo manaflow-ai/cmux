@@ -375,6 +375,54 @@ fn a_remote_turn_cannot_run_a_shell_without_an_approval() {
     h.settle();
 }
 
+/// acpmux takes an allow only with the person's decision proof, which a
+/// chat reply never carries (2026-10-20: a Home "allow" was refused, the
+/// Chief forgot the approval, and the turn waited on it for good: "stop"
+/// and every later message had nothing to deny).
+#[test]
+fn an_allow_acpmux_refuses_keeps_the_approval_and_says_so() {
+    let mut h = harness(started());
+    h.agents.hold(true);
+    h.agents.inner.lock().unwrap().refuse_allows = true;
+    deliver(&mut h, true, "rename the group");
+    h.step(); // settled: the turn starts
+    h.agents.wait_prompts(1);
+    wait_session(&mut h);
+    h.brain.step(permission(
+        "p1",
+        "Bash",
+        json!({"command": "cmux workspace group g update --name x"}),
+    ));
+    assert_eq!(sends(&h).len(), 1, "the approval is asked");
+    deliver(&mut h, false, "allow");
+    assert!(
+        h.agents.inner.lock().unwrap().responses.is_empty(),
+        "acpmux refused the allow"
+    );
+    let said = sends(&h);
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(
+        said[1].contains("not accepted") && said[1].contains("cmux app"),
+        "the person hears the allow did not land: {}",
+        said[1]
+    );
+    let approval = traces(&h)
+        .into_iter()
+        .find(|t| t["ev"] == "approval" && t["permission"] == "p1")
+        .expect("the refused allow is in the trace");
+    assert_eq!(approval["delivered"], false);
+    // A newer message still denies the held approval, so the turn moves on.
+    deliver(&mut h, false, "stop");
+    assert_eq!(
+        h.agents.inner.lock().unwrap().responses,
+        vec![("s1".into(), "p1".into(), Some("reject".into()))],
+        "the approval was kept, and the newer message denied it"
+    );
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle();
+}
+
 #[test]
 fn a_remote_message_cannot_turn_on_remote_auto_approve() {
     let mut h = harness(started());
