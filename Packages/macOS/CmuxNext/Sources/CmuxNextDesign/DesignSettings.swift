@@ -82,9 +82,6 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `tabs.overflow`: crowded tab strips shrink their tabs (default) or scroll sooner.
     public var tabOverflow: TabOverflow = .shrink
-    /// Turns scrolling tabs on and saves it (the App's `tabs.overflow.scroll`), for the crowded strip's
-    /// one-time hint. While nil (tests, galleries) no strip shows the hint.
-    @ObservationIgnored public var useScrollingTabs: (@MainActor () -> Void)?
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
