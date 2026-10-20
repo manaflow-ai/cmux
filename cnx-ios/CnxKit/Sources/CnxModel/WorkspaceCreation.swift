@@ -522,7 +522,7 @@ public final class WorkspaceCreator {
             let real = try await backend.create(request, placeholder: placeholder)
             store.resolvePending(placeholder.id, with: real)
             if let tab = Self.openingTab(of: real, for: request.start) {
-                if let first = Self.openingTab(of: placeholder, for: request.start), first.id != tab.id {
+                if request.start == .browser, let first = Self.openingTab(of: placeholder, for: request.start), first.id != tab.id {
                     onTabResolved?(first.id, tab.id)
                 }
                 store.noteOpened(tabID: tab.id, in: real.id)

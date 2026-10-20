@@ -629,7 +629,7 @@ public final class DaemonTerminalSession: TerminalSession {
         guard let tree else { return true }
         if tree.surfaces.values.contains(surface) { return true }
         guard let terminalID else { return false }
-        return tree.terminals.values.contains { $0.id == terminalID }
+        return tree.terminals.values.contains { $0.resourceID == terminalID || $0.id == terminalID }
     }
 
     /// Whether the daemon takes the viewer's size in `attach-surface`.

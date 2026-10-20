@@ -408,6 +408,20 @@ final class ChannelLog: @unchecked Sendable {
 /// 14` and retried it six times: the session of a tab closed earlier (its
 /// host kept for the card) was attached again on every new link.
 @Suite struct ReattachSurfacesTests {
+    /// After the Mac's daemon restarted, the session's surface is gone and its
+    /// host id changed; its public id (`terminal_resource_id`) still matches.
+    @Test func aRenumberedTerminalStillReattachesByItsPublicID() throws {
+        let tab: [String: Any] = ["surface": 269, "kind": "pty", "title": "zsh", "terminal_id": "9a3aaba09e1e4e20b5cb5f9f8f9bc2dc",
+                                  "terminal_resource_id": "term_cfa558e1dfd01470a3ed86f97ad61d13"]
+        let reply = try JSONSerialization.data(withJSONObject: ["ok": true, "data": ["workspaces": [
+            ["id": 1, "key": "ws1", "name": "w", "screens": [["active": true, "active_pane": 1, "panes": [["id": 1, "active_tab": 0, "tabs": [tab]]]]]],
+        ]]])
+        let tree = try DaemonTree(reply: reply, macID: "m")
+        #expect(DaemonTerminalSession.shouldReattach(surface: 25, terminalID: "term_cfa558e1dfd01470a3ed86f97ad61d13", tree: tree))
+        #expect(!DaemonTerminalSession.shouldReattach(surface: 25, terminalID: "term_other", tree: tree))
+        #expect(DaemonTerminalSession.shouldReattach(surface: 269, terminalID: nil, tree: tree))
+    }
+
     @Test func aClosedTabsSurfaceIsNotAttachedAgain() {
         #expect(DaemonTerminalSession.surfacesToReattach([14, 16, 17], tree: [16, 17]) == [16, 17])
     }

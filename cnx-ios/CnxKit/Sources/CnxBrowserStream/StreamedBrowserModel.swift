@@ -84,7 +84,11 @@ public final class StreamedBrowserModel: BrowserTabState {
     @ObservationIgnored private var welcomed = false
     /// The page is on screen and the app is active: its stream keeps the
     /// WebRTC media session beside a WireGuard link open (verify/hybrid-link.md).
-    @ObservationIgnored private var onScreen = true
+    /// Pages showing this model now: a tab's new page can appear before its
+    /// old one disappears (a new workspace's tab getting the Mac's id), and a
+    /// page that was never shown (a neighbour laid out ahead) is not on screen.
+    @ObservationIgnored private var shownBy = 0
+    private var onScreen: Bool { shownBy > 0 }
     @ObservationIgnored private var appActive = true
     private var visible: Bool { onScreen && appActive }
     @ObservationIgnored private var connecting = false
@@ -212,7 +216,7 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// Mac stopped).
     public func setVisible(_ visible: Bool) {
         let before = self.visible
-        onScreen = visible
+        shownBy = visible ? shownBy + 1 : max(0, shownBy - 1)
         visibilityChanged(from: before)
     }
 
