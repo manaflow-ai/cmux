@@ -4,7 +4,7 @@ import CmuxNextDaemon
 import ImageIO
 import UniformTypeIdentifiers
 
-/// What the sidebar shows, read from this Chief's files.
+/// What the Chief settings show, read from this Chief's files and its brain.
 public nonisolated struct HomeChiefSnapshot: Sendable {
     var harness: String?
     var model: String?
@@ -17,12 +17,16 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
     /// The brain's `offered` lists (empty until the brain answers).
     var models: [ChiefEngineReport.Model] = []
     var efforts: [String] = []
+    /// What the turns run on (engine.json over the brain's defaults), which
+    /// names each picker's "Default"; nil until the brain answers.
+    var effective: ChiefEngineReport.Engine?
 
-    /// This snapshot with `report`'s offered models and efforts.
+    /// This snapshot with `report`'s offered models and efforts and its effective engine.
     func offering(_ report: ChiefEngineReport) -> HomeChiefSnapshot {
         var snapshot = self
         snapshot.models = report.offered.models
         snapshot.efforts = report.offered.efforts
+        snapshot.effective = report.engine
         return snapshot
     }
 }

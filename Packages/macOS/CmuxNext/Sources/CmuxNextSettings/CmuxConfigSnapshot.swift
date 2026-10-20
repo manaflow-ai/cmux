@@ -169,6 +169,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tasksLayout: TasksLayoutPreference = TasksLayoutSetting().fallback
     /// `picker.pinned`: the cmux picker's pinned folders (absolute paths).
     public var pickerPinned: [String] = []
+    /// `screenshots.*`: the Screenshots pane's app search and extra folders.
+    public var screenshots = ScreenshotsSettings()
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -334,6 +336,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (pinned, pinnedDiagnostics) = PickerPinnedSetting.parse(root, home: NSHomeDirectory())
         snapshot.pickerPinned = pinned
         snapshot.diagnostics += pinnedDiagnostics
+        snapshot.screenshots = ScreenshotsSettings.parse(root, home: NSHomeDirectory(), diagnostics: &snapshot.diagnostics)
         let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
