@@ -1733,12 +1733,57 @@ jobs:
           fi
 
       - name: Checkout build ref
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' && (runner.environment != 'self-hosted' || needs.decide.outputs.track != 'nightly-next')
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
+
+      # The dedicated nightly-next builder keeps its checkout. actions/checkout
+      # fetches each commit at depth 1, which sends the whole tree again (118 s
+      # on cmux22, run 39440747033). A fetch without a depth limit, with a ref
+      # on the commit the workspace holds, sends only the new objects (2 s).
+      # The clean keeps the three Rust target directories the rust-cache step
+      # restores on a hosted runner, at the same paths, so cargo rebuilds only
+      # what changed and nothing is downloaded or uploaded.
+      - name: Checkout build ref (warm nightly-next builder)
+        if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+        env:
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad build sha: $BUILD_SHA" >&2; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          [ -d .git ] || git init -q .
+          git config gc.auto 0
+          if git remote get-url origin >/dev/null 2>&1; then git remote set-url origin "$REPO_URL"; else git remote add origin "$REPO_URL"; fi
+          # The negotiation tells the server what the workspace has only
+          # through refs; a detached HEAD alone makes it send the whole tree.
+          if git rev-parse -q --verify HEAD >/dev/null; then
+            git update-ref refs/remotes/origin/nightly-warm-base HEAD
+          fi
+          started=$SECONDS
+          git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
+          echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
+          git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
+          git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cnx-ios/rust/target/
+          git reset -q --hard "$BUILD_SHA"
+          git submodule sync -q --recursive
+          git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
+          # A hosted runner starts with clean submodules; drop what earlier runs left.
+          git submodule foreach -q --recursive 'git clean -ffdxq && git reset -q --hard'
+          git submodule foreach -q --recursive git config --local gc.auto 0
+          # Each fetch adds a pack and gc.auto is off: fold them past 40.
+          packs=$(find .git/objects/pack -name '*.pack' | wc -l | tr -d ' ')
+          if [ "$packs" -gt 40 ]; then
+            echo "$packs packs: repacking"
+            git repack -a -d -l -q
+          fi
+          test "$(git rev-parse HEAD)" = "$BUILD_SHA"
+          git status --short | head -20
 
       - name: Select Xcode
         if: inputs.nightly_next_unsigned_run == ''
@@ -1863,7 +1908,7 @@ jobs:
       # serial build path (2026-10-09). Their target dirs keep the dependency
       # builds between nightly-next runs; cargo still rebuilds what changed.
       - name: Restore the acpmux and OptChat Chief dependency builds (cmux-next)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next') && runner.environment != 'self-hosted'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
@@ -2218,6 +2263,23 @@ jobs:
             echo "Xcode compilation cache is empty; skipping cache save"
           fi
           echo "save=${save}" >> "$GITHUB_OUTPUT"
+
+      # The warm builder keeps the Rust target directories (above). Cargo
+      # never deletes old artifacts, so start them over above 30 GiB.
+      - name: Bound the kept Rust target directories (warm nightly-next builder)
+        if: always() && inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+        run: |
+          set -euo pipefail
+          dirs=(cmux-tui/target Native/OptChat/optchat-chief/target cnx-ios/rust/target)
+          kib=0
+          for d in "${dirs[@]}"; do
+            [ -d "$d" ] && kib=$((kib + $(du -sk "$d" | awk '{print $1}')))
+          done
+          echo "kept Rust target directories: $((kib / 1024)) MiB"
+          if [ "$kib" -gt $((30 * 1024 * 1024)) ]; then
+            echo "above 30 GiB: removing them; the next build compiles the helpers again"
+            rm -rf "${dirs[@]}"
+          fi
 
       - name: Save Xcode compilation cache
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
@@ -2846,7 +2908,10 @@ jobs:
           done
           if [ "$NIGHTLY_VARIANT" != "universal" ]; then
             # No fat Mach-O may survive thinning anywhere in the bundle.
-            fat="$(find "$APP" -type f -exec sh -c 'file -b "$1" | grep -q "Mach-O universal" && echo "$1"' _ {} \;)"
+            # Only files with a Mach-O or fat magic reach `file` (one process
+            # each); the per-file scan of the whole bundle took 90 s.
+            fat="$(find "$APP" -type f -print0 | python3 scripts/list-macho-candidates.py \
+              | xargs -0 sh -c 'for f do if file -b "$f" | grep -q "Mach-O universal"; then echo "$f"; fi; done' sh)"
             if [ -n "$fat" ]; then
               echo "Fat Mach-O files remain after thinning:" >&2
               echo "$fat" >&2
@@ -3374,82 +3439,32 @@ jobs:
         run: ./scripts/ci/signing-keychain.sh delete
 
 
-      - name: Verify bundled Mach-O load commands
-        run: ./scripts/verify-bundle-load-commands.sh "$CHANNEL_APP_PATH"
-
-
-      # Every Mach-O must map to its notices (bundle-map.json): fail here,
-      # before the notarization wait. notarize-nightly-dmg.sh checks the app
-      # and the mounted DMG again.
-      - name: Verify third-party notices cover every bundled binary
-        run: ./scripts/verify-app-bundle-licenses.sh "$CHANNEL_APP_PATH"
-
+      # The read-only checks of the signed app and its two packages run on a
+      # copy of it while Apple notarizes (signed-app-checks.sh): about 2.5 min
+      # that used to stand between Codesign apps and the first submission. The
+      # notarize step changes the app in place, so the copy is taken here.
       # This job holds signing secrets, so it runs no code from the bundle.
       # verify-signed-nightly runs every check that executes the app, the CLI,
       # the helpers or the sidecar, in a job without secrets, on this exact
       # signed app and on the final DMG (#21024). Notary tests and builds held
       # by NIGHTLY_NEXT_NOTARY_PAUSED (they carry the browser-data import) never
-      # upload a signed app and publish nothing, so they skip that job.
-      - name: Package signed app for the verify job
-        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p signed-app-handoff
-          tar -C "$(dirname "$CHANNEL_APP_PATH")" -czf signed-app-handoff/cmux-signed-app.tar.gz "$(basename "$CHANNEL_APP_PATH")"
-          (cd signed-app-handoff && shasum -a 256 cmux-signed-app.tar.gz > cmux-signed-app.tar.gz.sha256)
-
-      - name: Upload signed app for the verify job
-        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-          path: signed-app-handoff/*
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 3
-
-      # The bundle carries Rust, Zig, C++ and CEF binaries built outside Xcode,
-      # so the Xcode deployment target alone does not prove they load on the
-      # declared floor. Fail before notarization when any Mach-O needs a newer
-      # macOS than LSMinimumSystemVersion, strong-loads a system library the
-      # floor lacks, or a nested helper declares a newer floor. cmux-next pins
-      # the floor to macOS 14 (Lawrence 2026-10-16: "Make sure it works on
-      # Sequoia, macOS 14+"); raising it is a decision, not a build accident.
-      - name: Check every bundled Mach-O loads on the macOS floor
-        if: env.TRACK == 'nightly-next'
-        run: python3 scripts/ci/macho_minos.py scan "$CHANNEL_APP_PATH" --floor 14.0
-
-
-
-      # When Apple's queue is slow the wait below can hold the feed for hours,
-      # so teammates get the Developer ID-signed app from the run page now.
-      # It is not notarized: open it with right-click > Open, or run
-      # `xattr -dr com.apple.quarantine "<app>"` after unzipping. The
-      # repository is public, so notary tests and builds held by
-      # NIGHTLY_NEXT_NOTARY_PAUSED (they carry the browser-data import) never
-      # upload an app. A failed zip or upload never blocks notarization.
-      - name: Zip the signed app before notarization
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        continue-on-error: true
+      # upload a signed app and publish nothing, so they skip that job. The
+      # unnotarized zip is the Developer ID-signed app for teammates when
+      # Apple's queue is slow; the public repository never gets one from notary
+      # tests or paused builds, and a failed zip never blocks notarization.
+      - name: Start the signed-app checks (they run during notarization)
         env:
+          CHECK_MINOS: ${{ env.TRACK == 'nightly-next' }}
+          PACKAGE_HANDOFF: ${{ needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' }}
+          PACKAGE_UNNOTARIZED_ZIP: ${{ needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' }}
           VARIANT: ${{ matrix.variant }}
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/signed-unnotarized"
-          mkdir -p "$out"
-          ditto -c -k --sequesterRsrc --keepParent "$CHANNEL_APP_PATH" "$out/${CHANNEL_DMG_PREFIX}-${VARIANT}-${NIGHTLY_BUILD}-signed-unnotarized.zip"
-          ls -l "$out"
-
-
-      - name: Upload the signed app before notarization
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-nightly-signed-unnotarized-${{ matrix.variant }}
-          path: ${{ runner.temp }}/signed-unnotarized/*.zip
-          if-no-files-found: error
-          retention-days: 7
+          # An unsigned resume of an older tree may predate this script; its
+          # checks are still the tree's own (the script runs ./scripts/...).
+          checks=scripts/ci/signed-app-checks.sh
+          [ -f "$checks" ] || checks=.nightly-signing-control/scripts/ci/signed-app-checks.sh
+          bash "$checks" start "$CHANNEL_APP_PATH"
 
 
       - name: Stop before notarization (NIGHTLY_NEXT_NOTARY_PAUSED)
@@ -3517,6 +3532,42 @@ jobs:
             "$NIGHTLY_DMG_IMMUTABLE"
 
 
+      # Every Mach-O must load on the declared floor, map to its notices and
+      # pass the load-command check; the verify job's handoff comes from the
+      # same copy. A failure here fails the job, so nothing is published.
+      - name: Finish the signed-app checks
+        id: signed-app-checks
+        if: always()
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          checks=scripts/ci/signed-app-checks.sh
+          [ -f "$checks" ] || checks=.nightly-signing-control/scripts/ci/signed-app-checks.sh
+          bash "$checks" finish
+
+
+      - name: Upload signed app for the verify job
+        if: "!cancelled() && steps.signed-app-checks.outcome == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signed-app-handoff/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+
+      - name: Upload the signed unnotarized app
+        if: "!cancelled() && steps.signed-app-checks.outcome == 'success' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-signed-unnotarized-${{ matrix.variant }}
+          path: ${{ runner.temp }}/signed-unnotarized/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+
       - name: Package signed fast dogfood DMG
         if: needs.decide.outputs.fast_build == 'true'
         env:
@@ -3539,7 +3590,8 @@ jobs:
         id: prepare-notarization-recovery
         if: >-
           always() && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' &&
-          (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure')
+          (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure') &&
+          steps.signed-app-checks.outcome == 'success'
         env:
           # The state file records the signing channel (cmux NEXT signs as `next`).
           SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
@@ -4049,32 +4101,79 @@ jobs:
         timeout-minutes: 2
         run: |
           set -uo pipefail
+          # Every stop request has its own limit: a request to an owner that
+          # never answers held the whole step to its 2-minute timeout (run
+          # 39438045034), and the step then printed nothing about which one.
+          bounded() { local s="$1"; shift; perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$s" "$@"; }
           echo "cmux processes left by the smokes:"
           ps -axww -o pid=,ppid=,lstart=,args= | grep -i cmux | grep -v grep || true
           app="$GITHUB_WORKSPACE/$CHANNEL_APP_PATH"
           bin="$app/Contents/Resources/bin"
           [ -d "$bin" ] || exit 0
-          # shellcheck source=/dev/null
-          source scripts/lib/stop-cmux-tui-owners.sh
-          cmux_stop_cmux_tui_owners "$(cd -P "$bin" && pwd)"
-          # The DMG smoke's owners ran from the detached mount, so ask each
-          # remaining owner to stop through its socket with this bundle's
-          # cmux-tui; SIGTERM only that exact PID if the request fails.
+          bin="$(cd -P "$bin" && pwd)"
+          # Ask every cmux-tui owner (the signed app's, and the DMG smoke's that
+          # ran from a copy or the detached mount) to stop through its socket
+          # with this bundle's cmux-tui, which ends its terminals; SIGTERM only
+          # that exact owner PID if the request fails, takes over 10 s, or the
+          # step is past its 70 s budget. Terminal hosts are never matched.
+          deadline=$((SECONDS + 70))
           ps -axww -o pid= -o args= | while read -r pid args; do
             case "$args" in
               */Contents/Resources/bin/cmux-tui\ --headless\ *) ;;
               *) continue ;;
             esac
             socket="$(printf '%s\n' "$args" | sed -nE 's/.* --socket ([^ ]+).*/\1/p')"
-            if [ -n "$socket" ] && "$bin/cmux-tui" --socket "$socket" server stop --end-terminals >/dev/null 2>&1; then
+            echo "stopping owner $pid"
+            if [ "$SECONDS" -lt "$deadline" ] && [ -n "$socket" ] \
+              && bounded 10 "$bin/cmux-tui" --socket "$socket" server stop --end-terminals >/dev/null 2>&1 </dev/null; then
               continue
             fi
+            echo "server stop of owner $pid failed, took more than 10 s, or the budget ran out; SIGTERM to that PID only"
             kill -TERM "$pid" 2>/dev/null || true
           done
           # `cmux acp` finds the bundle's own acpmux build home (a bare
           # `acpmux` would use ~/.acpmux). The DMG app has the same bundle id.
           if [ -x "$bin/cmux" ]; then
-            "$bin/cmux" acp daemon shutdown --end-agents >/dev/null 2>&1 || true
+            echo "stopping the acpmux daemon"
+            if ! bounded 20 "$bin/cmux" acp daemon shutdown --end-agents >/dev/null 2>&1 </dev/null; then
+              echo "acp daemon shutdown failed or took more than 20 s; SIGTERM to this bundle's acpmux daemons only"
+              ps -axww -o pid= -o args= | while read -r pid args; do
+                case "$args" in
+                  "$bin/acpmux daemon run"*) kill -TERM "$pid" 2>/dev/null || true ;;
+                esac
+              done
+            fi
+          fi
+          # What still runs from this job's bundles (the signed app, and the
+          # DMG smoke's copy of the same app name) holds the runner in
+          # "Cleaning up orphan processes" and slows the post-job steps
+          # (run 39440747033: owners, the Chief host and the browser host
+          # outlived the requests above; the job's tail took 2 min). The runner
+          # is ephemeral and the smokes are done: SIGTERM those exact PIDs,
+          # then SIGKILL the ones still alive after 5 s.
+          app_name="$(basename "$app")"
+          left() {
+            ps -ww -o pid= -o args= -U "$(id -u)" | while read -r pid args; do
+              case "$args" in
+                *"/$app_name/Contents/"*) echo "$pid" ;;
+              esac
+            done
+          }
+          pids="$(left)"
+          if [ -n "$pids" ]; then
+            echo "SIGTERM to the processes still running from $app_name: $(echo $pids)"
+            # shellcheck disable=SC2086 # one PID per word
+            kill -TERM $pids 2>/dev/null || true
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+              [ -n "$(left)" ] || break
+              sleep 0.5
+            done
+            pids="$(left)"
+            if [ -n "$pids" ]; then
+              echo "SIGKILL to the processes that outlived SIGTERM: $(echo $pids)"
+              # shellcheck disable=SC2086
+              kill -KILL $pids 2>/dev/null || true
+            fi
           fi
           echo "cmux processes after the stop:"
           ps -axww -o pid=,ppid=,args= | grep -i cmux | grep -v grep || true
