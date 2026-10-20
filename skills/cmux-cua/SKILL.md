@@ -51,14 +51,20 @@ or permissions are not a reason to begin setup automatically.
   computer-use connector, or a direct helper launch. If the `cmux-cua` tools
   are absent or fail to connect, report that and stop; do not switch
   providers.
+- Computer Use is off until the user turns on `computerUse.enabled` (Settings →
+  cmux Computer Use); while it is off the app starts no helper and macOS asks
+  for nothing. `computerUse.driver` picks the helper: `legacy` (default) or
+  `upstream` (helper v2, reached through the `acpmux cua-mcp` bridge, still
+  named `cmux-cua`). The app, not the agent session, starts the helper.
 - The proxy forwards to the **cmux Computer Use** helper (`com.cmuxterm.cua`)
-  over its Unix socket and starts it on the first call. Only a helper signed
+  over its Unix socket. Only a helper signed
   with the cmux Developer ID (team `7WLXT3NR37`) is used
   (`Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/CuaHelperIdentity.swift`,
   `scripts/cmux-cua-helper-trust.sh`). A release, NIGHTLY or RC cmux carries
-  it. A tagged dev build has no helper of its own (`reload.sh` removes an
-  ad-hoc one), so dev builds use the helper of an installed NIGHTLY (or
-  release or RC). With no signed helper installed, computer use is
+  it. With the legacy driver a tagged dev build has no helper of its own
+  (`reload.sh` removes an ad-hoc one), so dev builds use the helper of an
+  installed NIGHTLY (or release or RC). With the `upstream` driver a DEV build
+  embeds a dev helper (`com.cmuxterm.cua.dev`, `scripts/cmux-next/embed-cua-helper-dev.sh`). With no signed helper installed, computer use is
   unavailable in that build; say so instead of trying to build or sign one.
 - Agent activity (every computer use session, its timeline and thumbnails) is
   in the app's Agent activity pane, read from the same helper.
@@ -207,9 +213,9 @@ cursor. It is configured by env the attachment sets
 the helper daemon is driving. It remains visible across normal reasoning gaps
 and is removed when the driving session ends or the proxy control connection
 closes. Each later action reasserts the cursor directly above the driven
-target. If no cursor appears during an action, confirm the MCP config uses the
-helper socket and that you passed your own `session` to `start_session` and
-every action. The cmux-next app draws the same cursor for browser REPL input
+target. If no cursor appears during an action, confirm the session's MCP config
+uses the helper socket with `CMUX_CUA_MCP_FORCE_PROXY=1`; never call
+`start_session` or pass a `session` yourself. The cmux-next app draws the same cursor for browser REPL input
 (`plans/cmux-next/agent-cursor.md`).
 
 ## Finding and focusing the driving session
@@ -241,8 +247,9 @@ Settings → cmux Computer Use.
   acpmux daemon, the daemon has `ACPMUX_AGENT_TOOLS=0`, the daemon's
   executable is not the app's (no `cmux-cua` beside it), or the session has a
   remote origin. Start a fresh session from the cmux app.
-- **Tools present, every call fails** — no Developer ID signed helper is
-  installed (typical for a tagged dev build without a NIGHTLY install).
+- **Tools present, every call fails** — `computerUse.enabled` is off (the
+  default), or no Developer ID signed helper is installed (typical for a tagged
+  dev build on the legacy driver without a NIGHTLY install).
 - **Clicks do nothing / not permitted** — grant Accessibility to cmux Computer Use.
 - **Black/empty screenshots** — grant Screen Recording to cmux Computer Use;
   restart only the helper if its automatic refresh has not completed yet.
@@ -264,9 +271,10 @@ Settings → cmux Computer Use.
   agent-supplied `check_permissions {prompt:true}` from bypassing cmux
   onboarding. The attachment sets `CMUX_CUA_MCP_FORCE_PROXY=1`, so the
   proxy never runs computer use in the agent's own process.
-  There is no ambient executable override. Both profiles resolve the app-bundled
-  `cmux-cua` executable and the tag-scoped helper only; missing ownership fails
-  closed instead of running a user-supplied executable.
+  The acpmux daemon finds `cmux-cua` next to its own executable, or in
+  `CMUX_AGENT_TOOLS_BIN_DIR` when that is set on the daemon. Both profiles then
+  use the tag-scoped helper only; missing ownership fails closed instead of
+  running a user-supplied executable.
 - If the cmux-owned daemon is unavailable, do **not** invoke `cmux-cua`
   directly through Bash and do not start its default socket. Tell the user to
   open Settings → cmux Computer Use or restart the tagged cmux build, then retry the
@@ -275,5 +283,6 @@ Settings → cmux Computer Use.
   generated from the Rust tool descriptions.
 - The attachment lives in `cmux-tui/crates/acpmux/src/agent_tools.rs`; the
   helper identity rule and the Agent activity pane in
-  `Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/`; the design in
+  `Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/`; the helper daemon
+  and onboarding in `Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/`; the design in
   `plans/cmux-next/computer-use.md`.

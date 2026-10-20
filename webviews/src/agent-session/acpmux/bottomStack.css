@@ -1,6 +1,7 @@
 /* The chat's bottom stack (hq#1957, Leo 2026-10-14): everything under the transcript, in the layout
    flow and in this order: a question waiting for an answer (.acpmux-asks-stack), notices, the pull
-   request dock (summary/PullRequestDock.tsx), then the composer form, which holds the queued
+   request dock (summary/PullRequestDock.tsx), the agents pill while subagents run
+   (subagents/AgentsPill.tsx), then the composer form, which holds the queued
    prompts (ComposerQueue.tsx), the location strip and the card. Every part takes its own height,
    so none draws over another or under the pane's edge. The transcript gives up height first, down
    to --acpmux-transcript-min; in a pane shorter still, the dock and the queue give up theirs, down
@@ -9,6 +10,12 @@
 /* The stage holds the header (44px, styles.css) over the transcript. */
 .acpmux-main > .acpmux-stage {
   min-height: calc(44px + var(--acpmux-transcript-min, 96px));
+}
+.acpmux-main > .acpmux-agents-pill-anchor {
+  position: relative;
+  flex: none;
+  display: flex;
+  padding: 0 var(--cv-inset) 8px;
 }
 .acpmux-main > .acpmux-composer {
   display: flex;
