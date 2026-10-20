@@ -859,6 +859,7 @@ fn parse_tab_strings(
             }
             params.insert("url".into(), Value::String(url));
             insert_optional_string(&mut params, flags, "name", "name");
+            browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
@@ -3108,6 +3109,39 @@ mod tests {
         let flagged = protocol(&["browser", "open", "--url", "https://example.com/docs"]);
         assert_eq!(operation(&flagged), "tab.create_browser");
         assert_eq!(flagged.params["url"], "https://example.com/docs");
+    }
+
+    #[test]
+    fn browser_open_and_tab_create_browser_take_an_engine() {
+        let chromium = protocol(&["browser", "open", "https://a.test", "--engine", "chromium"]);
+        assert_eq!(chromium.params["engine"], "cef");
+        let chrome = protocol(&[
+            "tab",
+            "create",
+            "browser",
+            "--url",
+            "https://a.test",
+            "--engine",
+            "Chrome",
+        ]);
+        assert_eq!(chrome.params["engine"], "cef");
+        let webkit = protocol(&["browser", "open", "https://a.test", "--engine", "webkit"]);
+        assert_eq!(webkit.params["engine"], "webkit");
+        // No flag: no field, so `browser.defaultEngine` decides.
+        assert!(protocol(&["browser", "open", "https://a.test"]).params.get("engine").is_none());
+        let profile = protocol(&[
+            "browser",
+            "profile",
+            "open",
+            "https://a.test",
+            "--profile",
+            "p",
+            "--engine",
+            "chromium",
+        ]);
+        assert_eq!(profile.params["engine"], "cef");
+        let unknown = strings(&["browser", "open", "https://a.test", "--engine", "gecko"]);
+        assert!(parse(&unknown, super::super::Surface::CmuxTui).is_err());
     }
 
     #[test]

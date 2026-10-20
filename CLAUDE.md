@@ -77,10 +77,29 @@ Swift/Rust builds and tests stay on the fleet.
   `Thread.sleep`, `.wait()`, `readDataToEndOfFile()`, `waitUntilExit()` or `NSWorkspace.shared.open`.
 - No `try!`: throw or handle a typed error.
 - Fonts come from `TypeScale` or `Typography`, never a literal size.
+- Every animation goes through a motion gate with a category: `Motion.<category>.animate(...)`,
+  `.set(...)`, `.duration(...)`, `.animation(...)` (`sidebar`, `tabs`, `panes`, `overlays`,
+  `hoverCards`, `home`, `cursor`, `indicators`, `feedback`, `web`; for a new area, add a
+  `MotionCategory` case with its setting, action and strings). The gate obeys the master switch
+  `ui.animations.enabled`, the category's `ui.animations.<category>`, `ui.animationSpeed` and
+  Reduce Motion, so a person can turn all animation or one area off. Code must work with no
+  animation at all: the change applies in one frame and completions still run. No raw
+  `NSAnimationContext`, `withAnimation`, `.animation(...)`, `CABasicAnimation`, `animator()` outside
+  a gate group, window `animationBehavior` or SwiftUI transition; a reviewed exception says
+  `// motion: allow <how it still obeys the switches>`. App web pages get this from the shared
+  `WebTheme` bootstrap (`data-cmux-motion`); do not bypass it. `check-motion.sh` enforces this;
+  see [motion-DESIGN.md](plans/cmux-next/motion-DESIGN.md).
 - Dialogs use the standard key-hint components (`CmuxDialogSpec`, `CmuxDialogActionButton`,
   `ThemedBezelButton.keyHint`, web `ui/DialogButton`), never `NSAlert`, `.alert` or `.confirmationDialog`.
 - An escape comment (`// concurrency-allow:`, `// crash-allow:`, `dialog-keys-exempt:`)
   needs a reason that proves the code is safe; it is not a way to pass the gate.
+- Never change a Ghostty-default shortcut without the user's explicit OK. Ghostty's split keys
+  (Cmd-Opt-arrows focus a pane, Cmd-D / Cmd-Shift-D split, Ctrl-Cmd-arrows resize,
+  Cmd-Shift-Return zoom) are reserved in `schemas/keybindings/ghostty-reserved-keys.json`;
+  no other action may take one, in any pane. `GhosttyReservedKeysTests` and the gate's
+  "Ghostty-default keys" check enforce it, and `CMUX_NEXT_CHECKS_SKIP_REASON` does not skip
+  it: only a `Ghostty-defaults-OK: <the user's words>` commit trailer does. (2f3e1f95983 made
+  Cmd-Opt-Left / Right sidebar keys; Lawrence 2026-10-20: "ensure this never happens again".)
 
 ## Swift namespace convention
 

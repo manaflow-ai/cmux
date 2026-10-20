@@ -111,6 +111,7 @@ extension SidebarListView {
         var options: SidebarLayoutOptions?
         var heightChanged = false
         let shownCard = hoverCard.shownID
+        let shownGroupCard = hoverCard.shownGroupID
         for ws in patched {
             workspaces[ws.id] = ws
             // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again.
@@ -127,6 +128,7 @@ extension SidebarListView {
                 if path.member != nil, case let .group(group) = section.nodes[path.node] {
                     groups[group.id] = group
                     reconfigure(.group(group.id))
+                    if shownGroupCard == group.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(group.id)) }
                 }
             }
             if shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }

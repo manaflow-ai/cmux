@@ -325,6 +325,13 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 requires: [.filePreviewFocused], targets: [.pane], cliName: "browser reveal-file-in-finder"
             ),
             ActionDescriptor(
+                id: "filePreviewRevealInFiles",
+                title: String(localized: "action.filePreviewRevealInFiles", defaultValue: "Reveal File in cmux Files", bundle: .module),
+                keywords: ["file", "files", "finder", "reveal", "folder"], category: .browser, symbol: "folder",
+                surfaces: [.contextMenu], requires: [.filePreviewFocused], targets: [.pane],
+                cliName: "browser reveal-file-in-files"
+            ),
+            ActionDescriptor(
                 id: "diffViewerNextLine",
                 title: String(localized: "action.diffViewerNextLine", defaultValue: "Diff: Next Line", bundle: .module),
                 keywords: ["diff", "vim"], defaultShortcut: Shortcut("j", modifiers: []), category: .browser,
