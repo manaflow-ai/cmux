@@ -16,20 +16,20 @@
 use std::fs::File;
 use std::io;
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::FromRawHandle;
+use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::Path;
 use std::ptr::null_mut;
 use windows_sys::Win32::Foundation::{
     ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE, LocalFree,
 };
 use windows_sys::Win32::Security::Authorization::{
-    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
-    GetNamedSecurityInfoW, SDDL_REVISION_1, SE_FILE_OBJECT, SetNamedSecurityInfoW,
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
+    SDDL_REVISION_1, SE_FILE_OBJECT, SetSecurityInfo,
 };
 use windows_sys::Win32::Security::{
     ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, GetAce, GetSecurityDescriptorDacl,
-    GetSecurityDescriptorOwner, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
-    PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES,
+    OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+    SECURITY_ATTRIBUTES,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
@@ -50,6 +50,9 @@ const INHERIT_ONLY: u8 = 0x08;
 /// generic all.
 const CHANGE_RIGHTS: u32 =
     0x2 | 0x4 | 0x10 | 0x1_0000 | 0x4_0000 | 0x8_0000 | 0x4000_0000 | 0x1000_0000;
+const READ_CONTROL_ACCESS: u32 = 0x0002_0000;
+const WRITE_DAC_ACCESS: u32 = 0x0004_0000;
+const WRITE_SECURITY_ACCESS: u32 = READ_CONTROL_ACCESS | WRITE_DAC_ACCESS;
 
 fn wide(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain([0]).collect()
@@ -131,19 +134,20 @@ pub(crate) fn open_append(path: &Path) -> io::Result<File> {
     let file = open_owner_only(
         path,
         OPEN_ALWAYS,
-        0x4 | 0x10_0000 | 0x80,
+        0x4 | 0x10_0000 | 0x80 | WRITE_SECURITY_ACCESS,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
     )?;
-    // The checks below go by path, so the path must be the file itself.
     if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("{} is a link, not a log file", path.display()),
         ));
     }
-    if !only_owner_reads(path)? {
-        restrict(path)?;
+    ensure_opened_owner(&file)?;
+    if !only_owner_reads_opened(&file)? {
+        restrict_opened(&file, false)?;
     }
+    ensure_owner_only(&file)?;
     Ok(file)
 }
 
@@ -155,7 +159,7 @@ pub(crate) fn open_read(path: &Path) -> io::Result<File> {
     let file = open_owner_only(
         path,
         OPEN_EXISTING,
-        GENERIC_READ | 0x80,
+        GENERIC_READ | 0x80 | WRITE_SECURITY_ACCESS,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
     )?;
     if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
@@ -164,9 +168,11 @@ pub(crate) fn open_read(path: &Path) -> io::Result<File> {
             format!("{} is a link, not a state file", path.display()),
         ));
     }
-    if !only_owner_reads(path)? {
-        restrict(path)?;
+    ensure_opened_owner(&file)?;
+    if !only_owner_reads_opened(&file)? {
+        restrict_opened(&file, false)?;
     }
+    ensure_owner_only(&file)?;
     Ok(file)
 }
 
@@ -178,7 +184,7 @@ pub(crate) fn open_rw(path: &Path) -> io::Result<File> {
     let file = open_owner_only(
         path,
         OPEN_ALWAYS,
-        GENERIC_READ | GENERIC_WRITE | 0x80,
+        GENERIC_READ | GENERIC_WRITE | 0x80 | WRITE_SECURITY_ACCESS,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
     )?;
     if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
@@ -187,9 +193,11 @@ pub(crate) fn open_rw(path: &Path) -> io::Result<File> {
             format!("{} is a link, not a state file", path.display()),
         ));
     }
-    if !only_owner_reads(path)? {
-        restrict(path)?;
+    ensure_opened_owner(&file)?;
+    if !only_owner_reads_opened(&file)? {
+        restrict_opened(&file, false)?;
     }
+    ensure_owner_only(&file)?;
     Ok(file)
 }
 
@@ -224,7 +232,7 @@ fn open_directory(path: &Path) -> io::Result<File> {
     let handle = unsafe {
         CreateFileW(
             name.as_ptr(),
-            GENERIC_READ,
+            GENERIC_READ | WRITE_SECURITY_ACCESS,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             null_mut(),
             OPEN_EXISTING,
@@ -283,11 +291,12 @@ fn private_dir_after_open(
             format!("{} is not a private directory", dir.display()),
         ));
     }
+    ensure_opened_owner(&opened)?;
     after_open()?;
     // Normalize even an owner-only but read-only legacy DACL: state
     // directories must let this user create, replace and delete children.
-    restrict(dir)?;
-    if !only_owner_reads(dir)? {
+    restrict_opened(&opened, true)?;
+    if !only_owner_reads_opened(&opened)? {
         return Err(io::Error::new(io::ErrorKind::PermissionDenied, "directory is not owner-only"));
     }
     Ok(())
@@ -296,10 +305,19 @@ fn private_dir_after_open(
 /// `daemon.rs` `narrow_to_owner`: an existing file or folder that is not
 /// owner-only already gets the owner-only access list; a failure is logged.
 pub(crate) fn narrow(path: &Path) {
-    if !path.exists() || only_owner_reads(path).unwrap_or(false) {
-        return;
-    }
-    if let Err(e) = restrict(path) {
+    let result = (|| {
+        let opened = open_for_security(path, true)?;
+        ensure_opened_owner(&opened)?;
+        if !only_owner_reads_opened(&opened)? {
+            let is_dir = opened_is_dir(&opened)?;
+            restrict_opened(&opened, is_dir)?;
+            ensure_owner_only(&opened)?;
+        }
+        Ok::<_, io::Error>(())
+    })();
+    if let Err(e) = result
+        && e.kind() != io::ErrorKind::NotFound
+    {
         tracing::warn!("could not make {} owner-only: {e}", path.display());
     }
 }
@@ -307,25 +325,30 @@ pub(crate) fn narrow(path: &Path) {
 /// Replaces `path`'s access list with the owner-only one (and its owner
 /// with our user).
 pub(crate) fn restrict(path: &Path) -> io::Result<()> {
+    let opened = open_for_security(path, true)?;
+    ensure_opened_owner(&opened)?;
+    let is_dir = opened_is_dir(&opened)?;
+    restrict_opened(&opened, is_dir)?;
+    ensure_owner_only(&opened)
+}
+
+fn restrict_opened(opened: &File, is_dir: bool) -> io::Result<()> {
     let user = user_sid()?;
-    let sd = descriptor(&user, path.is_dir())?;
-    let (mut owner, mut dacl): (PSID, *mut ACL) = (null_mut(), null_mut());
+    let sd = descriptor(&user, is_dir)?;
+    let mut dacl: *mut ACL = null_mut();
     let (mut defaulted, mut present) = (0, 0);
-    // SAFETY: a valid descriptor; the out-pointers point into it.
+    // SAFETY: a valid descriptor; the DACL out-pointer points into it.
     unsafe {
-        GetSecurityDescriptorOwner(sd.0, &mut owner, &mut defaulted);
         GetSecurityDescriptorDacl(sd.0, &mut present, &mut dacl, &mut defaulted);
     }
-    let mut name = wide(path);
-    // SAFETY: a NUL-terminated name; SID and ACL from the descriptor.
+    // SAFETY: a live file/directory handle and ACL from the descriptor. The
+    // opened object must already be ours; never take ownership of another's.
     let status = unsafe {
-        SetNamedSecurityInfoW(
-            name.as_mut_ptr(),
+        SetSecurityInfo(
+            opened.as_raw_handle(),
             SE_FILE_OBJECT,
-            OWNER_SECURITY_INFORMATION
-                | DACL_SECURITY_INFORMATION
-                | PROTECTED_DACL_SECURITY_INFORMATION,
-            owner,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            null_mut(),
             null_mut(),
             dacl,
             null_mut(),
@@ -340,29 +363,54 @@ pub(crate) fn restrict(path: &Path) -> io::Result<()> {
 /// The other SID that can change `path`: its owner, or one granted change
 /// rights; None when only our user (and the always-allowed SIDs) can.
 pub(crate) fn changer_other_than_us(path: &Path) -> io::Result<Option<String>> {
-    wider(path, CHANGE_RIGHTS)
+    let opened = open_for_security(path, false)?;
+    wider_opened(&opened, CHANGE_RIGHTS)
 }
 
 /// True when only our user (and the always-allowed SIDs) can read or
 /// change `path`.
 pub(crate) fn only_owner_reads(path: &Path) -> io::Result<bool> {
-    // Every right counts: read data, read attributes and the change rights.
-    Ok(wider(path, u32::MAX)?.is_none())
+    let opened = open_for_security(path, false)?;
+    only_owner_reads_opened(&opened)
 }
 
-fn wider(path: &Path, rights: u32) -> io::Result<Option<String>> {
+fn only_owner_reads_opened(opened: &File) -> io::Result<bool> {
+    // Every right counts: read data, read attributes and the change rights.
+    Ok(wider_opened(opened, u32::MAX)?.is_none())
+}
+
+fn ensure_opened_owner(opened: &File) -> io::Result<()> {
+    if wider_opened(opened, 0)?.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "state object is not owned by this user",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_owner_only(opened: &File) -> io::Result<()> {
+    if !only_owner_reads_opened(opened)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "state object is not owner-only",
+        ));
+    }
+    Ok(())
+}
+
+fn wider_opened(opened: &File, rights: u32) -> io::Result<Option<String>> {
     let user = user_sid()?;
     let allowed = |sid: &str| {
         sid.eq_ignore_ascii_case(&user)
             || ALWAYS_ALLOWED.iter().any(|a| sid.eq_ignore_ascii_case(a))
     };
-    let name = wide(path);
     let (mut owner, mut dacl): (PSID, *mut ACL) = (null_mut(), null_mut());
     let mut sd: PSECURITY_DESCRIPTOR = null_mut();
     // SAFETY: out-pointers valid; `sd` is freed by `Local`.
     let status = unsafe {
-        GetNamedSecurityInfoW(
-            name.as_ptr(),
+        GetSecurityInfo(
+            opened.as_raw_handle(),
             SE_FILE_OBJECT,
             OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
             &mut owner,
@@ -419,6 +467,45 @@ fn wider(path: &Path, rights: u32) -> io::Result<Option<String>> {
         }
     }
     Ok(None)
+}
+
+fn open_for_security(path: &Path, write: bool) -> io::Result<File> {
+    use std::os::windows::fs::MetadataExt;
+
+    let mut access = READ_CONTROL_ACCESS | 0x80;
+    if write {
+        access |= WRITE_DAC_ACCESS;
+    }
+    let name = wide(path);
+    // SAFETY: a NUL-terminated path; the handle is owned by File below.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            access,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null_mut(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: CreateFileW returned one owned handle.
+    let opened = unsafe { File::from_raw_handle(handle) };
+    if opened.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is a link, not a state object", path.display()),
+        ));
+    }
+    Ok(opened)
+}
+
+fn opened_is_dir(opened: &File) -> io::Result<bool> {
+    use std::os::windows::fs::MetadataExt;
+    Ok(opened.metadata()?.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0)
 }
 
 #[cfg(test)]
