@@ -63,7 +63,9 @@ test("a long Chief task opens collapsed and Show all opens it", () => {
   expect(bubble().textContent).toBe(task);
   expect(toggle().textContent).toBe("Show all");
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
-  act(() => toggle().dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true })));
+  act(() => {
+    toggle().dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true }));
+  });
   expect(bubble().classList.contains("cv-user__bubble--collapsed")).toBe(false);
   expect(toggle().textContent).toBe("Show less");
   expect(toggle().getAttribute("aria-expanded")).toBe("true");
