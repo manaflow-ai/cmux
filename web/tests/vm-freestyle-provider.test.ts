@@ -990,7 +990,7 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
   const PRIVATE = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
 
   /** A fake SDK client for one machine: `data()` answers `input.data`, the desktop heal exec exits `input.healExit`. */
-  function portFake(input: { readonly data: unknown; readonly healExit?: number }) {
+  function portFake(input: { readonly data: unknown; readonly healExit?: number; readonly desktopTransport?: "novnc" | "screen" }) {
     const execs: string[] = [];
     const vm = {
       data: async () => input.data,
@@ -1001,7 +1001,10 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
       },
     };
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
-    return { provider: new FreestyleProvider({ client: () => client }), execs };
+    const provider = input.desktopTransport === undefined
+      ? new FreestyleProvider({ client: () => client })
+      : new FreestyleProvider({ client: () => client, desktopTransport: input.desktopTransport });
+    return { provider, execs };
   }
 
   test("address: private v4, then private v6, never public (the desktop has no auth of its own)", () => {
@@ -1046,6 +1049,30 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
     } finally {
       setSystemTime();
     }
+  });
+
+  test("with the screen transport, the desktop is the cmux-screen signaling port and the heal probes it", async () => {
+    // Default-off migration step M1 (plans/cmux-next/remote-desktop-DESIGN.md).
+    expect(freestyleDesktopHealCommand("novnc")).toBe(freestyleDesktopHealCommand());
+    expect(freestyleDesktopHealCommand("screen")).toBe(
+      "[ -x /usr/local/bin/start-vnc.sh ] || exit 3; if [ -d /run/systemd/system ]; then systemctl start cmux-desktop || exit 1; fi; ss -tln 2>/dev/null | grep -q ':4180 '",
+    );
+    expect(freestylePortUrls(PRIVATE, VM_ID, 4180, "screen")).toEqual({
+      url: "ws://10.4.0.7:4180/",
+      openUrl: "cmux://remote-view?host=10.4.0.7&target=display%3A1&mode=view&via=screen",
+    });
+    // Under the screen transport 6901 is an ordinary port again.
+    expect(freestylePortUrls(PRIVATE, VM_ID, DEVBOX_DESKTOP_NOVNC_PORT, "screen").openUrl).toBe("http://10.4.0.7:6901/");
+
+    const fake = portFake({ data: PRIVATE, desktopTransport: "screen" });
+    const endpoint = await fake.provider.openPort(VM_ID, 4180);
+    expect(endpoint.url).toBe("ws://10.4.0.7:4180/");
+    expect(endpoint.openUrl).toBe("cmux://remote-view?host=10.4.0.7&target=display%3A1&mode=view&via=screen");
+    expect(fake.execs).toEqual([freestyleDesktopHealCommand("screen")]);
+    // An explicit noVNC transport behaves exactly like the default.
+    const novnc = portFake({ data: PRIVATE, desktopTransport: "novnc" });
+    expect((await novnc.provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT)).openUrl).toBe("http://10.4.0.7:6901/vnc.html?path=websockify");
+    expect(novnc.execs).toEqual([freestyleDesktopHealCommand()]);
   });
 
   test("openPort for a dev server port runs no guest command at all", async () => {

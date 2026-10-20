@@ -65,6 +65,9 @@ final class WindowManager {
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
+    /// The windows the previous launch left open, captured at restore (Restore Previous App
+    /// Launch reopens those closed since); nil before restore and when nothing was saved.
+    var previousLaunch: PreviousLaunch?
     /// The window opened at launch before the saved state loaded: it shows the connecting state
     /// outside the registry, then becomes the frontmost restored window (or the window of the
     /// first workspaces). Nil once it is registered.
@@ -202,6 +205,10 @@ final class WindowManager {
         await EphemeralWorkspaces.awaitFlags(self)
         let firstWorkspace = await FirstWorkspaceLaunch(manager: self).create(leftover: leftover)
         let restoredRegistry = WindowRegistry(records: document.windows)
+        if !restoredRegistry.windows.isEmpty {
+            previousLaunch = PreviousLaunch(windowIDs: restoredRegistry.recency.filter { restoredRegistry.window($0)?.isOpen == true },
+                                            restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000)))
+        }
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
         if !restoredRegistry.windows.isEmpty {
@@ -241,6 +248,10 @@ final class WindowManager {
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
+        // Classic cmux's session comes over once, after restore so the restored
+        // registry never overwrites where its workspaces land.
+        let onboarding = AppOnboardingServices(owner: services.onboarding)
+        Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
     }
 
     /// The launch window takes the frontmost saved window's identity and

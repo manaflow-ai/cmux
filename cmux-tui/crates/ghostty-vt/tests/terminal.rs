@@ -1318,3 +1318,19 @@ fn grapheme_clustering_is_on_by_default_like_the_ghostty_viewer() {
     term.vt_write(b"\x1b[?2027l");
     assert!(!term.mode(2027, false), "programs may still turn it off");
 }
+
+// Resize audit item 7: a cell-pixel-only resize keeps the history rows, so
+// it must not make frontends read the history pages again.
+#[test]
+fn resize_audit_cell_pixel_only_resize_keeps_the_history_epoch() {
+    let mut term = Terminal::new(10, 4, 1000, Callbacks::default()).unwrap();
+    term.resize(10, 4, 8, 16).unwrap();
+    for line in 0..20 {
+        term.vt_write(format!("line {line}\r\n").as_bytes());
+    }
+    let epoch = term.history_epoch();
+    term.resize(10, 4, 9, 18).unwrap();
+    assert_eq!(term.history_epoch(), epoch, "pixel-only resize");
+    term.resize(12, 4, 9, 18).unwrap();
+    assert_ne!(term.history_epoch(), epoch, "a grid resize reflows the history");
+}

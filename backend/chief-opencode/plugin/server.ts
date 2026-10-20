@@ -231,7 +231,7 @@ export default Plugin.define({
         const w = s.wake
         const now = s.started
         // A new session (first wake, or a new container) reads back further: the conversation is the memory of record.
-        const read = yield* host<Read>("conversation/read", { conversation: w.conversation, after: freshSession ? Math.max(0, w.cursor - 40) : w.cursor, limit: freshSession ? 50 : 20 })
+        const read = yield* host<Read>("conversation/read", { _turn_wake: w.wake_id, conversation: w.conversation, after: freshSession ? Math.max(0, w.cursor - 40) : w.cursor, limit: freshSession ? 50 : 20 })
         const fresh = read.messages.filter((m) => m.seq > w.cursor && m.author.kind !== "self")
         const older = read.messages.filter((m) => m.seq <= w.cursor)
         s.cursor = Math.max(w.cursor, ...read.messages.map((m) => m.seq))
@@ -276,7 +276,7 @@ export default Plugin.define({
         let outcome: "answered" | "skipped" | "failed" = status === "done" ? "skipped" : "failed"
         if (status === "done" && reply && !isNoReply(reply)) {
           const posted = yield* host<{ message: string | null }>("conversation/post", {
-            conversation: s.wake.conversation, client_msg_id: `chief-reply:${s.run}`, body: reply, run: s.run,
+            _turn_wake: s.wake.wake_id, conversation: s.wake.conversation, client_msg_id: `chief-reply:${s.run}`, body: reply, run: s.run,
             ...(s.replyTo && s.replyTo.kind !== "chief" && s.replyTo.kind !== "dm" ? { reply_to: s.replyTo.message, thread_root: s.replyTo.thread_root ?? s.replyTo.message } : s.replyTo?.thread_root ? { reply_to: s.replyTo.message, thread_root: s.replyTo.thread_root } : {})
           }).pipe(attempt)
           if (!posted.ok) {
@@ -288,7 +288,7 @@ export default Plugin.define({
         yield* notify(s, "run/end", { run })
         bySession.delete(s.session)
         yield* ctx.storage.set(`run:${s.run}`, { state: s.status, run } as never).pipe(Effect.ignore)
-        yield* host("chief/ack", { wake_id: s.wake.wake_id, outcome: s.status === "failed" ? "failed" : outcome, cursor: s.cursor }).pipe(Effect.ignore)
+        yield* host("chief/ack", { _turn_wake: s.wake.wake_id, wake_id: s.wake.wake_id, outcome: s.status === "failed" ? "failed" : outcome, cursor: s.cursor }).pipe(Effect.ignore)
       })
 
     // ------------------------------------------------ opencode events -> run/*
@@ -431,7 +431,8 @@ export default Plugin.define({
     const toolCall = (method: string, params: (s: RunState | undefined, input: Record<string, unknown>, callID: string) => unknown) => (args: unknown, context: { sessionID: unknown; id: unknown }) =>
       Effect.gen(function* () {
         const s = bySession.get(String(context.sessionID))
-        const r = yield* host<unknown>(method, params(s, (args ?? {}) as Record<string, unknown>, String(context.id))).pipe(attempt)
+        const request = params(s, (args ?? {}) as Record<string, unknown>, String(context.id))
+        const r = yield* host<unknown>(method, { ...(request as Record<string, unknown>), _turn_wake: s?.wake.wake_id }).pipe(attempt)
         const content = !r.ok ? `Error: ${r.error.message}` : typeof r.value === "string" ? r.value : JSON.stringify(r.value, null, 2)
         return { content }
       })

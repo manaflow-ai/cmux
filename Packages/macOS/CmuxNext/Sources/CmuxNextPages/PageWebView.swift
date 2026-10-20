@@ -198,6 +198,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         bridge = webKitBridge
         scripts = PageScriptPipeline { script in webKitBridge.evaluate(script) }
         super.init(frame: .zero)
+        // The web view got the keyboard: WebKit focuses no element by itself, so the page focuses its
+        // primary input (Monaco) when nothing has focus (pane-focus-DESIGN.md P1).
+        webView.onBecameFirstResponder = { [weak self] in self?.send(command: PageNativeOp.focusContent) }
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         observeStatusLook()
         wantsLayer = true
@@ -210,9 +213,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             webView.setValue(false, forKey: "drawsBackground")
         }
         webView.underPageBackgroundColor = .clear
-        #if DEBUG
+        // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
-        #endif
         webView.navigationDelegate = self
         webView.uiDelegate = PageOpenPanel.shared
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
@@ -477,7 +479,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             // opens the link through the shared rule; Shift-Command asks for the other browser.
             externalLinkModifiers = action.modifierFlags
             let other = LinkRouter.isOtherTarget(action.modifierFlags)
-            if let url { (onOpenExternal ?? { LinkRouter.shared.open($0, otherTarget: other) })(url) }
+            if let url {
+                if let onOpenExternal { onOpenExternal(url) } else { LinkRouter.shared.open(url, otherTarget: other, from: self) }
+            }
             return .cancel
         case .cancel:
             return .cancel

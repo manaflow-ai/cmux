@@ -13,6 +13,8 @@ type Props = {
 };
 
 const labels: Record<string, string> = {
+  findCount: "{current} of {total}",
+  findNoMatches: "No results",
   findInDiff: "Find in diff",
   findPreviousMatch: "Previous match",
   findNextMatch: "Next match",
@@ -71,20 +73,20 @@ function GalleryFindBar({ initialQuery, initialMatches, requestToken: initialReq
 
 const next: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Next match" });
-  await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "2/3");
+  await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "2 of 3");
 };
 
 const previous: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Previous match" });
-  await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "3/3");
+  await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "3 of 3");
 };
 
 const keyboard: Play = async (ctx) => {
   await ctx.focus({ role: "textbox", name: "Find in diff" });
   await ctx.press("Enter");
-  await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "2/3");
+  await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "2 of 3");
   await ctx.press("Shift+Enter");
-  await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "1/3");
+  await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "1 of 3");
   await ctx.press("Escape");
   await ctx.waitFor(() => ctx.document.querySelector("[data-find-closed]") !== null);
 };

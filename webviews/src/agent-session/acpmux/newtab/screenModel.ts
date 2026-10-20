@@ -391,6 +391,29 @@ export function recentChatCards(
   return cards.map((card) => withChildren(card, children));
 }
 
+/// The stage layout's needs-you rows (NewTabScreen's suggestions card).
+export const MAX_NEEDS_YOU = 3;
+
+/// The chats waiting on the user (asking for input, or hit an error or lost their agent), newest
+/// first, picked from every chat before the cap: an older one is never hidden behind newer idle
+/// chats, as `recentChatCards`' trimmed list would hide it.
+export function needsYouCards(
+  sessions: AcpmuxSnapshot["sessions"],
+  now: number,
+  t: Translate,
+  count = MAX_NEEDS_YOU,
+): ChatCard[] {
+  // One pass keeps the waiting chats (sessionCard's state, read without building a card); only
+  // those few are sorted and carded, never the whole list (greptile on #22119).
+  const waiting = sessions.filter((raw) => {
+    const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
+    if (session.indicator === "failed") return true;
+    const mark = sessionMark(session, false);
+    return mark === "input" || mark === "error";
+  });
+  return liveChatCards(waiting, now, t, count, false);
+}
+
 function liveChatCards(
   sessions: AcpmuxSnapshot["sessions"],
   now: number,
