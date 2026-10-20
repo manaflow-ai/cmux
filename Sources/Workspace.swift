@@ -1946,6 +1946,25 @@ extension Workspace {
             // top of that binding.
             let restorableAgentCanAutoResume = restorableAgent != nil &&
                 (resumeBinding == nil || resumeBinding?.isAgentHookBinding == true)
+            // A crash snapshot can contain the same structured checkpoint in
+            // multiple workspaces/windows. Claim automatic startup once for
+            // the enclosing restore pass; later panels remain recoverable but
+            // do not start a second writer.
+            let ownsRestorePassCheckpoint = if shouldAutoResumeAgent,
+               restorableAgentCanAutoResume,
+               restoredHibernation == nil,
+               !suppressesResumeForBackgroundSession,
+               let restorableAgent {
+                SurfaceResumeRunPromptBatch.shared.claimAgentRestore(
+                    kind: restorableAgent.kind.rawValue,
+                    sessionID: restorableAgent.sessionId
+                )
+            } else {
+                true
+            }
+            let duplicateRestoreOwner = shouldAutoResumeAgent &&
+                restorableAgentCanAutoResume &&
+                !ownsRestorePassCheckpoint
             let usesExecutionAdmission = !restoresRemoteWorkspaceTerminalSnapshot &&
                 (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
             let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
@@ -2095,7 +2114,11 @@ extension Workspace {
                 legacySubrouterResumeInput == nil
             let restoredBindingLaunch = legacySubrouterRestoreBlocked
                 ? nil
-                : (legacySubrouterResumeInput == nil ? unresolvedBindingLaunch : nil)
+                : (legacySubrouterResumeInput == nil
+                    ? (resumeBinding?.isAgentHookBinding == true && !ownsRestorePassCheckpoint
+                        ? nil
+                        : unresolvedBindingLaunch)
+                    : nil)
             let restorableTmuxStartCommand = localTmuxStartCommand
                 ?? (!restoreStartupBlocked &&
                     liveSessionOwner == nil &&
@@ -2164,7 +2187,7 @@ extension Workspace {
                 return remoteRestoreClaim == nil
             }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restorableAgentCanAutoResume,
+                if shouldAutoResumeAgent && ownsRestorePassCheckpoint && restorableAgentCanAutoResume,
                    restoredHibernation == nil && legacySubrouterResumeInput == nil &&
                     !legacySubrouterRestoreBlocked && restoredBindingLaunch == nil &&
                     !agentSessionAlreadyActive {
@@ -2197,6 +2220,7 @@ extension Workspace {
             // ordinary shell instead of waiting behind deferred admission.
             let deferredAgentResumeCandidateInput: String? = if
                 !legacySubrouterRestoreBlocked &&
+                ownsRestorePassCheckpoint &&
                 (restoreStartupBlocked || liveSessionOwner != nil || legacySubrouterResumeInput != nil),
                 restoredHibernation == nil,
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
@@ -2371,6 +2395,15 @@ extension Workspace {
                 )
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
+                if ownsRestorePassCheckpoint,
+                   shouldAutoResumeAgent,
+                   restorableAgentCanAutoResume,
+                   let restorableAgent {
+                    SurfaceResumeRunPromptBatch.shared.releaseAgentRestore(
+                        kind: restorableAgent.kind.rawValue,
+                        sessionID: restorableAgent.sessionId
+                    )
+                }
                 // The claim taken above (if any) was for a launch that never
                 // actually happened; release it immediately instead of
                 // leaving it to block a legitimate resume for up to the TTL.
@@ -2393,6 +2426,15 @@ extension Workspace {
                 return nil
             }
             terminalPanel.restoreRecovery.restore(from: snapshot.terminal?.restoreRecovery)
+            if duplicateRestoreOwner,
+               let restorableAgent {
+                terminalPanel.restoreRecovery.state = .failed(
+                    reason: "duplicate-restore-owner",
+                    recoveryInput: restorableAgent.resumeStartupInput(
+                        restoringWorkingDirectory: resumeSessionWorkingDirectory
+                    )
+                )
+            }
             if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.markCheckingPreservingFailure() }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
@@ -2475,6 +2517,7 @@ extension Workspace {
                 chatWorkingDirectory: resumeSessionWorkingDirectory,
                 agentSessionAlreadyActive: liveSessionOwner != nil ||
                     suppressesResumeForBackgroundSession ||
+                    duplicateRestoreOwner ||
                     (deferredAgentResumeAdmission
                         ? true
                         : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),

@@ -294,7 +294,7 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
-    func sessionSnapshotCollapsesSameSizeWindowWhenOneCheckpointSetContainsTheOther() {
+    func sessionSnapshotKeepsSameSizeWindowsWhenCheckpointSetsPartiallyOverlap() {
         let projectDirectory = "/Volumes/Workshop/Code/pulp"
         let homeDirectory = "/Users/danielraffel"
 
@@ -380,10 +380,9 @@ struct CrashDiagnosticSessionPolicyTests {
             )
         )
 
-        #expect(pruned.removedAny)
-        #expect(pruned.snapshot?.windows.count == 1)
-        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.count == 3)
-        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.first?.currentDirectory == projectDirectory)
+        #expect(!pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 2)
+        #expect(pruned.snapshot?.windows.allSatisfy { $0.tabManager.workspaces.count == 2 } == true)
     }
 
     @Test
@@ -452,16 +451,17 @@ struct CrashDiagnosticSessionPolicyTests {
 
         let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
 
-        #expect(pruned.removedAny)
-        #expect(pruned.snapshot?.windows.count == 1)
-        #expect(Set(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) ?? []) == [
-            projectDirectory,
-            "/Volumes/Workshop/Code/first",
-            "/Volumes/Workshop/Code/second",
-            "/Volumes/Workshop/Code/third",
-            "/Volumes/Workshop/Code/first",
-            "/Volumes/Workshop/Code/auxiliary",
-        ])
+        #expect(!pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 2)
+        #expect(
+            Set(pruned.snapshot?.windows.flatMap { $0.tabManager.workspaces.map(\.currentDirectory) } ?? []) == [
+                projectDirectory,
+                "/Volumes/Workshop/Code/first",
+                "/Volumes/Workshop/Code/auxiliary",
+                "/Volumes/Workshop/Code/second",
+                "/Volumes/Workshop/Code/third",
+            ]
+        )
     }
 
     @Test

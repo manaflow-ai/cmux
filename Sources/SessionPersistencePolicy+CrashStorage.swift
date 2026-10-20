@@ -171,10 +171,14 @@ extension SessionPersistencePolicy {
                 continue
             }
             if let existingIndex = seenFingerprints[fingerprint] {
-                if sessionWindowRestoreFidelityScore(window) >
-                    sessionWindowRestoreFidelityScore(result[existingIndex]) {
-                    result[existingIndex] = window
-                }
+                // Equal fingerprints identify a shared checkpoint manifest,
+                // not necessarily identical workspace contents. Merge both
+                // generations so identity-less workspaces are retained while
+                // richer copies still win for the same workspace.
+                result[existingIndex] = mergingCrashDuplicateWindows(
+                    result[existingIndex],
+                    window
+                )
                 removedAny = true
                 continue
             }
@@ -213,11 +217,11 @@ extension SessionPersistencePolicy {
         let lhsAgents = crashWindowCheckpointIDs(lhs)
         let rhsAgents = crashWindowCheckpointIDs(rhs)
         guard !lhsAgents.isEmpty, !rhsAgents.isEmpty else { return false }
-        let overlap = lhsAgents.intersection(rhsAgents)
-        let smaller = min(lhsAgents.count, rhsAgents.count)
-        // Require complete containment of the smaller checkpoint set. This
-        // avoids collapsing unrelated windows that merely share a few agents.
-        return overlap.count == smaller
+        // A partial overlap is insufficient evidence that two windows are
+        // generations of the same manifest: each can contain an unrelated
+        // worktree that must remain restorable. Exact checkpoint sets are the
+        // only safe match without stable workspace identities.
+        return lhsAgents == rhsAgents
     }
 
     /// Merge two crash-window generations that share at least one checkpoint.
@@ -278,7 +282,14 @@ extension SessionPersistencePolicy {
         }
         if !checkpoints.isEmpty,
            let index = existing.firstIndex(where: { current in
-               !checkpoints.isDisjoint(with: workspaceCheckpointIDs(current))
+               let currentCheckpoints = workspaceCheckpointIDs(current)
+               guard !currentCheckpoints.isEmpty else { return false }
+               // A shared checkpoint is enough only when one snapshot is a
+               // complete generation of the other. Partial overlap can mean
+               // two different worktrees and must remain two workspaces.
+               return checkpoints == currentCheckpoints
+                   || checkpoints.isSubset(of: currentCheckpoints)
+                   || currentCheckpoints.isSubset(of: checkpoints)
            }) {
             return index
         }

@@ -26,12 +26,24 @@ final class SurfaceResumeRunPromptBatch {
     /// panels remain recoverable without launching a second writer.
     func claimAgentRestore(kind: String, sessionID: String) -> Bool {
         guard activePassDepth > 0 else { return true }
+        let key = agentRestoreKey(kind: kind, sessionID: sessionID)
+        return claimedAgentRestoreKeys.insert(key).inserted
+    }
+
+    /// Releases a claim when the owning panel could not be attached. This is
+    /// intentionally a no-op outside a restore pass so ordinary panel opens
+    /// retain their existing admission behavior.
+    func releaseAgentRestore(kind: String, sessionID: String) {
+        guard activePassDepth > 0 else { return }
+        claimedAgentRestoreKeys.remove(agentRestoreKey(kind: kind, sessionID: sessionID))
+    }
+
+    private func agentRestoreKey(kind: String, sessionID: String) -> String {
         let normalizedKind = kind.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = normalizedKind + "\u{1f}" + ManagedAgentSessionIdentity.canonicalSessionID(
+        return normalizedKind + "\u{1f}" + ManagedAgentSessionIdentity.canonicalSessionID(
             kind: normalizedKind,
             sessionID: sessionID
         )
-        return claimedAgentRestoreKeys.insert(key).inserted
     }
 
     func beginRestorePass() {

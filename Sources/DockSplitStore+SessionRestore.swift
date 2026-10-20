@@ -709,6 +709,12 @@ extension DockSplitStore {
         terminal.restoreSessionTextBoxDraft(terminalSnapshot.textBoxDraft)
 
         guard attachSessionRestoredPanel(terminal, snapshot: snapshot, inPane: paneId) != nil else {
+            if let restorableAgent, ownsRestorePassCheckpoint {
+                SurfaceResumeRunPromptBatch.shared.releaseAgentRestore(
+                    kind: restorableAgent.kind.rawValue,
+                    sessionID: restorableAgent.sessionId
+                )
+            }
             if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
             return nil
         }
