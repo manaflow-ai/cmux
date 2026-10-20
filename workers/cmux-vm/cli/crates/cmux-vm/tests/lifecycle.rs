@@ -6,6 +6,157 @@ use serde_json::{Value, json};
 use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+#[tokio::test]
+async fn pending_history_advances_bounded_index_work_without_polling_or_exposing_it_as_empty() {
+    let server = MockServer::start().await;
+    let cursor = format!("i1_{}", "a".repeat(32));
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .and(|request: &wiremock::Request| {
+            request.url.query_pairs().all(|(key, _)| key != "cursor")
+        })
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"items":[], "nextCursor":cursor, "pendingIndex":"building"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let receipt = json!({"items":[], "nextCursor":null, "pendingIndex":"ready"});
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .and(query_param("cursor", cursor.as_str()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "creation", "list", "--pending"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out), receipt);
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn pending_history_refuses_an_older_api_that_ignored_the_filter() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"items":[], "nextCursor":null})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["creation", "list", "--pending"]).await;
+    assert_eq!(out.code, exit::UNEXPECTED);
+    assert!(out.stderr.contains("pending history"));
+    assert!(!out.stdout.contains("no creations"));
+}
+
+#[tokio::test]
+async fn pending_history_respects_the_index_budget_and_rejects_a_stalled_cursor() {
+    let server = MockServer::start().await;
+    let cursor = format!("i1_{}", "c".repeat(32));
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"items":[], "nextCursor":cursor, "pendingIndex":"building"})),
+        )
+        .expect(2)
+        .mount(&server)
+        .await;
+    let bounded = cli(
+        &server,
+        &["creation", "list", "--pending", "--index-pages", "1"],
+    )
+    .await;
+    assert_eq!(bounded.code, exit::OK, "{}", bounded.stderr);
+    assert!(
+        bounded
+            .stdout
+            .contains(&format!("--pending --index-pages 1 --cursor {cursor}"))
+    );
+    assert!(!bounded.stdout.contains("no pending creations"));
+    let stalled = cli(
+        &server,
+        &["creation", "list", "--pending", "--cursor", &cursor],
+    )
+    .await;
+    assert_eq!(stalled.code, exit::UNEXPECTED);
+    assert!(stalled.stderr.contains("made no progress"));
+}
+
+#[tokio::test]
+async fn pending_history_preserves_the_page_anchor_when_backfill_interrupts_pagination() {
+    let server = MockServer::start().await;
+    let anchor = format!("001fffffffffffff-{}", "b".repeat(64));
+    let page_cursor = format!("p1_{anchor}");
+    let index_cursor = format!("i1_{}_{anchor}", "a".repeat(32));
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .and(query_param("cursor", page_cursor.as_str()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({"items":[], "nextCursor":index_cursor, "pendingIndex":"building"}),
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let receipt = json!({"items":[], "nextCursor":null, "pendingIndex":"ready"});
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .and(query_param("cursor", index_cursor.as_str()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "creation",
+            "list",
+            "--pending",
+            "--cursor",
+            &page_cursor,
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out), receipt);
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn pending_history_reports_incomplete_legacy_work_and_preserves_the_view_in_its_cursor_hint()
+{
+    let server = MockServer::start().await;
+    let cursor = format!("p1_001fffffffffffff-{}", "b".repeat(64));
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                json!({"items":[], "nextCursor":cursor, "pendingIndex":"unavailable"}),
+            ),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["creation", "list", "--pending"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(out.stdout.contains("pending history is incomplete"));
+    assert!(
+        out.stdout
+            .contains(&format!("creation list --pending --cursor {cursor}"))
+    );
+}
+
 const VM_ID: &str = "vm_0123456789abcdefghjkmnpqrs";
 const KEY: &str = "cmuxvm_sk_test";
 
@@ -1661,4 +1812,203 @@ async fn identity_checks_presence_only_when_requested_and_requires_a_receipt() {
             assert!(out.stdout.is_empty());
         }
     }
+}
+
+#[tokio::test]
+async fn creation_status_and_reconcile_send_only_the_original_key() {
+    for (verb, http_method, route) in [
+        ("get", "GET", "/v1/vm-creations/by-key"),
+        ("reconcile", "POST", "/v1/vm-creations/by-key/reconcile"),
+    ] {
+        let server = MockServer::start().await;
+        let receipt = json!({"state":"pending", "id":VM_ID});
+        Mock::given(method(http_method))
+            .and(path(route))
+            .and(authorized())
+            .and(header("idempotency-key", "original-create"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(
+            &server,
+            &[
+                "--json",
+                "creation",
+                verb,
+                "--idempotency-key",
+                "original-create",
+            ],
+        )
+        .await;
+        assert_eq!(out.code, exit::OK, "{}", out.stderr);
+        assert_eq!(json_stdout(&out), receipt);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn creation_list_sends_bounded_cursor_and_preserves_public_recovery_handles() {
+    let server = MockServer::start().await;
+    let cursor = "a".repeat(64);
+    let receipt = json!({
+        "items":[{"creationKey":"vcr_00000000000000000000000001", "createdAt":"2026-10-18T00:00:00Z",
+          "operation":"create", "displayName":"agent", "state":"pending", "id":VM_ID}],
+        "nextCursor":null
+    });
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("cursor", cursor.as_str()))
+        .and(query_param("limit", "7"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "--json", "creation", "list", "--limit", "7", "--cursor", &cursor,
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out), receipt);
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].headers.get("idempotency-key").is_none());
+}
+
+#[tokio::test]
+async fn creation_list_keeps_empty_filtered_pages_and_rejects_invalid_arguments() {
+    let server = MockServer::start().await;
+    let cursor = "b".repeat(64);
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"items":[], "nextCursor":cursor})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["creation", "list"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(out.stdout.contains("no creations on this page"));
+    assert!(
+        out.stdout
+            .contains(&format!("creation list --cursor {cursor}"))
+    );
+    for args in [
+        vec!["creation", "list", "--limit", "0"],
+        vec!["creation", "list", "--cursor", "invalid"],
+    ] {
+        let invalid = cli(&server, &args).await;
+        assert_eq!(invalid.code, exit::USAGE, "{}", invalid.stderr);
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn creation_list_rejects_a_malformed_public_handle_even_in_json_mode() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items":[{
+            "creationKey":"not-a-server-handle", "createdAt":"2026-10-18T00:00:00Z",
+            "operation":"create", "displayName":null, "state":"pending", "id":VM_ID
+        }], "nextCursor":null})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "creation", "list"]).await;
+    assert_eq!(out.code, exit::UNEXPECTED, "{}", out.stderr);
+}
+
+#[tokio::test]
+async fn creation_reconcile_retains_pending_and_reports_missing_without_retry() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vm-creations/by-key/reconcile"))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(json!({"_tag":"NotFound", "message":"VM creation not found"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "creation",
+            "reconcile",
+            "--idempotency-key",
+            "unknown",
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::NOT_FOUND, "{}", out.stderr);
+    let invalid = cli(&server, &["creation", "get", "--idempotency-key", ""]).await;
+    assert_eq!(invalid.code, exit::USAGE, "{}", invalid.stderr);
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn creation_cancel_requires_confirmation_and_preserves_cancelling_receipts() {
+    let server = MockServer::start().await;
+    let receipt = json!({"state":"cancelling", "id":VM_ID});
+    Mock::given(method("POST"))
+        .and(path("/v1/vm-creations/by-key/cancel"))
+        .and(header("idempotency-key", "original-create"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let refused = cli(
+        &server,
+        &[
+            "--json",
+            "creation",
+            "cancel",
+            "--idempotency-key",
+            "original-create",
+        ],
+    )
+    .await;
+    assert_eq!(refused.code, exit::USAGE);
+    assert!(server.received_requests().await.unwrap().is_empty());
+    let mut tty = Tty {
+        answer: "no",
+        asked: 0,
+    };
+    let uri = server.uri();
+    let env = [("CMUX_VM_API_KEY", KEY), ("CMUX_VM_BASE_URL", uri.as_str())];
+    let args = [
+        "--json",
+        "creation",
+        "cancel",
+        "--idempotency-key",
+        "original-create",
+    ];
+    let declined = cli_with_prompt(&args, &env, &mut tty).await;
+    assert_eq!(declined.code, exit::CANCELLED);
+    tty.answer = "cancel";
+    let accepted = cli_with_prompt(&args, &env, &mut tty).await;
+    assert_eq!(accepted.code, exit::OK, "{}", accepted.stderr);
+    assert_eq!(json_stdout(&accepted), receipt);
+    let scripted = cli(
+        &server,
+        &[
+            "--json",
+            "creation",
+            "cancel",
+            "--idempotency-key",
+            "original-create",
+            "--yes",
+        ],
+    )
+    .await;
+    assert_eq!(scripted.code, exit::OK, "{}", scripted.stderr);
+    assert_eq!(json_stdout(&scripted), receipt);
 }

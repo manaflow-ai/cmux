@@ -101,6 +101,7 @@ on:
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - tests/test_ci_target_graph.py
+      - scripts/cmux-next/check-package-dependency-lists.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -301,6 +302,7 @@ on:
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - tests/test_ci_target_graph.py
+      - scripts/cmux-next/check-package-dependency-lists.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -1222,6 +1224,7 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
             bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh
             bash scripts/cmux-next/tests/request-nightly-next.test.sh
+            bash scripts/cmux-next/tests/cef-runtime-pack.test.sh
             bash scripts/cmux-next/tests/continue-nightly-next.test.sh
             bash scripts/cmux-next/tests/wait-dev-daily-tree.test.sh
             bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
@@ -1346,6 +1349,16 @@ jobs:
           python3 tests/test_ci_target_graph.py
           python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
+
+      # The CmuxNextAppTests dependencies are one sorted entry per line, so two
+      # pull requests adding different modules merge cleanly; the long lines they
+      # all appended to conflicted on nearly every open pull request.
+      - name: Package dependency lists sorted
+        id: package-dependency-lists
+        continue-on-error: true
+        run: |
+          python3 scripts/cmux-next/check-package-dependency-lists.py
+          python3 scripts/cmux-next/tests/test_check_package_dependency_lists.py
 
       # The web bundle source key covers every file outside webviews/ that a bundle
       # imports, and the publish and routing path lists name each one (cx-wtsf3).
@@ -1489,6 +1502,7 @@ jobs:
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
+            ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted
             ${{ steps.web-bundle-key-inputs.outcome }}|Web bundle key inputs
             ${{ steps.companion-workflows.outcome }}|Companion workflows
             ${{ steps.dev-update-classic-import.outcome }}|DEV update and classic import scripts

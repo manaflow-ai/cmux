@@ -298,21 +298,4 @@ import Testing
         #expect(scope.shownWindowOpacity == shown.tintOpacity)
         #expect(scope.shownWindowOpacity < 1)
     }
-
-    /// Leo, 10-19: "the knob, the slider still doesn't work". Over art the window never paints
-    /// below the legibility floor, so Settings starts the Opacity slider there: no picture, no floor.
-    @Test func overArtTheSliderStartsAtTheLegibilityFloor() throws {
-        let scope = ThemeScope(level: .room)
-        #expect(scope.shownWindowOpacityFloor == nil)
-        let work = try #require(BackdropSelection(id: "van-gogh-starry-night"))
-        scope.setBackdropSelection(work)
-        let shown = WindowBackdrop(scope.tokens, art: scope.backdropArt, selection: scope.backdropSelection,
-                                   tuning: scope.appearanceTuning, tintOpacity: scope.backdropTintOpacity)
-        let floor = try #require(scope.shownWindowOpacityFloor)
-        #expect(floor == shown.legibleTintOpacity)
-        #expect(floor > 0)
-        // A request below the floor paints the floor: those slider positions moved nothing.
-        let below = WindowBackdrop(scope.tokens, selection: scope.backdropSelection, tintOpacity: floor / 2)
-        #expect(below.tintOpacity == floor)
-    }
 }

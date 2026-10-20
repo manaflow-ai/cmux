@@ -47,18 +47,29 @@ extension SettingsWindowService {
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),
-            "derived_min": .object(pageDerivedNumbers(floor: true)),
+            "derived_min": .object(pageDerivedMinimums()),
         ]
     }
 
-    /// Where unset number rows' sliders sit, by schema key: the window opacity the window shows.
-    /// `floor`: where the Opacity slider's travel starts over a picture instead, the legibility
-    /// floor the window never paints below (`ThemeScope.shownWindowOpacityFloor`).
-    func pageDerivedNumbers(floor: Bool = false) -> [String: JSONValue] {
-        let path = WindowBackgroundSetting.opacityPath
-        let value = floor ? (services.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacityFloor : derivedNumber(at: path)
-        guard let id = SettingsSchema.descriptor(for: path)?.id, let value else { return [:] }
-        return [id: .number(value)]
+    /// Where unset number rows' sliders sit, by schema key: the window opacity the theme resolved.
+    func pageDerivedNumbers() -> [String: JSONValue] {
+        var derived: [String: JSONValue] = [:]
+        for path in [WindowBackgroundSetting.opacityPath] {
+            guard let id = SettingsSchema.descriptor(for: path)?.id, let value = derivedNumber(at: path) else { continue }
+            derived[id] = .number(value)
+        }
+        return derived
+    }
+
+    /// Where number rows' sliders start, by schema key, when the app narrows the schema's range:
+    /// the window Opacity's legibility floor over a background picture.
+    func pageDerivedMinimums() -> [String: JSONValue] {
+        var minimums: [String: JSONValue] = [:]
+        for path in [WindowBackgroundSetting.opacityPath] {
+            guard let id = SettingsSchema.descriptor(for: path)?.id, let value = derivedMinimum(at: path) else { continue }
+            minimums[id] = .number(value)
+        }
+        return minimums
     }
 
     /// The wallpaper grid's choices, read each time so an image the person just added, or a

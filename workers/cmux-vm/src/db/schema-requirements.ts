@@ -19,6 +19,11 @@ export interface Requirement {
 }
 
 export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
+  { table: "cmux_vm.resources", column: "creation_key", migration: "0010" },
+  { table: "cmux_vm.resources", column: "creation_receipt", migration: "0010" },
+  { table: "cmux_vm.resources_creation_key_idx", migration: "0011" },
+  // Uncommitted creations (a failed grow) are listed and deletable but never replayed as finished.
+  { table: "cmux_vm.resources", column: "committed", migration: "0012" },
   { table: "cmux_vm.resources", migration: "0001" },
   { table: "cmux_vm.api_keys", migration: "0001" },
   { table: "cmux_vm.resources", column: "display_name", migration: "0002" },

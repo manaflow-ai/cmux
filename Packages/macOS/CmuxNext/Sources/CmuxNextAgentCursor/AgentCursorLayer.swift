@@ -28,12 +28,10 @@ public final class AgentCursorLayer {
     public static let gray = CGColor(srgbRed: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 1)
     /// The pointer's rim, so the gray reads over any page.
     static let rim = CGColor(gray: 1, alpha: 1)
-    /// The name tag and caption material, gray Liquid Glass (pill gallery
-    /// P1, user 2026-10-20): a neutral gray tint the page shows through. The
-    /// cursor overlay sits in its own panel above Chromium's child windows,
-    /// so it cannot blur the page; the tint is opaque enough to stand in for
-    /// the blur and keep the label readable over busy pages.
-    static let glass = CGColor(srgbRed: 0xD6 / 255, green: 0xD6 / 255, blue: 0xD8 / 255, alpha: 0.78)
+    /// The name tag and caption tint, gray Liquid Glass (pill gallery P1, user
+    /// 2026-10-20): 18% system gray over the real blur the overlay panel's
+    /// behind-window glass draws under each tag shape (``glassRoot``).
+    static let glass = CGColor(srgbRed: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 0.18)
     static let glassText = CGColor(srgbRed: 0x1D / 255, green: 0x1D / 255, blue: 0x1F / 255, alpha: 0.88)
     /// The glass's specular rim: a light inner edge.
     static let glassRim = CGColor(gray: 1, alpha: 0.55)
@@ -59,6 +57,16 @@ public final class AgentCursorLayer {
     let nameDot = CAShapeLayer()
     /// The glass's specular highlight across the tag's top half.
     let nameSheen = CAGradientLayer()
+    /// The cursor's blur shapes, in the window's glass mask layer
+    /// (`WindowOverlayHost.agentCursorGlassLayer`): moved, faded, hidden and
+    /// removed with ``root`` (``roots``), so the blur stays under the tag.
+    public let glassRoot = CALayer()
+    /// The tag's blur well: an opaque capsule in the tag's frame.
+    let glassTag = CALayer()
+    /// The caption's blur well.
+    let glassCaption = CALayer()
+    /// The layers that carry the cursor's position, visibility and idle fade.
+    var roots: [CALayer] { [root, glassRoot] }
     private let fill: CGColor
     /// The cursor has a name tag to show.
     let hasName: Bool
@@ -151,6 +159,19 @@ public final class AgentCursorLayer {
         } else {
             nameTag.isHidden = true
         }
+        glassRoot.bounds = root.bounds
+        glassRoot.anchorPoint = .zero
+        for well in [glassTag, glassCaption] {
+            well.backgroundColor = CGColor(gray: 0, alpha: 1)
+            well.cornerCurve = .continuous
+            well.anchorPoint = .zero
+            glassRoot.addSublayer(well)
+        }
+        glassTag.frame = nameTag.frame
+        glassTag.cornerRadius = nameTag.cornerRadius
+        glassTag.isHidden = nameTag.isHidden
+        glassCaption.cornerRadius = Self.captionHeight / 2
+        glassCaption.opacity = 0
         heading.addSublayer(ripple)
         heading.addSublayer(arrow)
         root.addSublayer(heading)
@@ -204,10 +225,13 @@ public final class AgentCursorLayer {
                                    width: width - padding * 2, height: lineHeight)
         captionText.contentsScale = scale
         captionText.string = text
-        caption.opacity = 1
-        caption.removeAnimation(forKey: Self.captionHideKey)
-        caption.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: Self.captionHideDelay, on: caption),
-                    forKey: Self.captionHideKey)
+        glassCaption.frame = caption.frame
+        for layer in [caption, glassCaption] {
+            layer.opacity = 1
+            layer.removeAnimation(forKey: Self.captionHideKey)
+            layer.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: Self.captionHideDelay, on: layer),
+                      forKey: Self.captionHideKey)
+        }
     }
 
     /// The name tag's text, nil without a tag (diagnostics: `debug.agent_cursor`).
@@ -229,7 +253,9 @@ public final class AgentCursorLayer {
             indicator.isHidden = !showsIndicator
             arrow.isHidden = showsIndicator
             caption.isHidden = showsIndicator
+            glassCaption.isHidden = showsIndicator
             nameTag.isHidden = showsIndicator || !hasName
+            glassTag.isHidden = nameTag.isHidden
         }
     }
 
@@ -237,7 +263,9 @@ public final class AgentCursorLayer {
     /// seconds from now and holds the cursor hidden; every agent action arms
     /// it again, which shows the cursor at once. No timer.
     func armIdleHide(after delay: CFTimeInterval) {
-        root.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: delay, on: root), forKey: Self.idleHideKey)
+        for layer in roots {
+            layer.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: delay, on: layer), forKey: Self.idleHideKey)
+        }
     }
 
     static let idleHideKey = "agentCursor.idleHide"
