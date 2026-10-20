@@ -94,7 +94,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.window"), group("settings.group.tabs"), group("settings.group.columns"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
-                group("settings.group.files"), group("settings.group.updates"),
+                // The Screenshots pane's folders sit beside the other file-viewer groups.
+                group("settings.group.files"), group("settings.group.screenshots"), group("settings.group.updates"),
                 group("settings.group.announcements"), group("settings.group.chats"),
             ],
             trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),

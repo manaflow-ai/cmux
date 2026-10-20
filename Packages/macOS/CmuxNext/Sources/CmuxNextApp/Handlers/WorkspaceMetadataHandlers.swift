@@ -94,9 +94,13 @@ enum WorkspaceMetadataHandlers {
         where daemon.supports(DaemonCapabilities.shared.notificationAck) {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             let unread = tabs.filter(\.hasUnread)
-            let surfaces = (unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread).map(\.surface)
-            for surface in surfaces {
-                daemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
+            for tab in unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread {
+                let surface = tab.surface
+                // Read now (dots, badges, unread count); the tree's echo settles it, a failed ack rolls it back.
+                tab.expectNotificationRead()
+                daemon.send("ack-tab-notifications", onFailure: { _ in tab.dropExpectedNotificationRead() }) {
+                    _ = try await $0.acknowledgeNotifications(of: surface)
+                }
             }
         }
     }
