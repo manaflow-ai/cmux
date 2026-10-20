@@ -861,6 +861,25 @@ class SameTreeIsAnEvent(unittest.TestCase):
         self.assertEqual(route["permissions"].get("actions"), "write")
         self.assertEqual(route["permissions"].get("contents"), "write")
 
+    def test_untrusted_routing_jobs_have_no_write_token_or_dispatch_switch(self):
+        jobs = self.jobs()
+        route = jobs["path_route"]
+        self.assertEqual(route["permissions"].get("actions"), "read")
+        self.assertEqual(route["permissions"].get("contents"), "read")
+        probes = [step for step in route["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
+        self.assertTrue(probes)
+        self.assertTrue(all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == "" for step in probes))
+
+        wait = jobs["dev-daily-tree-wait"]
+        self.assertEqual(wait["permissions"].get("actions"), "read")
+        self.assertEqual(wait["permissions"].get("contents"), "read")
+        dispatches = [
+            step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH")
+            for step in wait["steps"]
+            if "wait-dev-daily-tree.sh" in step.get("run", "")
+        ]
+        self.assertEqual(dispatches, [""])
+
     def test_tree_jobs_need_a_ready_tree_and_no_waiter(self):
         jobs = self.jobs()
         for name in TREE_JOBS:
