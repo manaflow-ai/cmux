@@ -36,7 +36,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.metrics.tabMinInactiveWidth` | real |  | 16 to 320 | Minimum Tab Width. Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum. |
 | `appearance.metrics.tabPinnedWidth` | real |  | 24 to 120 | Pinned Tab Width. Width of a pinned tab. |
 | `newTerminal.opensWorkspace` | boolean | `false` |  | New Terminal Opens a Workspace. Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click. |
-| `tabs.cmdWClosesPinnedTabs` | boolean | `false` |  | Cmd-W Closes Pinned Tabs. When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu. |
+| `tabs.cmdWClosesPinnedTabs` | boolean | `true` |  | Cmd-W Closes Pinned Tabs. When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu. |
 | `tabs.swapCmdTAndCmdN` | boolean | `false` |  | Swap Cmd-T and Cmd-N. When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused. |
 | `app.warnBeforeClosingTab` | boolean | `true` |  | Warn Before Closing a Running Program |
 | `app.warnBeforeClosingAgentSession` | boolean | `true` |  | Warn Before Closing a Working Agent |
@@ -178,13 +178,14 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diff.lineNumbers` | boolean | `true` |  | Line Numbers |
 | `diff.showBackgrounds` | boolean | `true` |  | Change Backgrounds |
 | `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
-| `markdown.layout.width` | real | `72` | 40 to 160 | Text Width. The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box. |
+| `markdown.layout.width` | real | `72` | 30 to 1000 | Text Width. The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box. |
 | `markdown.layout.fullWidth` | boolean | `false` |  | Full Width. Text fills the whole pane instead of the text width. |
 | `markdown.font.size` | real | `16` | 8 to 40 | Default Font Size. The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size. |
 | `markdown.font.preset` | string | `"system"` | `system`, `serif`, `mono` | Font |
 | `markdown.font.lineHeight` | real | `1.6` | 1 to 2.4 | Line Height |
 | `markdown.spacing.paragraph` | real | `1` | 0 to 3 | Paragraph Spacing. The gap after each paragraph, as a share of the text size. |
-| `markdown.code.blockSize` | real | `14` | 8 to 32 | Code Font Size |
+| `markdown.code.scale` | real | `0.875` | 0.6 to 1.25 | Code Font Size. Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default. |
+| `markdown.code.blockSize` | real |  | 8 to 32 | Code Block Size |
 | `markdown.tables` | string | `"scroll"` | `scroll`, `wrap` | Wide Tables |
 | `markdown.theme` | string | `"app"` | `app`, `light`, `dark` | Page Theme |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |

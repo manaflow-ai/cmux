@@ -2242,10 +2242,17 @@
       "type" : "string"
     },
     "markdown.code.blockSize" : {
-      "default" : 14,
       "description" : "markdown.code.blockSize",
       "maximum" : 32,
       "minimum" : 8,
+      "title" : "Code Block Size",
+      "type" : "number"
+    },
+    "markdown.code.scale" : {
+      "default" : 0.875,
+      "description" : "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default.",
+      "maximum" : 1.25,
+      "minimum" : 0.6,
       "title" : "Code Font Size",
       "type" : "number"
     },
@@ -2284,9 +2291,9 @@
     },
     "markdown.layout.width" : {
       "default" : 72,
-      "description" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box.",
-      "maximum" : 160,
-      "minimum" : 40,
+      "description" : "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box.",
+      "maximum" : 1000,
+      "minimum" : 30,
       "title" : "Text Width",
       "type" : "number"
     },
@@ -3467,7 +3474,7 @@
       "type" : "string"
     },
     "tabs.cmdWClosesPinnedTabs" : {
-      "default" : false,
+      "default" : true,
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
