@@ -20,6 +20,11 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     /// The group's url, tab and app members (sidebar-v2), each placed after
     /// the workspace member it follows in the document (`members`).
     public var items: [SidebarGroupItem] = []
+    /// The group this one sits in (a nested group, remote-groups-DESIGN.md R1); nil at the top level.
+    /// A section lists a tree in document order: a group, then its subgroups.
+    public var parent: GroupID?
+    /// Group levels above this one: 0 at the top level.
+    public var depth = 0
 
     /// Every member in document order: the workspaces, with each item after
     /// the workspace it follows (first when it follows none; last when that
