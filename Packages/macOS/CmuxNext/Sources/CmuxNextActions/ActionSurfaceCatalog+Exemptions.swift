@@ -24,7 +24,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.closeAll", "workspace.closeAllInAllWindows", "workspaceGroup.closeOthers", "workspaceGroup.duplicate",
         "window.closeOthers", "closeAllWindows",
         "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
-        "palette.workspaceColor", "palette.resetWorkspaceColor", "reconnectWorkspace", "disconnectWorkspace",
+        "palette.workspaceColor", "palette.resetWorkspaceColor", "reconnectWorkspace", "disconnectWorkspace", "disconnectRemoteTab",
         "clearWorkspaceNotifications", "workspaceGroup.newWorkspace", "workspaceGroup.rename",
         "workspaceGroup.togglePin", "workspaceGroup.markRead", "workspaceGroup.markUnread",
         "workspaceGroup.clearNotifications", "workspaceGroup.ungroup", "workspaceGroup.delete", "saveLayoutTemplate",
@@ -154,7 +154,6 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
         .unimplemented: [
-            "disconnectRemoteTab",
             "agentChat.toggleNotificationMute",
             "palette.openFindPane",
             "palette.openFilesPane",
@@ -224,7 +223,7 @@ nonisolated extension ActionSurfaceCatalog {
         .focusMove: [
             "history.goTo",
             "home.show",
-            "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
+            "showHideAllWindows", "goToWorkspace", "search.chats", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
             // nextWorkspaceGroup/prevWorkspaceGroup: their cliName ("workspace-group next") is the action's
             // identifier ActionContractTests requires; the CLI verb is deliberately not offered (a focus move).
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",
