@@ -55,10 +55,10 @@ import QuartzCore
         if animates {
             // A freshly installed mask starts from fully opaque, not from
             // the colors it had when it came off.
-            Motion.set(fadeMask, "colors", to: colors, fade: .hover, from: wasFaded ? nil : Array(repeating: opaque, count: colors.count))
+            Motion.tabs.set(fadeMask, "colors", to: colors, fade: .hover, from: wasFaded ? nil : Array(repeating: opaque, count: colors.count))
         } else {
             fadeMask.removeAnimation(forKey: "colors")
-            Motion.transaction(nil) { fadeMask.colors = colors }
+            Motion.tabs.transaction(nil) { fadeMask.colors = colors }
         }
         CATransaction.commit()
     }

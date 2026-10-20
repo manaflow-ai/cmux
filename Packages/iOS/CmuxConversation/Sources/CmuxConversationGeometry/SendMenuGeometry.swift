@@ -5,6 +5,7 @@ import Foundation
 /// 27.0 Messages lay it out and animate it on iPhone. Every constant below was
 /// read from `CKUIBehavior` at runtime in those simulators (the two releases
 /// agree), and the frames were checked against MobileSMS recordings.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum SendMenuGeometry {
     /// `sendMenuPrototypeCellMaximumWidth`: the popover is never wider.
     public static let maximumWidth: CGFloat = 320
@@ -180,6 +181,7 @@ public enum SendMenuGeometry {
     /// omega 17.3, zeta 0.81 (89% in 10 frames, then a 1% overshoot), and the
     /// iOS 26.5 recording agrees. Widening trails rising by about a frame
     /// (ChatKit adds its horizontal tracks with a delayFactor).
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
     public enum Present {
         public static let horizontal = Spring(mass: 1, stiffness: 300, damping: 28, settlingDuration: 0.5, delayFactor: 0.05)
         public static let vertical = Spring(mass: 1, stiffness: 300, damping: 28, settlingDuration: 0.5)
@@ -198,6 +200,7 @@ public enum SendMenuGeometry {
     /// not what MobileSMS shows either: the 27.0 recording folds back into
     /// the "+" in 12 frames (omega 21-22, zeta 0.82-0.87), which is
     /// ChatKit's `sendMenuStatusBarAnimator` spring.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
     public enum Dismiss {
         public static let geometry = Spring(mass: 1, stiffness: 443, damping: 36, settlingDuration: 0.4379076)
         public static let horizontal = geometry

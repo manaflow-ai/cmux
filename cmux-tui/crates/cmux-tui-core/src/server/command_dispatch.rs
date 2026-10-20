@@ -253,6 +253,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
         }
+        Command::TerminalResumeCommand { surface, terminal_id, command } => {
+            cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
+        }
         Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
             cmd_tabs::new_tab(
                 mux,
@@ -273,6 +276,7 @@ pub(super) fn handle_command_with_cancellation(
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)
         }
         Command::RestartTab(params) => tab_restart::restart(mux, params),
+        Command::ParkTabs(params) => tab_park::park(mux, params),
         Command::NewFrontendBrowserTab(params) => {
             cmd_tabs::new_frontend_browser_tab(mux, client, params)
         }

@@ -77,6 +77,24 @@ import Testing
         #expect(renamed == ["Ada"])
     }
 
+    /// A Chief always has a name: clearing the field and leaving it renames nothing and shows
+    /// the name again, rather than an empty field over a Chief that kept its name.
+    @Test func clearingTheNameShowsItAgain() {
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
+        var renamed: [String] = []
+        view.onRename = { renamed.append($0) }
+        view.setName("Chief")
+        view.nameField.stringValue = "   "
+        view.renamed()
+        #expect(renamed.isEmpty)
+        #expect(view.nameField.stringValue == "Chief")
+        // A name with spaces around it is saved and shown trimmed.
+        view.nameField.stringValue = "  Ada  "
+        view.renamed()
+        #expect(renamed == ["Ada"])
+        #expect(view.nameField.stringValue == "Ada")
+    }
+
     @Test func appearanceRowsGrowTheCard() {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
         var resized = 0
@@ -104,5 +122,5 @@ private struct OfflineChief: HomeChiefEngineSource {
     var isLocal: Bool { true }
     var place: String? { nil }
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
-    func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
+    func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
 }

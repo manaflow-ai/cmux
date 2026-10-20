@@ -153,12 +153,21 @@ nonisolated enum AppearanceSettingsSchema {
             SettingDescriptor(
                 ["appearance", "density"], section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.density", "Density"),
-                kind: .choice([
-                    SettingChoice("compact", SettingsText.keyed("settings.choice.compact", "Compact")),
-                    SettingChoice("comfortable", SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
-                ]),
-                default: "compact", keywords: ["size", "spacing"]
+                help: SettingsText.keyed("settings.appearance.density.help",
+                                        "Row height, padding, corners, icons and text size together. Compact is the default."),
+                kind: .choice(DensityPreset.allCases.map { SettingChoice($0.rawValue, DensityNames.title($0)) }),
+                default: "compact", keywords: ["size", "spacing", "compact", "comfortable", "cozy", "spacious", "dense", "font"]
             ),
+            SettingDescriptor(
+                CustomDensitySelectionSetting().configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.appearance.customDensity", "Custom Density"),
+                kind: .text, default: nil, keywords: ["density", "custom"]
+            ).hiddenFromPalette("the Density card and the palette's density rows pick it"),
+            SettingDescriptor(
+                CustomDensitiesSetting().configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.appearance.customDensities", "Custom Densities"),
+                kind: .text, default: .array([]), keywords: ["density", "custom"]
+            ).hiddenFromPalette("the Density card edits them: a list of density objects"),
             SettingDescriptor(
                 uiScale.configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),
