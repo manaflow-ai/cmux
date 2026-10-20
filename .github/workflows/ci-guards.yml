@@ -1159,6 +1159,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_media_app_cache.py
 
+      - name: Validate the cmux-next tour never waits for an unpublished base cmux-tui tree
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_media_tree_fallback.py
+
       - name: Validate feat-cmux-next publishes its cmux-tui tree before the daemon tests
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_feat_publish_order.py
@@ -1290,6 +1294,7 @@ jobs:
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_ci_nightly_push_throttle.py
+          python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
 
       - name: Validate unsigned nightly resume provenance and routing

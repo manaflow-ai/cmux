@@ -159,11 +159,16 @@ public final class HomeNativeTranscriptView: NSView {
     public func debugClickFirstRunAgent(_ index: Int, pointer: Bool) -> String? { firstRun.debugClickAgent(index, pointer: pointer) }
     #endif
 
-    /// A click on the header's name pill (the Chief's settings sidebar).
+    /// A click on the header's name pill (the Chief's settings popover).
     public var onNamePill: () -> Void {
         get { transcript.onNamePill }
         set { transcript.onNamePill = newValue }
     }
+
+    /// The header's name pill, which the Chief's settings popover opens under.
+    public var namePill: NSView { transcript.namePill }
+    /// The header views that run ``onNamePill`` (the pill and the avatar).
+    public var namePillToggles: [NSView] { transcript.namePillToggles }
 
     /// The header avatar's text; nil shows the conversation's initials.
     public var avatarText: String? {
