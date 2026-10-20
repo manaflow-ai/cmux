@@ -17,9 +17,11 @@ Sibling: `plans/cmux-next/nightly-builder-DESIGN.md` (the Mac nightly on cmux22)
   `--internal-only`, version and build number checks against App Store Connect,
   and a split mode: `--unsigned --no-asc` archives on a host with no secrets,
   and `--from-archive` signs, validates and uploads that archive elsewhere.
-- **Aziz's workflow** `cnx-ios-testflight.yml` uploads on a manual push to
-  `rc/cnx-ios-internal-*` (run 39347548402 uploaded on 2026-10-20). It runs on
-  Blacksmith and needs an admin push per build.
+- **The retired manual workflow** `cnx-ios-testflight.yml` uploaded from
+  `rc/cnx-ios-internal-*` in one job that also installed rolling tools, built
+  branch code and held signing/upload credentials. The continuous split
+  builder below replaces it; the legacy workflow was removed after the round-3
+  CI security audit.
 - The old `ios-testflight.yml` (main's `ios/` INTERNAL lane) is disabled.
 - Signing material (`ASC_API_*`, `IOS_*`) lives only in the GitHub `release`
   environment, which admits `main`, `rc/**` and `v*`. `rc/**` is admin-only
@@ -117,8 +119,9 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
 
 - A dispatch of `ios-internal-nightly.yml` with `runner=macos-26` archives on
   GitHub-hosted macOS instead of cmux23.
-- Aziz's manual lane (`rc/cnx-ios-internal-*` push) keeps working; both use
-  timestamp build numbers, so they interleave without collisions.
+- Manual retries dispatch `ios-internal-nightly.yml` on the admin-only
+  `rc/cnx-ios-builder` ref. There is no second branch-controlled signing lane;
+  timestamp build numbers remain monotonic within the serialized builder.
 
 ## Operations
 
