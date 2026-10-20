@@ -32,8 +32,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// How near the layout reports this pane to the viewport.
     private(set) var presence: SurfacePresence = .hidden
     var isVisible: Bool { presence == .visible }
-    /// Tabs closed locally while the daemon confirms, so a close looks instant.
-    var pendingClosed: Set<String> = []
     var pendingDock: Set<String> = [] // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
     var pendingSelectSurface: SurfaceID?  // set by selectWhenReported* (AgentBesidePlacement)
@@ -60,6 +58,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var defaultIndex: Int
         var generation: String?
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
+        var fullWidthTab = false // PaneFullWidthTabs: the strip shows only the selected tab
         /// `pinned-dock-v1`: the pane is in a pinned column (the Home dock): its first tab
         /// shows no close button.
         var keepsFirstTab = false
@@ -152,7 +151,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // only, never the workspace list (a lookup by pane would).
         let ownWorkspace = workspace?.workspace ?? store.workspace(containing: pane.handle)
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
-        let hidden = pendingClosed.union(dockBound)
+        let hidden = dockBound
         var local: [StripTabItem] = []
         for tab in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(tab.id) {
             let page = services.cache.existingBrowser(tab.id)?.tab.state
@@ -176,6 +175,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                          defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
                          // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
                          hidesStrip: hidesTabBar || ownWorkspace?.app != nil,
+                         fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
                          keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
                          takesNewTabs: !pinned || dock?.allowsTabs == true)
     }
@@ -246,6 +246,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let snapshot = NewTabSuccession.order(reported, in: self)
         if force { view.stripView.discardPendingReorder() }
         if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
+        if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }

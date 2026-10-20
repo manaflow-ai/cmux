@@ -290,6 +290,46 @@ fn a_host_that_ended_at_the_orphan_grace_is_respawned_at_the_next_start() {
     wait_for_screen(&harness.socket, surface, MARKER);
 }
 
+/// b4. #21088: after an update the new daemon cannot adopt a host of the
+/// earlier build (here: a record version it cannot read), and that host then
+/// dies without recording its shell's end (a SIGTERM from the Dock, a kill).
+/// The tab must respawn like any other host loss, not stay on
+/// "Terminal, Failed" until the user restarts the shell by hand.
+#[test]
+fn an_unadoptable_host_that_dies_without_a_record_is_respawned() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("respawn-unadoptable");
+    let (terminal_id, incarnation, _) = start_default_shell(&harness, "unadoptable");
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    harness.sigkill();
+    let mut future: serde_json::Value =
+        serde_json::from_slice(&fs::read(&record_path).unwrap()).unwrap();
+    future["record_version"] = serde_json::json!(99);
+    fs::write(&record_path, serde_json::to_vec(&future).unwrap()).unwrap();
+    harness.restart();
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    assert_ne!(resolved["lifecycle"], "exited", "{resolved}");
+
+    // The host and its shell die with no exit record.
+    let host_pid = record.host_pid as libc::pid_t;
+    let _ = std::process::Command::new("/usr/bin/pkill")
+        .args(["-KILL", "-P", &host_pid.to_string()])
+        .status();
+    // SAFETY: the record PID is the harness-owned terminal host.
+    unsafe { libc::kill(host_pid, libc::SIGKILL) };
+    wait_for_process_and_group_absent(host_pid);
+
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+    let tab = tab_named(&harness, "unadoptable");
+    assert_eq!(tab["dead"], false, "{tab}");
+    let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0]["cause"], "unadoptable_host_ended");
+}
+
 /// A respawn harness whose daemon reads settings file `settings` (none:
 /// a missing file, the defaults) and finds a `claude` stand-in first on
 /// PATH that prints `resumed:` and its arguments.

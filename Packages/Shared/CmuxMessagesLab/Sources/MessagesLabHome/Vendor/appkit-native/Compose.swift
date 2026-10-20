@@ -307,6 +307,18 @@ final class FieldTextView: NSTextView {
     private var storageEdits = 0
     private var storageObserver: NSObjectProtocol?
     private var observedStorage: ObjectIdentifier?
+    /// cmux: the field's typing undo is on the window's undo stack, which does not retain its
+    /// targets; NSTextView registers it with the text storage as the target, not itself. A field
+    /// leaving its window (Cmd+1…9, a rebuilt conversation or dock view) takes its entries off that
+    /// stack; a freed field's left behind crashed the next Edit > Undo (`_undoRedoTextOperation:`
+    /// to freed text, nightly 3934935376001).
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let window, newWindow !== window, let stack = undoManager ?? window.undoManager {
+            stack.removeAllActions(withTarget: self)
+            if let storage = textStorage { stack.removeAllActions(withTarget: storage) }
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyScale()
@@ -450,18 +462,38 @@ final class FieldTextView: NSTextView {
 
     // cmux: files and pictures dropped on the field go to the host's intake
     // (Home's type rule, as paste); text drags keep NSTextView's own handling.
+    // cmux: the intake's answer depends only on the drag's pasteboard, so it is read once per drag
+    // (its sequence number), not on every drag-over event: the drag server waits for each answer,
+    // and each read is a round trip to the pasteboard server (DragWhileStreamingTests).
+    private var dragAnswer: (sequence: Int, accepts: Bool)?
+    private func takesDrag(_ sender: any NSDraggingInfo) -> Bool {
+        if let a = dragAnswer, a.sequence == sender.draggingSequenceNumber { return a.accepts }
+        let accepts = acceptsPastePasteboard(sender.draggingPasteboard)
+        dragAnswer = (sender.draggingSequenceNumber, accepts)
+        return accepts
+    }
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingEntered(sender)
+        dragAnswer = nil
+        return takesDrag(sender) ? .copy : super.draggingEntered(sender)
     }
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingUpdated(sender)
+        takesDrag(sender) ? .copy : super.draggingUpdated(sender)
+    }
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dragAnswer = nil
+        super.draggingExited(sender)
+    }
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        dragAnswer = nil
+        super.draggingEnded(sender)
     }
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        acceptsPastePasteboard(sender.draggingPasteboard) || super.prepareForDragOperation(sender)
+        takesDrag(sender) || super.prepareForDragOperation(sender)
     }
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        let pb = sender.draggingPasteboard
-        if acceptsPastePasteboard(pb) { return onDropPasteboard(pb) }
+        let takes = takesDrag(sender)
+        dragAnswer = nil
+        if takes { return onDropPasteboard(sender.draggingPasteboard) }
         return super.performDragOperation(sender)
     }
 }
@@ -827,6 +859,7 @@ final class ComposeView: UIView {
         tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
         if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools }
         tv.setAccessibilityLabel(Strings.placeholder)
+        tv.setAccessibilityIdentifier("cmux.home.composer")
 
         caret.backgroundColor = Fixture.caret.cgColor
         caret.isHidden = true

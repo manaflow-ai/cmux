@@ -27,6 +27,11 @@ USAGE
   cmux workspace [<selector>] log append <text> [--level <level>] [--source <value>]
   cmux workspace [<selector>] log list [--limit <1..200>]
   cmux workspace [<selector>] log clear
+  cmux workspace [<selector>] checklist list
+  cmux workspace [<selector>] checklist add <text> [--state todo|in_progress|done] [--origin user|agent] [--index <n>]
+  cmux workspace [<selector>] checklist update <item> [--text <text>] [--state todo|in_progress|done]
+    [--index <n>] [--attachments-json <json-array>]
+  cmux workspace [<selector>] checklist remove <item>
   cmux workspace placement list
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
@@ -71,7 +76,7 @@ SELECTORS
 
 pub(super) const PANE_HELP: &str = "\
 USAGE
-  cmux pane list
+  cmux pane list [--workspace <selector>] [--screen <selector>]
   cmux pane create [--correlation-key <value>]
   cmux pane <selector> show|focus|close
   cmux pane <selector> close --others|--all
@@ -95,7 +100,7 @@ SELECTORS
 
 pub(super) const TAB_HELP: &str = "\
 USAGE
-  cmux tab list
+  cmux tab list [--workspace <selector>] [--screen <selector>] [--pane <selector>]
   cmux tab <selector> show|focus|close
   cmux tab <selector> close --others|--to-right|--to-left|--all [--include-pinned]
   cmux tab <selector> rename <name>|--name <name>
@@ -106,8 +111,12 @@ USAGE
   cmux tab <selector> zoom <0.25..5>|reset|in|out
   cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
   cmux tab <selector> update --icon <value>|--clear-icon
-  cmux tab create terminal [--correlation-key <value>] [OPTIONS]
-  cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
+  cmux tab create terminal [--cwd <path>] [--name <value>] [--cols <n> --rows <n>]
+    [--workspace <selector>] [--screen <selector>] [--pane <selector>]
+    [--correlation-key <value>]
+  cmux tab create browser --url <value> [--name <value>] [--width-px <n> --height-px <n>]
+    [--workspace <selector>] [--screen <selector>] [--pane <selector>]
+    [--correlation-key <value>]
   cmux tab <selector> terminal|browser ...
   cmux tab group list [--pane <pane_…>]
   cmux tab group create --tabs <tab_…,...> [--name <value>] [--color <color>]
@@ -139,7 +148,8 @@ SELECTORS
 
 pub(super) const TERMINAL_HELP: &str = "\
 USAGE
-  cmux terminal list
+  cmux terminal list [--workspace <selector>] [--screen <selector>] [--pane <selector>]
+    [--tab <selector>]
   cmux terminal <selector> show
   cmux terminal <selector> status
   cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]

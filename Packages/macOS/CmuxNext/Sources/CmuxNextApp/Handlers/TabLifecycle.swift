@@ -5,6 +5,8 @@ import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
+import enum CmuxNextLayout.ChatColumnPlacement
+import enum CmuxNextLayout.NewChatPlacement
 
 /// New terminal tab, new browser tab, and close tab for a shown pane (the
 /// strip's optimistic path) or any daemon pane, so the CLI can act on a
@@ -138,9 +140,10 @@ enum TabLifecycle {
             newBrowser(ctx, invocation, after: after)
         case .agent, .page:
             // The docked agent chat gets no tabs: a New Tab page in the strip (ChatColumnPlacement).
-            if user, let controller, let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services),
-               strip !== controller {
-                return strip.newTabPage()
+            if user, let controller {
+                // Nil: Home's pinned dock alone opened the page in a new column beside it.
+                guard let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services) else { return }
+                if strip !== controller { return strip.newTabPage() }
             }
             let docks = kind == .agent && controller.map { NewChatPlacement.resolve(from: $0) != .here } ?? false // bound for the chat dock: not moved
             let placed = NewTabSlot.placing(after: docks ? nil : after, services: ctx.services, then: nil as (@MainActor (String) -> Void)?)
@@ -285,6 +288,7 @@ enum TabLifecycle {
     private static func chatRespawn(_ ctx: AppActionContext, url: URL?, engine: String?,
                                     profile: AgentBrowserProfile.Request) -> SplitRespawn? {
         guard case let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable(on: ctx.services.daemon),
+              browserTabs.refusal(for: url) == nil,
               case .open(let choice) = browserTabs.resolve(requested: engine) else { return nil }
         var profileID: String?
         if case .explicit(let id) = profile { profileID = id }
@@ -307,7 +311,7 @@ enum TabLifecycle {
     private static func openOffscreen(_ ctx: AppActionContext, pane: PaneModel, url: URL?, engine: String?, profile: String?,
                                       then agentTab: (@MainActor (SurfaceID) -> Void)?) {
         let browserTabs = ctx.services.cache.browserTabs
-        if let refusal = browserTabs.refusal(in: pane) { return ctx.refuse(refusal) }
+        if let refusal = browserTabs.refusal(in: pane) ?? browserTabs.refusal(for: url) { return ctx.refuse(refusal) }
         guard browserTabs.isAvailable(in: pane) else {
             return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
         }
@@ -343,6 +347,8 @@ enum TabLifecycle {
             // `tabs.cmdWClosesPinnedTabs` is on; the tab menu, the CLI and MCP name the tab and close it.
             if invocation.origin == .user {
                 let closesPinned = ctx.services.settings?.snapshot.cmdWClosesPinnedTabs ?? CmdWClosesPinnedTabsSetting.fallback
+                // Several selected tabs close together (Chrome); a selected pinned tab stays, as above.
+                if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) { return CloseUndoToasts.close(in: pane, selected) }
                 switch pane.stripModel.keyboardClose(id, closesPinned: closesPinned) {
                 case .close: break
                 case .select(let next): return pane.select(next)
@@ -354,7 +360,7 @@ enum TabLifecycle {
         }
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) {
-            return CloseUndoToasts.close(in: controller, [StripTabID(tab.id)])
+            return CloseUndoToasts.close(in: controller, ctx.actingTabs(invocation, controller, StripTabID(tab.id)))
         }
         let command = ctx.services.daemon(for: pane).closeCommand(for: tab)
         if tab.kind == .remoteTerminal { ctx.services.remoteTerminals.viewClosed(tab) }

@@ -17,19 +17,19 @@
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -100,6 +110,12 @@
-         runLoopLog = o
+@@ -101,6 +111,12 @@
      }
      var caretSuspended = false { didSet { updateCaret(reset: false) } }
-+
+ 
 +    /// cmux: the caret's colour after a palette change (it was set once, when the field was made).
 +    func recolorCaret() {
 +        caretLayer.backgroundColor = Fixture.caret.cgColor
 +        if !Self.ownCaret, insertionPointColor != .clear { insertionPointColor = Fixture.caret }
 +    }
- 
++
      func installCaret() {
          guard Self.ownCaret else { return }
+         insertionPointColor = .clear
 @@ -183,11 +199,13 @@
      /// not depend on the blink's phase at the grab (Messages' still references show it solid).
      static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
@@ -54,35 +54,82 @@
          if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
              (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
              return true
-@@ -424,9 +443,27 @@
+@@ -288,6 +307,18 @@
+     private var storageEdits = 0
+     private var storageObserver: NSObjectProtocol?
+     private var observedStorage: ObjectIdentifier?
++    /// cmux: the field's typing undo is on the window's undo stack, which does not retain its
++    /// targets; NSTextView registers it with the text storage as the target, not itself. A field
++    /// leaving its window (Cmd+1…9, a rebuilt conversation or dock view) takes its entries off that
++    /// stack; a freed field's left behind crashed the next Edit > Undo (`_undoRedoTextOperation:`
++    /// to freed text, nightly 3934935376001).
++    override func viewWillMove(toWindow newWindow: NSWindow?) {
++        if let window, newWindow !== window, let stack = undoManager ?? window.undoManager {
++            stack.removeAllActions(withTarget: self)
++            if let storage = textStorage { stack.removeAllActions(withTarget: storage) }
++        }
++        super.viewWillMove(toWindow: newWindow)
++    }
+     override func viewDidMoveToWindow() {
+         super.viewDidMoveToWindow()
+         applyScale()
+@@ -424,9 +455,47 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
 +        if onPastePasteboard(pb) { return }  // cmux
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
-     }
++    }
 +
 +    // cmux: files and pictures dropped on the field go to the host's intake
 +    // (Home's type rule, as paste); text drags keep NSTextView's own handling.
++    // cmux: the intake's answer depends only on the drag's pasteboard, so it is read once per drag
++    // (its sequence number), not on every drag-over event: the drag server waits for each answer,
++    // and each read is a round trip to the pasteboard server (DragWhileStreamingTests).
++    private var dragAnswer: (sequence: Int, accepts: Bool)?
++    private func takesDrag(_ sender: any NSDraggingInfo) -> Bool {
++        if let a = dragAnswer, a.sequence == sender.draggingSequenceNumber { return a.accepts }
++        let accepts = acceptsPastePasteboard(sender.draggingPasteboard)
++        dragAnswer = (sender.draggingSequenceNumber, accepts)
++        return accepts
+     }
 +    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-+        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingEntered(sender)
++        dragAnswer = nil
++        return takesDrag(sender) ? .copy : super.draggingEntered(sender)
 +    }
 +    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-+        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingUpdated(sender)
++        takesDrag(sender) ? .copy : super.draggingUpdated(sender)
++    }
++    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
++        dragAnswer = nil
++        super.draggingExited(sender)
++    }
++    override func draggingEnded(_ sender: any NSDraggingInfo) {
++        dragAnswer = nil
++        super.draggingEnded(sender)
 +    }
 +    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-+        acceptsPastePasteboard(sender.draggingPasteboard) || super.prepareForDragOperation(sender)
++        takesDrag(sender) || super.prepareForDragOperation(sender)
 +    }
 +    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-+        let pb = sender.draggingPasteboard
-+        if acceptsPastePasteboard(pb) { return onDropPasteboard(pb) }
++        let takes = takesDrag(sender)
++        dragAnswer = nil
++        if takes { return onDropPasteboard(sender.draggingPasteboard) }
 +        return super.performDragOperation(sender)
 +    }
  }
  
  /// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
-@@ -835,6 +872,8 @@
+@@ -790,6 +859,7 @@
+         tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
+         if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools }
+         tv.setAccessibilityLabel(Strings.placeholder)
++        tv.setAccessibilityIdentifier("cmux.home.composer")
+ 
+         caret.backgroundColor = Fixture.caret.cgColor
+         caret.isHidden = true
+@@ -835,6 +905,8 @@
          if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
          renderPlaceholder()
          renderChips()
@@ -91,7 +138,7 @@
      }
  
      /// The "+" button (opens the file picker).
-@@ -940,11 +979,11 @@
+@@ -940,11 +1012,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in

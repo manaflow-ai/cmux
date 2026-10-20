@@ -18,6 +18,8 @@ extension ActionRegistry {
         item.keyEquivalentModifierMask = isFamily ? [] : (shortcut?.modifiers ?? [])
         item.representedObject = id.rawValue
         item.target = menuTarget
+        // Accessibility clients (computer-use agents) find a menu bar action by id in any language.
+        item.identifier = NSUserInterfaceItemIdentifier("cmux.action.\(id.rawValue)")
         return item
     }
 }

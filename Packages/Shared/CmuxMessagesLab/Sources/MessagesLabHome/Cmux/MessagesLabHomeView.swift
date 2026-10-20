@@ -16,9 +16,14 @@ public final class MessagesLabHomeView: NSView {
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
+    ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
+    ///     JavaScriptCore Ondine renderer); nil keeps them as text.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
+                diagrams: (any HomeDiagramRendering)? = nil) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
+        // Before the projection maps its first messages, so a diagram never shows as text first.
+        if let diagrams { HomeDiagramRowProvider.install(diagrams) }
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
@@ -140,6 +145,24 @@ public final class MessagesLabHomeView: NSView {
     public var onAppLink: ((URL) -> Void)? {
         get { controller.onAppLink }
         set { controller.onAppLink = newValue }
+    }
+
+    /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The
+    /// host's hover cards for link chips follow it (``linkChip(atScreenPoint:)``).
+    public var onPointerMoved: ((CGPoint?) -> Void)? {
+        get { controller.onPointerMoved }
+        set { controller.onPointerMoved = newValue }
+    }
+
+    /// cmux: the link chip under `screenPoint` with its pill's frame on screen, or nil (no chip
+    /// there, or the transcript is not in a window). The same hit test as a click.
+    public func linkChip(atScreenPoint screenPoint: CGPoint) -> HomeLinkChipHit? {
+        let host = controller.host
+        guard let window = host.window else { return nil }
+        let p = host.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        guard var hit = controller.linkChip(at: p) else { return nil }
+        hit.rect = window.convertToScreen(host.convert(hit.rect, to: nil))
+        return hit
     }
 
     /// cmux: a click on any other link in the transcript (`otherTarget`: Shift-Command held).
