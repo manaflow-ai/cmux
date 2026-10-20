@@ -26,6 +26,29 @@ enum CmuxStrings {
         String(localized: "home.turn.under1s", defaultValue: "<1s", table: "CmuxHome", bundle: .module)
     }
 
+    // MARK: The running indicator's folded steps (HomeTurnProgress); the agent chat's words
+
+    static func turnRanCommands(_ n: Int) -> String {
+        String(localized: "home.turn.ranCommands", defaultValue: "Ran \(n) commands", table: "CmuxHome", bundle: .module)
+    }
+    static func turnReadFiles(_ n: Int) -> String {
+        String(localized: "home.turn.readFiles", defaultValue: "Read \(n) files", table: "CmuxHome", bundle: .module)
+    }
+    static func turnEditedFiles(_ n: Int) -> String {
+        String(localized: "home.turn.editedFiles", defaultValue: "Edited \(n) files", table: "CmuxHome", bundle: .module)
+    }
+    static func turnRanSearches(_ n: Int) -> String {
+        String(localized: "home.turn.ranSearches", defaultValue: "Ran \(n) searches", table: "CmuxHome", bundle: .module)
+    }
+    /// Finished steps of other kinds, alone in the row.
+    static func turnSteps(_ n: Int) -> String {
+        String(localized: "home.turn.steps", defaultValue: "\(n) steps", table: "CmuxHome", bundle: .module)
+    }
+    /// Finished steps of other kinds, after a folded kind ("Ran 3 commands · 2 more steps").
+    static func turnMoreSteps(_ n: Int) -> String {
+        String(localized: "home.turn.moreSteps", defaultValue: "\(n) more steps", table: "CmuxHome", bundle: .module)
+    }
+
     /// The message menu's permalink item (tree threads, cx-och3h).
     /// The remove button on an attachment in the message box (its help and accessibility label).
     static var removeAttachment: String {

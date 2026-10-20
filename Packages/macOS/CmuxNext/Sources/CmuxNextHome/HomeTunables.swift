@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import MessagesLabHome
 
 /// Debug Settings of the Home transcript (DEV and NIGHTLY only; Release and
 /// RC never activate the store, so they keep the defaults: the flight
@@ -34,5 +35,37 @@ public nonisolated struct HomeTunables {
         help: "The empty Chief conversation shows the Chief's character and two lines about what it does above its rows. Off shows only the rows.",
         default: true, code: "HomeTunables.firstRunHero")
 
-    public static var all: [TunableDescriptor] { [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor] }
+    /// The Chief's running indicator above its typing dots (`HomeTurnProgress`): the folded steps, the
+    /// Chief's newest thought and the step running now (default, Leo 2026-10-20), or the one line before.
+    public static let turnProgress = Tunable<HomeTurnProgressChoice>.choice(
+        "home.turnProgress", section, "Chief running indicator",
+        help: "While the Chief works: its finished steps folded into one row (\"Ran 3 commands ›\"), its newest thought, and the step running now. Steps leaves out the thought; One line is the step running now only.",
+        default: .narrated, code: "HomeTunables.turnProgress")
+
+    public static var all: [TunableDescriptor] {
+        [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, turnProgress.descriptor]
+    }
+}
+
+/// ``HomeTunables/turnProgress``'s choices: MessagesLab's ``HomeTurnProgressStyle``.
+public nonisolated enum HomeTurnProgressChoice: String, Sendable, CaseIterable, TunableChoice {
+    case narrated
+    case steps
+    case line
+
+    public var tunableTitle: String {
+        switch self {
+        case .narrated: "Steps, thought and step now"
+        case .steps: "Steps and step now"
+        case .line: "One line (step now)"
+        }
+    }
+
+    var style: HomeTurnProgressStyle {
+        switch self {
+        case .narrated: .narrated
+        case .steps: .steps
+        case .line: .line
+        }
+    }
 }

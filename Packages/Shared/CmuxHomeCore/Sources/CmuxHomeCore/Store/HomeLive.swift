@@ -136,6 +136,9 @@ public struct HomeLiveRun: Hashable, Sendable {
     /// The run's talk steps in order, joined by a blank line ("" before the first text).
     public var text: String
     public var activity: HomeLiveActivity?
+    /// The newest thought the run streams now (a thought step not yet ended), whole; nil when none.
+    /// Home's running indicator shows its headline as the Chief's progress narration.
+    public var thought: String? = nil
 
     /// The reply so far as HomeStore's running reply, so the view grows it as
     /// it grows a `conversation-draft` and lands the posted reply in it.

@@ -627,6 +627,9 @@ fn mcp_line(server: &str, tool: &str, input: Option<&Value>) -> String {
             "send" => "Sending a message".to_owned(),
             "stop" => "Ending the turn".to_owned(),
             "sleep" => "Setting a wake-up".to_owned(),
+            "control" => control_line(input),
+            "peers" => "Looking up the other machines".to_owned(),
+            "escalate_auth" => "Asking you to sign in".to_owned(),
             _ => String::new(),
         };
         if !line.is_empty() {
@@ -639,6 +642,30 @@ fn mcp_line(server: &str, tool: &str, input: Option<&Value>) -> String {
     match server.trim() {
         "" => format!("Using {words}"),
         server => format!("Using {server}: {words}"),
+    }
+}
+
+/// The "working on" line of the Chief's `control(action, id)` call: what it does to which subagent
+/// ("Checking on a31", "Answering a31's prompt"), not "Using optchat: control" (Leo 2026-10-20: that
+/// line sat over the typing dots for six minutes and said nothing).
+fn control_line(input: Option<&Value>) -> String {
+    let id = input_str(input, "id");
+    let who = id.as_deref();
+    let action = input_str(input, "action").unwrap_or_default();
+    match (action.as_str(), who) {
+        ("status", Some(id)) => format!("Checking on {id}"),
+        ("status", None) => "Checking on the agents".to_owned(),
+        ("interrupt", Some(id)) => format!("Steering {id}"),
+        ("answer", Some(id)) => format!("Answering {id}'s prompt"),
+        ("pause", Some(id)) => format!("Pausing {id}"),
+        ("resume", Some(id)) => format!("Resuming {id}"),
+        ("cancel", Some(id)) => format!("Cancelling {id}"),
+        ("restart", Some(id)) => format!("Restarting {id}"),
+        ("priority", Some(id)) => format!("Putting {id} first"),
+        ("cap", _) => "Setting how many agents work at once".to_owned(),
+        ("cloud", _) => "Choosing where new agents run".to_owned(),
+        (_, Some(id)) => format!("Managing {id}"),
+        _ => "Managing the agents".to_owned(),
     }
 }
 

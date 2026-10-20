@@ -1133,7 +1133,8 @@ enum RowBuilder {
         // centered): the Chief's "working on" line reads as a caption of the bubble it heads (RowDraw `.notice`
         // draws it at the bubble's left edge). Same gap and height as upstream's.
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
-            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
+            // cmux: one caption row per line (the running indicator's folded steps, narration and step: HomeNoticeRows).
+            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
         }
         if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))

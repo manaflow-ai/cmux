@@ -115,6 +115,8 @@ public final class HomeNativeTranscriptView: NSView {
         HomeReduceMotion.install()
         self.me = me
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
+        // The running indicator's look (Debug Settings > Home), read at each of its ticks.
+        transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
         // One binding per shown conversation; it opens the conversation on
         // the store now and `stop()` closes exactly that open, once.
         binding = HomeStoreBinding(store: store, conversation: conversation)
