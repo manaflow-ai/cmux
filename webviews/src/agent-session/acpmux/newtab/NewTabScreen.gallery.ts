@@ -12,6 +12,10 @@ const SITE_ICON =
 const OTHER_SITE_ICON =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAPklEQVR42mNgoDZ4FcHzHx+mSDNeQ4jVjNUQUjVjGIJN8v/bqyiYJAPQNeMyZDgbQHEg0iUtUD8pUyUzkQMARpy6LDTJkq8AAAAASUVORK5CYII=";
 
+/// Album art as the host sends it: a small inline PNG (a gradient).
+const ALBUM_ART =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACU0lEQVR42tXPCTcTAAAH8P8nkZJyC8uSRUNzX8uRNS0amvvMckSOJkcTOXJHJCJHkyOyHJEjckS8Xr16vXr1en2E9jX+3+D3g5labZ6ttrxx0yorxyYr1zYz1y4jzyEjX5B+yzGtQJha4JRa6JxyW5Rc5JJc7JpULE4scUso9Ui4I4nXeKo03qoyn+t3/eLKA2IrAmMrgmMqpcqqEOW9sGva8GhtRFS1LOq+/GpNpKJGoaiNuvIgOrJOKa+PkdfHXW5QyRrjZQ8TI5qSLjWlhDenhbekh7VmhrZlhbZlh7SrL3bkSB/lSTvzgzsLgroKgx4XBXaXBPSU+vdo/J+U+fWW+z6t9O0Dtb7Kpw/Ueq13P6j11V7PQK2v8RoAtb7WcwDU+jrJIKj1DZLnoNY3XhgCtb7JYxjU+mb3YVDrW91HQK1vdxsFtb5D/ALU+k6xDtT6rvM6UOu7XcdAre9xeQlqfa/LOKj1fecmQK3vF02AWj8gmgS1ftB5CtT6obOvQK0fcZoGtX7UEKDW687MgFo/JnwNav24cBbU+klHPaj1U6f1oNZPC96AWj8jmAO1ftZhHtR6vf08qPVz9gug1i/YLYJav3jqLaj1S7ZLoNYvGwLU+hWbZVDr16zfgVq/br0Cav2G1Sqo9ZuWq6DWb1msgVq/Y7EOav2u+XtQ6/fMNkCt3zcEqPUHJzdBrT888QHU+s+mW6DWfzHdBrX+6/FtUOu/meyAWv/dZBfU+h/HPoJa//PoHqj1v4z3QK3/bbwPav2fI59Arf9rdABq/T+jw/8n7vrBWnViYgAAAABJRU5ErkJggg==";
+
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: {
     layout: "b",
@@ -131,6 +135,8 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
     "agent-session/acpmux/newtab/ChatCards.tsx",
+    "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingPlayer",
+    "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingCard",
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
@@ -484,6 +490,40 @@ export default agentPaneEntry({
         await waitForTabJump(ctx, "closed", "closed:2");
         const unavailable = ctx.find({ selector: ".nt-closed .nt-open-tab[disabled]" });
         if (!(unavailable as HTMLButtonElement).disabled) throw new Error("unavailable closed row is not disabled");
+      },
+    },
+    "now-playing": {
+      note: "Now Playing: what plays on this Mac (Spotify here), large under the create actions, with its artwork, level bars and Play or Pause; the controls ask the host, and a pause stills the bars.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "nowPlaying.command": null },
+      play: async (ctx) => {
+        const track = (playing: boolean) => ({
+          title: "Weightless",
+          artist: "Marconi Union",
+          artwork: ALBUM_ART,
+          playing,
+          position: 132,
+          duration: 480,
+          rate: 1,
+          positionDate: Date.now(),
+          canPrevious: true,
+          canNext: true,
+          labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
+        });
+        const bridge = ctx.document.defaultView?.cmuxAcpmuxBridge;
+        bridge?.applyNowPlaying?.(track(true));
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=true]") !== null);
+        await ctx.click({ role: "button", name: "Pause" });
+        await ctx.waitFor(() =>
+          galleryNativeCalls(ctx.document).some(
+            (call) => call.method === "nowPlaying.command" && call.params?.command === "playPause",
+          ),
+        );
+        bridge?.applyNowPlaying?.(track(false));
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=false]") !== null);
+        bridge?.applyNowPlaying?.(track(true));
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=true]") !== null);
       },
     },
     "typed-prompt": {

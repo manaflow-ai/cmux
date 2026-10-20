@@ -161,10 +161,11 @@ test("the default New Tab is Claude Code desktop's layout: cards over the compos
     ]);
     // No ghost pills: the create actions are rows of the card.
     expect(host.querySelector(".nt-create.ui-ghost-row")).toBeNull();
-    // The footer: the folder strip moved into it, before the chips, with the plain look.
-    const pickers = composer!.querySelector(".nt-pickers")!;
-    expect(pickers.getAttribute("data-footer-look")).toBe("plain");
-    expect(pickers.querySelector(".nt-location")).toBeTruthy();
+    // The footer under the box: the folder strip, before the chips, with the plain look.
+    const footer = composer!.querySelector(":scope > .nt-footer")!;
+    expect(footer.getAttribute("data-footer-look")).toBe("plain");
+    expect(footer.querySelector(".nt-location")).toBeTruthy();
+    expect(composer!.querySelector(".nt-box .nt-location")).toBeNull();
     expect(composer!.querySelector(":scope > .nt-location")).toBeNull();
   } finally {
     act(() => root.unmount());
@@ -181,4 +182,18 @@ test("the other templates keep the composer at the top of the page", async () =>
   } finally {
     act(() => root.unmount());
   }
+});
+
+// Review (PR 22119, Greptile): the needs-you rows were picked from the five recent cards, so an
+// older failed chat behind five newer idle ones showed nowhere. They come from every chat now.
+test("an older failed chat behind newer idle ones still shows as needing you", async () => {
+  const { needsYouCards } = await import("../src/agent-session/acpmux/newtab/screenModel");
+  const { translate } = await import("../src/agent-session/acpmux/i18n");
+  const now = Date.now();
+  const idle = Array.from({ length: 6 }, (_, index) =>
+    session({ sessionId: `s-idle-${index}`, title: `Idle ${index}`, updatedAt: now - (index + 1) * 60_000 }),
+  );
+  const failed = session({ sessionId: "s-failed", title: "Old failure", indicator: "failed", updatedAt: now - 3_600_000 });
+  const cards = needsYouCards([...idle, failed], now, translate);
+  expect(cards.map((card) => card.sessionId)).toEqual(["s-failed"]);
 });

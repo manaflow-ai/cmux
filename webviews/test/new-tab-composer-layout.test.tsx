@@ -117,9 +117,10 @@ test("the New Tab card is the composer's: the project strip on its top edge, the
   expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button")).toBeNull();
 });
 
-// The stage layout (Leo 2026-10-19, Claude Code desktop's footer): the field, then the footer with
-// the folder strip first, the chips and Send; still never inside the card's field row.
-test("in the default layout the project strip is the footer's first item", async () => {
+// The stage layout (Leo 2026-10-19, Claude Code desktop's footer; the composer's split): the box
+// holds the field, the mic and Send; the quiet footer under it the folder strip first, then the
+// chips (permission mode, model, effort). Neither is ever in the field's row.
+test("in the default layout the box holds the field and Send, the footer under it the strip and chips", async () => {
   await mount();
   const composer = host.querySelector<HTMLElement>(".nt-composer")!;
   const parts = [
@@ -127,11 +128,13 @@ test("in the default layout the project strip is the footer's first item", async
   ];
   expect(parts.map((part) => part.className.split(" ")[0])).toEqual([
     "nt-field",
+    "acpmux-send",
     "acpmux-composer-strip",
     "acpmux-chips",
-    "acpmux-send",
   ]);
-  expect(composer.querySelector(".nt-pickers .acpmux-composer-context")!.textContent).toContain("app");
+  const box = composer.querySelector<HTMLElement>(".nt-box")!;
+  expect(box.querySelector(".acpmux-chips, .acpmux-composer-strip")).toBeNull();
+  expect(composer.querySelector(":scope > .nt-footer .acpmux-composer-context")!.textContent).toContain("app");
   expect(composer.querySelector(".nt-input .acpmux-composer-context")).toBeNull();
 });
 

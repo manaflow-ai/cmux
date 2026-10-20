@@ -725,6 +725,8 @@ export class AcpmuxDirectClient {
   private localOrigin = false;
   /// The origin acpmux names for this connection; `unknown` until (or unless) it names one.
   private origin: NonNullable<AcpmuxSnapshot["origin"]> = "unknown";
+  /// `sessions` holds the daemon's list: its first page has been read.
+  private listedSessions = false;
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -953,6 +955,7 @@ export class AcpmuxDirectClient {
         this.sessions = this.sessionPages.settle(await this.sessionPages.whole());
         laterPages = undefined;
       }
+      this.listedSessions = first !== undefined || this.sessions.length > 0;
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         // A linked session the daemon lacks is refused, never replaced by the most recent chat.
         if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
@@ -2185,6 +2188,7 @@ export class AcpmuxDirectClient {
         : undefined,
       connection,
       origin: this.origin,
+      ...(this.listedSessions ? { listedSessions: true as const } : {}),
       ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
@@ -2678,6 +2682,17 @@ export class AcpmuxDirectClient {
       ...(options.rescan ? { rescan: true } : {}),
     });
     return Array.isArray(reply?.harnesses) ? reply.harnesses : [];
+  }
+  /// The routes acpmux has (`_acpmux/route/list`) with `sessionId`'s active one: the composer's
+  /// Account menu. Each route says whether it `serves` the session's harness family.
+  async routes(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/route/list", { sessionId });
+  }
+  /// Binds chat `sessionId` to route `routeId` (null: back to its default) through
+  /// `_acpmux/chat/route.set`. acpmux restarts the harness on it and resumes the same agent
+  /// session, now when idle, else once the running turn ends.
+  async setChatRoute(sessionId: string, routeId: string | null): Promise<unknown> {
+    return this.request("_acpmux/chat/route.set", { sessionId, routeId, when: "after-turn" });
   }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.

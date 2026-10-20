@@ -100,6 +100,20 @@ export function defaultSelection(rows: readonly ScreenRow[]): number {
   return rows[0] && rows[0].type !== "search" ? 0 : -1;
 }
 
+/// The inline address completion accepted by Right or End. Only a top row that is an address and
+/// extends the typed prefix qualifies: an open result (the typed address or a top site) or a visited
+/// page (history, as Chrome's omnibox completes it). Prompt, search, tab and workspace rows stay
+/// explicit picks. Accepting only fills the field; Enter or Send still opens it. Keeping this pure
+/// lets the New Tab field and its tests share the same safety rule.
+export function inlineCompletion(text: string, rows: readonly ScreenRow[]): string | undefined {
+  const query = text.trim();
+  const row = rows[0];
+  const completion = row?.type === "open" ? row.text : row?.type === "history" ? canonicalAddress(row.url) : undefined;
+  if (!query || !completion || completion.length <= query.length) return undefined;
+  if (!completion.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) return undefined;
+  return completion;
+}
+
 /// Whether Return on `text` with no row is an address (it never becomes a prompt).
 export function isAddress(text: string, home?: string): boolean {
   return classifyNewTabInput(text, home ? { home } : {}).kind === "url";
@@ -364,6 +378,23 @@ export function recentChatCards(
   if (!fold) return cards;
   const children = indexChildren(sessions, device, now, t);
   return cards.map((card) => withChildren(card, children));
+}
+
+/// The stage layout's needs-you rows (NewTabScreen's suggestions card).
+export const MAX_NEEDS_YOU = 3;
+
+/// The chats waiting on the user (asking for input, or hit an error or lost their agent), newest
+/// first, picked from every chat before the cap: an older one is never hidden behind newer idle
+/// chats, as `recentChatCards`' trimmed list would hide it.
+export function needsYouCards(
+  sessions: AcpmuxSnapshot["sessions"],
+  now: number,
+  t: Translate,
+  count = MAX_NEEDS_YOU,
+): ChatCard[] {
+  return liveChatCards(sessions, now, t, Number.POSITIVE_INFINITY, false)
+    .filter((card) => card.state === "input" || card.state === "error" || card.state === "failed")
+    .slice(0, count);
 }
 
 function liveChatCards(

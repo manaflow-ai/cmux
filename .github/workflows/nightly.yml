@@ -1596,16 +1596,23 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client]
-    # Every run gets its own build slot, so no push ever replaces another. A
-    # shared nightly-next slot (1 running + 1 pending, newer replaces pending)
-    # turned every push into a "cancelled" run once its holder, run 39217096519,
-    # sat queued for a Blacksmith runner that never came (2026-10-19: six
-    # nightly-next runs cancelled without ever getting a runner). nightly-next
-    # builds now queue FIFO on the dedicated warm runner
-    # (CI_NIGHTLY_NEXT_TRUSTED_RUNNER), which serializes them; with its warm
-    # DerivedData an intermediate head costs an incremental build, not 90 min.
+    # Build slot. Attempt 1 of a nightly-next push that takes the dedicated
+    # warm runner (the same condition as its runs-on below) shares one slot:
+    # one build runs, at most one waits, and a newer push replaces the waiting
+    # build, so the newest promoted head builds next and older heads are skipped
+    # instead of queuing. Per-run slots (de5912c9fe41) queued every push FIFO
+    # on the one runner; at a push every ~10 min, a waiting build passed the
+    # owned-pool rescue's 930 s stuck limit, was cancelled and re-run on
+    # Blacksmith, and waited there over an hour (2026-10-19: runs 39318999424,
+    # 39320477722 and 39329116254). A slot-held job is "pending", never
+    # "queued", so the rescue does not see it; it watches only the running
+    # holder. The first shared slot (#21917) failed because its holder sat
+    # queued on Blacksmith before the warm runner existed: every other route
+    # (Blacksmith, retries, dispatch, fast, main, a missing variable) keeps a
+    # slot per run, so a rescued re-run on Blacksmith never holds this slot.
+    # report-nightly-failure drops a build replaced here before it started.
     concurrency:
-      group: nightly-build-app-${{ github.run_id }}
+      group: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL != '' && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER != '' && 'nightly-next-build-app-warm' || format('nightly-build-app-{0}', github.run_id) }}
       cancel-in-progress: false
     outputs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
@@ -4943,9 +4950,9 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # Post-publication lane (cx-x7hwx): the build publish-nightly-identity-legacy
-  # copies, if any: the
-  # newest build on the cmux NEXT feed when it is newer than the old feed's.
+  # Post-publication lane (cx-x7hwx): picks the build publish-nightly-identity-legacy
+  # copies, if any: the newest build on the cmux NEXT feed when it is newer than
+  # the old feed's.
   # Linux, seconds; the macOS job starts only when there is work.
   legacy-identity-target:
     needs: [decide, publish-nightly, publish-release-notes]

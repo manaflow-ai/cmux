@@ -29338,6 +29338,44 @@
     "additional_properties": false
    }
   },
+  "cloud-host-replica-needed": {
+   "since": 12,
+   "capability": "cloud-host-replica-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-host-replica-needed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expires_at": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "activity-changed": {
    "since": 12,
    "capability": "vm-activity-v1",
