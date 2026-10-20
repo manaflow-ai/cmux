@@ -35,7 +35,12 @@ final class HostedChiefCopy {
             if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.withoutEscapingSlashes]) }
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return (status, (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:])
+            return (status, await Self.decode(data))
+        }
+
+        /// The reply's JSON object off the main actor (a history page can be large).
+        @concurrent nonisolated static func decode(_ data: Data) async -> sending [String: Any] {
+            (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         }
 
         nonisolated static func errorCode(_ json: [String: Any]) -> String? { (json["error"] as? [String: Any])?["code"] as? String }
