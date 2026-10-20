@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// The first-run panel's inputs from the host (`HomeFirstRunView`): shortcuts, agents, the
