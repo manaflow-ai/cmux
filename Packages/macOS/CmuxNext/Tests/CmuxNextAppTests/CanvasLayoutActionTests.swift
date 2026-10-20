@@ -26,7 +26,7 @@ struct CanvasLayoutActionTests {
     }
 
     /// The app with one window showing the two-pane workspace.
-    private static func window() async throws -> (AppServices, WindowController, WorkspaceContentController) {
+    static func window() async throws -> (AppServices, WindowController, WorkspaceContentController) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -44,7 +44,7 @@ struct CanvasLayoutActionTests {
         return (services, controller, content)
     }
 
-    private static func run(_ id: ActionID, on pane: PaneController, _ services: AppServices) -> String? {
+    static func run(_ id: ActionID, on pane: PaneController, _ services: AppServices) -> String? {
         services.registry.capturingRefusal {
             _ = services.registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .user))
         }
