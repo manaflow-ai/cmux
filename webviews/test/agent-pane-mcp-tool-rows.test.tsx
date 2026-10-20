@@ -181,3 +181,45 @@ test("output that only names an internal tag keeps the text after it", async () 
   await click(toggles()[0]!);
   expect(host.querySelector(".cv-tool-output")?.textContent).toBe(source);
 });
+
+test("a settled run of Codex MCP calls folds as tools used, not commands run", async () => {
+  const { toolRunSummary } = await import("../src/agent-session/acpmux/conversation/toolRunSummary");
+  const en = (key: string) => ({ "toolRun.used.other": "used tools", "toolRun.ran.other": "ran commands" })[key] ?? key;
+  const items = [
+    codexCall("s1", "send_message", { threadId: THREAD, message: "one" }, "{}"),
+    codexCall("r1", "read_thread", { threadId: THREAD }, readOutput),
+  ];
+  expect(toolRunSummary(en as never, items)).toBe("Used tools");
+});
+
+test("Find reads an MCP call as it draws: its pretty request and response, without internal context", async () => {
+  const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const read = codexCall("r1", "read_thread", { threadId: THREAD }, readOutput);
+  const text = activityText(read);
+  expect(text).toContain(`"threadId": "${THREAD}"`);
+  expect(text).toContain('"preview": "ship it"');
+  expect(text).not.toContain("ambient UI state");
+  expect(text).not.toContain("codex_apps.read_thread call");
+  const fetch: AcpmuxActivity = {
+    kind: "tool",
+    text: "Fetch",
+    tool: { id: "f1", title: "Fetch docs", kind: "fetch", status: "completed", output: `${AMBIENT}page text` },
+  };
+  expect(activityText(fetch)).not.toContain("ambient UI state");
+});
+
+test("a context block in the middle of output is the output's own text and stays", async () => {
+  const { cleanText } = await import("../src/agent-session/acpmux/conversation/mcpCalls");
+  const middle = `# Template\n${AMBIENT}more`;
+  expect(cleanText(middle)).toBe(middle);
+  expect(cleanText(`${AMBIENT}body\n${AMBIENT}`)).toBe("body\n");
+});
+
+test("only id-named arguments resolve to titles, and a message names its recipient, not its subject", async () => {
+  const { mcpTarget } = await import("../src/agent-session/acpmux/conversation/mcpCalls");
+  const names = new Map([["x1", "Coordination hub"]]);
+  expect(mcpTarget({ server: "s", tool: "list_items", args: { valid: "x1" } }, names)).toBeUndefined();
+  expect(mcpTarget({ server: "s", tool: "read_thread", args: { thread_id: "x1" } }, names)).toBe("Coordination hub");
+  expect(mcpTarget({ server: "s", tool: "send_email", args: { subject: "Re: lunch", to: "Sam" } }, names)).toBe("Sam");
+  expect(mcpTarget({ server: "s", tool: "send_email", args: { subject: "Re: lunch" } }, names)).toBeUndefined();
+});
