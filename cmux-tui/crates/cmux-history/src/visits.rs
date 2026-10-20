@@ -18,6 +18,11 @@ use crate::fold::{fold, tokens};
 pub const RETENTION_MS: i64 = 90 * 86_400_000;
 /// At most 100,000 visits per profile; prune drops the oldest beyond it.
 pub const MAX_VISITS: usize = 100_000;
+/// Main database plus WAL/SHM accepted from the app-local legacy store.
+const MAX_IMPORT_FILE_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_IMPORT_URL_BYTES: i64 = 8_192;
+const MAX_IMPORT_TITLE_BYTES: i64 = 1_024;
+const MAX_IMPORT_TAB_BYTES: i64 = 1_024;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS visits(
@@ -432,18 +437,35 @@ impl VisitStore {
     /// is never imported twice, also not by another session. Returns how
     /// many visits came in (0 for a file imported before).
     pub fn import(&self, other: &Path) -> Result<usize, HistoryError> {
-        let meta = std::fs::metadata(other)?;
-        let modified = meta
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |elapsed| elapsed.as_nanos());
-        let marker = format!("{}|{}|{modified}", other.display(), meta.len());
+        let (source_bytes, modified) = Self::import_metadata(other)?;
+        // Keep the v3 marker shape so a retry across an app upgrade does not
+        // duplicate a source already committed before the reply was lost.
+        let marker = format!("{}|{source_bytes}|{modified}", other.display());
         let source = Connection::open_with_flags(
             other,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         source.busy_timeout(Duration::from_millis(250))?;
+        let (visits, url_bytes, title_bytes, tab_bytes): (i64, i64, i64, i64) = source.query_row(
+            "SELECT COUNT(*),
+                        COALESCE(MAX(length(CAST(url AS BLOB))), 0),
+                        COALESCE(MAX(length(CAST(title AS BLOB))), 0),
+                        COALESCE(MAX(length(CAST(tab AS BLOB))), 0)
+                 FROM (SELECT url, title, tab FROM visits LIMIT ?1)",
+            [i64::try_from(MAX_VISITS + 1).unwrap_or(i64::MAX)],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+        if visits > i64::try_from(MAX_VISITS).unwrap_or(i64::MAX) {
+            return Err(HistoryError::InvalidImport(format!(
+                "too many visits (maximum {MAX_VISITS})"
+            )));
+        }
+        if url_bytes > MAX_IMPORT_URL_BYTES
+            || title_bytes > MAX_IMPORT_TITLE_BYTES
+            || tab_bytes > MAX_IMPORT_TAB_BYTES
+        {
+            return Err(HistoryError::InvalidImport("a visit field is too large".into()));
+        }
         let mut rows = source.prepare(
             "SELECT url, title, visit_time_ms, tab FROM visits ORDER BY visit_time_ms, id",
         )?;
@@ -470,9 +492,61 @@ impl VisitStore {
             "INSERT INTO imported_logs(source, visits) VALUES (?1, ?2)",
             params![marker, i64::try_from(imported).unwrap_or(i64::MAX)],
         )?;
+        transaction.execute(
+            "DELETE FROM visits WHERE id IN
+             (SELECT id FROM visits ORDER BY visit_time_ms DESC, id DESC LIMIT -1 OFFSET ?1)",
+            params![i64::try_from(MAX_VISITS).unwrap_or(i64::MAX)],
+        )?;
         transaction.commit()?;
         self.fill_search()?;
         Ok(imported)
+    }
+
+    /// Size and latest modification of the legacy database and its SQLite
+    /// sidecars. Every present component must be a regular file, never a link.
+    fn import_metadata(path: &Path) -> Result<(u64, u128), HistoryError> {
+        let mut bytes = 0_u64;
+        let mut source_bytes = 0_u64;
+        let mut source_modified = 0_u128;
+        for suffix in ["", "-wal", "-shm"] {
+            let candidate = if suffix.is_empty() {
+                path.to_path_buf()
+            } else {
+                let mut name = path.as_os_str().to_os_string();
+                name.push(suffix);
+                name.into()
+            };
+            let metadata = match std::fs::symlink_metadata(&candidate) {
+                Ok(metadata) => metadata,
+                Err(error)
+                    if !suffix.is_empty() && error.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
+            if !metadata.file_type().is_file() {
+                return Err(HistoryError::InvalidImport(
+                    "source and sidecars must be regular files".into(),
+                ));
+            }
+            bytes = bytes.saturating_add(metadata.len());
+            if bytes > MAX_IMPORT_FILE_BYTES {
+                return Err(HistoryError::InvalidImport(format!(
+                    "source is too large (maximum {MAX_IMPORT_FILE_BYTES} bytes)"
+                )));
+            }
+            let stamp = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |elapsed| elapsed.as_nanos());
+            if suffix.is_empty() {
+                source_bytes = metadata.len();
+                source_modified = stamp;
+            }
+        }
+        Ok((source_bytes, source_modified))
     }
 
     pub fn count(&self) -> Result<u64, HistoryError> {
