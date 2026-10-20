@@ -11,6 +11,16 @@ import Testing
 /// the new workspace joins that group, in the home session's personal state and in the window's
 /// sidebar. It used to be made outside the group: the group was set right after the create,
 /// before the store listed the workspace, so the place went out without its public id.
+/// The sidebar's group ids name their personal group: the document's item of an old group
+/// (`itm_g_<id>`) and a group the document made under its own id.
+struct SidebarGroupTargetTests {
+    @Test func aDocumentGroupItemNamesItsPersonalGroup() {
+        #expect(AppActionContext.personalGroupIDs(sidebar: "itm_g_grp_1").map(\.rawValue) == ["itm_g_grp_1", "grp_1"])
+        #expect(AppActionContext.personalGroupIDs(sidebar: "grp_1").map(\.rawValue) == ["grp_1"])
+        #expect(AppActionContext.personalGroupIDs(sidebar: "itm_g_").map(\.rawValue) == ["itm_g_"])
+    }
+}
+
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct GroupHeaderNewWorkspaceTests {
     /// Polls until `done` holds or `limit` passes (a poll, as in `RapidWorkspaceCreateTests`).

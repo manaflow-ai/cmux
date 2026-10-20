@@ -155,22 +155,29 @@ enum WorkspaceGroupHandlers {
         })
     }
 
-    /// New workspace in the window's room, then into personal group `id`.
+    /// New workspace in the window's room, at the end of personal group `id`: the group's slot,
+    /// the path a double-click in the group takes, so its row shows in the group from the press
+    /// and is placed once the daemon lists it. Placing it right after the create raced the
+    /// listing: without the workspace's public id the place went out as the raw command, and the
+    /// workspace stayed outside the group.
     private static func newPersonalWorkspace(in id: WorkspaceGroupID, newTabPage: Bool, _ context: AppActionContext) {
         let windows = context.services.windows
         let target = windows.targetWindow(preferring: windows.active?.state.id)
         let local = context.services.machines.local
-        Task {
-            var spawn = WorkspaceSpawn()
-            spawn.opensNewTabPage = newTabPage
-            // Placed into the group below, not at the new-workspace slot.
-            spawn.placesBySetting = false
-            guard let key = try? await windows.createWorkspace(spawn, into: target), let session = local.store.registryID else { return }
+        var spawn = WorkspaceSpawn()
+        spawn.opensNewTabPage = newTabPage
+        // The sidebar names the group by its document item (`itm_g_<id>`) or by its own id.
+        spawn.slot = windows.controller(for: target).flatMap { AppActionContext.sidebarGroupID(of: id, in: $0.sidebar.model) }
+            .map(WorkspaceSlot.endOfGroup)
+        spawn.onListed = { key, bridge in
+            // A window that does not list the group (another room) has no slot for it.
+            guard AppActionContext.sidebarGroupID(of: id, in: bridge.model) == nil, let session = local.store.registryID else { return }
             let workspace = WorkspaceKey(rawValue: key), resource = local.store.personalStateID(session: session, key: workspace)
             local.send("set-personal-workspace") {
                 try await $0.state.placePersonalWorkspace(session: session, key: workspace, resource: resource, group: .set(id))
             }
         }
+        Task { _ = try? await windows.createWorkspace(spawn, into: target) }
     }
 
     private static func sidebarID(_ group: WorkspaceGroupModel) -> CmuxNextSidebar.GroupID {

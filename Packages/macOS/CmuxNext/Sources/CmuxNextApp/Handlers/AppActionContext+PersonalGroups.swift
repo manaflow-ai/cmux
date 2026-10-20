@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextSidebar
 
 /// Workspace groups when the home session serves personal state
 /// (plans/cmux-next/data-model.md 1.2c): groups and membership are personal
@@ -14,7 +15,7 @@ extension AppActionContext {
     func personalGroup(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
         if let explicit {
-            guard let group = personal.group(WorkspaceGroupID(rawValue: explicit.id)) else {
+            guard let group = Self.personalGroupIDs(sidebar: explicit.id).lazy.compactMap(personal.group).first else {
                 throw ActionFailure.notFound(RefusalStrings.noWorkspaceGroup(explicit.id))
             }
             return group
@@ -23,6 +24,21 @@ extension AppActionContext {
             throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup)
         }
         return group
+    }
+
+    /// The sidebar document lists an old personal group as item `itm_g_<id>`
+    /// (`group_item_id` in cmux-layout-reducer) and a group it made under the
+    /// group's own id, so a group header, its + and its menu name the group
+    /// by either. The candidates for `id`, the id itself first.
+    static func personalGroupIDs(sidebar id: String) -> [WorkspaceGroupID] {
+        let prefix = "itm_g_"
+        guard id.hasPrefix(prefix), id.count > prefix.count else { return [WorkspaceGroupID(rawValue: id)] }
+        return [WorkspaceGroupID(rawValue: id), WorkspaceGroupID(rawValue: String(id.dropFirst(prefix.count)))]
+    }
+
+    /// The sidebar's id of personal group `id` in `model`: the document's item, else the group's own.
+    static func sidebarGroupID(of id: WorkspaceGroupID, in model: SidebarModel) -> CmuxNextSidebar.GroupID? {
+        [CmuxNextSidebar.GroupID("itm_g_" + id.rawValue), CmuxNextSidebar.GroupID(id.rawValue)].first { model.group($0) != nil }
     }
 
     /// A workspace's personal group, if any.
