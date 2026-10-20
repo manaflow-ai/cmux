@@ -149,6 +149,7 @@ export function ThreadSheet({
             type="button"
             className={`lg-status-button${resolved ? " resolved" : ""}`}
             onClick={onToggleStatus}
+            /* tooltip-allow: the button shows the status; the tooltip names what a click does */
             title={t(resolved ? "thread.reopen" : "thread.resolve")}
             aria-keyshortcuts="E"
           >
@@ -209,6 +210,7 @@ export function ThreadSheet({
             <button
               type="button"
               className="lg-sheet-title-button"
+              /* tooltip-allow: the button shows the title; the tooltip says a click renames it */
               title={t("thread.rename")}
               disabled={!thread}
               onClick={startRename}

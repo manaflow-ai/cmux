@@ -21,6 +21,8 @@ import {
   type HomeDerivedImage,
   type HomeEventBatch,
   type HomeInboxChange,
+  type HomeLiveFrame,
+  type HomeLiveSnapshot,
   type HomeMessage,
   type HomeParticipant,
   type HomePart,
@@ -40,6 +42,9 @@ const THREAD_OBJECTS_CAPABILITY = "conversation-thread-objects-v1";
 /** My own pins and marks: `conversation-inbox-op`, the list fields, `conversation-inbox-changed`
  * and `cloud-inbox-op` (the Cloud owner's `inbox.pin` and `inbox.mark_unread`). */
 const INBOX_STATE_CAPABILITY = "conversation-inbox-state-v1";
+/** `home-inbox`: the owner derives the list rows (kind, name, unread, preview, a Chief's state, my
+ * pins and marks) once for every view; the page shows them instead of projecting summaries. */
+const HOME_INBOX_CAPABILITY = "home-inbox-v1";
 /** Attachment uploads, reads and download links on this WebSocket (local conversations). */
 const WS_ATTACHMENTS_CAPABILITY = "ws-attachments-v1";
 /** The same three attachment commands for cloud conversations, through the daemon's lease. */
@@ -60,6 +65,13 @@ const MAX_PAGE = 200;
 const RUNS_CAPABILITY = "conversation-runs-v1";
 /** A Cloud Chief's runs through the daemon (`cloud-conversation-run*`). */
 const CLOUD_RUNS_CAPABILITY = "cloud-conversation-runs-v1";
+/** A Chief's live run frames (`conversation-live*`, the `conversation-live` event for a page that asks). */
+const LIVE_CAPABILITY = "chief-live-v1";
+/** A Cloud Chief's live frames through the daemon (`cloud-conversation-live`). */
+const CLOUD_LIVE_CAPABILITY = "cloud-chief-live-v1";
+/** The daemon passes a cloud conversation's typing (`cloud-conversation-typing`) to a connection that
+ *  echoes this. */
+const CLOUD_TYPING_CAPABILITY = "cloud-conversation-typing-v1";
 /** Participants' pictures (`participant.avatar.get`, `cloud-participant-avatar-get`, the
  * `participant-avatar-changed` event for a page that asks). */
 const AVATARS_CAPABILITY = "participant-avatars-v1";
@@ -244,6 +256,74 @@ export function run(raw: Json): HomeRun {
   return result;
 }
 
+const liveKind = (value: unknown): "talk" | "thought" | undefined =>
+  value === "talk" || value === "thought" ? value : undefined;
+
+/** A live frame (`chief-live-v1`) as the page reads it; undefined for one it does not know. */
+export function liveFrame(raw: Json): HomeLiveFrame | undefined {
+  const conversation = optStr(raw.conversation);
+  if (!conversation) return undefined;
+  if (raw.type === "run.live") return liveSnapshot(raw);
+  const run = optStr(raw.run);
+  if (!run) return undefined;
+  if (raw.type === "step.delta") {
+    const kind = liveKind(raw.kind);
+    const step = optStr(raw.step);
+    const text = optStr(raw.text);
+    if (!kind || !step || text === undefined || typeof raw.seq !== "number") return undefined;
+    const frame: HomeLiveFrame = { type: "step.delta", conversation, run, step, kind, seq: raw.seq, text };
+    if (raw.final === true) frame.final = true;
+    if (typeof raw.author === "string") frame.author = raw.author;
+    return frame;
+  }
+  if (raw.type === "run.activity" && typeof raw.line === "string") {
+    const frame: HomeLiveFrame = {
+      type: "run.activity",
+      conversation,
+      run,
+      line: raw.line,
+      since: num(raw.since),
+      at: num(raw.at),
+    };
+    if (typeof raw.author === "string") frame.author = raw.author;
+    return frame;
+  }
+  return undefined;
+}
+
+/** A `run.live` snapshot as the page reads it. */
+export function liveSnapshot(raw: Json): HomeLiveSnapshot | undefined {
+  const conversation = optStr(raw.conversation);
+  if (raw.type !== "run.live" || !conversation) return undefined;
+  const runs: HomeLiveSnapshot["runs"] = [];
+  for (const item of (raw.runs as Json[] | undefined) ?? []) {
+    if (typeof item?.run !== "string") continue;
+    const steps: HomeLiveSnapshot["runs"][number]["steps"] = [];
+    for (const step of (item.steps as Json[] | undefined) ?? []) {
+      const kind = liveKind(step?.kind);
+      if (kind && typeof step.step === "string" && typeof step.text === "string")
+        steps.push({
+          step: step.step,
+          kind,
+          seq: num(step.seq),
+          text: step.text,
+          ...(step.final === true ? { final: true as const } : {}),
+        });
+    }
+    const activity = item.activity as Json | undefined;
+    runs.push({
+      run: item.run,
+      author: optStr(item.author),
+      steps,
+      activity:
+        activity && typeof activity.line === "string"
+          ? { line: activity.line, since: num(activity.since), at: num(activity.at) }
+          : undefined,
+    });
+  }
+  return { type: "run.live", conversation, runs };
+}
+
 /** A run step as the owner sends it, in the page's shape. */
 export function runStep(raw: Json): HomeRunStep {
   const kind = ["talk", "thought", "tool", "note"].includes(String(raw.kind)) ? raw.kind : "note";
@@ -349,6 +429,24 @@ export function conversation(raw: Json, me: string): HomeConversation {
   return result;
 }
 
+/** A local row with the facts only the owner knows (`home-inbox`): the kind (a registry Chief, a
+ * later room with one person), the Chief's current name and its state (its typing and runs in
+ * every conversation, not only the open one). Unread, preview and times stay the page's own: the
+ * same rule, and fresher between two row reads. */
+export function withHomeRow(row: HomeConversation, owned: Json): HomeConversation {
+  const kind = owned.kind === "chief" ? "chief" : owned.kind === "direct" ? "direct" : "group";
+  const result: HomeConversation = { ...row, kind };
+  if (kind === "chief" && typeof owned.chief === "string") {
+    const chief = owned.chief;
+    // The Chief participant (a registry Chief may have no agent class).
+    result.participants = row.participants.map((p) => (p.id === chief ? { ...p, chief: true } : p));
+    if (typeof owned.name === "string" && owned.name) result.title = owned.name;
+  }
+  const state = owned.chief_state;
+  if (state === "working" || state === "waiting" || state === "idle") result.chiefState = state;
+  return result;
+}
+
 function threads(raw: unknown): HomeThreadStats[] {
   return ((raw as Json[] | undefined) ?? []).map((entry) => {
     const stats: HomeThreadStats = {
@@ -405,8 +503,12 @@ export class DaemonHomeClient implements PageClient {
    * `conversation-inbox-changed`: a snapshot or a conversation change carries none, so a summary
    * from them keeps what the list said. */
   private readonly listState = new Map<string, Json>();
+  /** The owner's last `home-inbox` rows by conversation id (home-inbox-v1). */
+  private readonly homeRows = new Map<string, Json>();
   /** Cloud summaries the hydration read after the inbox answered (sent on the events stream). */
   private readonly cloudListeners = new Set<(conversation: HomeConversation) => void>();
+  /** Cloud participants a head named for the first time: their pictures are asked again. */
+  private readonly peopleListeners = new Set<(participants: string[]) => void>();
 
   /** Starts each connection's daemon stream once (a page resubscribe adds a listener only). */
   private startStream(): Promise<void> {
@@ -419,7 +521,13 @@ export class DaemonHomeClient implements PageClient {
       started = (async () => {
         await socket.request("set-client-info", {
           name: "cmux page: home-channels",
-          capabilities: ["conversation-draft-events-v1", RUNS_CAPABILITY, AVATARS_CAPABILITY],
+          capabilities: [
+            "conversation-draft-events-v1",
+            RUNS_CAPABILITY,
+            AVATARS_CAPABILITY,
+            LIVE_CAPABILITY,
+            CLOUD_TYPING_CAPABILITY,
+          ],
         });
         await socket.request("subscribe");
       })().catch((error) => {
@@ -438,9 +546,16 @@ export class DaemonHomeClient implements PageClient {
   ) {
     this.local = local ?? daemon;
     this.sockets = this.local === daemon ? [daemon] : [daemon, this.local];
-    this.cloud = new CloudHome(daemon, conversation, (summary) => {
-      for (const listener of this.cloudListeners) listener(summary);
-    });
+    this.cloud = new CloudHome(
+      daemon,
+      conversation,
+      (summary) => {
+        for (const listener of this.cloudListeners) listener(summary);
+      },
+      (participants) => {
+        for (const listener of this.peopleListeners) listener(participants);
+      },
+    );
     this.people = new DaemonPeople(
       this.local,
       () => this.me,
@@ -454,11 +569,13 @@ export class DaemonHomeClient implements PageClient {
   /** A local owner summary as the page's row, with my list state (kept when the summary has none). */
   private localRow(raw: Json): HomeConversation {
     const id = String(raw.id);
+    let row: HomeConversation;
     if ("pinned" in raw || "marked_unread" in raw) {
       this.listState.set(id, { pinned: raw.pinned, pin_position: raw.pin_position, marked_unread: raw.marked_unread });
-      return conversation(raw, this.me);
-    }
-    return conversation({ ...raw, ...this.listState.get(id) }, this.me);
+      row = conversation(raw, this.me);
+    } else row = conversation({ ...raw, ...this.listState.get(id) }, this.me);
+    const owned = this.homeRows.get(id);
+    return owned ? withHomeRow(row, owned) : row;
   }
 
   private capable(capability: string, socket: DaemonSocket = this.local): Promise<boolean> {
@@ -529,6 +646,13 @@ export class DaemonHomeClient implements PageClient {
           .find((entry) => entry.id === LOCAL_USER);
         const me = mine ? participant(mine) : { id: LOCAL_USER, kind: "human" as const, name: "You", chief: false };
         this.me = me.id;
+        // The owner's rows for the local conversations (an older daemon: the page projects them).
+        this.homeRows.clear();
+        if (await this.capable(HOME_INBOX_CAPABILITY)) {
+          // A failed read leaves the page's own projection (never an empty list).
+          const home = await this.local.request<{ me?: string; rows?: Json[] }>("home-inbox").catch(() => undefined);
+          if (home && home.me === this.me) for (const row of home.rows ?? []) this.homeRows.set(String(row.id), row);
+        }
         // The person's Cloud inbox through the same daemon; a Cloud failure never hides the local one.
         const cloud = await this.cloud.inbox(await this.cloudReady()).catch(() => []);
         return {
@@ -691,6 +815,17 @@ export class DaemonHomeClient implements PageClient {
           hasMore: found.has_more === true,
         };
       }
+      case HomeOps.live: {
+        const id = str(params, "conversation");
+        // A Cloud owner answers `run.live.get` on the conversation's socket: a live event.
+        if (this.cloud.owns(id)) {
+          if (await this.capable(CLOUD_LIVE_CAPABILITY, this.daemon))
+            await this.daemon.request("cloud-conversation-live", { conversation: id });
+          return null;
+        }
+        if (!(await this.capable(LIVE_CAPABILITY))) return null;
+        return liveSnapshot(await this.read("conversation-live", id, { conversation: id })) ?? null;
+      }
       case HomeOps.avatar: {
         const id = str(params, "participant", 80);
         // Cloud answers another participant's picture only with a conversation both are in.
@@ -778,8 +913,9 @@ export class DaemonHomeClient implements PageClient {
         return {
           chief: await this.people.setChiefAvatar(
             str(params, "chief", 64),
-            str(params, "mediaType", 32),
-            str(params, "data", 1_500_000),
+            params.clear === true
+              ? null
+              : { mediaType: str(params, "mediaType", 32), data: str(params, "data", 1_500_000) },
             this.key(params, options),
           ),
         };
@@ -977,8 +1113,13 @@ export class DaemonHomeClient implements PageClient {
     };
     const offCloud = (() => {
       const listener = (summary: HomeConversation) => deliver((batch) => (batch.conversations ??= []).push(summary));
+      const people = (participants: string[]) => deliver((batch) => (batch.avatars ??= []).push(...participants));
       this.cloudListeners.add(listener);
-      return () => this.cloudListeners.delete(listener);
+      this.peopleListeners.add(people);
+      return () => {
+        this.cloudListeners.delete(listener);
+        this.peopleListeners.delete(people);
+      };
     })();
     // Cloud events come from the build daemon, local conversation events from the local owner
     // (the same socket unless the Chief home's owner serves the local conversations).
@@ -997,6 +1138,11 @@ export class DaemonHomeClient implements PageClient {
           if (cloud.removed?.length) (batch.removed ??= []).push(...cloud.removed);
           if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
           if (cloud.inboxStale) batch.inboxStale = true;
+          if (cloud.typing) (batch.typing ??= []).push(cloud.typing);
+          if (cloud.live) {
+            const frame = liveFrame(cloud.live);
+            if (frame) (batch.live ??= []).push(frame);
+          }
           if (cloud.run) {
             const changed = run(cloud.run.run);
             // A Cloud brain's run carries no update time: this event is its newest change.
@@ -1015,7 +1161,11 @@ export class DaemonHomeClient implements PageClient {
             batch.inboxStale = true;
           });
         } else if (change.kind === "conversation" && change.conversation) {
-          deliver((batch) => (batch.conversations ??= []).push(this.localRow(change.conversation as Json)));
+          deliver((batch) => {
+            (batch.conversations ??= []).push(this.localRow(change.conversation as Json));
+            // Its row (kind, name) is the owner's: read the rows again.
+            if (this.homeRows.size > 0) batch.inboxStale = true;
+          });
         } else {
           deliver((batch) => (batch.inboxStale = true));
         }
@@ -1036,13 +1186,17 @@ export class DaemonHomeClient implements PageClient {
           (batch.inbox ??= []).push(change);
         });
       } else if (event.event === "conversation-typing") {
-        deliver((batch) =>
+        deliver((batch) => {
           (batch.typing ??= []).push({
             conversation: String(event.conversation),
             participant: String(event.participant),
             on: event.on === true,
-          }),
-        );
+          });
+          // The Chief stopped typing: its "working" on the owner's row may end.
+          const owned = this.homeRows.get(String(event.conversation));
+          if (event.on !== true && owned?.chief === event.participant && owned?.chief_state === "working")
+            batch.inboxStale = true;
+        });
       } else if (event.event === "conversation-draft") {
         const item = (event.item ?? {}) as Json;
         deliver((batch) =>
@@ -1062,12 +1216,18 @@ export class DaemonHomeClient implements PageClient {
         const participant = event.participant;
         deliver((batch) => (batch.avatars ??= []).push(participant));
       } else if (event.event === "conversation-run-changed" && event.run) {
-        deliver((batch) =>
+        deliver((batch) => {
           (batch.runs ??= []).push({
             run: run(event.run as Json),
             steps: ((event.steps as Json[] | undefined) ?? []).map(runStep),
-          }),
-        );
+          });
+          // A run that ended may end its Chief's "working" on the owner's row (a run that starts
+          // shows at once: the page's own runs make the Chief active).
+          if (this.homeRows.size > 0 && (event.run as Json).status !== "running") batch.inboxStale = true;
+        });
+      } else if (event.event === "conversation-live" && event.frame && typeof event.frame === "object") {
+        const frame = liveFrame(event.frame as Json);
+        if (frame) deliver((batch) => (batch.live ??= []).push(frame));
       } else if (event.event === "overflow") {
         // The daemon ended the stream ("resubscribe to continue"): start it again, and refetch
         // what the lost events changed (the inbox and every open window).

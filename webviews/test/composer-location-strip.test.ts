@@ -1,15 +1,22 @@
 // The composer's location strip (hq#1957 composer location strip). Leo: the folder and host row
 // ("Choose folder ⌄ · cosmic-gray ⌄") sat inside the card as a second row under the controls,
-// wasting space. It is now a tab on the card's top edge, in the chat composer and the New Tab's:
-//   - the strip's bottom edge is the card's top edge, and it stays within the card's sides;
+// wasting space. It is now a tab on the card's top edge in the chat composer, and text a few px
+// over the card in the New Tab's (#21133):
+//   - the strip's bottom edge is the card's top edge (New Tab: a few px above it), and it stays
+//     within the card's sides;
 //   - the card holds one controls row and no location row;
 //   - the strip is as tall with no project, with one and while the host loads;
-//   - queued prompts sit above the strip, never over it;
+//   - only a new chat has the strip, before its first send: a started chat's card stands alone,
+//     with nothing drawn and no gap above it, and its queued prompts sit on the card;
 //   - while the session has not reported effort and access, no skeleton or placeholder draws, and
 //     the controls keep their places when the values arrive;
 //   - the folder popover filters with its search field and tells duplicate names apart;
 //   - the strip and the card read as one surface: no hairline draws across the seam where the
 //     strip stands on the card (Leo: the card's top hairline showed under the strip).
+//   - design panel (compact composer): the strip's first and last marks line up with the prompt's
+//     edges, with no gap where it stands inside the card's corner; no "·" floats between folder
+//     and computer; in a narrow pane the folder cuts in the middle ("atl…web"), the computer shows
+//     its icon alone (named by its tooltip and label) and the branch keeps its name.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -17,6 +24,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 type Rect = { left: number; right: number; top: number; bottom: number; height: number };
 
@@ -43,6 +51,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
     const warm = await browser.newPage({ viewport: { width: 720, height: 400 } });
@@ -86,6 +95,11 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       locationInCard: box?.querySelectorAll(".acpmux-composer-context, .acpmux-location-picker").length ?? -1,
       stripFolder: document.querySelector(".acpmux-composer-strip .acpmux-location-picker") !== null,
       queue: rect(document.querySelector(".acpmux-composer-queue")),
+      form: rect(document.querySelector(".acpmux-composer")),
+      formPaddingTop: (() => {
+        const form = document.querySelector(".acpmux-composer");
+        return form ? parseFloat(getComputedStyle(form).paddingTop) || 0 : 0;
+      })(),
     };
   }
 
@@ -109,20 +123,25 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         expect(measured.strip).not.toBeNull();
         expect(measured.stripFolder).toBe(true);
         const { strip, card } = measured as { strip: Rect; card: Rect };
-        expect(Math.abs(strip.bottom - card.top)).toBeLessThanOrEqual(1);
+        // The New Tab's strip is text a few px over its card (Cursor's home, #21133); the chat's
+        // stands on the card's top edge.
+        if (surface.card === ".nt-box") {
+          expect(card.top - strip.bottom).toBeGreaterThanOrEqual(2);
+          expect(card.top - strip.bottom).toBeLessThanOrEqual(8);
+        } else expect(Math.abs(strip.bottom - card.top)).toBeLessThanOrEqual(1);
         expect(strip.left).toBeGreaterThanOrEqual(card.left - 0.5);
         expect(strip.right).toBeLessThanOrEqual(card.right + 0.5);
         expect(measured.controlRows).toBe(1);
         expect(measured.locationInCard).toBe(0);
       });
 
+  // The New Tab's strip has its own height (text over the card, #21133), so only the chat's compare.
   test("the strip is as tall with no project, with a project and while the host loads", async () => {
     const heights: Record<string, number> = {};
     for (const [entry, variant] of [
       ["agent-pane.composer-strip", "no-project"],
       ["agent-pane.composer-strip", "project"],
       ["agent-pane.composer-strip", "host-loading"],
-      ["agent-pane.new-tab", "empty"],
     ] as const) {
       const page = await open(entry, variant, 720);
       await page.locator(".acpmux-composer-strip").waitFor();
@@ -135,19 +154,36 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(values.every((height) => height > 0 && Math.abs(height - values[0]!) < 0.5)).toBe(true);
   });
 
-  test("queued prompts sit above the strip, never over it", async () => {
+  test("a started chat has no strip and no gap where it stood", async () => {
+    const page = await open("agent-pane.composer-strip", "started", 720);
+    await page.locator(".acpmux-composer-box").waitFor();
+    const measured = await page.evaluate(measureStrip, ".acpmux-composer-box");
+    await page.close();
+    expect(measured.strip).toBeNull();
+    const { form, card } = measured as { form: Rect; card: Rect };
+    expect(Math.abs(card.top - form.top - measured.formPaddingTop)).toBeLessThanOrEqual(0.5);
+  });
+
+  test("a started chat's queued prompts sit on the card, with no strip between", async () => {
     const page = await open("agent-pane.composer-strip", "queued", 720);
     await page.locator(".acpmux-composer-queue").waitFor();
     const measured = await page.evaluate(measureStrip, ".acpmux-composer-box");
     await page.close();
-    const { queue, strip } = measured as { queue: Rect; strip: Rect };
-    expect(queue.bottom).toBeLessThanOrEqual(strip.top + 1);
+    expect(measured.strip).toBeNull();
+    const { queue, card } = measured as { queue: Rect; card: Rect };
+    expect(Math.abs(card.top - queue.bottom)).toBeLessThanOrEqual(0.5);
   });
 
   test("effort and access: no placeholder while they load, and the controls hold their places", async () => {
-    // What this harness's chats last showed (chipMemory.ts), as an earlier chat left it.
-    const remember = () =>
-      localStorage.setItem("cmux.acpmux.lastChips", JSON.stringify({ claude: { effort: "Medium", mode: "Auto" } }));
+    // The effort this harness's chats last showed (chipMemory.ts) and the start mode acpmux last
+    // answered for it (startMode.ts), as an earlier chat left them.
+    const remember = () => {
+      localStorage.setItem("cmux.acpmux.lastChips", JSON.stringify({ claude: { effort: "Medium" } }));
+      localStorage.setItem(
+        "cmux.acpmux.startModes.v1",
+        JSON.stringify({ "claude\u0000/home/dev/earlier": { modeId: "auto", name: "Auto" } }),
+      );
+    };
     const controls = async (variant: string) => {
       const page = await open("agent-pane.composer-strip", variant, 720, remember);
       await page.locator(".acpmux-composer-bar .acpmux-model").waitFor();
@@ -234,9 +270,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
 
   // The seam: one column through the strip's empty fill and down into the card, at 2x. A line across
   // the seam is a row far from its neighbors' tone; the strip's and the card's fills are the same.
+  // The New Tab has no seam: its strip is text over the card, which keeps its whole rim (#21133).
   for (const surface of [
     { name: "the chat composer", entry: "agent-pane.composer-strip", variant: "project", card: ".acpmux-composer-box" },
-    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "empty", card: ".nt-box" },
   ])
     test(`${surface.name}: no hairline across the seam under the strip`, async () => {
       const page = await browser!.newPage({ viewport: { width: 720, height: 560 }, deviceScaleFactor: 2 });
@@ -275,4 +311,190 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         tones: tones.map(Math.round),
       });
     });
+  /** Runs in the page: the strip's controls against the prompt's edges. */
+  function measureMarks() {
+    const rect = (element: Element | null | undefined) => {
+      if (!element) return null;
+      const { left, right, top, bottom, width } = element.getBoundingClientRect();
+      return { left, right, top, bottom, width };
+    };
+    const strip = document.querySelector(".acpmux-composer-strip")!;
+    const pickers = [...strip.querySelectorAll<HTMLElement>(".acpmux-location-picker")];
+    const computer = strip.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"]');
+    const branch = pickers.at(-1)!;
+    const branchLabel = branch.querySelector<HTMLElement>(".acpmux-location-label")!;
+    const computerLabel = computer?.querySelector<HTMLElement>(".acpmux-location-label");
+    const head = strip.querySelector<HTMLElement>(".acpmux-location-head");
+    return {
+      prompt: rect(
+        document.querySelector(".acpmux-composer-box .acpmux-input, .acpmux-composer-box [contenteditable]"),
+      ),
+      strip: rect(strip),
+      folderIcon: rect(pickers[0]?.querySelector(".acpmux-location-icon")),
+      branchChevron: rect(branch.querySelector(".ui-ghost-icon:last-child")),
+      text: strip.textContent ?? "",
+      head: head ? { clipped: head.scrollWidth > head.clientWidth + 0.5, text: head.textContent } : null,
+      tail: rect(strip.querySelector(".acpmux-location-tail")),
+      tailText: strip.querySelector(".acpmux-location-tail")?.textContent,
+      computerLabelShown: computerLabel ? getComputedStyle(computerLabel).display !== "none" : null,
+      computerIcon: rect(computer?.querySelector(".acpmux-location-icon")),
+      computerName: computer
+        ? (computer.getAttribute("title") ?? computer.querySelector("[title]")?.getAttribute("title") ?? "")
+        : null,
+      branchClipped: branchLabel.scrollWidth > branchLabel.clientWidth + 0.5,
+      // Range.getBoundingClientRect is fractional, so a sub-pixel cut (an ellipsis on "This Mac")
+      // shows where scrollWidth would round it away.
+      computerClipped: (() => {
+        if (!computerLabel || getComputedStyle(computerLabel).display === "none") return null;
+        const range = document.createRange();
+        range.selectNodeContents(computerLabel);
+        return range.getBoundingClientRect().width > computerLabel.getBoundingClientRect().width + 0.01;
+      })(),
+      // Room left in the leading group after its last control (the folder cuts only to fit).
+      leadingSlack: (() => {
+        const leading = strip.querySelector(".acpmux-location-leading")!.getBoundingClientRect();
+        const last = strip.querySelector(".acpmux-location-leading > :last-child")!.getBoundingClientRect();
+        return leading.right - last.right;
+      })(),
+    };
+  }
+
+  for (const width of [420, 760])
+    test(`the chat composer at ${width} px: the strip's marks line up with the prompt's edges`, async () => {
+      const page = await open("agent-pane.composer-strip", "project", width);
+      await page.locator(".acpmux-composer-strip .acpmux-location-icon").first().waitFor();
+      const marks = await page.evaluate(measureMarks);
+      await page.close();
+      const prompt = marks.prompt!;
+      const folderIcon = marks.folderIcon!;
+      const branchChevron = marks.branchChevron!;
+      // A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's ink ends 4 px inside.
+      expect(Math.abs(folderIcon.left + 1.5 - prompt.left)).toBeLessThanOrEqual(2);
+      expect(Math.abs(branchChevron.right - 4 - prompt.right)).toBeLessThanOrEqual(2);
+      expect(marks.text).not.toContain("·");
+      // At or under 460 px the computer is its icon (the strip's first step).
+      expect(marks.computerLabelShown).toBe(width > 460);
+    });
+
+  // The strip's steps (compact-composer verdict 4; composerLocation.css): pane widths, at or under.
+  // At 460 the computer shows its laptop icon alone, named by its label and tooltip; at 340 the
+  // folder cuts in the middle and keeps both ends. The branch keeps its name at every step.
+  for (const [width, iconOnly] of [
+    [461, false],
+    [460, true],
+  ] as const)
+    test(`the chat composer at ${width} px: the computer ${iconOnly ? "shows its icon alone" : "keeps its name"}`, async () => {
+      const page = await open("agent-pane.composer-strip", "project", width);
+      await page.locator(".acpmux-composer-strip .acpmux-location-icon").first().waitFor();
+      const marks = await page.evaluate(measureMarks);
+      const label = await page
+        .locator('.acpmux-composer-strip .acpmux-location-picker[data-kind="computer"] button')
+        .getAttribute("aria-label");
+      await page.close();
+      expect(marks.computerLabelShown).toBe(!iconOnly);
+      expect(marks.computerIcon!.width).toBeGreaterThan(0);
+      // Named for the pointer and VoiceOver either way.
+      expect(marks.computerName).toContain("This Mac");
+      expect(label).toBe("Computer: This Mac");
+      if (!iconOnly) expect(marks.computerClipped).toBe(false);
+      expect(marks.branchClipped).toBe(false);
+    });
+
+  for (const [width, cut] of [
+    [341, false],
+    [340, true],
+  ] as const)
+    test(`the chat composer at ${width} px: a folder name ${cut ? "cuts in the middle and keeps its last word" : "shows whole"}`, async () => {
+      const page = await open("agent-pane.composer-strip", "mid-folder", width);
+      await page.locator(".acpmux-composer-strip .acpmux-location-tail").waitFor();
+      const marks = await page.evaluate(measureMarks);
+      await page.close();
+      const strip = marks.strip!;
+      const tail = marks.tail!;
+      // The head takes the ellipsis ("atl…"); the last word stays whole and inside the strip.
+      expect(marks.head).toEqual({ clipped: cut, text: "atlas-" });
+      expect(marks.tailText).toBe("checkout");
+      expect(tail.width).toBeGreaterThan(0);
+      expect(tail.right).toBeLessThanOrEqual(strip.right);
+      expect(marks.computerLabelShown).toBe(false);
+      expect(marks.branchClipped).toBe(false);
+    });
+
+  test("the chat composer at 760 px: a long folder name shows whole when the strip has room", async () => {
+    const page = await open("agent-pane.composer-strip", "long-folder", 760);
+    await page.locator(".acpmux-composer-strip .acpmux-location-tail").waitFor();
+    const marks = await page.evaluate(measureMarks);
+    await page.close();
+    // No fixed cap cuts it beside empty strip.
+    expect(marks.head).toEqual({ clipped: false, text: "atlas-web-checkout-" });
+    expect(marks.computerLabelShown).toBe(true);
+  });
+
+  test("the chat composer at 290 px: the folder still keeps both ends and the branch its name", async () => {
+    const page = await open("agent-pane.composer-strip", "long-folder", 290);
+    await page.locator(".acpmux-composer-strip .acpmux-location-tail").waitFor();
+    const marks = await page.evaluate(measureMarks);
+    await page.close();
+    expect(marks.head?.clipped).toBe(true);
+    expect(marks.tailText).toBe("service");
+    expect(marks.tail!.right).toBeLessThanOrEqual(marks.strip!.right);
+    expect(marks.branchClipped).toBe(false);
+  });
+
+  test("focusing a footer control lifts the strip rim without changing its geometry", async () => {
+    const page = await open("agent-pane.composer-strip", "project", 420);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.waitForTimeout(20);
+    const before = await page.evaluate(() => {
+      const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
+      const rect = strip.getBoundingClientRect();
+      return {
+        edge: getComputedStyle(strip).getPropertyValue("--acpmux-strip-edge"),
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      };
+    });
+    await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-strip button")!.focus());
+    const after = await page.evaluate(() => {
+      const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
+      const rect = strip.getBoundingClientRect();
+      return {
+        edge: getComputedStyle(strip).getPropertyValue("--acpmux-strip-edge"),
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      };
+    });
+    await page.close();
+    expect(after.edge).not.toBe(before.edge);
+    expect(after.rect).toEqual(before.rect);
+  });
+
+  // Inside the card's corner: one column just inside the strip's side, from the strip down into the
+  // card. The card's corner has dropped there, and a gap would show the page between the two.
+  test("the chat composer: no gap where the strip stands inside the card's corner", async () => {
+    const page = await browser!.newPage({ viewport: { width: 420, height: 560 }, deviceScaleFactor: 2 });
+    await page.goto(stageURL("agent-pane.composer-strip", "project"));
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
+    const at = await page.evaluate(() => {
+      const strip = document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect();
+      const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+      return { x: strip.left + 1, seam: card.top, inside: strip.left - card.left };
+    });
+    // The strip stands inside the corner's 18 px radius (that is what lines its marks up).
+    expect(at.inside).toBeLessThan(18);
+    const png = PNG.sync.read(await page.screenshot({ clip: { x: at.x, y: at.seam - 4, width: 1, height: 8 } }));
+    await page.close();
+    const tones: number[] = [];
+    for (let y = 0; y < png.height; y++) {
+      const offset = (png.width * y + png.width - 1) * 4;
+      tones.push(0.2126 * png.data[offset]! + 0.7152 * png.data[offset + 1]! + 0.0722 * png.data[offset + 2]!);
+    }
+    const worst = Math.max(...tones.map((tone) => Math.abs(tone - tones[0]!)));
+    expect({ worst: Math.round(worst), tones: tones.map(Math.round) }).toEqual({
+      worst: Math.min(Math.round(worst), 5),
+      tones: tones.map(Math.round),
+    });
+  });
 });

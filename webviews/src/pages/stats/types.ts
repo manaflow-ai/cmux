@@ -38,6 +38,17 @@ export interface StatsSummary {
   toolCalls: number;
   permissionRequests: number;
   permissionAuto: number;
+  /**
+   * Questions answered in range and those still open or lost; their sum is `permissionRequests`.
+   * This and the fields to `limitErrors` are absent from an older acpmux.
+   */
+  permissionAnswered?: number;
+  permissionUnanswered?: number;
+  /** Ask to answer, summed over the answered questions, and the longest one. */
+  permissionWaitMs?: number;
+  permissionWaitMaxMs?: number;
+  /** Times an agent hit a usage, rate or credit limit, or its account was refused. */
+  limitErrors?: number;
   /** Agent turn time summed over sessions: two agents for an hour is two hours. */
   workingMs: number;
   /** Time agents waited on a permission answer. */

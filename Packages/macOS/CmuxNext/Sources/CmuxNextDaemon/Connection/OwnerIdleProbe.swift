@@ -6,11 +6,15 @@ import Foundation
 ///   then `conversation.get`'s `typing`): a Chief types for its whole turn, and
 ///   the owner's own brain supervisor restarts a brain only when its typing set
 ///   is empty (cmux-tui `chief_brains.rs`), so this is the same turn signal;
-/// - no other app or page is connected (`client.list`: a `frontend` client or a
-///   WebSocket client other than this connection).
+/// - no other app, page or chat is connected (`client.list`: a client of a
+///   `busyClientKinds` kind, or a WebSocket client, other than this connection).
+///   An open `cmux chief` chat is a `chief-chat` client (cmux-tui cli/chief).
 /// Any error answers false: a probe that cannot see the owner never restarts it.
 public struct OwnerIdleProbe: Sendable {
     public let connection: DaemonConnection
+    /// Client kinds that keep the owner busy: another app (`frontend`) and an open
+    /// `cmux chief` chat (`chief-chat`).
+    public static let busyClientKinds: Set<String> = ["frontend", "chief-chat"]
 
     public init(_ connection: DaemonConnection) {
         self.connection = connection
@@ -20,9 +24,8 @@ public struct OwnerIdleProbe: Sendable {
         do {
             let clients = try await read("client.list", [:])
             for client in clients.arrayValue ?? [] where client["self"]?.boolValue != true {
-                if client["client_kind"]?.stringValue == "frontend" || client["transport"]?.stringValue != "unix" {
-                    return false
-                }
+                if let kind = client["client_kind"]?.stringValue, Self.busyClientKinds.contains(kind) { return false }
+                if client["transport"]?.stringValue != "unix" { return false }
             }
             let conversations = try await read("conversation.list", [:])
             for summary in conversations.arrayValue ?? [] {

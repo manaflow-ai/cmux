@@ -6,9 +6,10 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
 
   checks      always: god files, concurrency, crash safety, string tables,
               script tests, package conventions (Linux, about a minute)
-  generated   any change to the CmuxNext package or plans/cmux-next: the
-              generated action catalog, surfaces and inventory and the CI target
-              graph are fresh (a mini; a stale file is fixed by a bot commit)
+  generated   any change to the CmuxNext package, plans/cmux-next or a settings
+              export: the generated action catalog, surfaces and inventory, the
+              CI target graph and the settings exports are fresh (a mini; a
+              stale file is fixed by a bot commit)
   native      Swift or app sources: the Release compile
   canary      changed CmuxNext Swift targets type-check on a warm mini; this
               is the pull-request gate for small package-only Swift diffs
@@ -116,6 +117,14 @@ GENERATED_INPUTS = (
     "plans/cmux-next/",
     "scripts/cmux-next/regenerate-action-contracts.sh",
     "scripts/cmux-next/check-action-surfaces.sh",
+    # The settings exports and their source stamp
+    # (defaults_guard.py check-fresh; regenerate-settings-exports.sh). The
+    # CmuxNextSettings sources and the export tests are under PACKAGE.
+    # (The defaults snapshot and defaults_guard.py are checked on Linux.)
+    "schemas/settings/settings-schema.json",
+    "schemas/settings-export/",
+    "docs/mdm/",
+    "scripts/cmux-next/regenerate-settings-exports.sh",
 )
 
 # The path classes of the original routing: these never need a Mac.
@@ -142,6 +151,10 @@ BUNDLE_INPUTS = (
     "scripts/cmux-next/build-agent-activity-web.sh", "scripts/cmux-next/build-palette-ranker.sh",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh", "scripts/cmux-next/web-bundle-key.py",
+    # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
+    # tests/test_web_bundle_key_inputs.sh keeps this list complete).
+    "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
+    "schemas/sync-motion/*",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
@@ -191,6 +204,8 @@ class Route:
     full: bool = False
     native: bool = False
     swift_canary: bool = False
+    # Any .swift file under the CmuxNext package (Sources or Tests): the PR runs the Release compile.
+    cmuxnext_swift: bool = False
     webview: bool = False
     scheme: bool = False
     generated: bool = False
@@ -259,6 +274,11 @@ def owning_target(graph: dict, path: str) -> str | None:
 
 def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -> Route:
     result = Route()
+    # Release-only optimizer crashes (cx-ebm.59.5) are invisible to the Debug tiers, so a PR that
+    # changes any CmuxNext package Swift file runs the Release compile, whatever else it changes.
+    result.cmuxnext_swift = any(path.startswith(PACKAGE) and path.endswith(".swift") for path in changed or [])
+    if result.cmuxnext_swift and event == "pull_request":
+        result.reasons.append("a CmuxNext package Swift file changed: the Release compile runs")
     if event != "pull_request":
         result.everything(f"{event}: base coverage runs every tier")
         return result
@@ -267,6 +287,13 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         return result
     if not changed:
         result.everything("the diff is unknown or empty: every tier")
+        return result
+
+    # The workflow defines the native build and its routing contract. A change
+    # to it must exercise the release compile even though other CI-only files
+    # can stay on the Linux fast tier.
+    if ".github/workflows/cmux-next.yml" in changed:
+        result.everything("cmux-next workflow changed: run every tier")
         return result
 
     graph = load_graph(root)
@@ -360,7 +387,7 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         result.swift_canary = bool(result.swift_canary_targets)
         if result.swift_canary:
             result.reasons.append(
-                "small CmuxNext Swift-only diff: the canary gates this pull request; Release remains advisory"
+                "small CmuxNext Swift-only diff: the canary gates this pull request"
             )
     if result.webview:
         result.scheme = True
@@ -406,6 +433,7 @@ def outputs(result: Route) -> dict[str, str]:
     return {
         "native": flag(result.native),
         "swift_canary": flag(result.swift_canary),
+        "cmuxnext_swift": flag(result.cmuxnext_swift),
         "macos": flag(macos),
         "scheme": flag(result.scheme or result.webview or result.full),
         "generated": flag(result.generated),
@@ -443,7 +471,7 @@ def main(argv: list[str]) -> int:
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("### cmux-next tiers\n\n| tier | runs |\n| --- | --- |\n")
-            for key in ("generated", "native", "swift_canary", "scheme", "swift", "daemon", "full"):
+            for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "scheme", "swift", "daemon", "full"):
                 stream.write(f"| {key} | {values[key]} |\n")
             stream.write(f"\nSwift test targets: {values['swift_targets'] or 'none'}\n\n")
             stream.write(f"Swift canary targets: {values['swift_canary_targets'] or 'none'}\n\n")

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Post cmux-next tour media on its pull request: one sticky comment per PR.
+"""Post cmux-next tour media on its pull request, in the `tour` part of its status comment.
 
     publish.py --media DIR --pr N --sha SHA [--run-url URL] [--note TEXT] [--dry-run]
 
 DIR holds tour.py's output (<tour>/manifest.json, shots/, frames/). For each
 tour this turns the frames into an mp4 and a GIF, uploads them and the
 screenshots to the `pr-media` branch at <pr>/<sha8>/next-<tour>/ (the layout
-scripts/ci/prune_pr_media.py bounds), and writes the comment marked
-COMMENT_MARKER: the GIF, a step table, failed steps' screenshots inline and
-the rest folded. With no tour output, `--note` says why in the same comment.
+scripts/ci/prune_pr_media.py bounds), and writes the `tour` section of the
+PR's status comment (scripts/ci/pr_status.py): the GIF, a step table, failed
+steps' screenshots inline and the rest folded. With no tour output, `--note`
+says why in one line. The comment this used to keep on its own (COMMENT_MARKER)
+is deleted on the first write.
 
 Uploads go through scripts/pr-media.py's contents-API writer. Nothing is
 posted when the pull request's head has moved past SHA: the newer push's run
@@ -32,7 +34,6 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[3]
 COMMENT_MARKER = "<!-- cmux-next:tour-media -->"
 TOURS_DIR = "scripts/cmux-next/media/tours"
-BOT = "github-actions[bot]"
 # Frames are taken about every 0.5 s; played at 4 per second the video runs at 2x.
 VIDEO_FPS = 4
 GIF_FPS = 4
@@ -167,7 +168,13 @@ def tour_section(manifest: dict[str, Any], urls: dict[str, str]) -> str:
     counts = {status: sum(1 for step in steps if step.get("status") == status)
               for status in ("ok", "failed", "unavailable")}
     summary = ", ".join(f"{count} {status}" for status, count in counts.items() if count)
-    lines = [f"### {cell(manifest.get('title') or 'Tour')}: {summary or 'no steps ran'}", ""]
+    verdict = manifest.get("result")
+    verdict_label = {
+        "pass": "PASS",
+        "degraded": "DEGRADED",
+        "failed": "FAILED",
+    }.get(verdict, "UNCLASSIFIED")
+    lines = [f"### {cell(manifest.get('title') or 'Tour')}: {verdict_label} — {summary or 'no steps ran'}", ""]
     if manifest.get("error"):
         lines += [f"> {cell(str(manifest['error']).splitlines()[0][:300])}", ""]
     capture = str(manifest.get("capture_mode") or "")
@@ -206,7 +213,7 @@ def scope_table(media: Path) -> str:
     if not isinstance(matches, dict):
         return ""
     rows = []
-    for tour in ("new-tab", "agent-pane", "core"):
+    for tour in ("new-tab", "agent-pane", "glass", "core"):
         paths = matches.get(tour)
         if not isinstance(paths, list) or not paths:
             continue
@@ -220,12 +227,16 @@ def scope_table(media: Path) -> str:
 def render(sha: str, sections: list[str], run_url: str | None, note: str | None,
            scope: str = "") -> str:
     run = f" ([run]({run_url}))" if run_url else ""
-    lines = [COMMENT_MARKER, f"**cmux-next tour** of `{sha}`{run}", ""]
+    if not sections:
+        # No media: one line, not a block.
+        why = f" {note}" if note else ""
+        return f"Tour of `{sha[:10]}`{run}: no media.{why}\n"
+    lines = [f"**Tour** of `{sha[:10]}`{run}", ""]
     if note:
         lines += [note, ""]
     if scope:
         lines += [scope, ""]
-    lines += sections or ["The tour produced no media."]
+    lines += sections
     lines += ["", f"<sub>Tours are data in `{TOURS_DIR}`: add a step or a tour file to show your feature.</sub>"]
     return "\n".join(lines) + "\n"
 
@@ -238,14 +249,9 @@ def gh(args: list[str], stdin: str | None = None) -> str:
 
 
 def upsert_comment(repo: str, pr: int, body: str) -> None:
-    ids = gh(["api", f"repos/{repo}/issues/{pr}/comments", "--paginate", "--jq",
-              f'.[] | select(.user.login == "{BOT}" and (.body | contains("{COMMENT_MARKER}"))) | .id'])
-    existing = ids.split()
-    payload = json.dumps({"body": body})
-    if existing:
-        gh(["api", "-X", "PATCH", f"repos/{repo}/issues/comments/{existing[0]}", "--input", "-"], payload)
-    else:
-        gh(["api", "-X", "POST", f"repos/{repo}/issues/{pr}/comments", "--input", "-"], payload)
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import pr_status
+    pr_status.upsert(repo, pr, "tour", body, legacy=COMMENT_MARKER)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -313,8 +319,10 @@ def publish_tour(directory: Path, manifest: dict[str, Any], args: argparse.Names
     for key, local in files.items():
         remote = f"{folder}/{key}"
         if not args.dry_run:
+            # No #N in the message: GitHub lists every commit that names the pull request in its
+            # timeline, one entry per uploaded file (scripts/pr-media.py writes PR N the same way).
             pr_media.put_file(args.repo, pr_media.BRANCH, remote, local,
-                              f"cmux-next tour media for #{args.pr} at {args.sha[:8]}")
+                              f"PR {args.pr} cmux-next tour media at {args.sha[:8]}")
         urls[key] = pr_media.raw_url(args.repo, pr_media.BRANCH, remote)
     return tour_section(manifest, urls)
 

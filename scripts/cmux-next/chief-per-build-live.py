@@ -41,6 +41,7 @@ so A never touches the real /tmp/cmux-nightly.sock.
 
 Exit 0 when every step passed; the first failed step's number otherwise.
 Usage: chief-per-build-live.py --tag TAG --app APP [--reply-wait 240] [--out DIR]
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, json, os, shutil, socket, sqlite3, subprocess, sys, tempfile, time
 import re
@@ -51,6 +52,11 @@ ap.add_argument("--app", required=True)
 ap.add_argument("--reply-wait", type=float, default=240)
 ap.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 opts = ap.parse_args()
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-per-build-live.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
 TAG = opts.tag
 # A short path: the brains' sockets (optchat/tools.sock) must fit sun_path
@@ -302,14 +308,14 @@ def pane_daemon(app, home):
 
 def acpmux_shutdown(app, home):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
-    subprocess.run([app.acpmux, "daemon", "shutdown"], env={**env, "ACPMUX_HOME": home}, capture_output=True, timeout=30)
+    subprocess.run([app.acpmux, "daemon", "shutdown", "--end-agents"], env={**env, "ACPMUX_HOME": home}, capture_output=True, timeout=30)
 
 
 def cleanup(app, home):
     """The Chief of `home`: its acpmux daemon and router, then brain and owner (documented stop)."""
     acpmux_home = os.path.join(home, "acpmux")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
-    subprocess.run([app.acpmux, "daemon", "shutdown"], env={**env, "ACPMUX_HOME": acpmux_home}, capture_output=True, timeout=30)
+    subprocess.run([app.acpmux, "daemon", "shutdown", "--end-agents"], env={**env, "ACPMUX_HOME": acpmux_home}, capture_output=True, timeout=30)
     try:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(5)
@@ -379,7 +385,7 @@ try:
     say(f"step 1: NIGHTLY acpmux (pid, socket inode) {a_acpmux} in {A_ACPMUX}")
     shown_m0 = wait(lambda: any(t == m0 for _, t in chief_texts(NIGHTLY_HOME)), 60)
     count = memory_count(NIGHTLY_HOME, m0)
-    others = sorted(n for n in os.listdir(ROOT) if n not in ("default", NEXT_NIGHTLY))
+    others = sorted(n for n in os.listdir(ROOT) if n not in ("default", NEXT_NIGHTLY) and not n.startswith("."))
     a_owner = wait(a.owner, 60)
     say(f"step 1: NIGHTLY brain {a_brain} on default; the owner's Chief DM holds M0: {bool(shown_m0)}; memory has M0 {count}x; other homes {others}")
     say(f"step 1: A owner daemon (session, pid) {a_owner}; control socket {a.socket}; daemon status said {a.owner_said}")
@@ -397,8 +403,13 @@ try:
     b.socket = B_SOCKET
     # B's key session must not exist yet: else B would adopt another untagged
     # DEV build's daemon (and its terminals), and the cleanup would stop it.
-    if b.owner():
-        say(f"step 2: an owner daemon already serves {B_SESSION}; B cannot run here")
+    # Absent only when the session's socket refuses the connection
+    # (server.unavailable); any other answer may be a real untagged DEV daemon.
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_", "XDG_RUNTIME"))}
+    probe = subprocess.run([b.cli, "--json", "--session", B_SESSION, "daemon", "status"], env=env,
+                           capture_output=True, text=True, timeout=30)
+    if probe.returncode != 3 or "server.unavailable" not in probe.stdout + probe.stderr:
+        say(f"step 2: {B_SESSION} is not provably absent (exit {probe.returncode}: {(probe.stdout + probe.stderr).strip()[:300]}); B cannot run here")
         b_owned = False
         failed = failed or 2
         raise SystemExit
@@ -458,8 +469,9 @@ finally:
         # B's own owner daemon (its per-key session, absent before B started), if
         # quitEndSessions left it, and the state it wrote under its key.
         env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
-        subprocess.run([b.cli, "daemon", "stop", "--session", B_SESSION, "--end-terminals"], env=env,
-                       capture_output=True, timeout=60)
+        stop = subprocess.run([b.cli, "--json", "daemon", "stop", "--session", B_SESSION, "--end-terminals"], env=env,
+                              capture_output=True, text=True, timeout=60)
+        say(f"cleanup: B daemon stop exit {stop.returncode}: {(stop.stdout + stop.stderr).strip()[:300]}")
         if b_state_new:
             shutil.rmtree(B_STATE, ignore_errors=True)
     # Nothing of the run stays: the B copy and the temp homes with their memory.

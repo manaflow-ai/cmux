@@ -126,6 +126,8 @@ extension AgentPaneView {
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             open: { [weak self] url in self?.openLink(url) },
+            linkItems: { LinkMenu().linkItems(for: $0) },
+            pathItems: { [weak self] path in self?.pathMenuItems(path) },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
             page: { [weak self] name, params in self?.runMessageAction(name, params) }))
     }
@@ -140,7 +142,7 @@ extension AgentPaneView {
     /// Open Link: outside the pane, on the rule a click on the link follows.
     private func openLink(_ url: URL) {
         AgentPanePersonInput.record(model.transport.gestures)
-        _ = AgentPaneNavigation.openOutside(url, gestures: model.transport.gestures, open: openURL)
+        _ = AgentPaneNavigation.openOutside(url, gestures: model.transport.gestures) { self.openURL($0, false) }
     }
 
     /// Fork from Here: the turn footer's fork, through the page's own action. The menu choice is

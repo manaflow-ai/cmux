@@ -3,10 +3,10 @@ import CmuxNextActions
 import CmuxNextSettings
 import Testing
 
-/// Ctrl-Tab and Ctrl-Shift-Tab cycle the tabs of the focused pane (Leo
-/// 2026-10-12: as a workspace switch they got inconsistent once more was
-/// open). Switching workspaces keeps its other keys: Cmd-Shift-] / [,
-/// Cmd-Opt arrows, Ctrl-PageDown / PageUp. Resolved as the key router
+/// Ctrl-Tab / Ctrl-Shift-Tab (Leo 2026-10-12) and Cmd-Shift-] / [ (Lawrence
+/// 2026-10-15) cycle the tabs of the focused pane, never workspaces.
+/// Switching workspaces keeps its other keys: Ctrl-Cmd-] / [, Cmd-Opt
+/// arrows, Ctrl-PageDown / PageUp. Resolved as the key router
 /// resolves a key-down, with the app's default bindings, in a terminal and
 /// in a browser page.
 @MainActor @Suite struct CtrlTabCyclesPaneTabsTests {
@@ -32,12 +32,14 @@ import Testing
     func ctrlTabCyclesTheFocusedPanesTabs(_ surface: String) {
         #expect(Self.winner("ctrl+tab", in: surface) == "nextSurface")
         #expect(Self.winner("ctrl+shift+tab", in: surface) == "prevSurface")
+        #expect(Self.winner("cmd+shift+rightbracket", in: surface) == "nextSurface")
+        #expect(Self.winner("cmd+shift+leftbracket", in: surface) == "prevSurface")
     }
 
     @Test(arguments: ["terminal", "browser"])
     func workspaceSwitchingKeepsItsOtherKeys(_ surface: String) {
-        #expect(Self.winner("cmd+shift+rightbracket", in: surface) == "nextSidebarTab")
-        #expect(Self.winner("cmd+shift+leftbracket", in: surface) == "prevSidebarTab")
+        #expect(Self.winner("ctrl+cmd+rightbracket", in: surface) == "nextSidebarTab")
+        #expect(Self.winner("ctrl+cmd+leftbracket", in: surface) == "prevSidebarTab")
         #expect(Self.winner("ctrl+pagedown", in: surface) == "nextSidebarTab")
         #expect(Self.winner("ctrl+pageup", in: surface) == "prevSidebarTab")
     }

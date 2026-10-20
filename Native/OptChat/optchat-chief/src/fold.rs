@@ -428,6 +428,17 @@ impl TurnFold {
         self.run.take(now, all)
     }
 
+    /// The turn is over: the run's open talk and thought steps close (their
+    /// last live frames go next, before the run's end and the reply).
+    pub fn close_run_steps(&mut self) {
+        self.run.close_all();
+    }
+
+    /// The run's live frames since the last call (`run.rs` `take_live`).
+    pub fn take_run_live(&mut self) -> Vec<Value> {
+        self.run.take_live()
+    }
+
     /// The pictures the turn's tool calls returned since the last call.
     pub fn take_run_images(&mut self) -> Vec<crate::run::RunImage> {
         self.run.take_images()

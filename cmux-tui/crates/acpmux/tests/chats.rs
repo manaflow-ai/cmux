@@ -1,6 +1,11 @@
 //! ALL-CHATS-ON-DEVICE S4: the daemon wires the chat index. Every store is
 //! a synthetic fixture in a temp home; no test reads a real harness store.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::chats::{ChatSources, refusal};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

@@ -78,7 +78,7 @@ impl Mux {
     /// local surfaces are removed immediately.
     pub fn surface_exited(self: &Arc<Self>, id: SurfaceId) {
         if self.sidebar_surface_exited(id) {
-            self.emit(MuxEvent::SurfaceExited(id));
+            self.emit(MuxEvent::SurfaceExited(id, None));
             return;
         }
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
@@ -95,8 +95,10 @@ impl Mux {
             }
             return;
         }
+        // A local terminal is reaped here: take its end first.
+        let end = self.surface(id).and_then(|surface| surface.terminal_end());
         self.remove_surface_after_registry(id);
-        self.emit(MuxEvent::SurfaceExited(id));
+        self.emit(MuxEvent::SurfaceExited(id, end.map(|end| Arc::new(end.wire_json()))));
     }
 
     /// Exit persistence is first-writer-wins. A transient SQLite failure
@@ -387,7 +389,9 @@ impl Mux {
             }
             self.publish_resource_event();
             if let Some(effects) = detach_effects {
-                self.finish_terminal_exit_detach(effects);
+                let end =
+                    public_terminal_id.as_ref().map(|id| self.exited_end_json(id.as_str(), end));
+                self.finish_terminal_exit_detach(effects.with_end(end));
             } else if detach_proof.is_none() || settle_until_ms.is_some() {
                 // The tabs stay and now show the terminal dead.
                 self.emit(MuxEvent::TreeChanged);
@@ -546,7 +550,8 @@ impl Mux {
         drop(state);
         drop(registry);
         self.publish_resource_event();
-        self.finish_terminal_exit_detach(effects);
+        let end = self.exited_end_json(terminal_public_id.as_str(), settled.end());
+        self.finish_terminal_exit_detach(effects.with_end(Some(end)));
         Ok(true)
     }
 }

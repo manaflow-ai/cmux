@@ -76,23 +76,28 @@ pub(in crate::cli) fn resolve_socket_with_env(
     }
     // A `cmux` bundled in another app than this terminal's: that app's daemon
     // and Chief sockets are not this build's (per-build isolation S4).
+    #[cfg(unix)]
     let other_app = crate::app_identity::in_other_apps_terminal(
         |name| env(name).and_then(|value| value.into_string().ok()),
         std::env::current_exe().ok().as_deref(),
     );
+    // No app bundle contains a Windows `cmux` (app_identity is unix-only).
+    #[cfg(not(unix))]
+    let other_app = false;
+    #[cfg(unix)]
     if other_app {
-        // Says so once on stderr, on every platform (the bundle lookup below is macOS only).
+        // Says so once on stderr, on every unix (the bundle lookup below is macOS only).
         let _ = crate::app_identity::AppIdentity::detect(
             |name| env(name).and_then(|value| value.into_string().ok()),
             std::env::current_exe().ok().as_deref(),
         );
     }
     let env = |name: &str| {
+        #[cfg(unix)]
         if other_app && crate::app_identity::OTHER_APP_STATE_KEYS.contains(&name) {
-            None
-        } else {
-            env(name)
+            return None;
         }
+        env(name)
     };
     // A Chief's call: the app's daemon while the app runs, else the Chief's
     // owner daemon (chief_target.rs).

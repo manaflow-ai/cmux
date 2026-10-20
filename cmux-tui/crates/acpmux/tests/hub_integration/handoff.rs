@@ -27,7 +27,11 @@ fn handoff_hub(dir: Option<&std::path::Path>) -> (Arc<Hub>, Config) {
     agents.insert("mirror".to_owned(), fake_profile());
     let mut slow = fake_profile();
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    slow.argv = vec!["sh".into(), "-c".into(), format!("sleep 5; exec python3 {fake}")];
+    slow.argv = vec![
+        "sh".into(),
+        "-c".into(),
+        format!("sleep 5; exec python3 {}", crate::daemon_env::sh_quote(fake)),
+    ];
     agents.insert("slowpoke".to_owned(), slow);
     let mut cfg =
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
@@ -578,4 +582,67 @@ async fn a_start_refused_before_the_target_records_it_returns_to_draft() {
     assert_eq!(got["promptId"], id, "a retry keeps the same promptId");
     let d = call(&mut c, method::MUX_HANDOFF_DISCARD, json!({"handoffId": id})).await.unwrap();
     assert_eq!(d["discarded"], true, "{d}");
+}
+
+/// A hub whose default harness is a Claude stdio one (`claude`, the fake
+/// Claude Code), with `fake` to hand off to.
+fn claude_handoff_hub(store: &std::path::Path) -> Arc<Hub> {
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let mut claude = fake_profile();
+    claude.kind = acpmux::config::HarnessKind::ClaudeStdio;
+    claude.argv = vec!["python3".into(), fake_claude.into()];
+    claude.env =
+        BTreeMap::from([("FAKE_CLAUDE_STORE".to_owned(), store.to_string_lossy().into_owned())]);
+    let agents =
+        BTreeMap::from([("claude".to_owned(), claude), ("fake".to_owned(), fake_profile())]);
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("claude".into()), ..Default::default() };
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// A source that compacted hands off its compaction summary and the
+/// messages since, not the messages the summary already covers.
+#[tokio::test]
+async fn a_compacted_source_hands_off_its_summary_and_the_messages_since() {
+    let store =
+        std::env::temp_dir().join(format!("acpmux-compact-handoff-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&store).unwrap();
+    let hub = claude_handoff_hub(&store);
+    let mut c = connect(&hub).await;
+    let src = new_session(&mut c, "compacted").await;
+    c.request(method::SESSION_PROMPT, prompt(&src, "the words before compaction", None))
+        .await
+        .unwrap();
+    let compacted = c.request(method::SESSION_PROMPT, prompt(&src, "/compact", None)).await;
+    assert_eq!(compacted.expect("/compact ends its prompt")["stopReason"], "end_turn");
+    c.request(method::SESSION_PROMPT, prompt(&src, "the words after compaction", None))
+        .await
+        .unwrap();
+
+    let events = hub.events(&src, 0, 10_000).unwrap();
+    let compaction: Vec<&Value> = events
+        .iter()
+        .filter(|e| e.kind == "compaction")
+        .filter_map(|e| e.msg.pointer("/params/update"))
+        .collect();
+    assert_eq!(compaction.len(), 2, "running and completed: {compaction:?}");
+    assert_eq!(compaction[1]["state"], "completed");
+    assert_eq!(compaction[1]["postTokens"], 2047);
+    assert!(events.iter().any(|e| e.kind == "compaction_summary"));
+
+    let h = call(&mut c, method::MUX_HANDOFF_PREPARE, prepare(&src, "fake", "k-compact"))
+        .await
+        .unwrap();
+    let text = str_of(&h, "/capsule/text");
+    assert!(text.contains("<summary>") && text.contains("PLUM-42"), "{text}");
+    assert!(text.contains("the words after compaction"), "{text}");
+    assert!(!text.contains("the words before compaction"), "the summary covers it: {text}");
+    let coverage = h["source"]["coverage"].as_array().expect("coverage");
+    let transcript = coverage.iter().find(|c| c["item"] == "transcript").expect("transcript");
+    assert_eq!(transcript["status"], "summarized", "{transcript}");
+    assert!(str_of(transcript, "/detail").starts_with("compaction summary"), "{transcript}");
+    let _ = std::fs::remove_dir_all(&store);
 }

@@ -22,32 +22,43 @@ pub(in crate::cli) enum Control {
 impl Session {
     /// The engine report after setting `changes` (none: just read it).
     pub(super) fn engine(&mut self, changes: &[(String, String)]) -> Result<Value, LinkError> {
-        engine(&mut self.control, changes)
+        engine(&mut self.control, changes, None)
     }
 
     /// Stops the Chief's running turn; whether one was running.
     pub(super) fn stop(&mut self) -> Result<bool, LinkError> {
-        stop(&mut self.control, None)
+        stop(&mut self.control, None, None)
     }
 }
 
-fn engine(link: &mut Link, changes: &[(String, String)]) -> Result<Value, LinkError> {
-    if changes.is_empty() {
-        return link.call("chief.engine.get", json!({}), None);
-    }
-    let params: Map<String, Value> =
+/// `chief`: a Chief that is not the default (chief-brains-v1, cx-mbbee).
+fn engine(
+    link: &mut Link,
+    changes: &[(String, String)],
+    chief: Option<&str>,
+) -> Result<Value, LinkError> {
+    let mut params: Map<String, Value> =
         changes.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect();
+    if let Some(chief) = chief {
+        params.insert("chief".into(), Value::String(chief.to_owned()));
+    }
+    if changes.is_empty() {
+        return link.call("chief.engine.get", Value::Object(params), None);
+    }
     let key = super::link::new_message_id();
     let result = link.call("chief.engine.set", Value::Object(params), Some(&key))?;
     Ok(result.get("value").cloned().unwrap_or(Value::Null))
 }
 
-fn stop(link: &mut Link, name: Option<&str>) -> Result<bool, LinkError> {
+fn stop(link: &mut Link, name: Option<&str>, chief: Option<&str>) -> Result<bool, LinkError> {
     let key = super::link::new_message_id();
-    let params = match name {
+    let mut params = match name {
         Some(name) => json!({"name": name}),
         None => json!({}),
     };
+    if let Some(chief) = chief {
+        params["chief"] = json!(chief);
+    }
     let result = link.call("chief.stop", params, Some(&key))?;
     Ok(result.pointer("/value/stopped").and_then(Value::as_bool).unwrap_or(false))
 }
@@ -71,6 +82,12 @@ pub(super) fn refusal(error: &LinkError) -> String {
         LinkError::Rejected { code, .. } if code.starts_with("validation.invalid") => {
             messages().control_unsupported.to_owned()
         }
+        // cx-tgf4h: agents are off in this build session (the daemon's typed refusal).
+        LinkError::Rejected { code, .. } if code.ends_with(cmux_tui_core::agent_launch::REASON) => {
+            messages().agents_disabled.to_owned()
+        }
+        // The code with its reason, then the daemon's own words (cx-8mla8).
+        LinkError::Rejected { code, message } => format!("{code}: {message}"),
         other => other.to_string(),
     }
 }
@@ -80,6 +97,7 @@ pub(super) fn run(
     global: &GlobalArgs,
     chief_home: Option<&std::path::Path>,
     control: &Control,
+    chief: Option<&str>,
     output: OutputMode,
 ) -> i32 {
     // The Chief home's owner, as the chat finds it; nothing is started (a
@@ -106,9 +124,9 @@ pub(super) fn run(
         }
     };
     let answer = match control {
-        Control::Engine(changes) => engine(&mut link, changes),
+        Control::Engine(changes) => engine(&mut link, changes, chief),
         Control::Stop(name) => {
-            stop(&mut link, name.as_deref()).map(|stopped| json!({"stopped": stopped}))
+            stop(&mut link, name.as_deref(), chief).map(|stopped| json!({"stopped": stopped}))
         }
     };
     match answer {

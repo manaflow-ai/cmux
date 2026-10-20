@@ -211,6 +211,9 @@ async function sessionHeaders(stackUser, expiresInMillis) {
   return {
     authorization: `Bearer ${tokens.accessToken}`,
     "x-stack-refresh-token": tokens.refreshToken,
+    // Names the probe in `cloud_vm_request.client_name`. The server also tags
+    // every event of this account `is_synthetic` from its smoke address.
+    "x-cmux-client": "cmux-cloud-smoke",
   };
 }
 

@@ -3,7 +3,7 @@ public import CmuxNextDesign
 public import CmuxNextResources
 // The list's targets for the app's hover cards (WorkspaceHoverCardController,
 // HoverCardCoordinator): workspace rows, hit-tested by position.
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// The coordinator this list reports to (the App injects the app's one).
     public var hoverCards: HoverCardCoordinator {
         get { hoverCard.coordinator }
@@ -23,7 +23,10 @@ extension SidebarListView {
     /// have a card now: none during a drag or rename, or off the visible rows.
     func hoverCardWorkspace(at point: CGPoint) -> WorkspaceID? {
         guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
-              case .workspace(let id)? = displayed.row(at: point.y)?.key, workspaces[id] != nil, !model.isPlaceholder(id) else { return nil }
+              // The list's own rows (a dictionary): `model.isPlaceholder` walks every section, and this
+              // runs on each scroll frame (hover geometry), O(workspaces) per frame at 1,000 rows.
+              case .workspace(let id)? = displayed.row(at: point.y)?.key, let row = workspaces[id],
+              !row.rowState.isPending else { return nil }
         return id
     }
     /// The row's frame on screen, nil when it is not laid out.
@@ -33,7 +36,7 @@ extension SidebarListView {
     }
 }
 
-extension SidebarView {
+extension SidebarViewComponents {
     /// CPU and memory for the workspace hover card. Sampled only while a
     /// card is pending or shown.
     public var resourceSource: (any ResourceSampleSource)? {

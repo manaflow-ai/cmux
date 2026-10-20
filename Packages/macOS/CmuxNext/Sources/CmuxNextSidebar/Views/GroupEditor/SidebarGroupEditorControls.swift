@@ -85,8 +85,8 @@ final class SidebarGroupEditorRow: NSView {
     var onPress: (() -> Void)?
     let item: SidebarGroupEditorItem
     private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
-    private let shortcut = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
+    private let shortcut = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
     init(_ item: SidebarGroupEditorItem) {
@@ -156,12 +156,14 @@ final class SidebarGroupEditorRow: NSView {
 }
 
 /// The group editor's and the group chip's strings (Resources/Localizable.xcstrings, en and ja).
+/// Rows the group's right-click menu also offers use its words (Close Group, Ungroup, Move to
+/// New Window: CmuxNextActions ObjectMenuLabels).
 enum GroupEditorStrings {
     static var editor: String { String(localized: "sidebar.groupEditor.ax", defaultValue: "Edit Workspace Group", bundle: .module) }
     static var nameLabel: String { String(localized: "sidebar.groupEditor.name", defaultValue: "Group name", bundle: .module) }
     static var namePlaceholder: String { String(localized: "sidebar.groupEditor.namePlaceholder", defaultValue: "Name this group", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.groupEditor.newWorkspace", defaultValue: "New Workspace in Group", bundle: .module) }
-    static var moveToNewWindow: String { String(localized: "sidebar.groupEditor.moveToNewWindow", defaultValue: "Move Group to New Window", bundle: .module) }
+    static var moveToNewWindow: String { String(localized: "sidebar.groupEditor.moveToNewWindow", defaultValue: "Move to New Window", bundle: .module) }
     static var close: String { String(localized: "sidebar.groupEditor.close", defaultValue: "Close Group", bundle: .module) }
     static var ungroup: String { String(localized: "sidebar.groupEditor.ungroup", defaultValue: "Ungroup", bundle: .module) }
     static var delete: String { String(localized: "sidebar.groupEditor.delete", defaultValue: "Delete Group", bundle: .module) }

@@ -46,12 +46,16 @@ public actor FreeTierAttestProvider {
     private var refused = false
     /// Counts connections: a proof that finishes after a reconnect saves nothing.
     private var generation = 0
+    /// A key id store error (for example a denied Keychain access) stops all proofs until the
+    /// next launch or a settings change, so the store is not asked again (no repeated prompt).
+    private var storeFailed = false
     private let stateContinuation: AsyncStream<FreeTierState>.Continuation
 
     /// The relay's free-tier state, as it reports it (the Settings caption).
     public nonisolated let states: AsyncStream<FreeTierState>
 
-    /// - Parameter environment: the acpmux this app runs; its relay socket is `<home>/router/router.sock`.
+    /// - Parameter environment: the acpmux this app runs; its relay socket is
+    ///   ``LocalRouterClient/socketPath(acpmuxHome:uid:)`` (`<home>/router/router.sock`, or a short path for a long home).
     /// - Parameter attest: App Attest and DeviceCheck.
     /// - Parameter keys: where the free-tier key id lives.
     /// - Parameter clock: spaces reconnects.
@@ -59,8 +63,7 @@ public actor FreeTierAttestProvider {
     public init(environment: AcpmuxEnvironment, attest: any DeviceAttesting, keys: any AttestKeyStore,
                 clock: any Clock<Duration> = ContinuousClock(), logger: Logger) {
         var router = environment
-        router.socketPath = environment.home.appendingPathComponent("router", isDirectory: true)
-            .appendingPathComponent("router.sock").path
+        router.socketPath = LocalRouterClient.socketPath(acpmuxHome: environment.home)
         routerEnvironment = router
         self.attest = attest
         self.keys = keys
@@ -80,6 +83,7 @@ public actor FreeTierAttestProvider {
         self.managed = managed
         self.signedIn = signedIn
         refused = false
+        storeFailed = false
         connect()
     }
 
@@ -93,6 +97,7 @@ public actor FreeTierAttestProvider {
         self.enabled = enabled
         self.managed = managed
         self.signedIn = signedIn
+        storeFailed = false
         line?.send(Self.encode(["enabled": enabled, "managed": managed, "signed_in": signedIn]))
     }
 
@@ -198,6 +203,8 @@ public actor FreeTierAttestProvider {
               let encoded = request["client_data_hash"] as? String,
               let hash = Data(base64Encoded: encoded), hash.count == 32 else { return ["error": "refused"] }
         guard enabled, !signedIn else { return ["error": "disabled"] }
+        // The store refused once: say so again without asking it (the relay then stays store_failed).
+        guard !storeFailed else { return ["error": "store_failed"] }
         guard attest.isSupported else { return ["error": "unsupported"] }
         do {
             switch request["req"] as? String {
@@ -217,12 +224,12 @@ public actor FreeTierAttestProvider {
                 }
                 let attestation = try await attest.attestKey(keyID, clientDataHash: hash)
                 let token = try await attest.deviceCheckToken()
-                return ["key_id": keyID, "attestation": attestation.base64EncodedString(),
+                return ["key_id": keyID, "attestation": Self.base64URL(attestation),
                         "device_token": token.base64EncodedString()]
             case "assert":
                 guard let keyID = try keys.load() else { return ["error": "invalid_key"] }
                 let assertion = try await attest.generateAssertion(keyID, clientDataHash: hash)
-                return ["key_id": keyID, "assertion": assertion.base64EncodedString()]
+                return ["key_id": keyID, "assertion": Self.base64URL(assertion)]
             default:
                 return ["error": "refused"]
             }
@@ -234,13 +241,26 @@ public actor FreeTierAttestProvider {
                 logger.info("free tier: an App Attest call failed")
                 return ["error": "failed"]
             }
+        } catch let error as AttestKeyStoreError where error.isDamagedItem {
+            // A stored id that does not decode: the relay asks for one fresh key (fresh_key deletes it).
+            logger.error("free tier: the stored App Attest key id is damaged; asking for a fresh key")
+            return ["error": "invalid_key"]
         } catch let error as AttestKeyStoreError {
-            // The key id cannot be read or kept (a denied Keychain access): no new key, no proof.
-            logger.error("free tier: the App Attest key id store failed (status \(error.status, privacy: .public)); no new key")
-            return ["error": "failed"]
+            // The key id cannot be read or kept (a denied Keychain access): no new key, no proof,
+            // and no further store access until the next launch or a settings change.
+            storeFailed = true
+            logger.error("free tier: the App Attest key id store failed (status \(error.status, privacy: .public)); no new key, proofs paused")
+            return ["error": "store_failed"]
         } catch {
             return ["error": "failed"]
         }
+    }
+
+    /// Unpadded base64url: the cmux API's token route decodes proofs only in that form
+    /// (the DeviceCheck token stays standard base64, as Apple expects it).
+    private static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
 
     private static func encode(_ object: [String: Any]) -> Data {

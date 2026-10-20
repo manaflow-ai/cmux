@@ -110,7 +110,7 @@ import Testing
                 header.updateLayer()
                 let bar = try #require(header.layer?.sublayers?.first { $0.frame.width >= header.bounds.width - 0.5 && $0.cornerRadius > 0 })
                 let drawn = try Self.rgb(bar.backgroundColor)
-                let want = scope.tokens.chip(try Self.lawrence(color, fill: true, dark: dark)).fill
+                let want = scope.tokens.chip(try Self.lawrence(color, fill: true, dark: dark), inks: .onColor).fill
                 #expect(Self.same(drawn, want), "\(name) \(color) header: \(drawn), want \(want)")
             }
             let lines = Self.views(GroupLineView.self, in: sidebar)
@@ -158,7 +158,7 @@ import Testing
         let rows = Self.views(SidebarGroupEditorRow.self, in: content).map(\.item)
         #expect(rows.map(\.id) == ["workspaceGroup.newWorkspace", "workspaceGroup.moveToNewWindow", "workspaceGroup.closeWorkspaces",
                                    "workspaceGroup.ungroup", "workspaceGroup.delete", "sidebar.group.moreActions"])
-        #expect(rows.map(\.title) == ["New Workspace in Group", "Move Group to New Window", "Close Group",
+        #expect(rows.map(\.title) == ["New Workspace in Group", "Move to New Window", "Close Group",
                                       "Ungroup", "Delete Group", "More Group Actions…"])
     }
 

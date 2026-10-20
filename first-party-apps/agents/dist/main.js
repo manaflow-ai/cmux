@@ -94,9 +94,21 @@
   var signsInItself = (id) => (providerFor(id)?.signIn ?? "cli") === "cli";
   var displayName = (id, ownerName) => providerFor(id)?.name ?? ownerName ?? id;
   function hintsFor(id, platform) {
+    if (platform === null)
+      return [];
     return (providerFor(id)?.hints ?? []).filter((h) => !h.platforms || h.platforms.includes(platform));
   }
-  var platformOf = (os) => String(os ?? "").toLowerCase().startsWith("linux") ? "linux" : "darwin";
+  function platformOf(os) {
+    switch (typeof os === "string" ? os.toLowerCase() : "") {
+      case "linux":
+        return "linux";
+      case "darwin":
+      case "macos":
+        return "darwin";
+      default:
+        return null;
+    }
+  }
   var MISSING = new Set(["operation.unsupported", "scope.missing"]);
   function toOpError(e, op) {
     const err = e;
@@ -177,9 +189,37 @@
     return "patch";
   }
   var shortVersion = (raw) => parseVersion(raw)?.text ?? (raw ?? "").trim();
+  var CAPABILITY_NAME = /^[a-z][a-z0-9_.-]{0,63}$/;
+  var MACHINE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+  function capabilityNames(value, limit) {
+    if (!Array.isArray(value))
+      return [];
+    const names = new Set;
+    for (const name of value) {
+      if (typeof name !== "string" || !CAPABILITY_NAME.test(name))
+        continue;
+      names.add(name);
+      if (names.size === limit)
+        break;
+    }
+    return [...names];
+  }
+  function capabilitySummary(machine) {
+    const names = capabilityNames(machine.capabilities, 8);
+    return names.length ? names.map((name) => name.replaceAll("_", " ")).join(" · ") : null;
+  }
+  function sanitizeMachine(machine) {
+    const rawPlatform = machine.platform && typeof machine.platform === "object" ? machine.platform : null;
+    const os = typeof rawPlatform?.os === "string" && MACHINE_TOKEN.test(rawPlatform.os) ? rawPlatform.os : null;
+    const arch = typeof rawPlatform?.arch === "string" && MACHINE_TOKEN.test(rawPlatform.arch) ? rawPlatform.arch : null;
+    const capabilities = capabilityNames(machine.capabilities, 16);
+    return { ...machine, platform: os || arch ? { os, arch } : null, capabilities };
+  }
   function statusOf(e) {
-    if (!e.installed)
+    if (e.installed === false)
       return "missing";
+    if (e.installed !== true)
+      return "unknown";
     const level = updateLevel(e.version, e.latest?.version);
     if (level === "none")
       return "current";
@@ -204,43 +244,40 @@
   }
   function sortEntries(list) {
     return [...list].sort((a, b) => {
-      if (a.installed !== b.installed)
-        return a.installed ? -1 : 1;
+      const rank = (e) => e.installed === true ? 0 : e.installed === false ? 2 : 1;
+      if (rank(a) !== rank(b))
+        return rank(a) - rank(b);
       const r = providerRank(a.cli) - providerRank(b.cli);
       return r || a.cli.localeCompare(b.cli);
     });
   }
-  function withMissing(list) {
+  function withMissing(list, complete = false) {
+    if (complete !== true)
+      return sortEntries(list);
     const seen = new Set(list.map((e) => e.cli));
     const missing = PROVIDERS.filter((p) => !seen.has(p.id)).map((p) => ({ cli: p.id, installed: false, version: null, latest: null, install_method: null, updatable: false, accounts: [] }));
     return sortEntries([...list, ...missing]);
   }
   function needsSignIn(e) {
-    if (!e.installed)
+    if (e.installed !== true)
       return false;
     if (e.accounts.some((a) => a.status === "expired" || a.status === "missing"))
       return true;
-    return e.accounts.length === 0 && signsInItself(e.cli) && providerFor(e.cli) !== null;
+    return e.auth_status === "expired" || e.auth_status === "missing";
   }
-  var showsAccounts = (e) => e.installed && (e.accounts.length > 0 || signsInItself(e.cli) && providerFor(e.cli) !== null);
+  var showsAccounts = (e) => e.installed === true && (e.accounts.length > 0 || !!e.auth_status || signsInItself(e.cli) && providerFor(e.cli) !== null);
   var EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
   var TOKENISH = /\b[A-Za-z0-9_-]{32,}\b/g;
   function safeLabel(label) {
     return String(label ?? "").replace(EMAIL, (m) => `${m[0]}…@…`).replace(TOKENISH, "…").trim();
   }
-  function applyWatch(list, ev) {
-    if (ev.removed)
-      return withMissing(list.filter((e) => e.cli !== ev.cli));
-    if (!ev.entry)
-      return [...list];
-    const next = list.some((e) => e.cli === ev.cli) ? list.map((e) => e.cli === ev.cli ? ev.entry : e) : [...list, ev.entry];
-    return sortEntries(next);
-  }
   function summarize(lists) {
-    let updates = 0, missingSignIns = 0, installed = 0;
+    let updates = 0, missingSignIns = 0, installed = 0, unknown = 0;
     for (const list of lists)
       for (const e of list) {
-        if (!e.installed)
+        if (statusOf(e) === "unknown")
+          unknown++;
+        if (e.installed !== true)
           continue;
         installed++;
         if (statusOf(e) === "update")
@@ -248,7 +285,7 @@
         if (needsSignIn(e))
           missingSignIns++;
       }
-    return { updates, missingSignIns, installed };
+    return { updates, missingSignIns, installed, unknown };
   }
   var jobKey = (machine, cli) => `${machine}/${cli}`;
   var busy = (j) => !!j && (j.phase === "requested" || j.phase === "running");
@@ -274,111 +311,6 @@
         return busy(j) ? j : null;
     }
   }
-  var [machines, setMachines] = signal([]);
-  var [byMachine, setByMachine] = signal({});
-  var [machinesError, setMachinesError] = signal(null);
-  var [jobs, setJobs] = signal({});
-  var [loaded, setLoaded] = signal(false);
-  var [selected, setSelected] = signal(null);
-  var LOCAL = { id: "", name: "", origin: "local", status: "running" };
-  var stateOf = (machine) => byMachine()[machine] ?? { entries: [], error: null, loading: true };
-  var jobOf = (machine, cli) => jobs()[jobKey(machine, cli)] ?? null;
-  var localMachine = () => machines().find((m) => m.origin === "local") ?? machines()[0] ?? LOCAL;
-  var started = false;
-  function start() {
-    if (started)
-      return;
-    started = true;
-    load(false);
-    cmux.events.on("agent_cli.watch", (p) => onWatch(p));
-  }
-  async function load(checkLatest) {
-    const m = await call("machine.list");
-    if (m.ok) {
-      setMachines(m.value.filter((x) => x.status !== "stopped"));
-      setMachinesError(null);
-    } else {
-      setMachines([LOCAL]);
-      setMachinesError(m.error.missing ? null : m.error);
-    }
-    await Promise.all(machines().map((x) => loadMachine(x.id, checkLatest)));
-    setLoaded(true);
-  }
-  async function loadMachine(machine, checkLatest) {
-    setByMachine((all) => ({ ...all, [machine]: { ...all[machine] ?? { entries: [], error: null }, loading: true } }));
-    const params = machine ? { machine } : {};
-    if (checkLatest)
-      params.check_latest = true;
-    const r = await call("agent_cli.list", params);
-    const key = machine && r.ok && typeof r.value.machine === "string" && machines().some((m) => m.id === r.value.machine) ? r.value.machine : machine;
-    setByMachine((all) => ({
-      ...all,
-      [key]: r.ok ? { entries: withMissing(r.value.clis ?? []), error: null, loading: false } : { entries: all[key]?.entries ?? [], error: r.error, loading: false }
-    }));
-    if (r.ok)
-      for (const e of r.value.clis ?? [])
-        dispatchJob(key, e.cli, { type: "clear" });
-  }
-  function dispatchJob(machine, cli, ev) {
-    const key = jobKey(machine, cli);
-    setJobs((all) => {
-      const next = reduceJob(all[key] ?? null, ev);
-      if (next === (all[key] ?? null))
-        return all;
-      const copy = { ...all };
-      if (next)
-        copy[key] = next;
-      else
-        delete copy[key];
-      return copy;
-    });
-  }
-  function onWatch(ev) {
-    if (!ev || typeof ev.cli !== "string")
-      return;
-    const machine = typeof ev.machine === "string" ? ev.machine : "";
-    if (ev.job)
-      dispatchJob(machine, ev.cli, { type: "finished", job: ev.job.job, ok: ev.job.ok, exitCode: ev.job.exit_code, error: ev.job.error });
-    if (ev.entry || ev.removed) {
-      setByMachine((all) => {
-        const cur = all[machine] ?? { entries: [], error: null, loading: false };
-        return { ...all, [machine]: { ...cur, entries: applyWatch(cur.entries, ev) } };
-      });
-    }
-  }
-  async function run(kind, machine, cli, op, params, token) {
-    dispatchJob(machine, cli, { type: "request", kind });
-    const r = await call(op, { ...machine ? { machine } : {}, cli, ...params }, withGesture(token));
-    if (r.ok)
-      dispatchJob(machine, cli, { type: "started", job: r.value.job, terminal: r.value.terminal ?? null });
-    else
-      dispatchJob(machine, cli, { type: "refused", error: r.error.code });
-    return r;
-  }
-  function update(machine, cli) {
-    return run("update", machine, cli, "agent_cli.update", {}, gesture());
-  }
-  function install(machine, cli, method) {
-    return run("install", machine, cli, "agent_cli.install", { method }, gesture());
-  }
-  async function signIn(machine, cli) {
-    const token = gesture();
-    const r = await run("sign_in", machine, cli, "agent_cli.sign_in", {}, token);
-    const provider = providerFor(cli)?.accountsProvider;
-    const isLocal = !machine || machine === localMachine().id;
-    if (!r.ok && r.error.code === "operation.unsupported" && provider && isLocal) {
-      dispatchJob(machine, cli, { type: "clear" });
-      dispatchJob(machine, cli, { type: "request", kind: "sign_in" });
-      const a = await call("action.run", { id: "accounts.reauthenticate", args: { provider } }, withGesture(token));
-      dispatchJob(machine, cli, a.ok ? { type: "started", job: "accounts.reauthenticate", terminal: null } : { type: "refused", error: a.error.code });
-    }
-  }
-  function refresh() {
-    return load(true);
-  }
-  function openPane(token = gesture()) {
-    return call("app.pane.open", { kind: "agentHub" }, withGesture(token));
-  }
   // first-party-apps/agents/strings/en.json
   var en_default = {
     "account.expired": "Sign-in expired",
@@ -399,11 +331,14 @@
     "empty.none": "No agent CLIs reported",
     "empty.title": "No agent CLIs on this machine",
     "error.load": "Cannot list agent CLIs",
+    "error.owner": "The inventory reply did not match the selected machine.",
     "error.missingOp": "This cmux does not provide {op}.",
     "error.missingTitle": "Agent CLI detection is not available yet",
     "folded.missing": "Not installed ({n})",
     "hint.cmux": "Comes with cmux",
     "hint.none": "No install hint for this CLI",
+    "installation.unknown": "Installation unknown",
+    "inventory.unknown": "Inventory not fully checked",
     "job.done": "Done",
     "job.failed": "Failed",
     "job.failedCode": "Failed (exit {code})",
@@ -455,11 +390,14 @@
     "empty.none": "エージェントCLIの報告がありません",
     "empty.title": "このマシンにエージェントCLIはありません",
     "error.load": "エージェントCLIを一覧できません",
+    "error.owner": "インベントリの応答が選択したマシンと一致しませんでした。",
     "error.missingOp": "このcmuxは{op}を提供していません。",
     "error.missingTitle": "エージェントCLIの検出はまだ使えません",
     "folded.missing": "未インストール（{n}）",
     "hint.cmux": "cmuxに付属",
     "hint.none": "このCLIのインストール方法はありません",
+    "installation.unknown": "インストール状況不明",
+    "inventory.unknown": "インストール状況は未確認です",
     "job.done": "完了",
     "job.failed": "失敗",
     "job.failedCode": "失敗（終了コード {code}）",
@@ -510,6 +448,176 @@
     const template = tables[language]?.[key] ?? english;
     return template.replace(/\{(\w+)\}/g, (whole, name) => (name in vars) ? String(vars[name]) : whole);
   }
+  var [machines, setMachines] = signal([]);
+  var [byMachine, setByMachine] = signal({});
+  var [machinesError, setMachinesError] = signal(null);
+  var [jobs, setJobs] = signal({});
+  var [loaded, setLoaded] = signal(false);
+  var [selected, setSelected] = signal(null);
+  var LOCAL = { id: "", name: "", origin: "local", status: "running" };
+  var stateOf = (machine) => byMachine()[machine] ?? { entries: [], complete: false, error: null, loading: true };
+  function entryFor(machine, cli) {
+    const state = stateOf(machine);
+    return state.entries.find((e) => e.cli === cli) ?? {
+      cli,
+      installed: state.complete ? false : null,
+      version: null,
+      latest: null,
+      install_method: null,
+      updatable: false,
+      accounts: []
+    };
+  }
+  var inventoryComplete = () => machines().length > 0 && machines().every((m) => {
+    const state = stateOf(m.id);
+    return state.complete && !state.loading && !state.error;
+  });
+  var jobOf = (machine, cli) => jobs()[jobKey(machine, cli)] ?? null;
+  var machineById = (id) => machines().find((m) => m.id === id) ?? null;
+  var localMachine = () => machines().find((m) => m.origin === "local") ?? LOCAL;
+  var started = false;
+  var discovery = 0;
+  var reads = new Map;
+  var invalidated = false;
+  var invalidationTask = null;
+  function start() {
+    if (started)
+      return;
+    started = true;
+    cmux.events.on("agent_cli.changed", () => invalidate());
+    load(false);
+  }
+  async function load(checkLatest) {
+    const generation = ++discovery;
+    reads.clear();
+    const m = await call("machine.list", { catalog: true });
+    if (generation !== discovery)
+      return;
+    if (m.ok) {
+      setMachines(m.value.filter((x) => x.status !== "stopped").map(sanitizeMachine));
+      setMachinesError(null);
+    } else {
+      const legacy = m.error.code === "operation.unsupported";
+      setMachines(legacy ? [LOCAL] : []);
+      setMachinesError(legacy ? null : m.error);
+    }
+    const admitted = new Set(machines().map((x) => x.id));
+    setByMachine((all) => Object.fromEntries(Object.entries(all).filter(([id]) => admitted.has(id))));
+    setJobs((all) => Object.fromEntries(Object.entries(all).filter(([key]) => admitted.has(key.split("/")[0]))));
+    if (selected() && !admitted.has(selected().machine))
+      setSelected(null);
+    await Promise.all(machines().map((x) => loadMachine(x.id, checkLatest)));
+    if (generation === discovery)
+      setLoaded(true);
+  }
+  async function loadMachine(machine, checkLatest) {
+    const owner = machineById(machine);
+    if (!owner)
+      return;
+    const generation = discovery;
+    const token = {};
+    reads.set(machine, token);
+    setByMachine((all) => ({ ...all, [machine]: { ...all[machine] ?? { entries: [], error: null }, complete: false, loading: true } }));
+    const params = machine ? { machine } : {};
+    if (checkLatest)
+      params.check_latest = true;
+    const r = await call("agent_cli.list", params);
+    if (generation !== discovery || owner !== machineById(machine) || reads.get(machine) !== token)
+      return;
+    reads.delete(machine);
+    const mismatch = r.ok && !!machine && r.value?.machine !== machine;
+    const error = mismatch ? {
+      code: "machine.owner_mismatch",
+      op: "agent_cli.list",
+      missing: false,
+      message: t("error.owner", "The inventory reply did not match the selected machine.")
+    } : r.ok ? null : r.error;
+    setByMachine((all) => ({
+      ...all,
+      [machine]: r.ok && !error ? { entries: withMissing(r.value.clis ?? [], r.value.complete === true), complete: r.value.complete === true, error: null, loading: false } : { entries: [], complete: false, error, loading: false }
+    }));
+    if (r.ok && !error)
+      for (const e of r.value.clis ?? [])
+        dispatchJob(machine, e.cli, { type: "clear" });
+  }
+  function dispatchJob(machine, cli, ev) {
+    const key = jobKey(machine, cli);
+    setJobs((all) => {
+      const next = reduceJob(all[key] ?? null, ev);
+      if (next === (all[key] ?? null))
+        return all;
+      const copy = { ...all };
+      if (next)
+        copy[key] = next;
+      else
+        delete copy[key];
+      return copy;
+    });
+  }
+  function requestJob(machine, cli, kind) {
+    if (!machineById(machine) || busy(jobOf(machine, cli)))
+      return null;
+    dispatchJob(machine, cli, { type: "request", kind });
+    return jobOf(machine, cli);
+  }
+  function isCurrentJob(machine, cli, request) {
+    return machineById(machine) !== null && jobOf(machine, cli) === request;
+  }
+  function invalidate() {
+    invalidated = true;
+    if (invalidationTask)
+      return;
+    invalidationTask = drainInvalidations();
+  }
+  async function drainInvalidations() {
+    try {
+      while (invalidated) {
+        invalidated = false;
+        await load(false);
+      }
+    } finally {
+      invalidationTask = null;
+      if (invalidated)
+        invalidate();
+    }
+  }
+  async function run(kind, machine, cli, op, params, token) {
+    const owner = machineById(machine);
+    const request = requestJob(machine, cli, kind);
+    if (!owner || !request)
+      return null;
+    const current = () => isCurrentJob(machine, cli, request) && machineById(machine)?.origin === owner.origin;
+    const r = await call(op, { ...machine ? { machine } : {}, cli, ...params }, withGesture(token));
+    if (!current())
+      return null;
+    const provider = providerFor(cli)?.accountsProvider;
+    if (!r.ok && r.error.code === "operation.unsupported" && kind === "sign_in" && provider && owner.origin === "local") {
+      const a = await call("action.run", { id: "accounts.reauthenticate", args: { provider } }, withGesture(token));
+      if (current())
+        dispatchJob(machine, cli, a.ok ? { type: "started", job: "accounts.reauthenticate", terminal: null } : { type: "refused", error: a.error.code });
+      return r;
+    }
+    if (r.ok)
+      dispatchJob(machine, cli, { type: "started", job: r.value.job, terminal: r.value.terminal ?? null });
+    else
+      dispatchJob(machine, cli, { type: "refused", error: r.error.code });
+    return r;
+  }
+  function update(machine, cli) {
+    return run("update", machine, cli, "agent_cli.update", {}, gesture());
+  }
+  function install(machine, cli, method) {
+    return run("install", machine, cli, "agent_cli.install", { method }, gesture());
+  }
+  function signIn(machine, cli) {
+    return run("sign_in", machine, cli, "agent_cli.sign_in", {}, gesture());
+  }
+  function refresh() {
+    return load(true);
+  }
+  function openPane(token = gesture()) {
+    return call("app.pane.open", { kind: "agentHub" }, withGesture(token));
+  }
   var VARIANTS = ["byCli", "byMachine", "matrix"];
   var DEFAULT_VARIANT = "byCli";
   var [override, setOverride] = signal(null);
@@ -536,6 +644,13 @@
       return t("machine.this", "This Mac");
     return m.name || m.id;
   }
+  function machinePlatform(m) {
+    const platform = m.platform;
+    if (!platform)
+      return null;
+    const parts = [platform.os, platform.arch].filter((value) => !!value && value.length > 0);
+    return parts.length ? parts.join(" · ") : null;
+  }
   function statusSymbol(s) {
     switch (s) {
       case "current":
@@ -555,6 +670,8 @@
   }
   function versionLine(e) {
     const s = statusOf(e);
+    if (e.installed !== true && e.installed !== false)
+      return t("installation.unknown", "Installation unknown");
     if (s === "missing")
       return t("version.missing", "Not installed");
     const v = shortVersion(e.version) || t("version.unknown", "Unknown version");
@@ -599,6 +716,8 @@
   function primaryAction(machine, e) {
     return () => {
       const entry = e();
+      if (entry.installed !== true && entry.installed !== false)
+        return null;
       const j = jobOf(machine, entry.cli);
       if (j && (busy(j) || j.phase === "failed" || j.phase === "refused")) {
         const retry = !busy(j);
@@ -631,7 +750,10 @@
     const hint = firstHint(machine, entry.cli);
     return hint ? install(machine, entry.cli, hint.method) : undefined;
   }
-  var platformFor = (machine) => platformOf(machines().find((m) => m.id === machine)?.os);
+  var platformFor = (machine) => {
+    const owner = machines().find((m) => m.id === machine);
+    return platformOf(owner?.platform?.os ?? owner?.os);
+  };
   var firstHint = (machine, cli) => hintsFor(cli, platformFor(machine))[0] ?? null;
   function accountStatusText(a) {
     switch (a.status) {
@@ -650,7 +772,7 @@
       const entry = e();
       if (!showsAccounts(entry))
         return null;
-      const list = entry.accounts.length ? entry.accounts : [{ account: "", label: "", status: "missing" }];
+      const list = entry.accounts.length ? entry.accounts : [{ account: "", label: "", status: entry.auth_status ?? "unknown" }];
       return VStack({ spacing: 3 }, list.map((a) => accountLine(machine, entry, a)));
     };
   }
@@ -688,8 +810,11 @@
     ]).padding({ top: 8, leading: 12, bottom: 6, trailing: 12 });
   }
   var allLists = () => machines().map((m) => byMachine()[m.id]?.entries ?? []);
-  function summaryText(lists) {
+  function summaryText(lists, complete = false) {
     const s = summarize(lists);
+    const unknown = !complete || s.unknown > 0;
+    if (!s.installed && unknown)
+      return t("inventory.unknown", "Inventory not fully checked");
     if (!s.installed)
       return t("summary.none", "No agent CLIs found");
     const parts = [];
@@ -697,6 +822,8 @@
       parts.push(s.updates === 1 ? t("summary.update1", "1 update") : t("summary.updates", "{n} updates", { n: s.updates }));
     if (s.missingSignIns)
       parts.push(t("summary.signIn", "{n} need sign-in", { n: s.missingSignIns }));
+    if (unknown)
+      parts.push(t("inventory.unknown", "Inventory not fully checked"));
     return parts.length ? parts.join(" · ") : t("summary.current", "All up to date");
   }
   function row(machine, e) {
@@ -711,7 +838,7 @@
       openPane();
     }).contextMenu(() => [
       Button(t("action.update", "Update"), () => void update(machine, e().cli)).disabled(statusOf(e()) !== "update" || !e().updatable),
-      Button(t("action.signIn", "Sign In…"), () => void signIn(machine, e().cli)).disabled(!e().installed),
+      Button(t("action.signIn", "Sign In…"), () => void signIn(machine, e().cli)).disabled(e().installed !== true),
       Button(t("action.open", "Open Agent CLIs"), () => void openPane())
     ]);
   }
@@ -724,13 +851,15 @@
           return Text(t("loading", "Looking for agent CLIs…")).font("caption").secondary().padding(8);
         if (st.error && !st.entries.length)
           return errorState(st.error);
-        const installed = st.entries.filter((e) => e.installed);
-        const missing = st.entries.length - installed.length;
+        const installed = st.entries.filter((e) => e.installed !== false);
+        const missing = st.entries.filter((e) => e.installed === false).length;
         if (!installed.length) {
+          if (!st.complete)
+            return EmptyState({ title: t("inventory.unknown", "Inventory not fully checked"), message: t("empty.none", "No agent CLIs reported"), symbol: "questionmark.circle" }).onTap(() => void openPane());
           return EmptyState({ title: t("empty.title", "No agent CLIs on this machine"), message: t("empty.message", "Open Agent CLIs to install one."), symbol: "terminal" }).onTap(() => void openPane());
         }
         return VStack({ spacing: 0 }, [
-          ForEach({ items: () => stateOf(m.id).entries.filter((e) => e.installed), key: (e) => e.cli }, (e) => row(m.id, e)),
+          ForEach({ items: () => stateOf(m.id).entries.filter((e) => e.installed !== false), key: (e) => e.cli }, (e) => row(m.id, e)),
           missing ? Text(t("section.more", "{n} more you can install", { n: missing })).font("caption").secondary().padding({ top: 4, leading: 10, bottom: 4, trailing: 10 }).onTap(() => void openPane()) : null
         ]);
       }
@@ -744,9 +873,9 @@
       for (const e of all[m.id]?.entries ?? [])
         ids.add(e.cli);
     const out = [...ids].map((cli) => {
-      const cells = ms.map((m) => ({ machine: m, entry: all[m.id]?.entries.find((e) => e.cli === cli) ?? null }));
-      const any = cells.find((c) => c.entry)?.entry;
-      return { cli, name: displayName(cli, any?.name), cells, installedAnywhere: cells.some((c) => c.entry?.installed) };
+      const cells = ms.map((m) => ({ machine: m, entry: entryFor(m.id, cli) }));
+      const any = cells.find((c) => c.entry.name)?.entry;
+      return { cli, name: displayName(cli, any?.name), cells, installedAnywhere: cells.some((c) => c.entry.installed !== false) };
     });
     return out.sort((a, b) => Number(b.installedAnywhere) - Number(a.installedAnywhere) || providerRank(a.cli) - providerRank(b.cli) || a.cli.localeCompare(b.cli));
   }
@@ -761,10 +890,10 @@
     if (ms.length && errors.every(Boolean))
       return errorState(errors[0]);
     if (allLists().every((l) => l.length === 0))
-      return EmptyState({ title: t("empty.none", "No agent CLIs reported"), symbol: "terminal" });
+      return EmptyState({ title: inventoryComplete() ? t("empty.none", "No agent CLIs reported") : t("inventory.unknown", "Inventory not fully checked"), symbol: "terminal" });
     return null;
   }
-  var frame = (body) => VStack({ spacing: 0 }, [toolbar(() => summaryText(allLists())), Divider(), () => gate() ?? body()]);
+  var frame = (body) => VStack({ spacing: 0 }, [toolbar(() => summaryText(allLists(), inventoryComplete())), Divider(), () => gate() ?? body()]);
   var machineError = (m) => {
     const err = stateOf(m.id).error;
     return err ? Text(t("machine.error", "{machine}: {message}", { machine: machineName(m), message: err.message })).font("caption").color("danger").lineLimit(2) : null;
@@ -789,9 +918,9 @@
         () => badgeFor(highestLevel(g().cells.map((c) => c.entry))),
         Spacer()
       ]),
-      () => VStack({ spacing: 6 }, g().cells.filter((c) => c.entry?.installed).map(cliLine)),
+      () => VStack({ spacing: 6 }, g().cells.filter((c) => c.entry.installed !== false).map(cliLine)),
       () => {
-        const missingOn = g().cells.filter((c) => !c.entry?.installed);
+        const missingOn = g().cells.filter((c) => c.entry.installed === false);
         if (!missingOn.length || !showMissing() && g().installedAnywhere)
           return null;
         const local = missingOn[0];
@@ -820,7 +949,7 @@
         HStack({ spacing: 6 }, [Text(() => nameOf(e())).font("body").weight("medium"), () => levelBadge(e())]),
         Text(() => versionLine(e())).font("caption").monospaced().secondary(),
         accountLines(machine, e),
-        () => e().installed ? null : hintLines(machine, e().cli)
+        () => e().installed === false ? hintLines(machine, e().cli) : null
       ]).frame({ maxWidth: "infinity" }),
       primaryAction(machine, e)
     ]).padding({ top: 6, leading: 12, bottom: 6, trailing: 12 });
@@ -831,13 +960,21 @@
       HStack({ spacing: 6 }, [
         Icon(() => m().origin === "local" ? "laptopcomputer" : "server.rack").secondary(),
         Text(() => machineName(m())).font("headline"),
+        () => {
+          const platform = machinePlatform(m());
+          return platform ? Text(platform).font("caption").secondary() : null;
+        },
+        () => {
+          const capabilities = capabilitySummary(m());
+          return capabilities ? Text(capabilities).font("caption").secondary().lineLimit(1).truncation("tail") : null;
+        },
         Text(() => m().status === "running" ? "" : m().status).font("caption").secondary(),
         Spacer()
       ]).padding({ top: 10, leading: 12, bottom: 4, trailing: 12 }),
       () => machineError(m()),
-      ForEach({ items: () => stateOf(id()).entries.filter((e) => e.installed), key: (e) => e.cli }, (e) => machineRow(id(), e)),
+      ForEach({ items: () => stateOf(id()).entries.filter((e) => e.installed !== false), key: (e) => e.cli }, (e) => machineRow(id(), e)),
       () => {
-        const missing = stateOf(id()).entries.filter((e) => !e.installed);
+        const missing = stateOf(id()).entries.filter((e) => e.installed === false);
         if (!missing.length || !showMissing())
           return null;
         const open = !!unfolded()[id()];
@@ -860,7 +997,7 @@
   var CELL_W = 96;
   function cellView(g, c) {
     const e = c.entry;
-    const s = e ? statusOf(e) : "missing";
+    const s = statusOf(e);
     const job = e ? jobOf(c.machine.id, e.cli) : null;
     const text = job ? "…" : s === "missing" ? "—" : shortVersion(e.version) || "?";
     const isSel = () => selected()?.machine === c.machine.id && selected()?.cli === g.cli;
@@ -875,7 +1012,7 @@
       const c = g.cells.find((x) => x.machine.id === (sel?.machine ?? g.cells[0]?.machine.id)) ?? g.cells[0];
       if (!c)
         return null;
-      const entry = () => groups().find((x) => x.cli === g.cli)?.cells.find((x) => x.machine.id === c.machine.id)?.entry ?? { cli: g.cli, installed: false, version: null, latest: null, install_method: null, updatable: false, accounts: [] };
+      const entry = () => entryFor(c.machine.id, g.cli);
       const e = entry();
       const job = jobOf(c.machine.id, g.cli);
       return VStack({ spacing: 6 }, [
@@ -885,7 +1022,7 @@
         e.install_method && e.installed ? Text(t("detail.method", "Installed with {method}", { method: e.install_method })).font("caption").secondary() : null,
         job && job.phase === "succeeded" ? Text(jobText(job)).font("caption").color("success") : null,
         accountLines(c.machine.id, entry),
-        e.installed ? null : hintLines(c.machine.id, g.cli)
+        e.installed === false ? hintLines(c.machine.id, g.cli) : null
       ]).padding(12);
     };
   }

@@ -102,6 +102,16 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "harness.update":
+            // A harness id (profile file name), never a command.
+            if let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 128,
+               id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }) {
+                self = .harnessUpdate(id: id)
+            } else {
+                self = .unsupported(method)
+            }
+        case "harness.restart":
+            self = .harnessRestart
         case "shell.run":
             if let command = params?["command"] as? String,
                !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -134,12 +144,21 @@ extension AgentPaneRequest {
             self = .touched
         case "newTab.context":
             self = .newTabContext
+        case "newTab.warm":
+            if let warm = params?["warm"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: warm),
+               data.count <= AgentPaneNewTab.maximumWarmBytes, let text = String(data: data, encoding: .utf8) {
+                self = .newTabWarm(text)
+            } else {
+                self = .unsupported(method)
+            }
         case "newTab.setTemplate":
             if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
                 self = .setNewTabTemplate(template)
             } else {
                 self = .unsupported(method)
             }
+        case "nowPlaying.command":
+            if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
         case "newTab.remember":
             // One input (R86): the agent pick, and the model picked on it in `folder`.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
@@ -175,6 +194,9 @@ extension AgentPaneRequest {
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
+        case "project.icon":
+            if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }
+            else { self = .unsupported(method) }
         case "chats.open":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
             else { self = .unsupported(method) }
@@ -195,6 +217,12 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
+        case "pane.tabRowTools":
+            if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {
+                self = .tabRowTools(width: width)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
@@ -289,6 +317,12 @@ extension AgentPaneRequest {
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)
+        case "dictation.audio":
+            if let enabled = params?["enabled"] as? Bool {
+                self = .dictation(.recordAudio(enabled))
+            } else {
+                self = .unsupported(method)
+            }
         case "dictation.openSettings":
             if let raw = params?["permission"] as? String, let permission = DictationPermission(rawValue: raw) {
                 self = .dictation(.openSettings(permission))

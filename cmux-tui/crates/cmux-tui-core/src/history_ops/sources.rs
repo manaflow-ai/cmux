@@ -6,37 +6,35 @@ use cmux_history::{ClosedKind, HistoryEntry, HistoryKind};
 use serde_json::Value;
 
 use super::trail::TrailEntry;
+use crate::state::closed_history_query::{closed_page, closed_tabs};
 
 /// The closed items worth reopening as entries, newest first, a page closed again once, at
-/// its newest close (Leo 2026-10-14: Recently Closed is high signal).
+/// its newest close (Leo 2026-10-14: Recently Closed is high signal; `closed_page`).
 pub(super) fn closed_entries(items: &[Value]) -> Vec<HistoryEntry> {
-    let mut entries = items.iter().filter_map(closed_entry).collect::<Vec<_>>();
-    entries.sort_by_key(|entry| std::cmp::Reverse(entry.at_ms));
+    let mut entries = items
+        .iter()
+        .filter_map(|item| Some((closed_entry(item)?, closed_page(item))))
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|(entry, _)| std::cmp::Reverse(entry.at_ms));
     let mut seen = std::collections::HashSet::new();
-    entries.retain(|entry| page_key(entry).is_none_or(|page| seen.insert(page.to_owned())));
-    entries
+    entries.retain(|(_, page)| page.is_none_or(|page| seen.insert(page)));
+    entries.into_iter().map(|(entry, _)| entry).collect()
 }
 
 /// The closed groups the row `id` (`closed:daemon:<closed id>`) stands for: its own, and for a
 /// page every other close of it, so removing the row leaves no older close to take its place.
 pub(super) fn closed_ids_of(items: &[Value], id: &str) -> Vec<String> {
-    let entries = items.iter().filter_map(closed_entry).collect::<Vec<_>>();
-    let page = entries.iter().find(|entry| entry.id == id).and_then(page_key);
+    let row = |item: &Value| {
+        let closed = item.get("id").and_then(Value::as_str)?;
+        Some(format!("{}{closed}", super::closed::PREFIX))
+    };
+    let page = items.iter().find(|item| row(item).as_deref() == Some(id)).and_then(closed_page);
     match page {
-        Some(page) => entries
-            .iter()
-            .filter(|entry| page_key(entry) == Some(page))
-            .map(|entry| entry.id.clone())
-            .collect(),
+        Some(page) => {
+            items.iter().filter(|item| closed_page(item) == Some(page)).filter_map(row).collect()
+        }
         None => vec![id.to_owned()],
     }
-}
-
-/// What a closed row is shown once by: a browser tab's address. A terminal, chat, screen,
-/// workspace or window carries nothing that tells one close of it from another (two shells in
-/// one folder), so each close stays its own row.
-fn page_key(entry: &HistoryEntry) -> Option<&str> {
-    (entry.closed_kind == Some(ClosedKind::BrowserTab)).then_some(entry.url.as_deref()).flatten()
 }
 
 /// One closed-history item (`closed.list` shape) as an entry
@@ -88,24 +86,6 @@ fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     entry.url = url;
     entry.cwd = cwd;
     Some(entry)
-}
-
-/// Every tab the item would recreate: every member's, else the top level's
-/// (a v1 item), as the Swift `ClosedItem.tabs`.
-fn closed_tabs(item: &Value) -> Vec<&Value> {
-    fn tabs_of(screens: Option<&Value>) -> Vec<&Value> {
-        screens
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|screen| screen.get("tabs").and_then(Value::as_array))
-            .flatten()
-            .collect()
-    }
-    match item.get("members").and_then(Value::as_array).filter(|members| !members.is_empty()) {
-        Some(members) => members.iter().flat_map(|member| tabs_of(member.get("screens"))).collect(),
-        None => tabs_of(item.get("screens")),
-    }
 }
 
 /// One trail entry as a location row (`location:<entry id>`). The daemon

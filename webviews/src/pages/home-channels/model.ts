@@ -87,7 +87,10 @@ export function railSections(conversations: Iterable<HomeConversation>, me?: str
 /** The rail and header name: the title, else the other participants' names. */
 export function conversationName(conversation: HomeConversation, me: string | undefined): string {
   if (conversation.title) return conversation.title;
-  const names = conversation.participants.filter((p) => p.id !== me).map((p) => p.name);
+  const names = conversation.participants
+    .filter((p) => p.id !== me)
+    .map((p) => p.name)
+    .filter(Boolean);
   return names.join(", ");
 }
 
@@ -320,6 +323,16 @@ export function messageLink(conversation: string, message?: string, scheme = "cm
     : `${scheme}://conversation/${conversation}`;
 }
 
+/** The conversation and message a cmux link names (`cmux[-<tag>]://conversation/<id>[/message/<id>]`;
+ * query and fragment ignored), the daemon's link grammar. Ids may also hold `-` (the page only opens
+ * a conversation it already lists this way). */
+export function parseConversationLink(url: string): { conversation: string; message?: string } | undefined {
+  if (url.length > 512) return undefined;
+  const match = /^cmux(?:-[a-z0-9]+)*:\/\/conversation\/([\w-]+)(?:\/message\/([\w-]+))?\/?(?:[?#].*)?$/i.exec(url);
+  if (!match) return undefined;
+  return match[2] ? { conversation: match[1]!, message: match[2] } : { conversation: match[1]! };
+}
+
 /** The link a page URL's hash carries (`#/conversation/<id>[/message/<id>]`), as a cmux link. */
 export function hashLink(hash: string): string | undefined {
   const match = /^#\/(conversation\/[A-Za-z0-9_]+(?:\/message\/[A-Za-z0-9_]+)?)\/?$/.exec(hash);
@@ -493,6 +506,9 @@ export function chiefState(
   const chief = others.length === 1 && others[0]!.chief ? others[0]! : undefined;
   if (!chief) return undefined;
   if (active?.has(chief.id)) return "working";
+  // The owner's state when it derives one (home-inbox-v1): its typing and runs in every
+  // conversation; the page re-reads the rows when a run ends or the Chief stops typing.
+  if (conversation.chiefState) return conversation.chiefState;
   if (conversation.lastAuthor === chief.id && conversation.lastWork === "waiting") return "waiting";
   if (conversation.lastAuthor === chief.id && conversation.lastWork === "running") return "working";
   return "idle";

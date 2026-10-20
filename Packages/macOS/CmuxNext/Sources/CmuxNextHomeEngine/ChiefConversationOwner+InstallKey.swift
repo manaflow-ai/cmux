@@ -14,18 +14,25 @@ extension ChiefConversationOwner {
     /// An unsigned (DEV) build whose Chief owner does not verify it (an older build or
     /// `cmux chief` started the owner without this home's install key): restart the owner once,
     /// so `ensure` starts it again with the key on stdin, and only while it is idle
-    /// (`OwnerIdleProbe`: no Chief turn running, no other app or page connected). A busy owner
-    /// stays as it is (the page's Create Chief keeps getting "needs a verified cmux app
-    /// connection") until it restarts. A signed build holds no key and never restarts it.
+    /// (`OwnerIdleProbe`: no Chief turn running, no other app, page or `cmux chief` chat
+    /// connected). A busy owner keeps running unverified (the page's Create Chief gets "needs a
+    /// verified cmux app connection") until the returned restart, fed the owner's events, finds
+    /// it idle. Nil when no restart is needed; a signed build holds no key and never restarts it.
     static func restartIfUnverified(home: ChiefHome, launcher: DaemonLauncher, connection: DaemonConnection,
-                                    identity: DaemonIdentity, logger: Logger) async {
+                                    identity: DaemonIdentity, logger: Logger) async -> IdleOwnerRestart? {
         guard launcher.configuration.installKey != nil, mayRestartForInstallKey(home: home),
-              !(await connection.userOriginAllowed) else { return }
-        guard await OwnerIdleProbe(connection).isIdle() else {
-            logger.info("chief owner \(identity.pid) does not verify this app and is busy; it keeps running unverified")
-            return
+              !(await connection.userOriginAllowed) else { return nil }
+        let restart = IdleOwnerRestart(probe: OwnerIdleProbe(connection)) {
+            // Only the owner this connection found keyless: after a reconnect to another owner process the
+            // restart is moot (the pid fence would refuse it anyway, and it spends the launcher's one handoff).
+            guard await connection.identity?.pid == identity.pid else { return false }
+            let started = await launcher.handOffForInstallKey(identity: identity, using: connection)
+            logger.info("chief owner \(identity.pid) does not verify this app; restart with the install key: \(started ? "started" : "refused", privacy: .public)")
+            return started
         }
-        let restarting = await launcher.handOffForInstallKey(identity: identity, using: connection)
-        logger.info("chief owner \(identity.pid) does not verify this app; restart with the install key: \(restarting ? "started" : "refused", privacy: .public)")
+        if await restart.attempt() == .waiting {
+            logger.info("chief owner \(identity.pid) does not verify this app and is busy; it restarts with the install key once it is idle")
+        }
+        return restart
     }
 }

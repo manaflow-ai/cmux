@@ -467,6 +467,13 @@ describe("Freestyle platform contract", () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  test("cmux's own guest maintenance through exec can still ask for root", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    const result = await providerWith(fake).exec(VM_ID, "true", { timeoutMs: 5_000, asRoot: true });
+    expect(result.exitCode).toBe(0);
+    expect(fake.execUsers).toEqual(["root"]);
+  });
+
   test("exec does not repair an absent guest CLI during a command", async () => {
     const fake = fakeFreestyle({ probeExit: 0, guestCliExit: 1 });
     const result = await providerWith(fake).exec(VM_ID, "cmux self --json");
@@ -700,7 +707,13 @@ describe("FreestyleProvider create with edge rules", () => {
       // explicitly pauses or destroys it. The explicit -1 also overrides a
       // provider/account default that would otherwise idle-pause the VM.
       idleTimeoutSeconds: -1,
+      automaticRestart: true,
     });
+  });
+
+  test("does not expose hard restart without a supported provider contract", () => {
+    const provider: VMProvider = providerWith(fakeFreestyle({ probeExit: 0 }));
+    expect(provider.restart).toBeUndefined();
   });
 
   test("passes the rule inline and returns a snapshot-v2 machine without guest setup", async () => {
@@ -763,6 +776,7 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(restored.image).toBe("snap-1");
     expect(ok.creates[0]).toMatchObject({
       snapshotId: "snap-1",
+      automaticRestart: true,
       idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
@@ -909,7 +923,9 @@ describe("Freestyle client configuration", () => {
   });
 
   test("public vm exec leaves the guest user to the provider default", () => {
-    expect(driverSource).toContain("const r = await vm.exec({ command, timeoutMs });");
+    expect(driverSource).toContain(
+      "const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });",
+    );
   });
 
   test("the driver talks to the SDK's default public edge unless overridden", () => {

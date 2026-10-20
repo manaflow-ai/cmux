@@ -11,8 +11,11 @@ import os
 /// live socket, or (re)starts the link: fresh attach endpoint, hub socket,
 /// spawn, first `connection-snapshot` within the deadline. A dead link is
 /// replaced on the next call, which the connection makes on reconnect.
+/// Its later snapshots drive ``redial`` while the client redials (cx-z5oif).
 public actor CloudMachineLink {
     public nonisolated let machineID: String
+    /// Whether the running link redials, from its later snapshots.
+    public nonisolated let redial = CloudLinkRedial()
     private let api: CloudAPIClient
     private let hub: CloudTunnelHub
     private let paths: CloudPaths
@@ -65,6 +68,7 @@ public actor CloudMachineLink {
         child?.terminate()
         child = nil
         socket = nil
+        clearRedial()
     }
 
     /// Parks the link while its machine is paused. Unlike `stop`, parking is
@@ -126,6 +130,9 @@ public actor CloudMachineLink {
             }
             try checkGeneration(generation)
             socket = path
+            let redial = redial
+            await MainActor.run { redial.isRedialing = false }
+            watchSnapshots(child)
             logger.info("link up for \(self.machineID, privacy: .public) pid \(child.pid ?? 0)")
             return path
         } catch {
@@ -134,5 +141,32 @@ public actor CloudMachineLink {
             logger.error("link for \(self.machineID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             throw error
         }
+    }
+
+    /// The running link client redials on its own after sleep, a network
+    /// drop or change, and its local socket stays up meanwhile; only its
+    /// snapshots say so. The machine reads as reconnecting until it is back.
+    private func watchSnapshots(_ child: ChildProcess) {
+        let lines = child.lines
+        // task-owner: ends with the child's stdout
+        Task { [weak self] in
+            for await line in lines {
+                guard let connected = CloudLinkEvent.linkConnected(line) else { continue }
+                await self?.linkReported(child, connected: connected)
+            }
+        }
+    }
+
+    private func linkReported(_ reporting: ChildProcess, connected: Bool) async {
+        guard child === reporting else { return }
+        let redial = redial
+        await MainActor.run { redial.isRedialing = !connected }
+    }
+
+    /// A teardown: no running link redials.
+    private func clearRedial() {
+        let redial = redial
+        // task-owner: one main-actor hop
+        Task { @MainActor in redial.isRedialing = false }
     }
 }

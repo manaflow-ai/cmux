@@ -43,6 +43,9 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
 
     public func start(send: Data, onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) {
         queue.async { [self] in
+            // A `cancel()` queued before this block (a task cancelled as `oneShot` began) already
+            // finished the connection; connecting now would leak the descriptor and its read source.
+            guard !closed else { return }
             self.onLine = onLine
             self.onClose = onClose
             guard let fd = Self.connect(path: path) else { return finish() }
@@ -186,10 +189,16 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
                         acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)? = nil) async throws -> Data {
         let connection = AgentActivityLineConnection(path: path, acceptsServer: acceptsServer)
         let once = OnceBox()
+        let cancelled = CancelBox()
         let timeout = DemandTimer(owner: "agent-activity.request-deadline")
         defer { timeout.cancel() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, any Error>) in
+                // `cancel()` drops the close callback, so a cancelled call resumes here, not at its deadline.
+                let alreadyCancelled = cancelled.arm {
+                    if once.claim() { continuation.resume(throwing: CancellationError()) }
+                }
+                if alreadyCancelled { return }
                 connection.onExpire = {
                     continuation.resume(throwing: AgentActivitySourceError.timedOut)
                 }
@@ -208,7 +217,32 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             }
         } onCancel: {
             connection.cancel()
+            cancelled.fire()
         }
+    }
+}
+
+/// The cancel action of one `oneShot` call. `fire` may come before `arm` (a task cancelled before
+/// the call began): `arm` then runs the action at once and says so.
+private nonisolated final class CancelBox: Sendable {
+    private let state = Mutex<(fired: Bool, action: (@Sendable () -> Void)?)>((false, nil))
+
+    func arm(_ action: @escaping @Sendable () -> Void) -> Bool {
+        let fired = state.withLock { state in
+            if !state.fired { state.action = action }
+            return state.fired
+        }
+        if fired { action() }
+        return fired
+    }
+
+    func fire() {
+        let action = state.withLock { state in
+            state.fired = true
+            defer { state.action = nil }
+            return state.action
+        }
+        action?()
     }
 }
 

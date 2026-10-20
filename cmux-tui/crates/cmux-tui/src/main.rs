@@ -18,6 +18,8 @@ mod app;
 #[cfg(unix)]
 mod app_identity;
 mod browser_input;
+#[cfg(unix)]
+mod build_adopt;
 mod classic_hooks;
 #[cfg(unix)]
 mod claude_wrapper;
@@ -32,6 +34,8 @@ mod codex_wrapper;
 mod config;
 mod daemon_build;
 mod headless;
+#[cfg(unix)]
+mod host_orphan_policy;
 mod local_actor;
 mod page_listener;
 mod private_mode;
@@ -85,6 +89,7 @@ mod remote_cli {
     }
 }
 mod owner_start;
+mod remote_host;
 #[cfg(unix)]
 mod remote_runtime;
 mod session;
@@ -96,6 +101,7 @@ mod test_exec;
 #[cfg(test)]
 mod test_wait;
 mod ui;
+mod version_report;
 
 use headless::run_headless;
 pub(crate) use headless::wake_headless;
@@ -940,7 +946,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 client_log::exit(0);
             }
             "-V" | "--version" => {
-                println!("cmux {}", version_string());
+                if args.peek().is_some_and(|next| next == "--json") {
+                    println!("{}", version_report_json());
+                } else {
+                    println!("cmux {}", version_string());
+                }
                 client_log::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
@@ -956,21 +966,55 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     Ok(out)
 }
 
+/// The packaged build's source stamps. Only this crate reads them at compile
+/// time; cmux-tui-core gets them at start (`install_build_stamp`), so a new
+/// stamp recompiles this crate and not the libraries.
+fn build_stamp() -> cmux_tui_core::server::BuildStamp {
+    cmux_tui_core::server::BuildStamp::new(
+        // `or` before the filter: a set but empty CMUX_TUI_BUILD_COMMIT hides
+        // CMUX_MUX_BUILD_COMMIT (no stamp), as before the stamp moved here.
+        option_env!("CMUX_TUI_BUILD_COMMIT")
+            .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
+            .filter(|commit| !commit.is_empty()),
+        option_env!("CMUX_TUI_GHOSTTY_COMMIT"),
+    )
+}
+
 pub(crate) fn version_string() -> String {
     // Packaged builds stamp both source identities so artifact validation can
     // reject a cmux binary built against a different Ghostty checkout before
     // it enters an app bundle. Local builds report the crate version alone.
-    let commit = option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty());
-    let ghostty = option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty());
-    match (commit, ghostty) {
-        (Some(commit), Some(ghostty)) => {
-            format!("{} ({commit}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
-        }
-        (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
-        (None, _) => env!("CARGO_PKG_VERSION").to_string(),
-    }
+    // The version is the npm/PyPI release (version_report.rs), not the crate's.
+    let stamp = build_stamp();
+    version_report::version_text(
+        version_report::DISTRIBUTION_VERSION,
+        stamp.build_commit(),
+        stamp.ghostty_commit(),
+    )
+}
+
+/// `cmux --version --json`: the facts a tester's bug report needs.
+fn version_report_json() -> serde_json::Value {
+    let stamp = build_stamp();
+    #[cfg(unix)]
+    let (build_identity, build_time, remote_protocol) = (
+        Some(cmux_build_identity::BUILD_IDENTITY),
+        cmux_build_identity::BUILD_TIME,
+        Some(u64::from(cmux_remote_protocol::REMOTE_PROTOCOL_VERSION)),
+    );
+    #[cfg(not(unix))]
+    let (build_identity, build_time, remote_protocol) = (None, 0, None);
+    let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
+    version_report::version_json(
+        &version_report::BuildFacts {
+            build_identity,
+            build_time,
+            build_commit: stamp.build_commit(),
+            ghostty_commit: stamp.ghostty_commit(),
+            remote_protocol,
+        },
+        executable.as_deref(),
+    )
 }
 
 #[cfg(unix)]
@@ -1624,6 +1668,8 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
+    // Before any mode can serve `identify` or `ping`.
+    cmux_tui_core::server::install_build_stamp(build_stamp());
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
@@ -1708,6 +1754,10 @@ fn run_main() {
         }
         return;
     }
+    // Terminal hosts this process starts run from the slim cmux-tui-host
+    // beside it when that is this build (macOS; host_exe.rs).
+    #[cfg(unix)]
+    cmux_tui_core::host_exe::use_sibling_host(cmux_build_identity::BUILD_IDENTITY);
     // `cmux acp …` (and `cmux harness|chats|route …` = `cmux acp harness|chats|route …`) runs acpmux
     // in this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
@@ -1717,6 +1767,13 @@ fn run_main() {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
         client_log::exit(acp::run_scope(head, args));
+    }
+    // `cmux host enable|serve|dial|…`: remote hosting, on every platform
+    // (plans/cmux-next/remote-hosts.md). The other `host` verbs are the
+    // machine supervisor's (`early_unix_scope`).
+    if cli::remote_host_requested(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(remote_host::run(&raw_args[1..]));
     }
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {
@@ -2130,6 +2187,9 @@ fn run_server(
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     daemon_build::install();
+    // Windows hosts get no orphan grace (no app bundles there to classify).
+    #[cfg(unix)]
+    host_orphan_policy::install();
     owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
@@ -2231,10 +2291,18 @@ fn run_server(
     // The Codex shim lives in the same shim directory, so its PATH entry is
     // usually the one the Claude shim already added.
     #[cfg(unix)]
-    if let Some(path) = codex_wrapper::pane_path()
-        && !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path)
-    {
-        surface_options.extra_env.push(("PATH".into(), path));
+    if let Some(path) = codex_wrapper::pane_path() {
+        if !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path) {
+            surface_options.extra_env.push(("PATH".into(), path));
+        }
+        // Integrated shells keep this directory first after startup files
+        // reorder PATH: Codex runs its hooks in a shared daemon that cannot
+        // see the terminal's environment, so only the shim routes them.
+        if let Some(dir) =
+            codex_wrapper::shim_directory().and_then(|dir| dir.into_os_string().into_string().ok())
+        {
+            surface_options.extra_env.push((cmux_tui_core::AGENT_SHIMS_ENV.into(), dir));
+        }
     }
     // The app's bundled `cmux` (the app starts the daemon with it) stays
     // first after the shim on a caller PATH (`terminal_spawn_options`).
@@ -2471,7 +2539,7 @@ fn run_server(
     #[cfg(unix)]
     mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]
-    mux.set_acpmux_starter(acp::daemon_acpmux_starter());
+    acp::install_daemon_acpmux(&mux, &socket_path);
     #[cfg(unix)]
     mux.set_agent_start_host(agent_start_host::source());
     let served_socket = pending_server.into_bound_path();

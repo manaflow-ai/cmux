@@ -29,7 +29,12 @@ public struct TabDelta: Sendable, Hashable, Decodable {
 public struct DaemonNotification: Sendable, Hashable, Decodable {
     public var notification: NotificationID
     public var title: String
+    /// `notify --subtitle`; nil from older daemons.
+    public var subtitle: String?
     public var body: String
+    /// An agent's last message for its turn's banner, memory only on the daemon; nil from
+    /// older daemons and for every other notification.
+    public var preview: String?
     public var level: NotificationLevel
     public var surface: SurfaceID?
     /// Not serialized on the `notification` event by current daemons; the
@@ -46,7 +51,7 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
     public var reply: Bool
 
     enum CodingKeys: String, CodingKey {
-        case notification, title, body, level, surface, source, desktop, reply
+        case notification, title, subtitle, body, preview, level, surface, source, desktop, reply
         case createdAtMs = "created_at_ms"
     }
 
@@ -54,7 +59,9 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         notification = try c.decode(NotificationID.self, forKey: .notification)
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        subtitle = try? c.decodeIfPresent(String.self, forKey: .subtitle)
         body = try c.decodeIfPresent(String.self, forKey: .body) ?? ""
+        preview = try? c.decodeIfPresent(String.self, forKey: .preview)
         level = (try? c.decode(NotificationLevel.self, forKey: .level)) ?? .info
         surface = try c.decodeIfPresent(SurfaceID.self, forKey: .surface)
         createdAtMs = try c.decodeIfPresent(UInt64.self, forKey: .createdAtMs)

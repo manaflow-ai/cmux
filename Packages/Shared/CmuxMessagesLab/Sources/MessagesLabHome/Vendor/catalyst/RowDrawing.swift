@@ -191,9 +191,14 @@ enum RowDraw {
             let w = parts.reduce(0) { $0 + TextDraw.width($1.0, font: $1.1, kern: captionKern) }
             var x = m.centerX - w / 2
             for (s, f, c) in parts {
-                TextDraw.line(s, font: f, color: c, x: x, baseline: top + 27.5, in: ctx, kern: captionKern)
+                TextDraw.line(s, font: f, color: c, x: x, baseline: top + spec.height - 8, in: ctx, kern: captionKern) // 27.5 in a 35.5 pt row
                 x += TextDraw.width(s, font: f, kern: captionKern)
             }
+        case let .notice(s):
+            // As the unsent notice below (ask 9, HostHooks.swift).
+            // cmux: at the typing bubble's left edge, the row above it (Layout), not centered.
+            let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
+            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: noticeLeft, baseline: top + 12, in: ctx)
         case let .unsent(outgoing):
             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
@@ -202,14 +207,14 @@ enum RowDraw {
         case let .label(text, outgoing, color):
             let f = HomeFonts.system(ofSize: 10, weight: .medium) // HomeFonts (cx-qpqs)
             let c: UIColor = color == .failure ? UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1)
-                : color == .link ? UIColor(red: 0.2, green: 0.55, blue: 1, alpha: 1) : Fixture.secondaryText
+                : color == .link ? Fixture.labelLink : Fixture.secondaryText // cmux: themed link tint
             let w = TextDraw.width(text, font: f)
             TextDraw.line(text, font: f, color: c, x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 11, in: ctx)
         case let .replies(count, _, outgoing):
             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
             let s = Strings.replies(count)
             let w = TextDraw.width(s, font: f, kern: captionKern)
-            TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue,
+            TextDraw.line(s, font: f, color: Fixture.repliesTint, // cmux: themed link tint
                           x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 14, in: ctx, kern: captionKern)
         case let .part(p):
             let x = p.outgoing ? m.rightEdge - p.size.width : Fixture.leftEdge
@@ -253,6 +258,8 @@ enum RowDraw {
     /// as a layer whose top RowCell snaps to a whole device pixel (tools/evidence/ANIMATIONS.md section 6,
     /// cx-3cb typing-pixels; before: 20.14, 4.31, 43.69 x 27.19 from a capsule fit with a blur bias).
     static let typingBubble = CGRect(x: 20, y: margin + 4.335, width: 44, height: 27)
+    /// cmux: the host status line's left edge (row coordinates): the typing bubble's, a point in.
+    static var noticeLeft: CGFloat { typingBubble.minX + 1 }
     /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
     /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
     static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
@@ -359,7 +366,7 @@ enum PartRenderer {
     static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
         let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
         // An outgoing link is the bubble's text colour (white; a themed host's own colour).
-        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+        let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         let attr = tl.attributed(color: color, linkColor: link)
         for (i, line) in tl.lines.enumerated() where line.range.length > 0 {
             let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line.range))
@@ -610,7 +617,7 @@ enum PartRenderer {
         UIBezierPath(roundedRect: CGRect(x: 32.5, y: stubTop, width: 2.5, height: stubH), cornerRadius: 1.25).fill()
         if pv.count >= 2 {
             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
-            TextDraw.line(Strings.replies(pv.count), font: f, color: PreviewStyle.repliesBlue, x: 44.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx,
+            TextDraw.line(Strings.replies(pv.count), font: f, color: Fixture.repliesTint, x: 44.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx, // cmux: themed link tint
                           kern: RowDraw.captionKern)
         }
     }
@@ -669,7 +676,7 @@ enum PartRenderer {
             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
             let s = Strings.replies(pv.count)
             let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
-            TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx,
+            TextDraw.line(s, font: f, color: Fixture.repliesTint, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx, // cmux: themed link tint
                           kern: RowDraw.captionKern)
         }
     }
@@ -881,7 +888,9 @@ enum TapbackGlyph {
 /// (default `Fixture.renderScale`: inside a view's `Fixture.withRenderScale`, the view's).
 final class RowBitmaps {
     static let shared = RowBitmaps()
-    struct Key: Hashable { var spec: RowSpec; var scale: CGFloat }
+    /// `space`: the colour space the bitmap is drawn in (WideBitmap.drawSpace; AppKit: the window's display space,
+    /// process-wide). Bitmaps of another display stay cached for a move back (cx-3cb scale-redraw).
+    struct Key: Hashable { var spec: RowSpec; var scale: CGFloat; var space: CGColorSpace? = WideBitmap.drawSpace }
     private var cache: [Key: CGImage] = [:]
     private var order: [Key] = []
     private var waiters: [Key: [(CGImage) -> Void]] = [:]
@@ -900,11 +909,11 @@ final class RowBitmaps {
     /// (RowDraw.widthInvariant), so a divider drag or live resize shows the bitmap drawn at the
     /// previous width instead of drawing the same pixels again (the visible rows' bitmaps were
     /// about 6 % of main in a divider drag).
-    static func key(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> Key {
-        guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return Key(spec: spec, scale: scale) }
+    static func key(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale, space: CGColorSpace? = WideBitmap.drawSpace) -> Key {
+        guard !TiledBubble.applies(spec), RowDraw.widthInvariant(spec) else { return Key(spec: spec, scale: scale, space: space) }
         var k = spec
         k.width = 0
-        return Key(spec: k, scale: scale)
+        return Key(spec: k, scale: scale, space: space)
     }
     func image(for spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> CGImage? { cache.value(for: RowBitmaps.key(spec, scale: scale)) } // dictionary read
     func has(_ spec: RowSpec, scale: CGFloat = Fixture.renderScale) -> Bool {
@@ -1004,21 +1013,22 @@ final class RowBitmaps {
 
     private func apply(_ batch: [(Key, CGImage, Int)]) {
         for (w, img, gen) in batch {
-            // Rendered with an older palette: drop it and render again.
-            guard gen == Fixture.paletteGeneration else {
+            // Rendered with an older palette, or asked in another colour space than the current one (a display change
+            // since the request): drop it and render again (in the current space).
+            guard gen == Fixture.paletteGeneration, w.space == WideBitmap.drawSpace else {
                 let ws = waiters.removeValue(forKey: w) ?? []
                 for d in ws { request(w.spec, scale: w.scale, d) }
                 if ws.isEmpty { request(w.spec, scale: w.scale) }
                 continue
             }
-            store(w.spec, img, scale: w.scale)
+            store(w.spec, img, scale: w.scale, space: w.space)
             waiters.removeValue(forKey: w)?.forEach { $0(img) }
         }
     }
 
-    private func store(_ s: RowSpec, _ img: CGImage, scale: CGFloat) {
+    private func store(_ s: RowSpec, _ img: CGImage, scale: CGFloat, space: CGColorSpace?) {
         if TiledBubble.applies(s) { return }
-        let spec = RowBitmaps.key(s, scale: scale)
+        let spec = RowBitmaps.key(s, scale: scale, space: space)
         if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
         cache.updateValue(img, forKey: spec) // dictionary write
         bytes += img.bytesPerRow * img.height
@@ -1052,7 +1062,13 @@ final class RowBitmaps {
     }
 
     /// Bitmaps rendered ahead of time (loader queue) at `scale`, inserted on main.
-    func insert(_ items: [(RowSpec, CGImage)], scale: CGFloat = Fixture.renderScale) { items.forEach { store($0.0, $0.1, scale: scale) } }
+    /// Under the current colour space (WideBitmap.drawSpace). `generation`: the palette generation the items were
+    /// drawn at (off main, before this call); a palette or colour space change since drops them (they are drawn again
+    /// when asked).
+    func insert(_ items: [(RowSpec, CGImage)], scale: CGFloat = Fixture.renderScale, generation: Int = Fixture.paletteGeneration) {
+        guard generation == Fixture.paletteGeneration else { return }
+        items.forEach { store($0.0, $0.1, scale: scale, space: WideBitmap.drawSpace) }
+    }
 
     /// Test hook (`--scroller-control`): no bitmaps rendered ahead (pager prerender, scroll
     /// prefetch), so a check for rows without bitmaps has something to find.
@@ -1087,6 +1103,15 @@ final class RowBitmaps {
 /// shim's renderer, whose bitmaps are in the window's colour space already.
 enum WideBitmap {
     static let space = LabColorSpace.displayP3 // no force unwrap
+    /// The colour space `make` draws in now (the row bitmap cache's key): AppKit builds draw in the window's display
+    /// space (DisplayScale.colorSpace, process-wide); UIKit builds in their renderer's own (one, so nil).
+    static var drawSpace: CGColorSpace? {
+        #if canImport(UIKit)
+        return nil
+        #else
+        return DisplayScale.colorSpace
+        #endif
+    }
     /// nil when the bitmap cannot be allocated (a huge size, memory pressure); the
     /// caller draws nothing and BitmapFailure logs the first one (crash program, no trap).
     static func make(size: CGSize, scale: CGFloat, opaque: Bool, _ draw: (CGContext) -> Void) -> CGImage? {

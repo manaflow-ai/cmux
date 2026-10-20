@@ -25,15 +25,13 @@ struct RowMotion {
                 moves()
                 lines.changes()
             }
-            leaving.forEach { list.recycle($0.0) }
+            leaving.forEach { Self.closed($0.0, in: list) }
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
         }
         guard Motion.animatesMovement else {
-            // Reduce Motion: rows take their places at once and the change crossfades (motion.md
-            // rule 7). Inside the movement spring, which Reduce Motion skips, the fades never ran:
-            // a closed row vanished and a new one popped in.
-            if !appearing.isEmpty || !leaving.isEmpty { Motion.crossfadeInPlace(list.layer) }
+            // Reduce Motion: rows take their places in one step, with no crossfade standing in
+            // for the motion (DESIGN P6): no movement, and nothing a person must wait out.
             Motion.withoutAnimation {
                 moves()
                 lines.changes()
@@ -43,11 +41,12 @@ struct RowMotion {
                     view.clipsToBounds = false
                 }
             }
-            leaving.forEach { list.recycle($0.0) }
+            leaving.forEach { Self.closed($0.0, in: list) }
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
         }
         passOver(in: list, from: old, to: layout)
+        for (view, end) in leaving { view.closingEnd = end }
         let opens = appearing.map(\.0.opens)
         Motion.animate(.move, in: list, {
             moves()
@@ -65,9 +64,39 @@ struct RowMotion {
             guard let list else { return }
             // A row reopened since keeps clipping until its own open ends.
             for ((view, _), open) in zip(appearing, opens) where view.opens == open { view.clipsToBounds = false }
-            for (view, _) in leaving where !list.rowViews.values.contains(where: { $0 === view }) { list.recycle(view) }
+            for (view, _) in leaving where !list.rowViews.values.contains(where: { $0 === view }) { Self.closed(view, in: list) }
             list.pruneOffscreen()
         })
+    }
+
+    /// Moves every row by `dy` at once, with the scroll offset (the anchor step of
+    /// `SidebarListView.applyKeepingViewport`). A row still closing its slot from an earlier
+    /// change moves too, and its close re-targets to its shifted end, so it keeps closing in
+    /// place beside its neighbors instead of jumping by `dy` against them (cx-y2uf5).
+    static func shift(_ list: SidebarListView, by dy: CGFloat) {
+        let closing = list.subviews.compactMap { $0 as? SidebarRowView }.filter { $0.closingEnd != nil && !$0.isHidden }
+        Motion.withoutAnimation {
+            for view in list.rowViews.values { view.frame.origin.y += dy }
+            for view in closing {
+                view.frame.origin.y += dy
+                view.closingEnd?.origin.y += dy
+            }
+        }
+        guard !closing.isEmpty else { return }
+        // The close's own completion (`run`) still recycles each row.
+        Motion.animate(.move, in: list, {
+            for view in closing {
+                guard let end = view.closingEnd else { continue }
+                view.animator().alphaValue = 0
+                view.animator().frame = end
+            }
+        })
+    }
+
+    /// A row whose close ended (or never animated) goes back to the pool.
+    private static func closed(_ view: SidebarRowView, in list: SidebarListView) {
+        view.closingEnd = nil
+        list.recycle(view)
     }
 
     /// Places a row that scrolled into view. One still opening (the viewport

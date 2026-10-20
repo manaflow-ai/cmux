@@ -213,6 +213,8 @@ export class MockAcpmuxSocket {
   );
   private events: EventRecord[] = [];
   private seq = 0;
+  /// The images prompts sent, by id, as acpmux keeps them (`_acpmux/attachment`).
+  private promptImages = new Map<string, { mimeType: string; data: string }>();
   private turns = 0;
   private running?: { cancelled: boolean; target: string };
   /// Seeded sessions whose turn is still open (running, or waiting on a permission).
@@ -463,6 +465,20 @@ export class MockAcpmuxSocket {
       }
       case "_acpmux/events":
         return this.page(target, params);
+      case "_acpmux/attachment": {
+        // Only an image the session's own log names, as acpmux reads it.
+        const id = String(params.id ?? "");
+        const named = this.events.some(
+          (event) =>
+            event.sessionId === target &&
+            event.kind === "user_message" &&
+            Array.isArray(event.msg?.images) &&
+            event.msg.images.some((image: { id?: string }) => image.id === id),
+        );
+        const image = named ? this.promptImages.get(id) : undefined;
+        if (!image) throw Object.assign(new Error(`no image ${id} in this chat`), { code: -32001 });
+        return image;
+      }
       case "_acpmux/permission_respond":
         this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));
         return {};
@@ -500,13 +516,21 @@ export class MockAcpmuxSocket {
       case "session/prompt": {
         const text = String(params.prompt?.[0]?.text ?? "");
         const promptId = params._meta?.acpmux?.promptId;
+        // acpmux keeps each image once and names it in the prompt's user_message.
+        const images = (Array.isArray(params.prompt) ? params.prompt : [])
+          .filter((block: Record<string, unknown>) => block?.type === "image" && typeof block.data === "string")
+          .map((block: Record<string, string>) => {
+            const id = `image-${this.promptImages.size + 1}`;
+            this.promptImages.set(id, { mimeType: block.mimeType ?? "image/png", data: block.data! });
+            return { id, mimeType: block.mimeType ?? "image/png", ...(block.name ? { name: block.name } : {}) };
+          });
         const queued = this.pending > 0 && promptId !== undefined;
         if (queued) this.emit(target, { mux: "queued", msg: { promptId, text } });
         this.pending += 1;
         const turn = this.queue
           .then(() => {
             if (queued) this.emit(target, { mux: "dequeued", msg: { promptId } });
-            return this.prompt(target, text, promptId);
+            return this.prompt(target, text, promptId, images);
           })
           .finally(() => {
             this.pending -= 1;
@@ -616,7 +640,12 @@ export class MockAcpmuxSocket {
     return { sessionId };
   }
 
-  private async prompt(target: string, prompt: string, promptId?: string): Promise<unknown> {
+  private async prompt(
+    target: string,
+    prompt: string,
+    promptId?: string,
+    images: { id: string; mimeType: string; name?: string }[] = [],
+  ): Promise<unknown> {
     // A prompt queued behind a closed daemon never starts.
     if (this.closed) return { stopReason: "cancelled" };
     this.turns += 1;
@@ -631,7 +660,10 @@ export class MockAcpmuxSocket {
     const running = { cancelled: false, target };
     this.running = running;
     const started = Date.now();
-    this.emit(target, { mux: "user_message", msg: { text: prompt, promptId } });
+    this.emit(target, {
+      mux: "user_message",
+      msg: { text: prompt, promptId, ...(images.length > 0 ? { images } : {}) },
+    });
     this.emit(target, { mux: "turn_started" });
     const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
     for (const step of steps) {

@@ -127,6 +127,23 @@ impl ProviderDriver {
                             .lock()
                             .unwrap_or_else(PoisonError::into_inner)
                             .apply_event(&name, &payload);
+                        // A re-announce carries the tab's emulation scale (cx-mogig).
+                        if name == "tab.announced"
+                            && let Some(target_id) = payload.get("targetId").and_then(Value::as_str)
+                        {
+                            let scale =
+                                payload.get("inputScale").and_then(Value::as_f64).unwrap_or(1.0);
+                            // Set under the cef_tabs lock: a driver being created reads the
+                            // table under it too, so neither overwrites the newer scale.
+                            let tabs =
+                                thread_cef_tabs.lock().unwrap_or_else(PoisonError::into_inner);
+                            if let Some(tab) = tabs.get(target_id) {
+                                tab.driver.set_input_scale(scale);
+                                tab.driver.set_touch_emulation(
+                                    payload.get("touch").and_then(Value::as_bool).unwrap_or(false),
+                                );
+                            }
+                        }
                         // The tab went away, or the app replaced its Chromium
                         // browser (`tab.relay.closed`): its relay and driver go;
                         // the next call attaches again.
@@ -270,6 +287,16 @@ impl ProviderDriver {
     /// The engine the app announced for a tab.
     pub fn tab_engine(&self, target_id: &str) -> Option<String> {
         self.table().engine(target_id)
+    }
+
+    /// The emulation scale the app last announced for the tab (1.0 when none, cx-mogig).
+    pub fn tab_input_scale(&self, target_id: &str) -> f64 {
+        self.table().tab(target_id).map_or(1.0, |tab| tab.input_scale)
+    }
+
+    /// Whether the app last announced touch emulation for the tab (cx-3ny35).
+    pub fn tab_touch(&self, target_id: &str) -> bool {
+        self.table().tab(target_id).is_some_and(|tab| tab.touch)
     }
 
     /// Why an agent call on `target_id` is refused (browser page, the

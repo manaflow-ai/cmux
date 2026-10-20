@@ -4,12 +4,39 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>composer rim harness</title>
+    <!-- Each composer is a size container (composerLocation.css), so a shrink-to-fit flex item would
+         collapse to its padding: give each the width a pane gives it. -->
+    <style>
+      .acpmux-shell > .acpmux-composer {
+        flex: none;
+        inline-size: 380px;
+      }
+    </style>
   </head>
   <body>
     <section class="acpmux-shell">
       <div class="acpmux-composer">
         <div class="acpmux-composer-box" id="composer">
           <div class="acpmux-md" contenteditable="true" id="composer-field"></div>
+          <div class="acpmux-composer-bar">
+            <span class="acpmux-picker acpmux-model"
+              ><button type="button" class="acpmux-picker-button" id="composer-chip">Opus 5.5</button></span
+            >
+          </div>
+        </div>
+      </div>
+      <div class="acpmux-composer">
+        <div class="acpmux-composer-strip" id="strip"></div>
+        <div class="acpmux-composer-box" id="strip-composer">
+          <div class="acpmux-md" contenteditable="true" id="strip-composer-field"></div>
+        </div>
+      </div>
+      <div class="acpmux-composer">
+        <ul class="acpmux-composer-queue" id="queue">
+          <li class="acpmux-queued">queued</li>
+        </ul>
+        <div class="acpmux-composer-box" id="queue-composer">
+          <div class="acpmux-md" contenteditable="true" id="queue-composer-field"></div>
         </div>
       </div>
       <div class="acpmux-composer" data-shell="">

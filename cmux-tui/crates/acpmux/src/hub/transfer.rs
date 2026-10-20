@@ -152,6 +152,8 @@ impl Hub {
             return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": meta.cwd})));
         }
         meta.status = SessionStatus::Idle;
+        // A family lives on one daemon: a moved-in sub-session is a root here.
+        meta.subsession = None;
         let session = self.make_session(meta.clone());
         self.store.save(&meta).map_err(|e| RpcError::internal(e.to_string()))?;
         // Copy events verbatim, preserving seq. A partial transcript is not

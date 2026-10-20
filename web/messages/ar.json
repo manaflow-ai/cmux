@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "الجهاز لا يستجيب",
       "message": "لم يستجب هذا الجهاز في الوقت المحدد، لذا تعذّر إكمال الطلب.",
-      "action": "أوقف الجهاز مؤقتًا، ثم استأنفه، وحاول مرة أخرى. في تطبيق Mac، اختر «إيقاف الجهاز مؤقتًا» ثم «استئناف الجهاز». في الطرفية، شغّل cmux vm pause '<machine>' ثم cmux vm resume '<machine>'."
+      "action": "اتصل بالدعم مع معرّف التتبّع قبل إنشاء جهاز آخر."
     },
     "inProgress": {
       "title": "لا يزال قيد التنفيذ",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "تدعم Go معالجين افتراضيين وذاكرة 4 GiB وقرصاً بسعة 16 GiB.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "تم استهلاك حصة الحوسبة في {plan}",
+      "computeMessage": "استهلكت خطة {plan} ساعات الحوسبة البالغة {included} لفترة الفوترة هذه. ساعة الحوسبة هي 1 vCPU مع 2 GB من الذاكرة لمدة ساعة واحدة. يمكن تشغيل أجهزتك مرة أخرى في {resetDate}.",
+      "computeAction": "تحتفظ الأجهزة المتوقفة مؤقتًا بملفاتها. تواصل مع الدعم إذا احتجت إلى حوسبة إضافية قبل {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "تم استهلاك حصة القرص في {plan}",
+      "storageMessage": "تتضمن خطة {plan} مساحة قرص إجمالية قدرها {included} GB لكل الأجهزة المحفوظة. تستخدم الأجهزة المحفوظة {used} GB، ويحتاج هذا الطلب إلى {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "لا تكفي موارد Cloud VM",
@@ -514,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "استأنف خطتك لتتمكن من تغييرها.",
           "granted": "منحتها cmux. لا يوجد ما يمكن تغييره.",
+          "grantedNoCancel": "منحتها cmux، لذا لا يوجد ما يمكن إلغاؤه.",
+          "paymentFailed": "حدّث طريقة الدفع قبل تغيير الخطة.",
+          "foundersLifetime": "يتضمن Founder's Edition خطة Pro مدى الحياة.",
           "adminOnly": "يمكن لمسؤولي الفريق فقط تغيير الخطة."
         },
         "names": {
@@ -556,6 +569,7 @@
       "change": {
         "title": "التبديل إلى {plan}؟",
         "upgradeBody": "تبدأ {plan} الآن. تدفع اليوم {amount} مقابل ما تبقى من فترة الفوترة هذه. ومن {date} تدفع {price} شهريًا.",
+        "upgradeBodyYearly": "تبدأ {plan} الآن. تدفع اليوم {amount} مقابل ما تبقى من فترة الفوترة هذه. ومن {date} تدفع {price} سنويًا.",
         "downgradeBody": "تبدأ {plan} الآن. يُضاف الجزء غير المستخدم من خطتك الحالية، {credit}، رصيدًا إلى فواتيرك القادمة. فاتورتك القادمة في {date} قيمتها {amount}.",
         "confirm": "التبديل إلى {plan}",
         "keep": "الإبقاء على الخطة الحالية",
@@ -568,6 +582,8 @@
         "title": "إلغاء {plan}؟",
         "body": "تبقى لديك {plan} حتى {date}. بعد ذلك ستفقد:",
         "bodyNoDate": "تبقى لديك {plan} حتى نهاية فترة الفوترة هذه. بعد ذلك ستفقد:",
+        "foundersBody": "ينتهي اشتراك {plan} في {date}. بعد ذلك ستحصل على Pro، المضمّنة مدى الحياة في Founder's Edition.",
+        "foundersBodyNoDate": "ينتهي اشتراك {plan} في نهاية فترة الفوترة هذه. بعد ذلك ستحصل على Pro، المضمّنة مدى الحياة في Founder's Edition.",
         "reasonLabel": "لماذا تلغي؟ (اختياري)",
         "otherPlaceholder": "أخبرنا بالمزيد (اختياري)",
         "confirm": "إلغاء الخطة",
@@ -2242,6 +2258,7 @@
           "currentLineHighlight": "تلوين السطر الذي يوجد فيه المؤشر عندما لا يكون هناك أي تحديد.",
           "tabWidth": "عدد الأعمدة التي يمتد عليها موضع جدولة واحد. تستخدم أدلة الإزاحة التباعد نفسه."
         },
+        "actions": "إجراءات قابلة لإعادة الاستخدام للوحة الأوامر والاختصارات وأزرار شريط علامات التبويب وقائمة زر الإضافة. تدعم builtin وcommand وagent وworkspaceCommand وworkspace وsetting وsettingPreset وtext. تلصق الإجراءات النصية في الطرفية التي عليها التركيز مع الحفاظ على فواصل الأسطر؛ يضغط submit: true على Enter. تتطلب إجراءات الإعدادات تهيئة عامة.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

@@ -34,7 +34,7 @@ pub const AGENT_NAME: &str = "claude-stdio";
 /// process launched with `--allow-dangerously-skip-permissions`
 /// (`spawn_plan`, `bypass_allowed`); elsewhere the switch is refused and
 /// the chat keeps its mode.
-const MODES: [(&str, &str); 4] = [
+pub(crate) const MODES: [(&str, &str); 4] = [
     ("default", "Normal"),
     ("plan", "Plan"),
     ("auto", "Auto"),
@@ -98,42 +98,57 @@ static MODELS: std::sync::LazyLock<Vec<(String, String)>> = std::sync::LazyLock:
     models
 });
 
-/// The reasoning choices: Claude Code's effort levels (`--effort` and the
-/// live `apply_flag_settings` `effortLevel`), plus two built on them.
-/// "default" leaves the model's own level. Ultracode is xhigh plus Claude
-/// Code's `ultracode` setting; Ultrathink keeps the level and prefixes each
-/// prompt with `Ultrathink:` (verified on Claude Code 2.1.287). The pane
-/// offers a model only the levels its `list_models` row supports.
-const EFFORTS: [(&str, &str, Option<&str>); 8] = [
-    ("default", "Default", None),
-    ("low", "Low", None),
-    ("medium", "Medium", None),
-    ("high", "High", None),
-    ("xhigh", "Extra High", None),
-    ("max", "Max", None),
-    ("ultracode", "Ultracode", Some("xhigh effort plus multi-agent workflow orchestration")),
-    ("ultrathink", "Ultrathink", Some("Thinks as hard as it can on every prompt")),
+/// The Reasoning choices: Claude Code's effort levels (`--effort` and the
+/// live `apply_flag_settings` `effortLevel`). "default" leaves the model's
+/// own level. The pane offers a model only the levels its `list_models` row
+/// supports.
+const EFFORTS: [(&str, &str); 6] = [
+    ("default", "Default"),
+    ("low", "Low"),
+    ("medium", "Medium"),
+    ("high", "High"),
+    ("xhigh", "Extra High"),
+    ("max", "Max"),
 ];
 
-/// The prefix Claude Code reads as "think as hard as you can" (Ultrathink).
-const ULTRATHINK_PREFIX: &str = "Ultrathink:\n";
+/// The session's effort may also be `ultracode`: Claude Code's workflow
+/// orchestration setting, which runs at xhigh. It is not a level, so it is
+/// its own On/Off option (`ULTRACODE_OPTION`), not a Reasoning choice.
+const ULTRACODE: &str = "ultracode";
+pub const ULTRACODE_OPTION: &str = "ultracode";
 
-/// The `--effort` a session starts with: Ultracode runs at xhigh, Ultrathink
-/// and "default" pass none (the model's own level).
-fn cli_effort(effort: &str) -> Option<&str> {
+/// A stored or sent effort as this translator keeps it. `ultrathink` was a
+/// Reasoning choice that only prefixed each prompt with a keyword; a saved
+/// pick of it now runs the model's own level.
+fn effort_value(effort: &str) -> &str {
     match effort {
-        "default" | "ultrathink" | "" => None,
-        "ultracode" => Some("xhigh"),
-        other => Some(other),
+        "ultrathink" | "" => "default",
+        other => other,
     }
 }
 
-/// The `apply_flag_settings` settings for a reasoning choice. Every choice but
-/// Ultracode clears `ultracode`; Ultrathink leaves the level as it is.
+/// The Reasoning select's value for a session effort: Ultracode runs at xhigh.
+fn shown_level(effort: &str) -> &str {
+    match effort_value(effort) {
+        ULTRACODE => "xhigh",
+        level => level,
+    }
+}
+
+/// The `--effort` a session starts with: Ultracode runs at xhigh, "default"
+/// passes none (the model's own level).
+fn cli_effort(effort: &str) -> Option<&str> {
+    match effort_value(effort) {
+        "default" => None,
+        level => Some(shown_level(level)),
+    }
+}
+
+/// The `apply_flag_settings` settings for a session effort. Every level
+/// clears `ultracode`.
 fn effort_settings(effort: &str) -> Value {
-    match effort {
-        "ultracode" => json!({"effortLevel": "xhigh", "ultracode": true}),
-        "ultrathink" => json!({"ultracode": false}),
+    match effort_value(effort) {
+        ULTRACODE => json!({"effortLevel": "xhigh", "ultracode": true}),
         "default" => json!({"effortLevel": "auto", "ultracode": false}),
         level => json!({"effortLevel": level, "ultracode": false}),
     }
@@ -143,7 +158,7 @@ fn effort_settings(effort: &str) -> Value {
 /// Ultracode and fast mode have no command-line flag of their own.
 fn startup_settings(effort: &str, fast: bool) -> Option<Value> {
     let mut settings = serde_json::Map::new();
-    if effort == "ultracode" {
+    if effort_value(effort) == ULTRACODE {
         settings.insert("effortLevel".into(), json!("xhigh"));
         settings.insert("ultracode".into(), json!(true));
     }
@@ -276,6 +291,11 @@ pub struct Translator {
     /// suggested with its permission ask (`session_rules`), held until the
     /// answer: an "Allow for this session" hands them back.
     suggestions: Mutex<HashMap<String, Value>>,
+    /// claude control request_id -> the tool input of its `can_use_tool`
+    /// ask, held until the answer: Claude Code takes an allow only with
+    /// `updatedInput` (its permission reply schema), so an allow the hub
+    /// did not rewrite hands the input back as it came.
+    inputs: Mutex<HashMap<String, Value>>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -285,9 +305,17 @@ pub struct Translator {
     /// Claude Code's fast mode (`fastMode`), on or off.
     pub fast: Mutex<bool>,
     in_turn: AtomicBool,
+    /// Claude Code wrote something for the prompt (an assistant line, a
+    /// conversation reset): its result ends the turn, never startup noise.
+    turn_output: AtomicBool,
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
+    /// Prompts still unanswered when the next one went out: acpmux ended
+    /// their turn itself (a Stop Claude Code answered late, `hub/cancel.rs`).
+    /// Claude Code's result for them comes before it reads the next prompt,
+    /// or after its echo but before any of its output.
+    abandoned: Mutex<Vec<String>>,
     /// Steered prompts (user lines written during a turn) Claude Code has
     /// not echoed yet, oldest first, as (line uuid, ACP request id): each is
     /// answered at its echo.
@@ -322,6 +350,9 @@ pub struct Translator {
     /// The tokens the chat's context last held (its last `message_delta`; a
     /// compaction resets it).
     context_used: AtomicU64,
+    /// A compaction just ended: the synthetic user line Claude writes next
+    /// is its summary (`compaction_summary`).
+    awaiting_summary: AtomicBool,
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
@@ -351,6 +382,9 @@ struct BackgroundShell {
     launched: bool,
     /// Its `running` update went out (`inbound.rs` `running`).
     announced: bool,
+    /// The file Claude Code writes its output to (`output_file`), once a
+    /// task event named it.
+    output: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -378,15 +412,18 @@ impl Translator {
             pending: Mutex::new(HashMap::new()),
             control_out: Mutex::new(HashMap::new()),
             suggestions: Mutex::new(HashMap::new()),
+            inputs: Mutex::new(HashMap::new()),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
             mode: Mutex::new(mode.to_owned()),
             model: Mutex::new(model.to_owned()),
-            effort: Mutex::new(effort.to_owned()),
+            effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
             in_turn: AtomicBool::new(false),
+            turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
+            abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
@@ -400,6 +437,7 @@ impl Translator {
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
+            awaiting_summary: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             edits: Mutex::new(HashMap::new()),
@@ -485,16 +523,20 @@ impl Translator {
     }
 
     pub async fn config_options_value(&self) -> Value {
+        let effort = self.effort.lock().await.clone();
         json!([
             {"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": *self.model.lock().await,
              "options": models().iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "mode", "name": "Permission mode", "type": "select", "category": "mode", "currentValue": *self.mode.lock().await,
              "options": MODES.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
-            {"id": "effort", "name": "Reasoning", "type": "select", "category": "thought_level", "currentValue": *self.effort.lock().await,
-             "options": EFFORTS.iter().map(|(v, n, d)| match d {
-                 Some(d) => json!({"value": v, "name": n, "description": d}),
-                 None => json!({"value": v, "name": n}),
-             }).collect::<Vec<_>>()},
+            {"id": "effort", "name": "Reasoning", "type": "select", "category": "thought_level", "currentValue": shown_level(&effort),
+             "options": EFFORTS.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
+            {"id": ULTRACODE_OPTION, "name": "Ultracode", "type": "select", "category": "model_config",
+             "currentValue": if effort_value(&effort) == ULTRACODE { "on" } else { "off" },
+             "options": [
+                 {"value": "off", "name": "Off"},
+                 {"value": "on", "name": "On", "description": "Extra High effort plus multi-agent workflow orchestration"},
+             ]},
             {"id": "fast-mode", "name": "Fast mode", "type": "select", "category": "model_config",
              "currentValue": if *self.fast.lock().await { "on" } else { "off" },
              "options": [

@@ -47,10 +47,10 @@ public struct SettingsSchemaExport {
         }
         let rows: [[String: Any]] = SettingsSchema.all.map { row(for: $0, text: text) }
         let page = page(text: text)
-        let rowsData = Data(try DeterministicJSON().string(rows, pretty: false).utf8)
+        // No schema_hash: the daemon computes it from the rows at load. A committed
+        // hash line changed in every settings pull request, so no two merged (#21946).
         let document: [String: Any] = [
             "version": version,
-            "schema_hash": SettingsSchemaHash.hex(rowsData),
             "sections": sections,
             "page": page,
             "rows": rows,
@@ -126,6 +126,7 @@ public struct SettingsSchemaExport {
         case .timeRange: row["kind"] = "time_range"
         case .theme: row["kind"] = "theme"
         case .fontFamily: row["kind"] = "font_family"
+        case .text: row["kind"] = "text"
         case .numberList(let number):
             row["kind"] = "number_list"
             row["range"] = range(number)
@@ -164,6 +165,7 @@ public struct SettingsSchemaExport {
     nonisolated func range(_ number: SettingNumber) -> [String: Any] {
         let unit: String = switch number.unit {
         case .points: "points"
+        case .milliseconds: "milliseconds"
         case .seconds: "seconds"
         case .minutes: "minutes"
         case .days: "days"

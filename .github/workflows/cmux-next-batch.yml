@@ -171,6 +171,9 @@ jobs:
           STICKY_TOKEN: ${{ steps.sticky-token.outputs.token }}
           CMUX_NEXT_BATCH_STICKY: ${{ vars.CMUX_NEXT_BATCH_STICKY }}
           CMUX_NEXT_BATCH_AUTHORS: ${{ vars.CMUX_NEXT_BATCH_AUTHORS }}
+          # The review gate and override labels (docs/ci/cmux-next-batch.md): logins no lane runs as.
+          CMUX_NEXT_BATCH_REVIEWERS: ${{ vars.CMUX_NEXT_BATCH_REVIEWERS }}
+          CMUX_NEXT_BATCH_OVERRIDERS: ${{ vars.CMUX_NEXT_BATCH_OVERRIDERS }}
           PRS: ${{ inputs.prs }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
           NO_LAND: ${{ inputs.no_land && '--no-land' || '' }}
@@ -181,7 +184,7 @@ jobs:
 
   regen:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'regen' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -293,7 +296,8 @@ jobs:
           names=()
           # Formatting first: the bundles are then built from formatted sources.
           if [[ " $KINDS " == *" format "* ]]; then
-            (cd webviews && bun install --frozen-lockfile && bun run check:fix) \
+            (cd webviews && bun install --frozen-lockfile) || fail "bun install"
+            (cd webviews && bun run check:fix) \
               || echo "check:fix left issues it cannot fix; keeping what it fixed"
             names+=("webviews formatting")
           fi
@@ -326,7 +330,7 @@ jobs:
     # An owned mini (CI_PR_POOL_OWNED): its tailnet tag lets it submit to the
     # build fleet. The job only submits and waits; the build runs on a fleet
     # worker.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 150
     permissions:
       contents: read

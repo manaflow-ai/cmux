@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// Candidate values per setting kind for the schema export: the export keeps
@@ -27,7 +26,7 @@ nonisolated enum SettingsSchemaSamples {
         case .color:
             return ([.string("#1a2B3c"), .string("#1A2B3C80"), .string("1a2b3c")],
                     [.string("red"), .string("#12345"), .string("#1234567"), .string("#12345g"), .number(0)])
-        case .sound, .theme, .fontFamily:
+        case .sound, .theme, .fontFamily, .text:
             // Valid names depend on the machine; only the shape is portable.
             return ([], [.number(1), .bool(true), .null])
         case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
@@ -68,13 +67,5 @@ nonisolated enum SettingsSchemaSamples {
         let span = max(high - low, 1)
         return ([.number(low), .number(high), .number(low + (high - low) / 2)],
                 [.number(low - span), .number(high + span), .string("1")])
-    }
-}
-
-/// SHA-256 of the canonical rows JSON, lowercase hex: the daemon reports it
-/// so a client can tell that it renders the schema the owner validates.
-nonisolated enum SettingsSchemaHash {
-    static func hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }

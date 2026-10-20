@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A feat-cmux-next push publishes its cmux-tui tree without waiting for the daemon tests.
+"""No cmux-tui tree publication waits for the daemon tests; promotion does.
 
 On 2026-10-14 none of the last ~30 feat-cmux-next tips had a tree on
 files.cmux.com. publish-tree's `if` already ignored the daemon-test result on
@@ -9,10 +9,12 @@ daemon tests take one reserved runner for ~30 min while pushes land every 2-5
 min, so 12 sat queued and no feat-cmux-next run reached its publish job. Every
 DEV build and dev reload waits on these trees.
 
-Any other ref that runs the daemon tests (a pin, next-batch/*, main, a
-pull request) still publishes only after they pass, with the marker written
-first. Nightly-next promotion still needs the daemon-tests marker, which
-publish-tree-tested writes after the tests pass.
+cx-y0nf2: every other ref that runs the daemon tests (a pin, next-batch/*,
+main, an opted-in lane push, a same-repository pull request) publishes the
+same way, with source.json daemonTests "separate". Before, those refs
+published only after the tests passed, so a pin's tree waited ~1 h for the
+macOS runner. Nightly-next promotion still needs the daemon-tests marker,
+which only publish-tree-tested writes, after this run's tests of the key pass.
 
 This evaluates each publishing job's `if` with GitHub's expression rules for
 a feat-cmux-next push and for other refs, and walks its `needs`.
@@ -27,7 +29,6 @@ import yaml
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
 DAEMON = "cmux-next-daemon-tests"
-PUBLISH_STEP = "Publish the complete tree with the trusted helper"
 KEY = "8729cadfd262d8c13cad8f8ad5d7d54ca4984e01"
 FAILURES = []
 
@@ -102,7 +103,6 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
         "github.event_name": event,
         "github.ref": ref,
         "github.repository": "manaflow-ai/cmux",
-        "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux" if event == "pull_request_target" else "",
         "needs.tree-preflight.result": "success",
         "needs.tree-preflight.outputs.key": KEY,
         "needs.tree-preflight.outputs.daemon_tests": daemon_tests,
@@ -118,7 +118,8 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
 
 def publishers(all_jobs):
     return [name for name, job in all_jobs.items()
-            if any(step.get("name") == PUBLISH_STEP for step in job.get("steps", []))]
+            if any(step.get("name", "").startswith("Publish the") and "trusted helper" in step.get("name", "")
+                   for step in job.get("steps", []))]
 
 
 def runs(all_jobs, name, values):
@@ -151,29 +152,29 @@ def main():
             starting = [name for name in tree_publishers if runs(all_jobs, name, done)]
             _check(len(starting) == 1, f"one feat-cmux-next {event} publisher, daemon tests {result} ({starting})")
 
-    # Every other ref that runs the daemon tests publishes only after they pass.
+    # Every other ref that runs the daemon tests publishes as soon as it is
+    # built, whatever they do (cx-y0nf2), and no publisher writes the marker.
     tested_refs = [
         ("push", "refs/heads/cmux-tui-pin-0123456789ab"),
         ("push", "refs/heads/next-batch/abc"),
         ("push", "refs/heads/main"),
         ("push", "refs/heads/codex/opted-in-lane"),
+        ("workflow_dispatch", "refs/heads/cmux-tui-pin-0123456789ab"),
+        # No pull_request_target case: 17bb49cc0b9 removed the dead
+        # publish-pr-tree job; PR trees publish from cmux-tui-pin-* pushes.
     ]
     for event, ref in tested_refs:
-        queued = context(ref, event=event, daemon_result=None)
-        _check(not [name for name in tree_publishers if runs(all_jobs, name, queued)],
-               f"{event} {ref} does not publish before its daemon tests end")
-        for result in ("failure", "cancelled", "skipped"):
-            ended = context(ref, event=event, daemon_result=result)
-            starting = [name for name in tree_publishers if runs(all_jobs, name, ended)]
-            _check(not starting, f"{event} {ref} does not publish when its daemon tests are {result} ({starting})")
-        passed = context(ref, event=event, daemon_result="success")
-        starting = [name for name in tree_publishers if runs(all_jobs, name, passed)]
-        _check(len(starting) == 1, f"{event} {ref} publishes once after its daemon tests pass ({starting})")
-        for name in starting:
-            mark = next((step for step in all_jobs[name]["steps"]
-                         if step.get("name") == "Mark the tree daemon-tested before publishing it"), None)
-            _check(mark is not None and evaluate(mark.get("if", "true"), passed),
-                   f"{name} writes the daemon-tests marker before it publishes {ref}")
+        for result in (None, "failure", "cancelled", "skipped", "success"):
+            values = context(ref, event=event, daemon_result=result)
+            starting = [name for name in tree_publishers if runs(all_jobs, name, values)]
+            _check(len(starting) == 1,
+                   f"{event} {ref} publishes once with its daemon tests {result or 'queued'} ({starting})")
+    for name in tree_publishers:
+        _check(DAEMON not in all_needs(all_jobs, name), f"{name} does not need the daemon tests")
+        _check("cmux-tui-mark-daemon-tested.sh" not in str(all_jobs[name]["steps"]),
+               f"{name} never writes the daemon-tests marker")
+        _check('"daemonTests": "separate"' in str(all_jobs[name]["steps"]),
+               f"{name} publishes source.json with daemonTests separate")
 
     # A lane-branch push without the trailer publishes build-only: its daemon
     # test job is skipped, so nothing holds the publish.
@@ -185,6 +186,29 @@ def main():
     marker = all_jobs["publish-tree-tested"]
     _check(DAEMON in needs(marker) and f"needs.{DAEMON}.result == 'success'" in str(marker["if"]),
            "publish-tree-tested writes the marker only after the daemon tests pass")
+    for ref, event in (("refs/heads/feat-cmux-next", "push"), ("refs/heads/cmux-tui-pin-0123456789ab", "push")):
+        base = context(ref, event=event, daemon_result="success")
+        base.update({"needs.tree-owner-wait.outputs.unmarked": "false",
+                     **{f"needs.{name}.result": "success" for name in tree_publishers}})
+        _check(evaluate(marker["if"], base), f"{event} {ref}: the marker follows passing daemon tests of a published tree")
+        for result in ("failure", "cancelled", "skipped"):
+            failed = dict(base, **{f"needs.{DAEMON}.result": result})
+            _check(not evaluate(marker["if"], failed), f"{event} {ref}: no marker when the daemon tests are {result}")
+        other_key = dict(base, **{f"needs.{DAEMON}.outputs.key": "0" * 40})
+        _check(not evaluate(marker["if"], other_key), f"{event} {ref}: no marker when the tested key differs")
+    marker_steps = [step for step in all_jobs["publish-tree-tested"]["steps"]
+                    if "cmux-tui-mark-daemon-tested.sh" in step.get("run", "")]
+    writers = [name for name, job in all_jobs.items()
+               if "cmux-tui-mark-daemon-tested.sh" in str(job.get("steps", ""))]
+    _check(len(marker_steps) == 1 and writers == ["publish-tree-tested"],
+           f"only publish-tree-tested writes the daemon-tests marker ({writers})")
+
+    # An unmarked tree is re-tested only once the run that owns or published
+    # it ended (tests/test_cmux_tui_owner_wait_defers.py and
+    # tests/test_cmux_tui_lane_daemon_tests.py run those steps).
+    _check("unmarked=true" in str(all_jobs["tree-owner-wait"]["steps"])
+           and "daemon_tested=false" in str(all_jobs["tree-preflight"]["steps"]),
+           "tree-owner-wait and tree-preflight still send an unmarked tree to the daemon tests")
     _check(set(tree_publishers) <= set(needs(marker)),
            f"publish-tree-tested follows every tree publisher ({needs(marker)})")
     for name in tree_publishers:
@@ -203,7 +227,7 @@ def main():
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
         return 1
-    print("PASS: feat-cmux-next publishes its tree without waiting for the daemon tests")
+    print("PASS: no tree publication waits for the daemon tests; only publish-tree-tested marks a tree tested")
     return 0
 
 

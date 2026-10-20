@@ -1,6 +1,6 @@
 [package]
 name = "cmux-tui"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -38,13 +38,13 @@ path = "src/bin/cmux-tui.rs"
 name = "cmux-tui-hook"
 path = "src/bin/cmux-tui-hook.rs"
 
-# The Windows per-terminal host (cx-1vlzr): a small sibling binary the daemon
-# spawns instead of re-exec'ing the 49 MB cmux-tui.exe, so Windows Defender's
-# first-child image scan (cost scales with the creator's image size) stays
-# cheap per terminal. Built on every platform for one packaging contract; the
-# spawn path uses it on Windows only (macOS/Linux re-exec cmux-tui for PTY fd
-# custody). Links only the terminal-host runtime, so dead-code elimination
-# keeps it small.
+# The per-terminal host (cx-1vlzr): a small sibling binary the daemon spawns
+# instead of re-exec'ing itself. On Windows Defender's first-child image scan
+# (cost scales with the creator's image size) stays cheap per terminal; on
+# macOS an idle host no longer maps the monolith's ~390 dylib images
+# (host_exe.rs; build.rs links it with -dead_strip_dylibs). Built on every
+# platform for one packaging contract; Linux re-execs /proc/self/exe. Links
+# only the terminal-host runtime, so dead-code elimination keeps it small.
 [[bin]]
 name = "cmux-tui-host"
 path = "src/bin/cmux-tui-host.rs"
@@ -52,6 +52,8 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+# `cmux settings list|schema|validate`: the settings schema and owner state.
+cmux-config.workspace = true
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
 cmux-tui-hooks.workspace = true
 cmux-tui-cdp.workspace = true
@@ -69,6 +71,10 @@ unicode-width.workspace = true
 unicode-segmentation.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
+regex.workspace = true
+# `cmux mcp serve` code mode: `cmux_exec` scripts run in an embedded engine.
+rquickjs.workspace = true
 toml.workspace = true
 base64.workspace = true
 getrandom.workspace = true
@@ -90,6 +96,9 @@ cmux-host.workspace = true
 acpmux = { path = "../acpmux" }
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
 plist = "1.10"
+# The build identity (daemon skew, SSH re-bootstrap). Only this crate reads
+# it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
+cmux-build-identity.workspace = true
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
@@ -108,6 +117,9 @@ async-trait.workspace = true
 # sockets to the cmux Cloud API. Both are already in the graph via acpmux.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# cmux NEXT's Chief home adoption copies live SQLite databases with
+# `VACUUM INTO` (build_adopt/copy.rs); already in the graph via cmux-tui-core.
+rusqlite.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true

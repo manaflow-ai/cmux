@@ -5,12 +5,14 @@
 //! fingerprint.
 
 use std::io::{BufReader, Write};
+use std::path::Path;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{MAX_MESSAGE_BYTES, PROTOCOL, ResourceOperation, ResponseEnvelope};
 use serde_json::{Map, Value, json};
 
-use super::command::{RequestPlan, Resolve, ZoomStep};
+use super::command::{RequestPlan, Resolve, ZoomStep, random_prefixed};
 use super::wire::{print_local_error, print_operation_error, random_request_id, read_envelope};
 use super::{GlobalArgs, OutputMode};
 
@@ -51,11 +53,19 @@ impl Failure {
     }
 }
 
+/// The session socket a request's connection reached, so a lookup can open
+/// a second connection to the same daemon.
+pub(super) struct SocketRoute<'a> {
+    pub(super) path: &'a Path,
+    pub(super) derived: bool,
+}
+
 /// Applies every pending lookup of `plan` and clears them.
 pub(super) fn apply(
     reader: &mut Reader,
     plan: &mut RequestPlan,
     caller_route: bool,
+    socket: &SocketRoute<'_>,
 ) -> Result<(), Failure> {
     let steps = std::mem::take(&mut plan.resolve);
     let params = plan
@@ -67,7 +77,7 @@ pub(super) fn apply(
         match step {
             Resolve::CallerWorkspace { terminal } => {
                 let workspace = if caller_route {
-                    caller_workspace(reader, &route, &terminal)?
+                    registered_caller_workspace(reader, &route, &terminal, socket)?
                 } else {
                     "current".to_string()
                 };
@@ -97,7 +107,7 @@ pub(super) fn apply(
                     let pane = snapshot.get("pane_id").and_then(Value::as_str).unwrap_or_default();
                     let shown = shown_tab(reader, &route, pane)?;
                     if shown.as_deref() != Some(tab) {
-                        return Err(zoom_error(
+                        return Err(lookup_error(
                             "tab.not_shown",
                             format!(
                                 "page zoom acts on the tab its pane shows, and pane {pane} shows \
@@ -107,6 +117,10 @@ pub(super) fn apply(
                     }
                     return Err(Failure::AppAction { action, target: format!("pane:{pane}") });
                 }
+            }
+            Resolve::AgentTab { agent } => {
+                let tab = agent_tab(reader, &route, &agent)?;
+                params.insert("tab".into(), Value::String(tab));
             }
         }
     }
@@ -119,13 +133,13 @@ pub(super) fn apply(
 fn tab_zoom_route(tab: &Value, step: ZoomStep) -> Result<Option<&'static str>, Failure> {
     let browser = tab.get("content_kind").and_then(Value::as_str) == Some("browser");
     match (browser, step) {
-        (false, ZoomStep::In | ZoomStep::Out) => Err(zoom_error(
+        (false, ZoomStep::In | ZoomStep::Out) => Err(lookup_error(
             "validation.invalid",
             "zoom in|out applies to browser tabs; give a terminal tab a value: zoom <0.25..5>|reset"
                 .into(),
         )),
         (false, _) => Ok(None),
-        (true, ZoomStep::Value) => Err(zoom_error(
+        (true, ZoomStep::Value) => Err(lookup_error(
             "validation.invalid",
             "a browser tab's page zoom takes in, out or reset; the app has no action that sets an \
              exact page zoom yet"
@@ -137,13 +151,47 @@ fn tab_zoom_route(tab: &Value, step: ZoomStep) -> Result<Option<&'static str>, F
     }
 }
 
-fn zoom_error(code: &str, message: String) -> Failure {
+fn lookup_error(code: &str, message: String) -> Failure {
     Failure::Resource(json!({
         "code": code,
         "message": message,
         "details": {},
         "retryable": false,
     }))
+}
+
+/// The tab that shows `agent`'s terminal. `agent` is an `agent_...` id from
+/// `agent.list`, or the `term_...` id of a terminal that has an agent.
+fn agent_tab(
+    reader: &mut Reader,
+    route: &Map<String, Value>,
+    agent: &str,
+) -> Result<String, Failure> {
+    let listed = read(reader, ResourceOperation::AgentList, route.clone())?;
+    let rows = listed.get("agents").unwrap_or(&listed);
+    let key = if agent.starts_with("term_") { "terminal_id" } else { "id" };
+    let terminal = rows
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row[key] == agent)
+        .and_then(|row| row["terminal_id"].as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            lookup_error(
+                "selector.not_found",
+                format!("this session has no agent {agent}; `cmux agent list` lists its agents"),
+            )
+        })?;
+    let mut selector = route.clone();
+    selector.insert("terminal".into(), Value::String(terminal.clone()));
+    let snapshot = read(reader, ResourceOperation::TerminalGet, selector)?;
+    snapshot.get("tab_id").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| {
+        lookup_error(
+            "selector.not_found",
+            format!("agent {agent} runs in terminal {terminal}, which no tab shows"),
+        )
+    })
 }
 
 /// The tab `pane` shows: its leaf's `active_tab_id` in its screen's layout.
@@ -180,11 +228,106 @@ fn active_tab_of(value: &Value, pane: &str) -> Option<String> {
     }
 }
 
-fn route(params: &Map<String, Value>) -> Map<String, Value> {
+pub(super) fn route(params: &Map<String, Value>) -> Map<String, Value> {
     ["machine", "session"]
         .into_iter()
         .filter_map(|key| params.get(key).map(|value| (key.to_string(), value.clone())))
         .collect()
+}
+
+/// How long a lookup waits for the caller's terminal to join its workspace.
+const CALLER_TERMINAL_WAIT: Duration = Duration::from_secs(3);
+
+/// [`caller_workspace`], waiting for the caller's terminal to be placed. A
+/// new tab's shell runs before the daemon commits the tab, so a command at
+/// its first prompt can ask for a terminal the daemon does not show yet.
+/// The wait follows the session's event stream on a second connection and
+/// looks again after each event, up to [`CALLER_TERMINAL_WAIT`].
+fn registered_caller_workspace(
+    reader: &mut Reader,
+    route: &Map<String, Value>,
+    terminal: &str,
+    socket: &SocketRoute<'_>,
+) -> Result<String, Failure> {
+    match caller_workspace(reader, route, terminal) {
+        Err(Failure::Resource(error)) if is_missing(&error, terminal) => {}
+        settled => return settled,
+    }
+    let deadline = Instant::now() + CALLER_TERMINAL_WAIT;
+    let mut events = session_events(socket, route, deadline);
+    loop {
+        let changed = events.as_mut().is_some_and(|events| next_event(events, deadline));
+        match caller_workspace(reader, route, terminal) {
+            Err(Failure::Resource(error)) if is_missing(&error, terminal) => {
+                if !changed {
+                    return Err(unregistered_terminal(terminal));
+                }
+            }
+            settled => return settled,
+        }
+    }
+}
+
+/// The lookup found no placed `terminal`; any other miss (an unknown
+/// `--machine`, say) is reported as it is.
+fn is_missing(error: &Value, terminal: &str) -> bool {
+    let details = &error["details"];
+    error.get("code").and_then(Value::as_str) == Some("selector.not_found")
+        && (details["selector"] == terminal || details["terminal"] == terminal)
+}
+
+fn unregistered_terminal(terminal: &str) -> Failure {
+    Failure::Resource(json!({
+        "code": "selector.not_found",
+        "message": format!(
+            "the caller's terminal {terminal} did not join a workspace of this cmux session \
+             within {}s; name one: cmux workspace <workspace> …",
+            CALLER_TERMINAL_WAIT.as_secs()
+        ),
+        "details": {"terminal": terminal},
+        "retryable": false,
+    }))
+}
+
+/// A `session.events` stream of the request's session on its own
+/// connection, or `None` when the daemon cannot give one before `deadline`.
+pub(super) fn session_events(
+    socket: &SocketRoute<'_>,
+    route: &Map<String, Value>,
+    deadline: Instant,
+) -> Option<Reader> {
+    let stream = cmux_tui_core::server::connect_session_socket(socket.path, socket.derived).ok()?;
+    let mut events = BufReader::new(stream);
+    let remaining = deadline.checked_duration_since(Instant::now())?;
+    events.get_mut().set_read_timeout(Some(remaining)).ok()?;
+    let id = random_request_id().ok()?;
+    let mut params = route.clone();
+    params.entry("session").or_insert_with(|| Value::String("current".into()));
+    params.insert("stream_id".into(), Value::String(random_prefixed("stream").ok()?));
+    let request = json!({
+        "protocol": PROTOCOL,
+        "type": "request",
+        "id": id,
+        "operation": ResourceOperation::SessionEvents.wire_name(),
+        "params": params,
+    });
+    send(&mut events, &serde_json::to_vec(&request).ok()?).ok()?;
+    match read_response(&mut events, &id) {
+        Ok(Ok(_)) => Some(events),
+        _ => None,
+    }
+}
+
+/// Blocks until the stream's next item; `false` at `deadline` or when the
+/// stream ends.
+fn next_event(events: &mut Reader, deadline: Instant) -> bool {
+    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+        return false;
+    };
+    if remaining.is_zero() || events.get_mut().set_read_timeout(Some(remaining)).is_err() {
+        return false;
+    }
+    matches!(read_envelope(events, false), Ok(Some(_)))
 }
 
 /// The workspace that holds `terminal`: terminal -> tab -> pane -> screen.
@@ -246,13 +389,19 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
     }
 }
 
-/// `--machine` and `--session` name the scope of a request that names none
-/// (or `current`).
+/// Applies route defaults shared by CLI and MCP. Catalog reads have no session ancestor;
+/// `--session` still chooses their socket but never becomes a metadata field.
 pub(super) fn apply_global_route(
     global: &GlobalArgs,
-    params: &mut Value,
+    plan: &mut RequestPlan,
 ) -> Result<(), &'static str> {
-    let Some(params) = params.as_object_mut() else {
+    let has_session = !matches!(
+        plan.operation,
+        super::command::WireOperation::Typed(
+            ResourceOperation::MachineList | ResourceOperation::MachineGet
+        )
+    );
+    let Some(params) = plan.params.as_object_mut() else {
         return Err("request params are not an object");
     };
     if let Some(machine) = &global.machine
@@ -261,6 +410,7 @@ pub(super) fn apply_global_route(
         params.insert("machine".into(), Value::String(machine.clone()));
     }
     if let Some(session) = &global.session
+        && has_session
         && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
     {
         params.insert("session".into(), Value::String(session.clone()));

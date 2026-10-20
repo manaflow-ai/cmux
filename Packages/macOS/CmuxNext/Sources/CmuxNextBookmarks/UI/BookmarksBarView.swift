@@ -16,7 +16,7 @@ public final class BookmarksBarView: NSView {
     private var visibleCount = 0
     private let overflow = NSButton()
     private let otherButton = NSButton()
-    private let emptyLabel = NSTextField(labelWithString: "")
+    private let emptyLabel = ChromeLabel(labelWithString: "")
     private let dropIndicator = CALayer()
     private var menus: [BookmarkFolderMenu] = []
     private var isStale = true
@@ -59,7 +59,7 @@ public final class BookmarksBarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     /// Rebuilds the items from the source (the host calls it when the
     /// profile's bookmarks change). A bar not in a window (a hidden tab)
@@ -125,7 +125,7 @@ public final class BookmarksBarView: NSView {
                                   width: max(0, bounds.width - 2 * inset - otherWidth - Metrics.space4), height: labelHeight)
     }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     public override func updateLayer() {
         performWithTheme {

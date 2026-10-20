@@ -84,7 +84,17 @@ LINUX_ONLY_STEPS = {
 PORTABLE_SUBSTITUTES = {
     "Run canonical CMUX CI guard profile": "scripts/ci/run_ci_guard_payload.sh",
 }
+# A guard step may run for several matrix groups. Keep the optional fast-guard
+# gate attached to each group term, while rejecting any other expression
+# instead of silently dropping a step from the local plan.
 GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
+GROUP_TERM = re.compile(
+    r"matrix\.group\s*==\s*'[a-z0-9-]+'\s*"
+    r"(?:&&\s*steps\.fast-guard\.outputs\.skip\s*!=\s*'true'\s*)?"
+)
+GROUP_EXPRESSION = re.compile(
+    rf"(?:{GROUP_TERM.pattern})(?:\s*\|\|\s*(?:{GROUP_TERM.pattern}))*"
+)
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 # Steps run in their own sessions, so Ctrl-C reaches only this process; it
@@ -149,10 +159,14 @@ def load_yaml(path: Path):
 
 def step_groups(condition: str) -> tuple[set[str], bool]:
     """Groups named by a step `if:`, and whether anything else is in it."""
-    groups = set(GROUP_CONDITION.findall(condition))
-    rest = GROUP_CONDITION.sub("", condition)
-    rest = re.sub(r"[\s${}()|]", "", rest)
-    return groups, bool(rest)
+    wrapped = condition.strip()
+    if not wrapped:
+        return set(), False
+    if wrapped.startswith("${{") and wrapped.endswith("}}"):
+        expression = wrapped[3:-2].strip()
+        if GROUP_EXPRESSION.fullmatch(expression):
+            return set(GROUP_CONDITION.findall(expression)), False
+    return set(GROUP_CONDITION.findall(condition)), True
 
 
 class PlanError(Exception):

@@ -463,14 +463,14 @@ impl Mux {
         }
         drop(effects.removed);
         for target in effects.targets {
-            self.emit(MuxEvent::SurfaceExited(target));
+            self.emit(MuxEvent::SurfaceExited(target, effects.end.clone()));
         }
         self.emit(MuxEvent::TreeChanged);
         if effects.selection_resync {
             self.emit(MuxEvent::TreeSelectionChanged);
         }
         for screen in effects.changed_screens {
-            self.emit(MuxEvent::LayoutChanged(screen));
+            self.emit_layout_changed(screen, None);
         }
         self.emit_empty_if_current(effects.empty_revision);
     }
@@ -583,7 +583,7 @@ impl Mux {
             ResourceCloseTreePublication::Published => {}
         }
         for screen in effects.changed_screens {
-            self.emit(MuxEvent::LayoutChanged(screen));
+            self.emit_layout_changed(screen, None);
         }
         self.emit_empty_if_current(effects.empty_revision);
         committed.commit

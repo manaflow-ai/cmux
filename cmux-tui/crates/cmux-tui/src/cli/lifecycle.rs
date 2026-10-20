@@ -43,6 +43,13 @@ pub(super) enum ServerAction {
         end_terminals: bool,
     },
     ReloadConfig,
+    /// cx-ossub: rewrite the session's registry into a compact file with
+    /// incremental auto-vacuum while no owner runs (refused while one does).
+    /// Needs an explicit `--session`; `--state-dir` overrides the default
+    /// state root (`CMUX_TUI_STATE_DIR` or the platform default).
+    CompactRegistry {
+        state_dir: Option<std::path::PathBuf>,
+    },
 }
 
 pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
@@ -70,6 +77,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         );
     }
     let expected_session = global.session.clone();
+    if let ServerAction::CompactRegistry { state_dir } = plan.action {
+        return run_compact_registry(expected_session, state_dir, global.output);
+    }
     let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
         Err(error) => {
@@ -155,6 +165,24 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let deadline = Instant::now() + Duration::from_secs(10);
     let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
         Ok(identity) => identity,
+        // A timeout is a busy session, not a foreign one: say so, or the
+        // reader restarts a healthy session with another build.
+        Err(ExchangeError::Timeout) => {
+            return local_error(
+                "server.busy",
+                crate::localization::catalog().local_server.identity_timeout,
+                global.output,
+                3,
+            );
+        }
+        Err(ExchangeError::Closed | ExchangeError::Transport) => {
+            return local_error(
+                "server.unavailable",
+                crate::localization::catalog().local_server.communication_failed,
+                global.output,
+                3,
+            );
+        }
         Err(_) => {
             return local_error(
                 "server.identity_failed",
@@ -226,7 +254,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 
     match plan.action {
-        ServerAction::Ensure { .. } => unreachable!("ensure returns before the lifecycle exchange"),
+        ServerAction::Ensure { .. } | ServerAction::CompactRegistry { .. } => {
+            unreachable!("ensure and compact-registry return before the lifecycle exchange")
+        }
         ServerAction::Status => print_success(
             json!({
                 "status":"running",
@@ -702,6 +732,66 @@ fn wait_for_close(
 
 fn usage_error(message: &str, output: OutputMode) -> i32 {
     local_error("usage.invalid", message, output, 2)
+}
+
+/// `server compact-registry --session <name> [--state-dir <path>]`: offline,
+/// with the owner's session locks, so it needs no socket. The session is
+/// never guessed: a wrong default would compact another session than the one
+/// the user stopped. Exit 3 with `server.compact_owner_running` while an
+/// owner holds the session.
+fn run_compact_registry(
+    expected_session: Option<String>,
+    state_dir: Option<std::path::PathBuf>,
+    output: OutputMode,
+) -> i32 {
+    let messages = &crate::localization::catalog().local_server;
+    let Some(session) = expected_session else {
+        return local_error("usage.invalid", messages.registry_compact_needs_session, output, 2);
+    };
+    let Some(root) = state_dir.or_else(cmux_tui_core::platform::workspace_state_dir) else {
+        return local_error_with_details(
+            "server.compact_no_registry",
+            messages.registry_compact_no_registry,
+            json!({"session": session, "reason": "no_state_dir"}),
+            output,
+            3,
+        );
+    };
+    match cmux_tui_core::compact_registry(&root, &session) {
+        Ok(compaction) => print_success(
+            json!({
+                "status": "compacted",
+                "session": session,
+                "path": compaction.path.to_string_lossy(),
+                "before_bytes": compaction.before_bytes,
+                "after_bytes": compaction.after_bytes,
+                "warning": compaction.warning,
+                "message": messages.registry_compacted,
+            }),
+            output,
+        ),
+        Err(cmux_tui_core::RegistryCompactError::NoRegistry(path)) => local_error_with_details(
+            "server.compact_no_registry",
+            messages.registry_compact_no_registry,
+            json!({"session": session, "path": path.to_string_lossy()}),
+            output,
+            3,
+        ),
+        Err(cmux_tui_core::RegistryCompactError::OwnerRunning(error)) => local_error_with_details(
+            "server.compact_owner_running",
+            messages.registry_compact_owner_running,
+            json!({"session": session, "reason": format!("{error:#}")}),
+            output,
+            3,
+        ),
+        Err(cmux_tui_core::RegistryCompactError::Failed(error)) => local_error_with_details(
+            "server.compact_failed",
+            messages.registry_compact_failed,
+            json!({"session": session, "reason": format!("{error:#}")}),
+            output,
+            1,
+        ),
+    }
 }
 
 fn local_error(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {

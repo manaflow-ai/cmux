@@ -48,6 +48,7 @@ pub(super) fn handle_resource_line(
         })
         .and_then(|actor| check_pairing_accept(mux, client, &envelope, &actor).map(|()| actor))
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
+    crate::debug_spans::mark("origin.admitted");
     match admitted {
         Ok(request) => handle_resource_connection_message(mux, client, request, writer),
         Err(error) => {
@@ -139,6 +140,12 @@ pub(super) fn may_approve_pairing(mux: &Mux, client: u64) -> bool {
 /// platform; a client with no record, or one with no proof, is not.
 pub(super) fn is_user(mux: &Mux, client: u64) -> bool {
     derived_origin(mux, client) == RequestOrigin::User
+}
+
+/// Whether `client` derives the page origin (a page WebSocket or the host's
+/// page relay, with or without a page id).
+pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
+    derived_origin(mux, client) == RequestOrigin::Page
 }
 
 /// The origin `client` derives; a client with no record is an agent.
@@ -241,14 +248,18 @@ pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
 }
 
 /// The conversation events a page-bound connection of the Channels page
-/// hears; every other page-bound connection hears none.
-static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 5]> = std::sync::LazyLock::new(|| {
+/// hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
+/// the pictures it draws); every other page-bound connection hears none.
+static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::LazyLock::new(|| {
     [
         "conversation-changed",
         "conversation-typing",
         "conversation-draft",
         "conversation-run-changed",
+        "conversation-live",
         "conversation-inbox-changed",
+        "chief-changed",
+        "participant-avatar-changed",
     ]
     .map(String::from)
 });
