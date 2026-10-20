@@ -307,6 +307,26 @@
             }
           },
           {
+            "key" : "settings.group.motion",
+            "rows" : [
+              "ui.animations.enabled",
+              "ui.animations.sidebar",
+              "ui.animations.tabs",
+              "ui.animations.panes",
+              "ui.animations.overlays",
+              "ui.animations.hoverCards",
+              "ui.animations.home",
+              "ui.animations.cursor",
+              "ui.animations.indicators",
+              "ui.animations.feedback",
+              "ui.animations.web"
+            ],
+            "title" : {
+              "key" : "settings.group.motion",
+              "text" : "Motion"
+            }
+          },
+          {
             "key" : "settings.group.colorTransition",
             "rows" : [
               "appearance.colorTransition.enabled",
