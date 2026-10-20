@@ -2,4 +2,4 @@
 # Packages/macOS/CmuxNext/Sources/CmuxNextApp/**/*.swift. It may only go down
 # (check-app-size.sh --update-baseline). New features go in their own target
 # (plans/cmux-next/code-quality.md SW14).
-113805
+111502

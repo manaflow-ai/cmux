@@ -1,6 +1,29 @@
 public import CmuxNextDesign
 public import CoreGraphics
 
+/// Prototype transitions for a tab's loading indicator. The default is
+/// `instant`, which preserves the existing behavior; the other choices keep
+/// the tab's geometry fixed while the indicator enters or leaves.
+public nonisolated enum TabLoadingAnimation: String, Sendable, CaseIterable, TunableChoice {
+    /// The current behavior: the spinner appears or disappears in one frame.
+    case instant
+    /// A short opacity-only fade.
+    case fade
+    /// Fade with a tiny scale-up/down around the icon's center.
+    case fadeScale
+    /// Fade with a two-point vertical settle.
+    case fadeSlide
+
+    public var tunableTitle: String {
+        switch self {
+        case .instant: "Instant"
+        case .fade: "Fade"
+        case .fadeScale: "Fade + scale"
+        case .fadeSlide: "Fade + slide"
+        }
+    }
+}
+
 /// Debug Settings tunables of the tab strip (plans/cmux-next/tabs.md). The
 /// derived ones compute their default from the density tokens exactly as
 /// `TabStripMetrics` always did; the expression lives here once.
@@ -45,6 +68,12 @@ public nonisolated enum TabTunables {
     public static let separatorOpacity = Tunable<CGFloat>.number(
         "tabs.separatorOpacity", .tabs, "Separator strength", help: "Opacity of the theme's separator tone in the line between tabs.",
         default: 0.2, range: 0...1, step: 0.02, unit: .fraction, code: "TabTunables.separatorOpacity")
+    // @intent Leo 2026-10-19: the tab bar's trailing room (plus, "…", Search Tabs) read as an empty gap
+    // while its controls hid at rest; they show muted and brighten on hover. 0 hides them at rest again.
+    public static let restingControlOpacity = Tunable<CGFloat>.number(
+        "tabs.restingControlOpacity", .tabs, "Tab bar controls at rest",
+        help: "Opacity of the tab bar's plus, Search Tabs and More while the pointer is elsewhere; hover shows them fully. 0 hides them.",
+        default: 0.5, range: 0...1, step: 0.05, unit: .fraction, code: "TabTunables.restingControlOpacity")
     public static let groupUnderlineHeight = points("groupUnderlineHeight", "Group underline", help: "Height of the line under a tab group's tabs.", range: 0...8) { Metrics.space1 }
 
     // MARK: Drag and hover
@@ -67,11 +96,17 @@ public nonisolated enum TabTunables {
         "tabs.hoverPreviews", .tabs, "Tab hover previews",
         help: "Full shows a thumbnail on a tab's hover card; Compact shows only its facts.",
         default: .full, code: "TabTunables.hoverPreviews")
+    /// Debug-only loading transition prototypes. Instant is the production
+    /// default until one of the variants is selected for dogfood.
+    public static let loadingAnimation = Tunable<TabLoadingAnimation>.choice(
+        "tabs.loadingAnimation", .tabs, "Tab loading animation",
+        help: "Prototype for a busy tab's indicator entering or leaving. Instant preserves the current behavior.",
+        default: .instant, code: "TabTunables.loadingAnimation")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
-            + [separators.descriptor, separatorOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor]
+            + [separators.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
+               hoverPreviews.descriptor, loadingAnimation.descriptor]
     }
 }

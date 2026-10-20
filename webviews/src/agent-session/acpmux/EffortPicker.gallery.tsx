@@ -16,7 +16,7 @@ const speedChoices = [
 ];
 
 /// `slider`: the Debug Settings opt-in `agent.reasoningSlider`; `speed`: a Fast Mode section under it.
-type Props = { slider?: boolean; speed?: boolean };
+type Props = { slider?: boolean; sliderStyle?: "accent" | "minimal"; speed?: boolean };
 
 const open: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Effort" });
@@ -24,12 +24,21 @@ const open: Play = async (ctx) => {
 };
 
 const sliderKeyboard: Play = async (ctx) => {
+  ctx.motion.start({
+    kind: "reasoning-slider",
+    target: ".acpmux-effort-track",
+    visual: ".acpmux-effort-thumb",
+    maxMs: 1200,
+  });
   await ctx.click({ role: "button", name: "Effort" });
   await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-effort-range") ?? false);
   await ctx.press("ArrowRight");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-slider-level")?.textContent === "High");
   await ctx.press("End");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-slider-level")?.textContent === "Max");
+  const motion = ctx.motion.stop();
+  if (!motion || motion.status === "fail")
+    throw new Error(motion?.problems.join("; ") ?? "reasoning slider motion was not sampled");
   await ctx.press("Escape");
   await ctx.waitFor(() => {
     const trigger = ctx.find({ role: "button", name: "Effort" });
@@ -87,7 +96,7 @@ export default componentEntry<Props>({
   },
   load: async () => {
     const { EffortPicker } = await import("./EffortPicker");
-    return function GalleryEffortPicker({ slider, speed }: Props) {
+    return function GalleryEffortPicker({ slider, sliderStyle, speed }: Props) {
       const [current, setCurrent] = useState("medium");
       const [fast, setFast] = useState("off");
       return (
@@ -97,6 +106,7 @@ export default componentEntry<Props>({
           current={current}
           onPick={setCurrent}
           slider={slider}
+          sliderStyle={sliderStyle}
           speed={
             speed ? { title: "Fast Mode", choices: speedChoices, current: fast, on: "on", onPick: setFast } : undefined
           }
@@ -116,6 +126,11 @@ export default componentEntry<Props>({
     "slider-open": {
       note: "Debug Settings agent.reasoningSlider on: the Reasoning section is the stepped slider.",
       props: { slider: true },
+      play: open,
+    },
+    "slider-minimal-open": {
+      note: "Debug Settings agent.reasoningSliderStyle=minimal: quieter fill and an outlined thumb.",
+      props: { slider: true, sliderStyle: "minimal" },
       play: open,
     },
     "slider-speed-open": {

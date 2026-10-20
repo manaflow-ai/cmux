@@ -86,7 +86,7 @@ pub(super) fn resource(
     if plan.stream || !plan.resolve.is_empty() {
         return Err(CallFailure::local(NotRun, "usage.invalid", "not a plain unary request"));
     }
-    resolve::apply_global_route(global, &mut plan.params)
+    resolve::apply_global_route(global, &mut plan)
         .map_err(|error| CallFailure::local(NotRun, "usage.invalid", error))?;
     let mut request = wire::request_value(&plan)
         .map_err(|error| CallFailure::local(NotRun, "usage.invalid", error.0))?;
@@ -116,15 +116,25 @@ pub(super) fn resource(
         for prefix in prefixes {
             let Some(value) = params.get(&prefix.field).and_then(Value::as_str) else { continue };
             let value = value.to_owned();
-            let records =
-                resolve::read(&mut reader, prefix.list, route.clone()).map_err(|failure| {
-                    match failure {
-                        resolve::Failure::Resource(error) => {
-                            CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
-                        }
-                        _ => fail(NotRun, "transport.failed", "lookup failed".into()),
-                    }
-                })?;
+            let records = resolve::read(
+                &mut reader,
+                prefix.list,
+                if prefix.list == ResourceOperation::MachineList {
+                    params
+                        .get("catalog")
+                        .map(|value| ("catalog".into(), value.clone()))
+                        .into_iter()
+                        .collect()
+                } else {
+                    route.clone()
+                },
+            )
+            .map_err(|failure| match failure {
+                resolve::Failure::Resource(error) => {
+                    CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
+                }
+                _ => fail(NotRun, "transport.failed", "lookup failed".into()),
+            })?;
             let id = unique_prefix(&prefix.field, &value, &records).map_err(|error| {
                 CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
             })?;
@@ -187,7 +197,7 @@ pub(super) fn session_events(
     if let Some(cursor) = cursor {
         plan.params["cursor"] = cursor.clone();
     }
-    resolve::apply_global_route(global, &mut plan.params)
+    resolve::apply_global_route(global, &mut plan)
         .map_err(|error| local("usage.invalid", error.into()))?;
     let request = wire::request_value(&plan).map_err(|error| local("usage.invalid", error.0))?;
     let request_id = request["id"].clone();

@@ -1,7 +1,7 @@
 {
   "$comment": "The window styles of appearance.chromeStyle: one easy string whose value supplies DEFAULTS for finer knobs. This file is the one source; Swift reads it through generated code (scripts/cmux-next/gen-chrome-styles.py; --check fails when the Swift is stale), and TS, the daemon and other ports read it directly. A key set in cmux.json wins over its style; a Debug Settings tunable wins over both. An absent knob keeps that knob's own default.",
   "setting": "appearance.chromeStyle",
-  "default": "default",
+  "default": "flat-sidebar-line",
   "knobs": {
     "chrome.mainPane.curved": {
       "type": "bool",
@@ -39,7 +39,7 @@
     },
     "chrome.mainPane.borderlessStep": {
       "type": "number",
-      "meaning": "Share of the separate shade the shared surface keeps when no line parts the sidebar from the main pane (unset: 0.35)."
+      "meaning": "Share of the separate shade the shared surface keeps when no line parts the sidebar from the main pane (unset: 0, one color)."
     },
     "chrome.floatingPanes": {
       "type": "bool",
@@ -53,8 +53,10 @@
       "title": "Default",
       "symbol": "macwindow",
       "keywords": [],
-      "summary": "Today's defaults; nothing changes.",
-      "implies": {}
+      "summary": "Today's defaults, with the sidebar on the window's color and a hairline on its edge.",
+      "implies": {
+        "sidebar.border": true
+      }
     },
     {
       "id": "card",
@@ -68,11 +70,11 @@
         "dividers",
         "minimal"
       ],
-      "summary": "The curved main pane on one color; a line only between panes, no outline on a lone pane, no shade.",
+      "summary": "The curved main pane on one color; a line only between panes, no outline on a lone pane, no shade; a hairline on the sidebar's edge.",
       "implies": {
         "chrome.mainPane.curved": true,
         "layout.paneSeparation": "dividers",
-        "sidebar.border": false,
+        "sidebar.border": true,
         "appearance.sidebarSurface": "same",
         "chrome.mainPane.borderlessStep": 0
       }
@@ -88,11 +90,11 @@
         "outline",
         "borders"
       ],
-      "summary": "The curved main pane on one color; each pane outlined.",
+      "summary": "The curved main pane on one color; each pane outlined; a hairline on the sidebar's edge.",
       "implies": {
         "chrome.mainPane.curved": true,
         "layout.paneSeparation": "borders",
-        "sidebar.border": false,
+        "sidebar.border": true,
         "appearance.sidebarSurface": "same",
         "chrome.mainPane.borderlessStep": 0
       }
@@ -108,11 +110,11 @@
         "dividers",
         "minimal"
       ],
-      "summary": "No card, one color, edge to edge; a line only between panes.",
+      "summary": "No card, one color, edge to edge; a line only between panes; a hairline on the sidebar's edge.",
       "implies": {
         "chrome.mainPane.curved": false,
         "layout.paneSeparation": "dividers",
-        "sidebar.border": false,
+        "sidebar.border": true,
         "appearance.sidebarSurface": "same",
         "chrome.mainPane.borderlessStep": 0
       }
@@ -128,10 +130,10 @@
         "line",
         "border"
       ],
-      "summary": "Flat plus a hairline on the sidebar's edge.",
+      "summary": "Flat, no line between panes (the resize cursor shows a divider), plus a hairline on the sidebar's edge.",
       "implies": {
         "chrome.mainPane.curved": false,
-        "layout.paneSeparation": "dividers",
+        "layout.paneSeparation": "none",
         "sidebar.border": true,
         "appearance.sidebarSurface": "same",
         "chrome.mainPane.borderlessStep": 0
@@ -170,11 +172,11 @@
         "gaps",
         "borders"
       ],
-      "summary": "No card, one color; every pane its own outlined rounded card with small gaps.",
+      "summary": "No card, one color; every pane its own outlined rounded card with small gaps; a hairline on the sidebar's edge.",
       "implies": {
         "chrome.mainPane.curved": false,
         "layout.paneSeparation": "borders",
-        "sidebar.border": false,
+        "sidebar.border": true,
         "appearance.sidebarSurface": "same",
         "chrome.mainPane.borderlessStep": 0
       }
@@ -222,8 +224,8 @@
         "layout.paneSeparation": "cards",
         "sidebar.border": false,
         "appearance.sidebarSurface": "separate",
-        "chrome.mainPane.shadeDark": 0.25,
-        "chrome.mainPane.shadeLight": 0.05,
+        "chrome.mainPane.shadeDark": 0.14,
+        "chrome.mainPane.shadeLight": 0.03,
         "chrome.floatingPanes": true
       }
     }

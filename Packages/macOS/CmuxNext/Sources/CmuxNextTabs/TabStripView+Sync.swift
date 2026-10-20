@@ -5,7 +5,42 @@ import QuartzCore
 extension TabStripView {
     // MARK: - Model sync (`animating: false`: every tab at its place now, no springs)
 
+    /// Applies the model when it changed since the strip last synced: the App's
+    /// calls (a switch shows strip and content in one transaction, L4) and the
+    /// observation's echo of the same change do the work once (I6). A tab switch
+    /// updates the two cells whose selection changed; geometry never moves
+    /// (`TabLayoutEngine` lays tabs out without reading the selection).
+    public func syncFromModel() {
+        let input = ModelSnapshot(model)
+        if hasSynced, window != nil, let last = lastSyncedInput, isAtRest {
+            if input == last { return }
+            if input.differsOnlyInSelection(from: last) { return syncSelection(input) }
+        }
+        sync(fromModel: true)
+    }
+
+    /// No gesture, drop, close or override in flight: `displayed` is the model's order.
+    private var isAtRest: Bool {
+        drag == nil && groups.drag == nil && pendingDrop == nil && dying.isEmpty && orderOverride == nil
+            && groups.membershipOverride.isEmpty && detachedID == nil && groups.detachedGroupID == nil
+    }
+
+    private func syncSelection(_ input: ModelSnapshot) {
+        let selected = input.selectedID
+        if let lastSelectedID { cells[lastSelectedID]?.isSelected = false }
+        if let selected { cells[selected]?.isSelected = true }
+        lastSyncedInput = input
+        // Same geometry: only what the selected tab draws over or hides changes.
+        TabSeparatorVisibility.apply(to: self)
+        updateOcclusion()
+        if let selected { reveal(selected, animated: !reduceMotion) }
+        lastSelectedID = selected
+        refreshHoverCard()
+    }
+
     public func sync(fromModel: Bool, animating: Bool = true) {
+        // Only a model sync runs the order bookkeeping below: an internal sync leaves the echo to run it.
+        if fromModel { lastSyncedInput = ModelSnapshot(model) }
         let modelOrdered = model.orderedTabs
         groups.byID = Dictionary(model.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if fromModel {
@@ -68,8 +103,7 @@ extension TabStripView {
                 dying.insert(id)
                 let shown = displayed.filter { !dying.contains($0.id) || $0.id == id }.map(\.id)
                 if let i = shown.firstIndex(of: id) { closingAnchors[id] = .some(i > 0 ? shown[i - 1] : nil) }
-                motion[id]?.use(.tabClose)
-                motion[id]?.width.target = metrics.chrome.closeEndWidth
+                placed[id]?.width = metrics.chrome.closeEndWidth
                 cell.beginClosing()
             } else {
                 removeTab(id)
@@ -80,13 +114,16 @@ extension TabStripView {
         for item in ordered {
             if let cell = cells[item.id] {
                 dying.remove(item.id)
+                goesAt[item.id] = nil
                 closingAnchors[item.id] = nil
                 cell.update(item: item)
                 // A torn-out tab dropped back here takes the drop gap's geometry.
                 if pendingDrop?.id == item.id { added.insert(item.id) }
-            } else if let from = handed[item.id], let place = motion[from] {
+            } else if let from = handed[item.id], let place = placed[from], let shown = cells[from] {
                 _ = makeCell(item, animated: false)
-                motion[item.id] = place
+                placed[item.id] = place
+                // It shows where that cell shows now; `relayout` moves it on from there.
+                cells[item.id]?.frame = (shown.layer.presentation() ?? shown.layer).frame
                 removeTab(from)
             } else {
                 added.insert(makeCell(item, animated: cellsAnimate))
@@ -96,7 +133,7 @@ extension TabStripView {
         if hasSynced, !added.isEmpty {
             // An insert ends closing mode (Chrome).
             closingModeWidth = nil
-            endClosingModeWatch()
+            closingWatch.end()
         }
 
         if pendingDrop.map({ ids.contains($0.id) }) == true { (dropPlaceholderIndex, dropPlaceholderGroup) = (nil, nil) }
@@ -142,10 +179,10 @@ extension TabStripView {
         cell.accessibility.onClose = { [weak self] in self?.close(id, source: .accessibility) }
         let element = ObjectIdentifier(cell.accessibility)
         cell.accessibility.onFocus = { [weak self] focused in self?.noteAccessibilityFocus(element, focused) }
-        tabsClip.layer?.addSublayer(cell.layer)
+        tabsLayer(isPinned: item.isPinned)?.addSublayer(cell.layer)
         cells[id] = cell
         // Placed by `relayout` (Chrome: an opening tab never fades).
-        motion[id] = TabMotion(x: 0, width: 0, alpha: 1)
+        placed[id] = TabPlace(x: 0, width: 0)
         return id
     }
 
@@ -179,10 +216,17 @@ extension TabStripView {
         cells[id]?.layer.removeFromSuperlayer()
         if let cell = cells[id] { noteAccessibilityFocus(ObjectIdentifier(cell.accessibility), false) }
         cells[id] = nil
-        motion[id] = nil
-        dying.remove(id)
+        forgetPlace(id)
         closingAnchors[id] = nil
         if hoveredID == id { hoveredID = nil }
         if closeHoveredID == id { closeHoveredID = nil }
+    }
+
+    /// Drops `id`'s place and the moves that tracked it.
+    func forgetPlace(_ id: TabID) {
+        placed[id] = nil
+        dying.remove(id)
+        goesAt[id] = nil
+        occlusionEnds[id] = nil
     }
 }

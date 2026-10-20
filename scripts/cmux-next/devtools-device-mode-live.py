@@ -22,6 +22,8 @@ failed. A known gap that passes fails the run, so the fix removes it from the li
          and every emulation change waited 5 s on Emulation.setEmitTouchEventsForMouse).
   D*     DevTools device mode: presets, rotate, responsive size, zoom, media features,
          geolocation, CPU and network throttling, the screenshot buttons, the toolbar.
+  T*     agent clicks (browser host REPL, CDP Input) on a link and a button with device mode's iPhone
+         preset on (it turns touch on; Chromium then never answers mouse input, cx-3ny35) and after it ends.
   F*     cmux's "Fit as 16:9" and DevTools device mode on the same tab.
   --widevine: EME for com.widevine.alpha, codec support, Shaka playback of two Widevine test
          streams (report only; --require-widevine makes them checks).
@@ -29,7 +31,7 @@ failed. A known gap that passes fails the run, so the fix removes it from the li
 Writes results.json, window snapshots and the pages' screenshots to $NX_ARTIFACTS (or --out).
 Ends with debug.quit and $NX_APP_STOP; quits the Chrome it started. Exits 1 when a check fails.
 """
-import argparse, base64, http.server, json, os, random, socket, struct, subprocess, sys, tempfile, threading, time, urllib.request
+import argparse, base64, hashlib, http.server, json, os, random, socket, struct, subprocess, sys, tempfile, threading, time, urllib.request
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="devtools-device-mode-"))
@@ -49,16 +51,12 @@ RESULTS = {"run": RUN, "checks": []}
 
 # Known gaps: check id -> bead. Remove a line in the same push as its fix.
 KNOWN_GAPS = {
-    # The frontend lays out as undocked under cmux's own docking (fork cmux_devtools_embedder_dock.patch)
-    # and no device-mode toolbox exists, so DeviceModeModel's available size is 1x1: no toolbar,
-    # responsive mode and zoom collapse the page, a device never scales to fit.
-    "D_toolbar_visible": "cx-fhcve",
-    "D_iphone_fit_scale": "cx-fhcve",
-    "D_responsive_page": "cx-fhcve",
-    "D_zoom_page": "cx-fhcve",
-    # Two DevTools sessions (cmux's emulation and the frontend's) drive one frame widget.
-    "F_resize_keeps_devtools_device": "cx-fhcve",
-    "F_devtools_off_restores_fit": "cx-fhcve",
+    # None. cx-fhcve (device-mode toolbar, responsive, zoom, fit scale, the fit and DevTools
+    # device mode on one tab) was fixed by fork API 24 (cef-154.0.28-cmux.28).
+    # The page is 1-2 CSS px shorter than Chrome's in rotate, responsive and zoom (frame exact).
+    "D_rotate_page": "cx-22w3i",
+    "D_responsive_page": "cx-22w3i",
+    "D_zoom_page": "cx-22w3i",
 }
 
 
@@ -197,13 +195,18 @@ SHAKA = """<!doctype html><meta charset=utf-8><title>widevine status</title>
 <video id=v muted autoplay playsinline width=640 height=360 style="background:#000"></video><pre id=o></pre><script>
 window.__s={state:'init',errors:[]};
 (async()=>{const v=document.getElementById('v');shaka.polyfill.installAll();if(!shaka.Player.isBrowserSupported()){__s.state='unsupported';return}
- const p=new shaka.Player();await p.attach(v);p.configure({drm:{servers:{'com.widevine.alpha':'https://cwip-shaka-proxy.appspot.com/no_auth'}}});
+ const p=new shaka.Player();await p.attach(v);p.configure({drm:{servers:{'com.widevine.alpha':'https://cwip-shaka-proxy.appspot.com/no_auth'}},preferredVideoCodecs:(new URLSearchParams(location.search).get('codec')||'').split(',').filter(Boolean)});
  p.addEventListener('error',e=>__s.errors.push(e.detail.code));
  try{await p.load(new URLSearchParams(location.search).get('mpd'));__s.state='loaded';const t=p.getVariantTracks().find(t=>t.active);
   __s.variant=t&&{v:t.videoCodec,a:t.audioCodec,h:t.height};__s.keySystem=p.keySystem();await v.play().catch(e=>__s.errors.push(String(e)))}
  catch(e){__s.state='load-failed';__s.errors.push(e.code)}})();
 function status(){const v=document.getElementById('v');const q=v.getVideoPlaybackQuality();return Object.assign({},__s,{t:v.currentTime,frames:q.totalVideoFrames})}
 setInterval(()=>{document.getElementById('o').textContent=JSON.stringify(status(),null,1)},500);</script>"""
+MP4 = """<!doctype html><meta charset=utf-8><title>h264 aac</title>
+<video id=v autoplay muted playsinline width=640 src="https://download.samplelib.com/mp4/sample-5s.mp4"></video><script>
+let err=null;document.getElementById('v').addEventListener('error',e=>{const m=e.target.error;err=m?m.code+' '+m.message:'error'});
+function mp4(){const v=document.getElementById('v');return {t:v.currentTime,vw:v.videoWidth,frames:v.getVideoPlaybackQuality().totalVideoFrames,
+ audioBytes:v.webkitAudioDecodedByteCount,canPlay:v.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"'),error:err}}</script>"""
 WV_JS = r"""(async()=>{const out={};const cfgs={
  'mp4-avc1-aac':[{initDataTypes:['cenc'],videoCapabilities:[{contentType:'video/mp4; codecs="avc1.42E01E"',robustness:'SW_SECURE_CRYPTO'}],audioCapabilities:[{contentType:'audio/mp4; codecs="mp4a.40.2"',robustness:'SW_SECURE_CRYPTO'}]}],
  'webm-vp9-opus':[{initDataTypes:['webm','cenc'],videoCapabilities:[{contentType:'video/webm; codecs="vp9"',robustness:'SW_SECURE_CRYPTO'}],audioCapabilities:[{contentType:'audio/webm; codecs="opus"',robustness:'SW_SECURE_CRYPTO'}]}]};
@@ -218,6 +221,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body, ctype = json.dumps({k.lower(): v for k, v in self.headers.items() if k.lower().startswith("sec-ch") or k.lower() == "user-agent"}).encode(), "application/json"
         elif self.path.startswith("/slow"):
             body, ctype = b"x" * 200_000, "application/octet-stream"
+        elif self.path.startswith("/mp4"):
+            body, ctype = MP4.encode(), "text/html; charset=utf-8"
         elif self.path.startswith("/widevine"):
             body, ctype = SHAKA.encode(), "text/html; charset=utf-8"
         else:
@@ -274,7 +279,12 @@ def suite(br, page, front):
     probe = lambda: br.cdp.eval("probe()", page, 20)
     wait_for(lambda: isinstance(fe("state"), dict), 30, 1)
     out["devices"] = fe("devices")
-    out["base"] = (None, probe())
+    # DevTools may still move to its remembered dock side: read the base once the page size holds.
+    seen = []
+    def steady():
+        seen.append(probe())
+        return len(seen) >= 2 and seen[-1] and seen[-2] and (seen[-1]["w"], seen[-1]["h"]) == (seen[-2]["w"], seen[-2]["h"]) and seen[-1]
+    out["base"] = (None, wait_for(steady, 12, 1) or seen[-1])
     out["toggle"] = (fe("toggle"), probe())
     out["iphone"] = (fe("device", {"title": "iPhone 14 Pro Max"}), None)
     br.cdp.call("Page.reload", {}, page); wait_for(lambda: br.cdp.eval("typeof probe", page, 5) == "function", 20)
@@ -283,12 +293,16 @@ def suite(br, page, front):
     if shot:
         open(os.path.join(opts.out, "%s-page-iphone.png" % br.name), "wb").write(base64.b64decode(shot))
     out["rotate"] = (fe("device", {"title": "iPhone 14 Pro Max", "orientation": "horizontal"}), probe())
+    if br.name == "cmux":
+        out["rotate_frames"] = [{k: d.get(k) for k in ("page_frame", "devtools_frame")} for d in (rpc("debug.cef") or {}).get("devtools", []) if d.get("open")]
     out["pixel7"] = (fe("device", {"title": "Pixel 7"}), None)
     br.cdp.call("Page.reload", {}, page); wait_for(lambda: br.cdp.eval("typeof probe", page, 5) == "function", 20)
     out["pixel7"] = (out["pixel7"][0], probe())
     fe("media", {"features": [{"name": "prefers-color-scheme", "value": "dark"}, {"name": "prefers-reduced-motion", "value": "reduce"}]})
     out["media"] = (None, probe()); fe("media", {"features": []})
     out["responsive"] = (fe("responsive", {"w": 500, "h": 700}), probe())
+    if br.name == "cmux":
+        out["responsive_frames"] = [{k: d.get(k) for k in ("page_frame", "devtools_frame")} for d in (rpc("debug.cef") or {}).get("devtools", []) if d.get("open")]
     out["zoom"] = (fe("scale", {"scale": 0.5}), probe()); fe("scale", {"scale": 1})
     fe("geo", {"latitude": 37.7749, "longitude": -122.4194, "accuracy": 10})
     br.cdp.call("Browser.grantPermissions", {"origin": ORIGIN, "permissions": ["geolocation"]})
@@ -324,6 +338,79 @@ def rpc(method, params=None, timeout=30):
     return out
 
 
+def find(value, key):
+    if isinstance(value, dict):
+        if key in value:
+            return value[key]
+        value = list(value.values())
+    for child in value if isinstance(value, list) else []:
+        hit = find(child, key)
+        if hit is not None:
+            return hit
+    return None
+
+
+HOST = {}
+
+
+def host_socket():
+    """The browser host of the tagged app's own daemon: bh-<sha256(daemon socket)[:12]>/browser-host.sock
+    beside that socket (another app's host on this Mac does not know the tab)."""
+    if HOST.get("sock") and os.path.exists(HOST["sock"]):
+        return HOST["sock"]
+    p = subprocess.run([HOST["cli"], "--json", "daemon", "status"], capture_output=True, text=True, timeout=60)
+    try:
+        status = json.loads(p.stdout)
+    except ValueError:
+        status = {}
+    for daemon in [v for v in (find(status, k) for k in ("socket", "socket_path", "path")) if isinstance(v, str)]:
+        leaf = "bh-" + hashlib.sha256(daemon.encode()).hexdigest()[:12]
+        for candidate in (os.path.join(os.path.dirname(daemon), leaf, "browser-host.sock"),
+                          os.path.join("/tmp/cmux-tui-%d" % os.getuid(), leaf, "browser-host.sock")):
+            if os.path.exists(candidate):
+                HOST["sock"] = candidate
+                log(daemon_socket=daemon, host_socket=candidate)
+                return candidate
+    log(host_socket=None, daemon_status=status)
+    return None
+
+
+def host(method, params, timeout=90):
+    sock = host_socket()
+    try:
+        c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); c.settimeout(timeout); c.connect(sock)
+        c.sendall((json.dumps({"id": 1, "method": method, "params": params, "origin": "mcp"}) + "\n").encode()); buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = c.recv(1 << 20)
+            if not chunk:
+                break
+            buf += chunk
+        c.close(); out = json.loads(buf)
+    except (OSError, TypeError, ValueError) as e:
+        out = {"error": str(e)}
+    log(host=method, params=params, reply=out)
+    return out
+
+
+def agent_clicks(page, cmux, tab, label):
+    """An agent clicks a link and a button through the browser host's REPL (CDP Input), as an MCP agent does."""
+    cmux.cdp.eval("""(()=>{for(const id of ['TL','TB'])document.getElementById(id)?.remove();window.__agentClicks=[];
+      const a=document.createElement('a');a.id='TL';a.href='#tl';a.textContent='agent link';
+      const b=document.createElement('button');b.id='TB';b.textContent='agent button';
+      for(const [e,t] of [[a,40],[b,120]]){Object.assign(e.style,{position:'fixed',left:'20px',top:t+'px',width:'160px',height:'48px',zIndex:2147483647});document.body.appendChild(e)}
+      document.addEventListener('click',e=>{const t=e.target.closest('#TL,#TB');if(t){e.preventDefault();window.__agentClicks.push(t.id)}},true);return 1})()""", page, 10)
+    session = "touch-%s-%d" % (label, os.getpid())
+    opened = wait_for(lambda: (lambda o: o if "result" in o else None)(host("browser.repl.open", {"session": session, "engine": "cef"})), 30) or {}
+    for target in ("TL", "TB"):
+        t0 = time.time()
+        code = 'const p = await tabs.use("%s"); await p.locator("#%s").click({timeout: 20000}); "clicked"' % (tab, target)
+        reply = host("browser.repl.eval", {"session": session, "code": code, "timeoutMs": 40000}, 60)
+        got = wait_for(lambda: (lambda v: v if v and target in v else None)(cmux.cdp.eval("window.__agentClicks", page, 10)), 5) or []
+        check("T_%s_%s" % (label, "link" if target == "TL" else "button"), target in got, seconds=round(time.time() - t0, 2),
+              clicks=got, reply=json.dumps(reply)[:300], opened=bool(opened))
+    host("browser.repl.close", {"session": session})
+
+
 def cli(path, *args):
     p = subprocess.run([path, "--json", *args], capture_output=True, text=True, timeout=60)
     log(cli=args, rc=p.returncode, out=p.stdout[-3000:], err=p.stderr[-1000:])
@@ -350,12 +437,20 @@ def main():
             reference = suite(chrome, page, front)
             RESULTS["chrome"] = {"version": chrome.version, "suite": reference}
         port = 9300 + random.randint(0, 600)
-        subprocess.run(["open", "-n", "--env", "CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=%d" % port, opts.app], check=True)
+        subprocess.run(["open", "-n", "--env", "CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=%d%s" % (port, (":component-updater=fast-update" if opts.widevine else "") + (":" + os.environ["CMUX_LIVE_EXTRA_SWITCHES"] if os.environ.get("CMUX_LIVE_EXTRA_SWITCHES") else "")), opts.app], check=True)
         wait_for(lambda: "error" not in (rpc("system.ping") or {"error": 1}), 120, 1)
         ident = rpc("system.identify") or {}; app_cli = ident.get("app_cli_path"); pid = ident.get("pid"); started = time.time()
         rpc("debug.window_frame", {"frame": [40, 60, 1400, 1000]}); rpc("debug.focus")
-        reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": URL}, "focus": True}, 60)
-        tab = ((reply or {}).get("created") or [None])[0]
+        def open_tab():
+            reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": URL}, "focus": True}, 60)
+            if isinstance(reply, dict) and reply.get("created"):
+                return reply["created"][0]
+            # A fresh launch can have no focused pane yet: focus the window, make a tab, try again.
+            rpc("debug.window.focus", {}); rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}, 30)
+            return None
+        tab = wait_for(open_tab, 60, 1)
+        if not tab:
+            raise RuntimeError("openBrowser.chromium never opened a tab")
         wait_for(lambda: (rpc("browser.page.eval", {"script": "document.title", "tab": tab}) or {}).get("value"), 60, 1)
         if not wait_for(lambda: port_up(port), 60, 1):
             check("cmux_remote_debugging", False, why="no DevTools port %d (a Release build ignores CMUX_NEXT_CEF_EXTRA_SWITCHES)" % port)
@@ -389,8 +484,11 @@ def main():
             loose = lambda p: {k: v for k, v in (project(p) or {}).items() if k not in ("w", "h")}
             check("D_off_restores_page", project(mine["off"][1]) == project(mine["base"][1]) and loose(reference["off"][1]) == loose(reference["base"][1]),
                   cmux=[project(mine["base"][1]), project(mine["off"][1])], chrome=[project(reference["base"][1]), project(reference["off"][1])])
-            check("D_iphone_fit_scale", (mine["iphone"][0] or {}).get("scale") == (reference["iphone"][0] or {}).get("scale"),
-                  cmux=mine["iphone"][0], chrome=reference["iphone"][0])
+            # The fit scale depends on the area beside the panels, which differs between the two
+            # windows: a 932 px tall device scales down to fit in both, and toolbar and size agree.
+            mi, ri = mine["iphone"][0] or {}, reference["iphone"][0] or {}
+            check("D_iphone_fit_scale", 0.2 < (mi.get("scale") or 0) < 1 and 0.2 < (ri.get("scale") or 0) < 1
+                  and (mi.get("w"), mi.get("h"), mi.get("toolbar")) == (ri.get("w"), ri.get("h"), ri.get("toolbar")), cmux=mi, chrome=ri)
             for step in ("responsive", "zoom"):
                 check("D_%s_page" % step, project(mine[step][1]) == project(reference[step][1]), cmux=[mine[step][0], project(mine[step][1])],
                       chrome=[reference[step][0], project(reference[step][1])])
@@ -399,16 +497,39 @@ def main():
             check("D_throttling", bool(t["base"] and t["slow"]) and t["slow"]["cpu"] > 2 * t["base"]["cpu"] and t["slow"]["net"] > 1000, cmux=t, chrome=reference["throttle"])
             check("D_screenshot", bool(mine["screenshot"]) and mine["screenshot"][0][0] == (reference["screenshot"] or [[0]])[0][0],
                   cmux=mine["screenshot"], chrome=reference["screenshot"])
-            rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "cmux-devtools.png")})
+            fe = lambda op, arg=None: cmux.cdp.eval("%s(%s,%s)" % (FE, json.dumps(op), json.dumps(arg or {})), front, 40)
+            # The page window sits in the device's screen area, over DevTools (debug.cef page_frame).
+            fe("toggle"); fe("device", {"title": "iPhone 14 Pro Max"})
+            state0 = fe("state") or {}
+            def placed():
+                for d in (rpc("debug.cef") or {}).get("devtools", []):
+                    f = d.get("page_frame")
+                    if d.get("open") and d.get("tab") == tab and f and abs(f[2] - state0.get("w", 0) * state0.get("scale", 0)) <= 2:
+                        return [d]
+                return None
+            report = wait_for(placed, 10) or [d for d in (rpc("debug.cef") or {}).get("devtools", []) if d.get("tab") == tab] or [{}]
+            rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "cmux-devtools-iphone.png")})
+            frame, devtools_frame = report[0].get("page_frame"), report[0].get("devtools_frame")
+            state = fe("state") or {}
+            check("D_page_in_device_area", bool(frame and devtools_frame) and abs(frame[2] - state.get("w", 0) * state.get("scale", 0)) <= 2
+                  and frame[2] < devtools_frame[2], page_frame=frame, devtools_frame=devtools_frame, frontend=state)
+            # T (cx-3ny35): device mode turned touch on (the frontend's call, not cmux's): an agent's click
+            # through the browser host (CDP Input) lands on a link and a button; before, it timed out at 30 s.
+            HOST["cli"] = app_cli
+            agent_clicks(page, cmux, tab, "devtools_iphone")
+            fe("toggle")
+            agent_clicks(page, cmux, tab, "after_device_mode")
 
             # F: the 16:9 fit and DevTools device mode on one tab.
-            fe = lambda op, arg=None: cmux.cdp.eval("%s(%s,%s)" % (FE, json.dumps(op), json.dumps(arg or {})), front, 40)
             rpc("debug.window_frame", {"frame": [40, 60, 900, 1000]}); wait_for(lambda: (size() or {}).get("w", 9999) < 600, 10)
             cli(app_cli, "tab", tab, "emulate", "--fit", "16:9"); fit = wait_for(lambda: (lambda s: s if s and s["w"] > 1000 else None)(size()), 8)
             fe("toggle"); fe("device", {"title": "iPhone 14 Pro Max"})
+            before = wait_for(lambda: (lambda s: s if s and s["w"] == 430 else None)(size()), 6)
             rpc("debug.window_frame", {"frame": [40, 60, 960, 1000]})
-            kept = wait_for(lambda: (lambda s: s if s and s["w"] != 430 else None)(size()), 4)
-            check("F_resize_keeps_devtools_device", kept is None, fit=fit, after_resize=kept or size())
+            samples = []
+            wait_for(lambda: samples.append(size()) and False, 4)
+            check("F_resize_keeps_devtools_device", bool(before) and len(samples) >= 4 and all(s and s["w"] == 430 for s in samples),
+                  fit=fit, before=before, after_resize=samples[-3:])
             fe("toggle"); back = wait_for(lambda: (lambda s: s if s and s["w"] > 1000 else None)(size()), 6)
             check("F_devtools_off_restores_fit", bool(back), after=back or size())
             cli(app_cli, "tab", tab, "emulate", "clear")
@@ -417,7 +538,7 @@ def main():
             give = max(0, 90 - (time.time() - started))
             wait_for(lambda: False, give, 5)  # the component updater's download window
             status = {"eme": cmux.cdp.eval(WV_JS, page, 30), "playback": {}}
-            for name, mpd in (("angel-one", "https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine/dash.mpd"),
+            for name, mpd in (("angel-one", "https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine/dash.mpd&codec=avc1"),
                               ("sintel-vp9", "https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd")):
                 target = cmux.cdp.call("Target.createTarget", {"url": "%s/widevine-%s?mpd=%s" % (ORIGIN, RUN, mpd)}).get("result", {}).get("targetId")
                 session = cmux.cdp.call("Target.attachToTarget", {"targetId": target, "flatten": True}).get("result", {}).get("sessionId")
@@ -425,12 +546,34 @@ def main():
                     cmux.cdp.eval("typeof status==='function'?status():null", session, 10)), 30, 1) or cmux.cdp.eval("status()", session, 10)
                 cmux.cdp.call("Target.closeTarget", {"targetId": target})
             root = os.path.expanduser("~/Library/Application Support/%s/Chromium" % ident.get("bundle_id"))
-            status["cdm_dir"] = sorted(os.listdir(os.path.join(root, "WidevineCdm"))) if os.path.isdir(os.path.join(root, "WidevineCdm")) else None
+            def fresh(sub, name):
+                """Version folders under <root>/<sub> that hold `name`."""
+                base = os.path.join(root, sub); hits = []
+                for dirpath, _, files in os.walk(base) if os.path.isdir(base) else []:
+                    if name in files:  # an installed version folder, not an empty or partial one
+                        hits.append(os.path.relpath(dirpath, base))
+                return sorted(hits) or None
+            status["cdm_dir"] = fresh("WidevineCdm", "libwidevinecdm.dylib")
+            # CRLSet comes in a later update round than Widevine (seen at 90-150 s with fast-update).
+            status["crlset_dir"] = wait_for(lambda: fresh("CertificateRevocation", "crl-set"), max(0, 240 - (time.time() - started)), 5)
+            # H.264/AAC (proprietary_codecs, cmux.28): a plain MP4 plays with picture and sound.
+            target = cmux.cdp.call("Target.createTarget", {"url": "%s/mp4-%s" % (ORIGIN, RUN)}).get("result", {}).get("targetId")
+            session = cmux.cdp.call("Target.attachToTarget", {"targetId": target, "flatten": True}).get("result", {}).get("sessionId")
+            status["mp4"] = wait_for(lambda: (lambda s: s if isinstance(s, dict) and (s.get("error") or (s.get("t") or 0) > 3) else None)(
+                cmux.cdp.eval("typeof mp4==='function'?mp4():null", session, 10)), 40, 1) or cmux.cdp.eval("mp4()", session, 10)
+            cmux.cdp.call("Target.closeTarget", {"targetId": target})
             status["sig_files"] = subprocess.run(["find", opts.app, "-name", "*.sig"], capture_output=True, text=True).stdout.split("\n")[:-1]
             RESULTS["widevine"] = status
             print("widevine:", json.dumps(status, default=str)[:1500], flush=True)
             if opts.require_widevine:
                 check("W_eme_vp9", status["eme"] and status["eme"].get("webm-vp9-opus") is True, eme=status["eme"])
+                check("W_cdm_installed", bool(status["cdm_dir"]), cdm_dir=status["cdm_dir"])
+                check("W_crlset_installed", bool(status["crlset_dir"]), crlset_dir=status["crlset_dir"])
+                check("W_mp4_h264_aac", ((status["mp4"] or {}).get("t") or 0) > 3 and (status["mp4"] or {}).get("frames", 0) > 0
+                      and (status["mp4"] or {}).get("audioBytes", 0) > 0, mp4=status["mp4"])
+                check("W_eme_h264_aac", status["eme"] and status["eme"].get("mp4-avc1-aac") is True, eme=status["eme"])
+                angel = status["playback"].get("angel-one") or {}
+                check("W_playback_h264_sd", (angel.get("t") or 0) > 3 and str((angel.get("variant") or {}).get("v", "")).startswith("avc1"), playback=angel)
                 check("W_playback_vp9", ((status["playback"].get("sintel-vp9") or {}).get("t") or 0) > 3, playback=status["playback"].get("sintel-vp9"))
 
         if not pid:

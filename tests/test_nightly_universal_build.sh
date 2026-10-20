@@ -107,10 +107,10 @@ fi
 if ! awk '
   /^  decide:/ { in_decide=1; next }
   in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
-  in_decide && /vars\.CI_NIGHTLY_DECIDE_RUNNER/ && /vars\.LINUX_RUNNER/ { saw_runner_override=1 }
+  in_decide && /^    runs-on: ubuntu-24\.04$/ { saw_runner_override=1 }
   END { exit !saw_runner_override }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the short nightly decide gate must use the dedicated runner override with the paid Linux fallback"
+  echo "FAIL: the short nightly decide gate must run on GitHub-hosted ubuntu-24.04, never Blacksmith"
   exit 1
 fi
 
@@ -145,7 +145,7 @@ if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" '
+if ! awk -v refresh_runner="runs-on: macos-26" '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
@@ -233,16 +233,15 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || 'macos-15' }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  prepare-nightly-variant:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  # Fast branch dogfood pins Blacksmith. Normal Nightly uses the repository
-  # override. Both must retain the macOS 15 helper lane. Match the whole
-  # expression: a `.*vars\.NAME` prefix would also accept the ungated form.
+  # Every nightly helper build takes the hosted macOS 15 image (its SDK 15
+  # Xcode); nightlies never use Blacksmith. Match the whole expression.
   job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
   job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
   job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
@@ -383,11 +382,25 @@ if ! awk '
   job == "app" && /Clear build outputs a persistent runner kept/ { in_clear=1; next }
   in_clear && /^      - name:/ { in_clear=0 }
   in_clear && /clear-dirs\.sh remote-daemon-assets/ { saw_clear=1 }
-  job == "app" && /Prepare persistent Release DerivedData/ { saw_prepare=1 }
+  job == "app" && /^      - name: Start Release DerivedData empty/ { in_prepare=1; saw_prepare=1; next }
+  in_prepare && /^      - name:/ { in_prepare=0 }
+  in_prepare && /clear-dirs\.sh build-universal/ { saw_clear_dd=1 }
+  in_prepare && /track \}\}" = nightly-next/ && !saw_clear_dd { next_first=1 }
+  in_prepare && /ln -s/ { saw_link=1 }
   job == "app" && /cmux-nightly-\$\{\{ needs\.decide\.outputs\.channel \}\}-\$\{toolchain_key\}/ { saw_key=1 }
-  END { exit !(saw_clear && saw_prepare && saw_key) }
+  job == "app" && /^      - name: Restore Xcode compilation cache/ && !saw_clear_dd { restore_first=1 }
+  job == "app" && /^      - name: Build nightly app \(Release\)/ { saw_build=1 }
+  job == "app" && !saw_build && /ln -s .*build-universal/ { saw_link=1 }
+  job == "app" && !saw_build && /persistent Release DerivedData/ { saw_persistent=1 }
+  job == "app" && /nightly_build_state\.py (replay|record)/ { saw_replay=1 }
+  END { exit !(saw_clear && saw_prepare && saw_clear_dd && !restore_first && !next_first && !saw_link && !saw_key && !saw_persistent && !saw_replay) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: persistent minis must retain channel/toolchain-keyed Release DerivedData"
+  # An incremental build can keep stale autolink and force-load data in
+  # objects it did not recompile after an import set changed. The shipped app
+  # must start from empty DerivedData with its inputs at their checkout times;
+  # only the content-keyed compilation cache (restored into it) and the Swift
+  # package checkouts may be warm.
+  echo "FAIL: the shipped nightly build must start from empty Release DerivedData, never a persistent tree or replayed input times"
   exit 1
 fi
 
@@ -816,11 +829,13 @@ PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '
 NOT_PUBLISHED="needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'"
 # A nightly-next continuation run (nightly_next_continue_only) builds nothing of its own.
 NOT_CONTINUE="needs.decide.outputs.continue_only != 'true'"
-if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_CONTINUE" ] \
-  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_CONTINUE" ] \
-  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_CONTINUE" ] \
+# A nightly-next push that a newer push replaced builds nothing (one build slot, #21917).
+NOT_SUPERSEDED="needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
+if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
+  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
   || [ "$(job_if prepare-nightly-variant)" != "$(job_if build-sign-notarize-nightly)" ] \
-  || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
+  || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
   || [ "$(job_if publish-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
@@ -1296,13 +1311,14 @@ for expected in \
   "name: cmux-nightly-identity-signed" \
   "dmg_sha256: \${{ steps.handoff.outputs.dmg_sha256 }}" \
   "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}"; do
+  "runs-on: macos-26"; do
   grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
 for expected in \
   "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" \
-  './scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" --require-stapled-app' \
+  "runs-on: macos-26" \
+  'stapled_flag=(--require-stapled-app)' \
+  './scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
   "tested_sha256: \${{ steps.smoke.outputs.tested_sha256 }}"; do
   grep -Fq -- "$expected" <<<"$verify_job" || { echo "FAIL: verify-nightly-identity-legacy must contain: $expected"; exit 1; }
 done

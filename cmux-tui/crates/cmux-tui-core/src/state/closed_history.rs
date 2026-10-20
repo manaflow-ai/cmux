@@ -58,10 +58,10 @@ impl ReopenRequest {
 
 /// What a reopen created, in public ids.
 #[derive(Default)]
-struct Reopened {
-    workspaces: Vec<String>,
-    screens: Vec<String>,
-    tabs: Vec<String>,
+pub(super) struct Reopened {
+    pub(super) workspaces: Vec<String>,
+    pub(super) screens: Vec<String>,
+    pub(super) tabs: Vec<String>,
     /// (closed workspace key, reopened workspace key) per reopened workspace.
     placements: Vec<(String, String)>,
     /// A closed tab's id to the id it reopened as.
@@ -72,14 +72,14 @@ struct Reopened {
 }
 
 impl Reopened {
-    fn note_workspace(&mut self, workspace: String) {
+    pub(super) fn note_workspace(&mut self, workspace: String) {
         if !self.workspaces.contains(&workspace) {
             self.workspaces.push(workspace);
         }
     }
 
     /// Note `tab`, reopened from the closed tab `record`.
-    fn note_tab(&mut self, record: &Value, tab: String) {
+    pub(super) fn note_tab(&mut self, record: &Value, tab: String) {
         if let Some(closed) = record["tab_id"].as_str() {
             self.reopened_as.insert(closed.to_string(), tab.clone());
         }
@@ -88,7 +88,7 @@ impl Reopened {
 }
 
 /// Split `members` into the ones to restore and the ones to keep.
-fn choose(
+pub(super) fn choose(
     members: Vec<Value>,
     chosen: Option<&[usize]>,
 ) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
@@ -108,6 +108,38 @@ fn choose(
 /// that removes the restored members: two presses (or two clients) never
 /// restore the same group or member twice.
 pub(super) static REOPEN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+thread_local! {
+    /// The surfaces reopens create while [`recording_created`] runs.
+    static CREATED: std::cell::RefCell<Option<Vec<SurfaceId>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `body`, and answer with every surface a reopen created during it
+/// (tabs and the starter tab of a workspace made for them), the moment it
+/// was created: also the ones a later step of the same reopen failed on, so
+/// a caller that undoes a failed reopen closes all of them.
+pub(super) fn recording_created<T>(body: impl FnOnce() -> T) -> (T, Vec<SurfaceId>) {
+    let outer = CREATED.with(|created| created.replace(Some(Vec::new())));
+    let result = body();
+    let created = CREATED.with(|created| created.replace(outer)).unwrap_or_default();
+    // A recording around this one sees these too.
+    CREATED.with(|outer| {
+        if let Some(outer) = outer.borrow_mut().as_mut() {
+            outer.extend_from_slice(&created);
+        }
+    });
+    (result, created)
+}
+
+/// Note `surface` as created by a reopen (see [`recording_created`]).
+pub(super) fn note_created(surface: SurfaceId) {
+    CREATED.with(|created| {
+        if let Some(created) = created.borrow_mut().as_mut() {
+            created.push(surface);
+        }
+    });
+}
 
 /// The commit side of a reopen: re-read the group in the transaction, drop
 /// the restored members (by value: members of one group differ at least in
@@ -532,14 +564,14 @@ impl Mux {
         Ok(())
     }
 
-    fn public_tab_of(&self, surface: SurfaceId) -> anyhow::Result<String> {
+    pub(super) fn public_tab_of(&self, surface: SurfaceId) -> anyhow::Result<String> {
         self.with_state(|state| {
             state.resource_indexes.tab_ids.get(&surface).map(|id| id.to_string())
         })
         .context("reopened tab has no public id")
     }
 
-    fn public_screen_of_pane(&self, pane: PaneId) -> anyhow::Result<(String, String)> {
+    pub(super) fn public_screen_of_pane(&self, pane: PaneId) -> anyhow::Result<(String, String)> {
         self.with_state(|state| {
             let (workspace, screen) = state.screen_of(pane)?;
             let workspace = &state.workspaces[workspace];
@@ -550,7 +582,7 @@ impl Mux {
 
     /// Restore one tab record into `pane`. `reattach` lets a still-running
     /// terminal get a new view instead of a new process.
-    fn reopen_tab_record(
+    pub(super) fn reopen_tab_record(
         self: &Arc<Self>,
         actor: &Actor,
         pane: PaneId,
@@ -628,6 +660,7 @@ impl Mux {
                 }
             }
         };
+        note_created(surface);
         self.restore_tab_details(actor, surface, tab)?;
         Ok(surface)
     }
@@ -652,7 +685,7 @@ impl Mux {
         Ok(())
     }
 
-    fn reopen_closed_tab(
+    pub(super) fn reopen_closed_tab(
         self: &Arc<Self>,
         actor: &Actor,
         record: &Value,
@@ -698,6 +731,7 @@ impl Mux {
             // No workspace at all: the tab gets a workspace of its own.
             None => {
                 let first = self.new_workspace_as(actor, None, None)?.id;
+                note_created(first);
                 let pane = self
                     .with_state(|state| state.pane_of(first))
                     .context("new workspace has no pane")?;

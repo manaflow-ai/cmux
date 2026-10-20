@@ -4,11 +4,9 @@ import CmuxNextDesign
 import Testing
 
 /// Tab Overflow (cx-kp9b4) on a real strip in a window: crowded Shrink tabs stop at a minimum that keeps
-/// part of the title and then scroll; Scroll keeps tabs about 140 wide and scrolls; the one-time hint at
-/// a crowded Shrink strip shows once, its Use Scrolling Tabs runs, and no strip shows it again.
+/// part of the title and then scroll; Scroll keeps tabs about 140 wide and scrolls; a crowded strip
+/// scrolls with no banner, and wheel, trackpad and selection move it.
 @MainActor @Suite(.serialized) struct TabStripOverflowTests {
-    @MainActor private final class Counter { var count = 0 }
-
     private struct Harness {
         let window: NSWindow
         let strip: TabStripView
@@ -26,7 +24,6 @@ import Testing
             settle()
         }
 
-        /// Showing or hiding the hint changes the tabs' viewport, which lays the strip out once more.
         func settle() {
             strip.layoutSubtreeIfNeeded()
             strip.layoutSubtreeIfNeeded()
@@ -35,17 +32,19 @@ import Testing
         var unselectedWidths: [CGFloat] { strip.result.slots.filter { $0.id != selected }.map(\.width) }
     }
 
-    @Test func shrinkingTabsStopAtAReadableMinimumThenScroll() throws {
+    @Test func shrinkingTabsStopAtChromesMinimumThenScroll() throws {
         DesignSettings.shared.tabOverflow = .shrink
-        let harness = Harness(count: 40)
+        let harness = Harness(count: 60)
         defer { harness.window.orderOut(nil) }
         let metrics = harness.strip.metrics
-        #expect(metrics.minInactiveTabWidth >= 72, "an unpinned tab at \(metrics.minInactiveTabWidth) pt shows only its icon")
+        // Chrome's minimums (Lawrence 2026-10-16: "chrome 32"): 32 inactive, 56 selected.
+        #expect(metrics.minInactiveTabWidth == 32 && metrics.minActiveTabWidth == 56, "\(metrics.minInactiveTabWidth) / \(metrics.minActiveTabWidth)")
         #expect(metrics.minActiveTabWidth >= metrics.minInactiveTabWidth)
         #expect(harness.unselectedWidths.allSatisfy { $0 == metrics.minInactiveTabWidth }, "\(Set(harness.unselectedWidths))")
+        // The selected tab is as wide as the others: a selection never moves a tab (2026-10-19).
         let selected = try #require(harness.strip.result.slot(harness.selected))
-        #expect(selected.width == metrics.minActiveTabWidth)
-        #expect(harness.strip.result.contentWidth > harness.strip.viewportWidth, "40 tabs at the minimum fit, nothing scrolls")
+        #expect(selected.width == metrics.minInactiveTabWidth)
+        #expect(harness.strip.result.contentWidth > harness.strip.viewportWidth, "60 tabs at the minimum fit, nothing scrolls")
         let cell = try #require(harness.strip.cells[harness.selected])
         #expect(cell.frame.maxX <= harness.strip.tabsClip.bounds.maxX + 0.5, "the selected last tab is scrolled out of view")
     }
@@ -68,44 +67,73 @@ import Testing
                 "the selected tab is at \(cell.frame.minX)...\(cell.frame.maxX), the strip shows 0...\(viewport.width)")
     }
 
-    @Test func theMinimumWidthHintShowsOnceEver() throws {
+    /// The selected tab's slot lies inside the tabs' viewport at the strip's scroll offset.
+    private func isInView(_ id: TabID, _ strip: TabStripView) -> Bool {
+        guard let slot = strip.result.slot(id) else { return false }
+        let minX = slot.x - strip.scrollOffset, maxX = slot.x + slot.width - strip.scrollOffset
+        return minX >= -0.5 && maxX <= strip.viewportWidth + 0.5
+    }
+
+    /// A wheel or trackpad scroll over the strip.
+    private func wheel(_ strip: TabStripView, dy: Int32 = 0, dx: Int32 = 0, units: CGScrollEventUnit) throws {
+        let cg = try #require(CGEvent(scrollWheelEvent2Source: nil, units: units, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0))
+        strip.scrollWheel(with: try #require(NSEvent(cgEvent: cg)))
+    }
+
+    /// Leo 2026-10-19: tabs at their minimum width put a banner ("Tabs are at their minimum width. Use
+    /// scrolling tabs?") and an x on the strip. A crowded strip now just scrolls, Chrome/Arc/Zen style:
+    /// the selected tab stays in view, the hidden side fades, and nothing but tabs and + is in the strip.
+    @Test func aCrowdedStripScrollsWithNoBanner() throws {
         DesignSettings.shared.tabOverflow = .shrink
-        let suite = "cmux.next.tests.overflowHint.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        let used = Counter()
-        TabOverflowHintView.defaults = defaults
-        TabOverflowHintView.owner = nil
-        DesignSettings.shared.useScrollingTabs = { used.count += 1 }
-        defer {
-            DesignSettings.shared.useScrollingTabs = nil
-            TabOverflowHintView.defaults = .standard
-            TabOverflowHintView.owner = nil
-            defaults.removePersistentDomain(forName: suite)
+        // The tab strip of an 1100 pt window.
+        let harness = Harness(count: 40, width: 854)
+        defer { harness.window.orderOut(nil) }
+        let strip = harness.strip
+        try #require(strip.result.isOverflowing, "40 tabs fit in 854 pt, nothing scrolls")
+        #expect(isInView(harness.selected, strip), "the selected last tab is scrolled out of view")
+        #expect(strip.edgeFade.edges.leading && !strip.edgeFade.edges.trailing, "\(strip.edgeFade.edges)")
+
+        // No banner: the tabs' viewport runs up to the +, and the strip holds no label or button of its own.
+        let metrics = strip.metrics
+        let plusX = strip.bounds.width - metrics.stripHorizontalPadding - metrics.newTabButtonWidth
+        #expect(abs(strip.tabsClip.frame.maxX - plusX) <= 0.5, "something takes \(plusX - strip.tabsClip.frame.maxX) pt beside the tabs")
+        func controls(in view: NSView) -> [NSView] {
+            view.subviews.flatMap { ($0 is NSButton || $0 is NSTextField ? [$0] : []) + controls(in: $0) }
         }
+        let stray = controls(in: strip).filter { $0.isHiddenOrHasHiddenAncestor == false && !$0.isDescendant(of: strip.newTabButton) }
+        #expect(stray.isEmpty, "the strip shows \(stray)")
+        let extra = (strip.accessibilityChildren() ?? []).filter { child in
+            !(child as AnyObject === strip.newTabButton) && !strip.cells.values.contains { $0.accessibility === child as AnyObject }
+                && !strip.groups.chips.values.contains { $0.accessibility === child as AnyObject }
+        }
+        #expect(extra.isEmpty, "VoiceOver finds \(extra) in the strip")
+    }
 
-        // Not crowded: no hint.
-        let roomy = Harness(count: 4)
-        defer { roomy.window.orderOut(nil) }
-        #expect(roomy.strip.overflowHint?.isHidden ?? true)
+    @Test func wheelAndTrackpadScrollACrowdedStripAndSelectionScrollsBack() throws {
+        DesignSettings.shared.tabOverflow = .shrink
+        let harness = Harness(count: 40, width: 854)
+        defer { harness.window.orderOut(nil) }
+        let strip = harness.strip
+        try #require(strip.result.isOverflowing)
+        let end = strip.scrollOffset
+        try #require(end > 0, "the selected last tab did not scroll the strip")
 
-        let crowded = Harness(count: 40)
-        defer { crowded.window.orderOut(nil) }
-        let hint = try #require(crowded.strip.overflowHint)
-        #expect(!hint.isHidden, "a crowded Shrink strip shows no hint")
-        #expect(hint.frame.minX >= crowded.strip.tabsClip.frame.maxX, "the hint covers the tabs")
-        // Only one strip shows it.
-        let second = Harness(count: 40)
-        defer { second.window.orderOut(nil) }
-        #expect(second.strip.overflowHint?.isHidden ?? true)
+        // A mouse wheel (vertical, line steps) scrolls the strip sideways.
+        try wheel(strip, dy: 3, units: .line)
+        #expect(strip.scrollOffset < end, "a vertical wheel left the strip at \(strip.scrollOffset)")
+        let afterWheel = strip.scrollOffset
+        // A trackpad's horizontal swipe scrolls it too, down to the start.
+        try wheel(strip, dx: 100_000, units: .pixel)
+        #expect(strip.scrollOffset < afterWheel)
+        #expect(strip.scrollOffset == 0, "the strip stopped at \(strip.scrollOffset), not its start")
+        #expect(!strip.edgeFade.edges.leading && strip.edgeFade.edges.trailing, "\(strip.edgeFade.edges)")
+        #expect(!isInView(harness.selected, strip))
 
-        hint.useButton.performClick(nil)
-        #expect(used.count == 1)
-        #expect(hint.isHidden)
-        #expect(defaults.bool(forKey: TabOverflowHintView.answeredKey))
-
-        // Answered: never again, on any strip.
-        let later = Harness(count: 40)
-        defer { later.window.orderOut(nil) }
-        #expect(later.strip.overflowHint?.isHidden ?? true)
+        // Selecting the scrolled-away tab brings it back into view.
+        strip.model.selectedID = TabID("tab0")
+        strip.syncFromModel()
+        strip.model.selectedID = harness.selected
+        strip.syncFromModel()
+        #expect(isInView(harness.selected, strip), "the selected tab stays scrolled away")
     }
 }
