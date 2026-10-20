@@ -103,4 +103,45 @@ struct SidebarAttentionResortTests {
         #expect(Self.rowMotion(in: sidebar.list, except: [new]).isEmpty,
                 "the create slid other rows: \(Self.rowMotion(in: sidebar.list, except: [new]))")
     }
+
+    @Test(.enabled("needs an awake display and animations on, or every change snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aReSortHeldUnderThePointerDoesNotRideTheNextCreate() throws {
+        try #require(DesignSettings.shared.attention.movesToTop)
+        let start = Self.sections([1, 2, 3, 4])
+        let model = SidebarModel(sections: [])
+        let rows = SidebarRows(model: model)
+        rows.show(start)
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(sidebar)
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        try #require(window.screen != nil)
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.renderNow()
+        sidebar.list.reload(animated: false, fromModel: true)
+        sidebar.list.pointerIsOverList = { _ in true }
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+
+        // The pointer rests on the rows when w4's agent asks for input: its re-sort waits.
+        rows.patch([Self.waiting(start, 3)])
+        sidebar.renderNow()
+        #expect(sidebar.list.holdsModelChange, "the re-sort did not wait under the pointer")
+
+        // The user's create from the sidebar shows the held re-sort in one step: no other row slides with it.
+        var created = Self.sections([1, 2, 3, 4, 5])
+        created = CmuxNextSidebar.SidebarSection.patching([Self.waiting(created, 3)], in: created)
+        let new = try #require(created[0].workspaces.last?.id)
+        model.noteUserIntent()
+        rows.show(created)
+        sidebar.renderNow()
+        #expect(Self.rowMotion(in: sidebar.list, except: [new]).isEmpty,
+                "the held re-sort slid with the create: \(Self.rowMotion(in: sidebar.list, except: [new]))")
+    }
 }
