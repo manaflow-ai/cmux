@@ -62,7 +62,7 @@ import threading
 import time
 from typing import Any
 
-STEP_KEYS = {"title", "cmux", "daemon", "wait", "shot", "display", "optional", "expect"}
+STEP_KEYS = {"title", "cmux", "debug", "daemon", "wait", "shot", "display", "optional", "expect"}
 TOUR_KEYS = {"title", "steps", "settings"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
@@ -133,6 +133,15 @@ def load_tour(path: Path) -> dict[str, Any]:
         if command is not None and (not isinstance(command, list) or not command
                                     or not all(isinstance(word, str) for word in command)):
             raise TourError(f"{where}: `cmux` must be a non-empty list of strings")
+        debug = step.get("debug")
+        if debug is not None:
+            # A debug control method with no CLI verb (a fixture page, debug.hover_card_gallery).
+            if (not isinstance(debug, dict) or set(debug) - {"method", "params"}
+                    or not isinstance(debug.get("method"), str) or not debug["method"].startswith("debug.")
+                    or not isinstance(debug.get("params", {}), dict)):
+                raise TourError(f"{where}: `debug` is {{\"method\": \"debug.…\", \"params\": {{…}}}}")
+            if command is not None:
+                raise TourError(f"{where}: a step runs `cmux` or `debug`, not both")
         if step.get("daemon") and command is None:
             raise TourError(f"{where}: `daemon` needs a `cmux` command")
         wait = step.get("wait", DEFAULT_WAIT)
@@ -697,6 +706,16 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         if done.returncode != 0:
             result["status"] = "unavailable" if step.get("optional") else "failed"
             result["detail"] = f"exited {done.returncode}"
+            if step.get("optional"):
+                result["detail"] += f" ({step['optional']})"
+    debug = step.get("debug")
+    if debug:
+        result["command"] = f"{debug['method']} {json.dumps(debug.get('params', {}), sort_keys=True)}"
+        try:
+            result["output"] = json.dumps(app.request(debug["method"], debug.get("params")), sort_keys=True)[-1500:]
+        except (OSError, ValueError, TourError) as error:
+            result["status"] = "unavailable" if step.get("optional") else "failed"
+            result["detail"] = str(error)
             if step.get("optional"):
                 result["detail"] += f" ({step['optional']})"
     time.sleep(step.get("wait", DEFAULT_WAIT))

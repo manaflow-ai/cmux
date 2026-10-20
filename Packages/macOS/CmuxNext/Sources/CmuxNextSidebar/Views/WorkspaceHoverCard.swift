@@ -97,6 +97,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     func hoverCardDeactivated(_ id: HoverTargetID) {
         resources.close()
+        body?.resetResourceHistory()
         bodyID = nil
         releaseCustom()
         updateTicker()
@@ -177,7 +178,8 @@ final class WorkspaceHoverCardView: NSView {
     private let activityRow = NSStackView()
     private let ageLabel = ChromeLabel(labelWithString: "")
     private let factsStack = NSStackView()
-    private let resourceLabel = ChromeLabel(labelWithString: "")
+    /// CPU and memory with the last seconds of CPU as bars (`WorkspaceHoverCardContent.resourceRow`).
+    private let resourceRow = HoverCardRowView()
     /// The user's card (`cmux.hovercard/1`) once its first scene arrives; the built-in rows hide.
     private let customSlot = NSView()
     /// Why the user's card did not render: shown under the built-in card, which stays.
@@ -185,8 +187,11 @@ final class WorkspaceHoverCardView: NSView {
     private weak var customView: NSView?
     private var customHeight: NSLayoutConstraint?
     /// The last resource line, shown only with the built-in card.
-    private var resourceLine: String?
-    private var factViews: [(icon: NSImageView, label: ChromeLabel)] = []
+    private var resourceShown = false
+    /// The CPU of each sample since the card showed, newest last (its bars).
+    private var cpuHistory: [Double] = []
+    /// One shared row per fact (`HoverCardRowView`), reused card to card.
+    private var factViews: [HoverCardRowView] = []
     /// The built-in card's rows (hidden while the user's card shows).
     private var builtIn: [NSView] = []
     /// The shown content, for the live elapsed times (`tick`).
@@ -213,8 +218,7 @@ final class WorkspaceHoverCardView: NSView {
         // Digits of one width: a running time that ticks keeps its width ("1m 11s", "1m 18s").
         activityLabel.font = Self.liveFont
         activityLabel.lineBreakMode = .byTruncatingTail
-        resourceLabel.font = Typography.caption
-        resourceLabel.lineBreakMode = .byTruncatingTail
+        resourceRow.isHidden = true
 
         // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
         // grid), so the kind icon leads the name instead of floating after it.
@@ -240,8 +244,8 @@ final class WorkspaceHoverCardView: NSView {
         customError.maximumNumberOfLines = 3
         customError.isHidden = true
         customSlot.isHidden = true
-        builtIn = [titleRow, activityRow, factsStack, resourceLabel]
-        let stack = NSStackView(views: [customSlot, titleRow, activityRow, factsStack, resourceLabel, customError])
+        builtIn = [titleRow, activityRow, factsStack, resourceRow]
+        let stack = NSStackView(views: [customSlot, titleRow, activityRow, factsStack, resourceRow, customError])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space3
@@ -276,8 +280,8 @@ final class WorkspaceHoverCardView: NSView {
         var lines = [[titleLabel.stringValue, ageLabel.isHidden ? "" : ageLabel.stringValue]
             .filter { !$0.isEmpty }.joined(separator: " ")]
         if !activityRow.isHidden { lines.append(activityLabel.stringValue) }
-        lines += factViews.filter { !$0.label.isHidden }.map(\.label.stringValue)
-        if !resourceLabel.isHidden { lines.append(resourceLabel.stringValue) }
+        lines += factViews.filter { !$0.isHidden }.map(\.shownText)
+        if !resourceRow.isHidden { lines.append(resourceRow.shownText) }
         if !customError.isHidden { lines.append(customError.stringValue) }
         return lines
     }
@@ -302,7 +306,7 @@ final class WorkspaceHoverCardView: NSView {
             set(activityLabel, WorkspaceHoverCardContent.withElapsed(word, since: content.activitySince, now: now))
         }
         for (index, fact) in content.facts.enumerated() where fact.since != nil && index < factViews.count {
-            set(factViews[index].label, WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now))
+            set(factViews[index].textLabel, WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now))
         }
         return resized
     }
@@ -323,24 +327,22 @@ final class WorkspaceHoverCardView: NSView {
         let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space4
         titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 - age
         while factViews.count < content.facts.count { addFactRow() }
+        let wrap = Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2
         for (index, row) in factViews.enumerated() {
             let fact = index < content.facts.count ? content.facts[index] : nil
-            row.icon.superview?.isHidden = fact == nil
-            row.label.isHidden = fact == nil
+            row.isHidden = fact == nil
             guard let fact else { continue }
-            row.icon.image = Self.ownImage(fact) ?? NSImage.icon(fact.icon, size: Self.iconSize)
-            row.label.stringValue = WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now)
-            row.label.font = fact.since == nil ? Typography.body : Self.liveFont
-            row.label.maximumNumberOfLines = fact.lines
-            row.label.truncatesLastVisibleLine = true
-            row.label.lineBreakMode = fact.lines > 1 ? .byWordWrapping : .byTruncatingMiddle
-            row.label.preferredMaxLayoutWidth = fact.lines > 1 ? Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 : 0
+            var shown = fact.row
+            shown.text = WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now)
+            row.configure(shown, image: Self.ownImage(fact) ?? NSImage.icon(fact.icon, size: Self.iconSize),
+                          font: fact.since == nil ? Typography.body : Self.liveFont, wrapWidth: wrap,
+                          truncation: .byTruncatingMiddle)
         }
         // The last reply sits a step apart from the metadata above it, like the stack's own gap.
         for (index, row) in factViews.enumerated() {
-            guard let view = row.icon.superview else { continue }
             let next = index + 1 < content.facts.count ? content.facts[index + 1] : nil
-            factsStack.setCustomSpacing(next?.kind == WorkspaceHoverCardContent.Fact.lastReplyKind ? Metrics.space3 : NSStackView.useDefaultSpacing, after: view)
+            factsStack.setCustomSpacing(next?.kind == WorkspaceHoverCardContent.Fact.lastReplyKind ? Metrics.space3 : NSStackView.useDefaultSpacing,
+                                        after: row)
         }
         factsStack.isHidden = content.facts.isEmpty
         applyColors()
@@ -412,7 +414,7 @@ final class WorkspaceHoverCardView: NSView {
             builtIn.first?.isHidden = false
             if let content = self.content { configure(content) }
         }
-        resourceLabel.isHidden = ready || resourceLine == nil
+        resourceRow.isHidden = ready || !resourceShown
         let error = content?.errorText
         customError.stringValue = error.map(Strings.customCardError) ?? ""
         customError.isHidden = error == nil || ready
@@ -420,30 +422,28 @@ final class WorkspaceHoverCardView: NSView {
     }
 
     func setResources(_ report: ResourceReport?) {
-        let line = WorkspaceHoverCardContent.resourceLine(report)
-        resourceLine = line
-        resourceLabel.stringValue = line ?? ""
-        resourceLabel.isHidden = line == nil || !customSlot.isHidden
+        if let cpu = report?.total?.cpu {
+            cpuHistory.append(cpu)
+            if cpuHistory.count > HoverCardAccessoryView.maxBars { cpuHistory.removeFirst(cpuHistory.count - HoverCardAccessoryView.maxBars) }
+        }
+        let row = WorkspaceHoverCardContent.resourceRow(report, history: cpuHistory)
+        resourceShown = row != nil
+        if let row { resourceRow.configure(row, image: NSImage.icon(.serverHealth, size: Self.iconSize)) }
+        resourceRow.isHidden = row == nil || !customSlot.isHidden
+    }
+
+    /// The card left its workspace: the next one's bars start empty.
+    func resetResourceHistory() {
+        cpuHistory.removeAll()
     }
 
     private func addFactRow() {
-        let icon = NSImageView()
-        let label = ChromeLabel(labelWithString: "")
-        label.font = Typography.body
-        label.lineBreakMode = .byTruncatingMiddle
+        let row = HoverCardRowView()
         // The card takes its width from its content (cx-k9mc).
-        label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
-        let row = NSStackView(views: [icon, label])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = Metrics.space2
-        NSLayoutConstraint.activate([
-            icon.widthAnchor.constraint(equalToConstant: Self.iconSize),
-            icon.heightAnchor.constraint(equalToConstant: Self.iconSize),
-        ])
+        row.textLabel.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         factsStack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalTo: factsStack.widthAnchor).isActive = true
-        factViews.append((icon, label))
+        factViews.append(row)
     }
 }
 
@@ -460,17 +460,13 @@ extension WorkspaceHoverCardView {
             ageLabel.textColor = Palette.textSecondary
             activityLabel.textColor = Palette.textPrimary
             kindIcon.contentTintColor = Palette.textSecondary
-            // A clear title, muted metadata, and what was said in the primary ink (Leo 2026-10-19,
-            // Claude desktop's session card); no fill of its own, the shared overlay glass shows.
-            let facts = content?.facts ?? []
-            for (index, row) in factViews.enumerated() {
-                let message = index < facts.count && facts[index].isMessage
-                row.label.textColor = message ? Palette.textPrimary : Palette.textSecondary
-                row.icon.contentTintColor = Palette.textSecondary
-            }
-            resourceLabel.textColor = Palette.textSecondary
             customError.textColor = Palette.textSecondary
         }
+        // A clear title, muted metadata, and what was said in the primary ink (Leo 2026-10-19,
+        // Claude desktop's session card), each row in its own theme tokens; no fill of its own,
+        // the shared overlay glass shows.
+        for row in factViews { row.applyColors() }
+        resourceRow.applyColors()
     }
 }
 

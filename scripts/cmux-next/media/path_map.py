@@ -25,8 +25,8 @@ UI_ROOTS = (
 NEW_TAB = re.compile(r"(?:new.?tab|NewTab)", re.IGNORECASE)
 AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IGNORECASE)
 NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
-# The sidebar's workspace hover card (its surface and content), in dark, light and over art.
-HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|HoverCards/HoverCardPanel)")
+# The hover cards (the sidebar workspace card, the tab card, their shared rows and panel), in dark, light and over art.
+HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|TabHoverCard|HoverCards/|HoverCardGallery)")
 # Themes, glass and background art: the glass tour shows them over art and opaque.
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
 # A tour's own file: a pull request that edits a tour gets that tour's shots.

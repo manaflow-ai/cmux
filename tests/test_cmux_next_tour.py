@@ -45,6 +45,8 @@ def answer(connection):
             result = {"windows": [{"frame": [100, 100, 800, 600]}]}
         elif method == "debug.window_snapshot" and os.environ.get("FAKE_SNAPSHOT_ERROR"):
             result = {"error": os.environ["FAKE_SNAPSHOT_ERROR"]}
+        elif method == "debug.fixture_page":
+            result = {"ok": True, "set": params.get("set")}
         elif method == "debug.window_snapshot":
             with open(params["path"], "wb") as image:
                 image.write(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
@@ -278,6 +280,26 @@ class AppWindowCaptureTests(unittest.TestCase):
         sys.path.insert(0, str(SCRIPT.parent))
         import tour
         with self.assertRaisesRegex(tour.TourError, "`display` must be true or false"):
+            tour.load_tour(self.tour)
+
+    def test_a_debug_step_sends_its_method_and_params_to_the_app(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 1.2},
+            {"title": "Fixture page", "debug": {"method": "debug.fixture_page", "params": {"set": "tabs"}}, "wait": 0.5},
+        ]}), encoding="utf-8")
+        _, manifest = self.run_tour()
+        step = manifest["steps"][1]
+        self.assertEqual(step["status"], "ok", step)
+        requests = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        self.assertIn({"method": "debug.fixture_page", "params": {"set": "tabs"}}, requests)
+
+    def test_a_debug_step_calls_only_debug_methods(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Quit", "debug": {"method": "app.quit"}},
+        ]}), encoding="utf-8")
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with self.assertRaisesRegex(tour.TourError, "`debug` is"):
             tour.load_tour(self.tour)
 
 
