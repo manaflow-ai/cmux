@@ -37,7 +37,8 @@ it("persists one receiver incarnation and never revives a stopped attempt", asyn
   }
   expect(value(await call({ phase: "read" }))).toEqual(second)
   const transitions = (await f.audit()).filter((r) => r.op === "vm_receiver_lifecycle" && r.changed === true)
-  expect(transitions.map((r) => r.phase)).toEqual(["begin", "ready", "end", "begin"])
+  // The private audit reader returns newest entries first.
+  expect(transitions.map((r) => r.phase)).toEqual(["begin", "end", "ready", "begin"])
   expect(transitions.every((r) => r.machine === f.machine && r.install === f.principal.install)).toBe(true)
 }))
 
