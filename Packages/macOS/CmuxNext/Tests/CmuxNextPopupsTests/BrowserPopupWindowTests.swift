@@ -136,6 +136,34 @@ import Testing
         #expect(window.locationBar.displayedText == "example.com/done")
     }
 
+    // MARK: One omnibar (user, 2026-10-19: "omnibar for popover web windows need to reuse the same omnibar code")
+
+    /// Every view under `view`, depth first.
+    private func descendants(of view: NSView?) -> [NSView] {
+        guard let view else { return [] }
+        return view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    @Test func theLocationBarIsTheTabsOmnibar() {
+        let (popups, _, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
+        #expect(bars.count == 1, "the popup shows the browser tab's omnibar (AddressBarView), not a copy")
+        let otherFields = descendants(of: window.contentView).filter { view in
+            view is NSTextField && !bars.contains { view.isDescendant(of: $0) }
+        }
+        #expect(otherFields.isEmpty, "no second address field beside the omnibar: \(otherFields)")
+    }
+
+    @Test func typingAnAddressInAPagePopupLoadsItInThePopup() async throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let bar = try #require(descendants(of: window.contentView).compactMap { $0 as? AddressBarView }.first)
+        #expect(bar.debugTypeAndCommit("https://www.example.org/next"))
+        try await waitUntil { tab.state.url?.absoluteString == "https://www.example.org/next" }
+        #expect(tab.state.url?.absoluteString == "https://www.example.org/next", "Return loads the typed address in the popup's page, as in a tab")
+    }
+
     @Test func fullscreenHidesTheLocationBar() {
         let (popups, _, window, _) = open("https://example.com")
         defer { popups.closeAll() }
