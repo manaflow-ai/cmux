@@ -58,6 +58,7 @@
               "layout.dockColumnMode",
               "layout.frameOrientation",
               "layout.rows",
+              "layout.focusPaneOnScroll",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
@@ -313,6 +314,7 @@
               "appearance.backdropArt",
               "appearance.background",
               "appearance.backgroundOpacity",
+              "appearance.glassLegibility",
               "appearance.backgroundBlur"
             ],
             "title" : {
@@ -669,6 +671,16 @@
             "title" : {
               "key" : "settings.group.agentChat",
               "text" : "Agent Chat"
+            }
+          },
+          {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
             }
           },
           {
@@ -4768,6 +4780,58 @@
       "title" : {
         "key" : "settings.layout.rows",
         "text" : "Rows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.focusPaneOnScroll.help",
+        "text" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.focusPaneOnScroll",
+      "keywords" : [
+        "focus",
+        "scroll",
+        "wheel",
+        "trackpad",
+        "pane",
+        "follows mouse"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "focusPaneOnScroll"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.focusPaneOnScroll.summary",
+        "text" : "Scrolling a pane focuses it"
+      },
+      "title" : {
+        "key" : "settings.layout.focusPaneOnScroll",
+        "text" : "Focus Pane on Scroll"
       },
       "validation" : "portable"
     },
@@ -9932,6 +9996,73 @@
       "title" : {
         "key" : "settings.appearance.backgroundOpacity",
         "text" : "Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "primary",
+        "all"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.glassLegibility.primary",
+            "text" : "Main Text"
+          },
+          "value" : "primary"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.glassLegibility.all",
+            "text" : "All Text"
+          },
+          "value" : "all"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "primary",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.glassLegibility.help",
+        "text" : "Main Text keeps primary text readable over any art and lets much more of the art through, like iOS. All Text also keeps secondary and dim text at full contrast, with denser glass."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.glassLegibility",
+      "keywords" : [
+        "glass",
+        "legibility",
+        "contrast",
+        "readable",
+        "art",
+        "wallpaper",
+        "transparency",
+        "ios"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "glassLegibility"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.glassLegibility",
+        "text" : "Glass Over Art"
       },
       "validation" : "portable"
     },
@@ -26234,6 +26365,74 @@
     },
     {
       "accepts" : [
+        "imessage",
+        "theme"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "iMessage"
+          },
+          "value" : "imessage"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefBubbleStyle.theme",
+            "text" : "Theme"
+          },
+          "value" : "theme"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "imessage",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.chiefBubbleStyle.help",
+        "text" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefBubbleStyle",
+      "keywords" : [
+        "chief",
+        "imessage",
+        "messages",
+        "bubbles",
+        "blue",
+        "chat",
+        "theme",
+        "colors",
+        "home"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefBubbleStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefBubbleStyle",
+        "text" : "Bubble Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -26558,7 +26757,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "keystroke",
+      "default" : "focus",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",
@@ -27612,8 +27811,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.theme",
-        "text" : "Theme"
+        "key" : "settings.default.notificationBlue",
+        "text" : "Notification Blue"
       },
       "group" : {
         "key" : "settings.group.attention",

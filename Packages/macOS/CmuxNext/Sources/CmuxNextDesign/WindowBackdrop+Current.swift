@@ -4,7 +4,9 @@ public extension WindowBackdrop {
     /// scope's art selection (the app's outside a scope), so over art the panes stay clear glass
     /// and the art reads through the window's one legible tint.
     @MainActor static func current(_ tokens: ThemeTokens, reduceTransparency: Bool = false) -> WindowBackdrop {
-        WindowBackdrop(tokens, reduceTransparency: reduceTransparency, selection: ThemeContext.activeBackdropSelection)
+        // Glass Over Art is one app-wide setting (`appearance.glassLegibility`), set on the app scope.
+        WindowBackdrop(tokens, reduceTransparency: reduceTransparency, selection: ThemeContext.activeBackdropSelection,
+                       legibility: ThemeScope.app.artLegibility)
     }
 }
 
@@ -15,7 +17,8 @@ public extension ThemeScope {
     var shownWindowOpacity: Double {
         guard backdropSelection != nil else { return input.backgroundOpacity }
         let backdrop = WindowBackdrop(tokens, art: backdropArt, selection: backdropSelection,
-                                      tuning: appearanceTuning, tintOpacity: backdropTintOpacity)
+                                      tuning: appearanceTuning, tintOpacity: backdropTintOpacity,
+                                      legibility: artLegibility)
         return backdrop.isOpaque ? input.backgroundOpacity : backdrop.tintOpacity
     }
 }

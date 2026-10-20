@@ -121,6 +121,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var backdropSelection: BackdropSelection? = BackdropSelectionSetting.defaultSelection
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
+    /// `appearance.glassLegibility`; "primary" when unset or invalid.
+    public var glassLegibility = GlassLegibilitySetting.fallback
     /// `appearance.glassTransparency`, `appearance.hue` and
     /// `appearance.saturation`; identity values when unset or invalid.
     public var appearanceTuning = AppearanceTuningSetting.fallback
@@ -280,6 +282,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.take(GlassLegibilitySetting().parse(root), \.glassLegibility)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ChatSettings.validate(root, diagnostics: &snapshot.diagnostics)
