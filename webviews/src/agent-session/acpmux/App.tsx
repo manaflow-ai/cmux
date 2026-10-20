@@ -16,6 +16,7 @@ import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
 import { isAgentMotionOff } from "../shared/motion";
+import { entranceAllowed } from "../shared/pageReveal";
 import {
   layoutConversation,
   type ConversationLayout,
@@ -149,6 +150,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
+import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
   SessionCwdContext,
@@ -175,6 +177,7 @@ import { ChatFindScope } from "./conversation/ChatFindScope";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, type TurnView, turnViewFrom } from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
+import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
@@ -445,6 +448,9 @@ const removeQueued = (promptId: string) =>
   callNative<{ removed?: boolean } | null>("chat.queue.remove", { promptId }).then(
     (result) => result?.removed === true,
   );
+
+/// Resumes the chat's paused messages with another agent (conversation/AgentPairNote.tsx).
+const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { peer });
 
 /// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
 const editQueued = (promptId: string, edit: QueueEdit) =>
@@ -729,7 +735,11 @@ const SummaryRow = memo(
 );
 const PlanRow = memo(
   function PlanRow({ row }: RowProps) {
-    return row.plan ? <PlanList entries={row.plan} /> : <div className="acpmux-muted">{row.text}</div>;
+    return row.plan ? (
+      <PlanList entries={row.plan} ended={row.turnEnded} />
+    ) : (
+      <div className="acpmux-muted">{row.text}</div>
+    );
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -748,6 +758,12 @@ const CompactionRow = memo(
 const FailoverRow = memo(
   function FailoverRow({ row }: RowProps) {
     return row.failover ? <FailoverNote failover={row.failover} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const AgentPairRow = memo(
+  function AgentPairRow({ row }: RowProps) {
+    return row.agentPair ? <AgentPairNote pair={row.agentPair} onResume={resumeAgentPair} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -882,6 +898,7 @@ const defaultRegistry: NativeRegistry = {
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,
   failover: FailoverRow,
+  agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
@@ -918,7 +935,8 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
 /// before one paint move the text by their sum. None under Reduce Motion.
 function glide(node: HTMLElement | null, step: number): void {
-  if (isAgentMotionOff() || !node || typeof node.animate !== "function") return;
+  // Content that grew while the chat was hidden, or as it shows again, is drawn in place.
+  if (isAgentMotionOff() || !entranceAllowed() || !node || typeof node.animate !== "function") return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
   node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
     duration: GLIDE_MS,
@@ -1110,6 +1128,7 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
   (row.kind === "backgroundTask" ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
+    row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
     (row.kind === "activity" && !isEditRow(row)));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
@@ -1542,7 +1561,11 @@ export function VirtualTranscript({
       else arrived.push(row);
       knownRows.current.add(row.id);
     }
-    if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(row.id);
+    // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
+    // before its first frame back, came while the user was away: it draws in place. WebKit
+    // suspends a hidden page's animations, so its entrance would play on return (shared/pageReveal.ts).
+    if (arrived.length <= LIVE_ROWS_PER_UPDATE && entranceAllowed())
+      for (const row of arrived) enteringRows.current.add(row.id);
   }
   knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
@@ -2400,9 +2423,14 @@ export function VirtualTranscript({
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
+    // The wheel over Jump to latest and the bottom stack scrolls the transcript (wheelPassThrough.ts).
+    // The chat's own transcript only (a replay's sits in its own screen).
+    const main = node?.closest(".acpmux-stage")?.parentElement?.closest<HTMLElement>(".acpmux-main");
+    const removeWheel = node && main ? installWheelPassThrough(node, main) : undefined;
     return () => {
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);
+      removeWheel?.();
     };
   }, []);
   // A turn's footer (TurnFooter) shows for the last turn, and for the turn the reader points at:
@@ -4607,6 +4635,7 @@ function AcpmuxPane() {
             ),
           "chat.cancel": () => client.cancel(),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
+          "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.secret": ({ secretId, value }) =>
             client.secret(String(secretId), typeof value === "string" ? value : undefined),
