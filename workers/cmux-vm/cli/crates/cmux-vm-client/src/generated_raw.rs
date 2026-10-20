@@ -1796,6 +1796,9 @@ pub mod types {
         pub boot_image: ::std::option::Option<VmImage>,
         #[serde(rename = "createdAt")]
         pub created_at: ::std::string::String,
+        ///Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub creation: ::std::option::Option<CreatedVmCreation>,
         #[serde(
             rename = "creationKey",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -1832,6 +1835,53 @@ pub mod types {
         pub state: ::std::string::String,
         #[serde(rename = "updatedAt")]
         pub updated_at: ::std::string::String,
+    }
+    ///Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM.
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum CreatedVmCreation {
+        #[serde(rename = "pending")]
+        Pending,
+    }
+    impl ::std::fmt::Display for CreatedVmCreation {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Pending => f.write_str("pending"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for CreatedVmCreation {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "pending" => Ok(Self::Pending),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreatedVmCreation {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreatedVmCreation {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
     }
     ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -8736,6 +8786,9 @@ pub mod types {
         pub auto_delete_seconds: ::std::option::Option<f64>,
         #[serde(rename = "createdAt")]
         pub created_at: ::std::string::String,
+        ///Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub creation: ::std::option::Option<VmCreation>,
         ///The name given at create or fork; null when none was given.
         #[serde(
             rename = "displayName",
@@ -8762,6 +8815,53 @@ pub mod types {
         pub state: ::std::string::String,
         #[serde(rename = "updatedAt")]
         pub updated_at: ::std::string::String,
+    }
+    ///Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM.
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum VmCreation {
+        #[serde(rename = "pending")]
+        Pending,
+    }
+    impl ::std::fmt::Display for VmCreation {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Pending => f.write_str("pending"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for VmCreation {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "pending" => Ok(Self::Pending),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmCreation {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmCreation {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
     }
     ///`VmCreationCancellation`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
