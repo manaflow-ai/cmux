@@ -105,6 +105,10 @@ final class AppServices {
     }()
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
+    /// The session vault (past agent sessions); tests may set one over a fixed source.
+    lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
+    /// `cmux://vault`: Open Vault as Pane.
+    private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
