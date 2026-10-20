@@ -36,8 +36,14 @@ public final class LayoutRootView: NSView {
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
-    /// What scroll-to-focus reads besides the model (`LayoutRootView+ScrollFocus`).
+    /// What focus-follows-mouse reads besides the model (`LayoutRootView+ScrollFocus`).
     let scrollFocusSignals: ScrollFocusSignals
+    /// The pane the pointer was last over (`layout.focusFollowsMouse` hover): focus moves
+    /// only when the pointer enters another pane, so a keyboard move is not undone by a
+    /// small pointer twitch inside the pane it left.
+    var hoveredPane: PaneID?
+    /// Delivers pointer moves for focus-follows-mouse (owner: self).
+    private var hoverTrackingArea: NSTrackingArea?
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -54,6 +60,11 @@ public final class LayoutRootView: NSView {
     /// When the edge under a held pointer arms (a new split); nil when none is pending. The
     /// drag session hit-tests again then, so a still pointer sees the split preview.
     public internal(set) var tabDragDwellDeadline: CFTimeInterval?
+    /// A URL dragged in from another app or a web page over a drop zone no pane content took
+    /// (`perform` false: may it drop on `target`, for the preview; true: open it there). Nil: the
+    /// layout takes no link drops. Links dragged out of a Home chat track the mouse themselves and
+    /// use ``updateTabDrag(_:locationInWindow:removing:edgeDwell:)`` instead.
+    public var linkDropHandler: ((_ url: URL, _ target: DropTarget, _ perform: Bool) -> Bool)?
     /// Overlay sync observers by id (`observeOverlaySync`).
     var overlaySyncObservers: [Int: () -> Void] = [:]
     var nextOverlaySyncObserver = 0
@@ -90,7 +101,7 @@ public final class LayoutRootView: NSView {
     /// `contentProvider` is held weakly; the App keeps it alive.
     /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
     /// tests inject a manual clock.
-    /// `scrollFocusSignals` feeds scroll-to-focus (`layout.focusPaneOnScroll`);
+    /// `scrollFocusSignals` feeds focus-follows-mouse (`layout.focusFollowsMouse`);
     /// tests inject fixed values.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
@@ -112,7 +123,7 @@ public final class LayoutRootView: NSView {
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
-        registerForDraggedTypes([LayoutTabDrag.pasteboardType])
+        registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
         sync(snapshot())
         observe()
         #if DEBUG
@@ -137,6 +148,20 @@ public final class LayoutRootView: NSView {
     }
 
     override public var isFlipped: Bool { true }
+
+    override public func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override public func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard event.window === window else { return }
+        focusPaneForPointerHover(at: event.locationInWindow)
+    }
 
     // MARK: Public API
 
@@ -460,6 +485,7 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
+        if !live { for view in screenViews.values { view.settleMotion() } }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
             self.planeHost = nil
@@ -472,6 +498,7 @@ public final class LayoutRootView: NSView {
                 host.adoptPlane(overlayPlane)
             }
             driver.attach(to: self)
+            if screenViews.values.contains(where: \.hasMotion) || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
                 self?.handleMonitored(event) ?? event
             }

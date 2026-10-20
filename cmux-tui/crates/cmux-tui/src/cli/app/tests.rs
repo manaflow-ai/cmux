@@ -1256,5 +1256,21 @@ fn a_chief_turn_names_the_home_chat_as_its_caller() {
     assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
 }
 
+/// The agent cursor's tag says who drives and where, and goes there on a click
+/// (user, 2026-10-20): every page input verb sends its caller, so the app knows
+/// the agent's terminal or chat. Reads and navigation do not need it.
+#[test]
+fn page_input_verbs_send_the_caller() {
+    for method in
+        ["browser.page.click", "browser.page.fill", "browser.page.press", "browser.page.drag"]
+    {
+        assert!(takes_caller(method), "{method}");
+    }
+    for method in ["browser.page.text", "browser.page.navigate", "browser.page.screenshot"] {
+        assert!(!takes_caller(method), "{method}");
+    }
+    assert!(takes_caller("action.run"));
+}
+
 #[path = "right_tests.rs"]
 mod right;

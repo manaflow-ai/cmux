@@ -1,6 +1,60 @@
 {
   "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default. Exception: agents.chats.roots adds locked roots to the user list; agents.chats.enabled and agents.chats.discovery can only be forced off.",
   "properties" : {
+    "agentPane.display.code.family" : {
+      "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
+      "title" : "Chat Code Font",
+      "type" : "string"
+    },
+    "agentPane.display.code.scale" : {
+      "description" : "Code as a share of the chat's text size. Empty uses the Markdown viewer's.",
+      "maximum" : 1.25,
+      "minimum" : 0.6,
+      "title" : "Chat Code Size",
+      "type" : "number"
+    },
+    "agentPane.display.font.lineHeight" : {
+      "default" : 1.625,
+      "description" : "agentPane.display.font.lineHeight",
+      "maximum" : 2.4,
+      "minimum" : 1.2,
+      "title" : "Chat Line Height",
+      "type" : "number"
+    },
+    "agentPane.display.font.preset" : {
+      "default" : "markdown",
+      "description" : "agentPane.display.font.preset",
+      "enum" : [
+        "markdown",
+        "system",
+        "serif",
+        "mono"
+      ],
+      "title" : "Chat Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.size" : {
+      "default" : 14,
+      "description" : "agentPane.display.font.size",
+      "maximum" : 28,
+      "minimum" : 10,
+      "title" : "Chat Font Size",
+      "type" : "number"
+    },
+    "agentPane.display.fullWidth" : {
+      "default" : false,
+      "description" : "The chat fills the whole pane instead of the text width.",
+      "title" : "Chat Full Width",
+      "type" : "boolean"
+    },
+    "agentPane.display.width" : {
+      "default" : 800,
+      "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
+      "maximum" : 4000,
+      "minimum" : 480,
+      "title" : "Chat Text Width",
+      "type" : "number"
+    },
     "agentPane.editedFiles.maxRows" : {
       "default" : 5,
       "description" : "agentPane.editedFiles.maxRows",
@@ -729,12 +783,28 @@
       "title" : "Spring Response",
       "type" : "number"
     },
+    "appearance.customDensities" : {
+      "default" : [
+
+      ],
+      "description" : "appearance.customDensities",
+      "title" : "Custom Densities",
+      "type" : "string"
+    },
+    "appearance.customDensity" : {
+      "description" : "appearance.customDensity",
+      "title" : "Custom Density",
+      "type" : "string"
+    },
     "appearance.density" : {
       "default" : "compact",
-      "description" : "appearance.density",
+      "description" : "Row height, padding, corners, icons and text size together. Compact is the default.",
       "enum" : [
+        "ultraCompact",
         "compact",
-        "comfortable"
+        "cozy",
+        "comfortable",
+        "spacious"
       ],
       "title" : "Density",
       "type" : "string"
@@ -835,6 +905,16 @@
       "minimum" : 24,
       "title" : "Titlebar Height",
       "type" : "number"
+    },
+    "appearance.paneBackgrounds" : {
+      "default" : "shared",
+      "description" : "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way.",
+      "enum" : [
+        "shared",
+        "perPane"
+      ],
+      "title" : "Pane Backgrounds",
+      "type" : "string"
     },
     "appearance.saturation" : {
       "default" : 1,
@@ -1120,12 +1200,12 @@
     },
     "browser.defaultEngine" : {
       "default" : "chromium",
-      "description" : "New browser tabs open in this engine.",
+      "description" : "Browser tabs and cmux pages, such as History and Apps, open in this engine.",
       "enum" : [
         "chromium",
         "webkit"
       ],
-      "title" : "Default Engine",
+      "title" : "Browser Engine",
       "type" : "string"
     },
     "browser.enabled" : {
@@ -1182,10 +1262,19 @@
       "title" : "Hosts to Open in Embedded Browser",
       "type" : "array"
     },
+    "browser.keepNeighborTabsAwake" : {
+      "default" : 1,
+      "description" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off.",
+      "maximum" : 3,
+      "minimum" : 0,
+      "title" : "Keep Neighbor Tabs Awake",
+      "type" : "number"
+    },
     "browser.links.cmdClick" : {
-      "default" : "backgroundTab",
+      "default" : "linkPlacement",
       "description" : "In Chromium tabs, Download keeps Chrome's default.",
       "enum" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -1199,6 +1288,7 @@
       "default" : "foregroundTab",
       "description" : "Shift-middle-click does the same.",
       "enum" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -1212,6 +1302,7 @@
       "default" : "backgroundTab",
       "description" : "Chromium tabs use the Command-Click setting.",
       "enum" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -1225,6 +1316,7 @@
       "default" : "download",
       "description" : "Chromium tabs always download.",
       "enum" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -1238,6 +1330,7 @@
       "default" : "newWindow",
       "description" : "In Chromium tabs, Download keeps Chrome's default.",
       "enum" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -1401,6 +1494,25 @@
       "description" : "A row of bookmarks under each browser toolbar.",
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
+    },
+    "browser.siteEngines" : {
+      "default" : {
+        "amazon.com/gp/video" : "webkit",
+        "disneyplus.com" : "webkit",
+        "hulu.com" : "webkit",
+        "max.com" : "webkit",
+        "music.apple.com" : "webkit",
+        "netflix.com" : "webkit",
+        "primevideo.com" : "webkit",
+        "spotify.com" : "webkit",
+        "tv.apple.com" : "webkit"
+      },
+      "description" : "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium.",
+      "properties" : {
+
+      },
+      "title" : "Site Engines",
+      "type" : "object"
     },
     "browser.toolbarButtons" : {
       "default" : [
@@ -2168,10 +2280,10 @@
       "title" : "Dock Column Mode",
       "type" : "string"
     },
-    "layout.focusPaneOnScroll" : {
-      "default" : true,
-      "description" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is.",
-      "title" : "Focus Pane on Scroll",
+    "layout.focusFollowsMouse" : {
+      "default" : false,
+      "description" : "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus.",
+      "title" : "Focus Follows Mouse",
       "type" : "boolean"
     },
     "layout.frameOrientation" : {
@@ -2325,6 +2437,11 @@
       "title" : "Code Block Size",
       "type" : "number"
     },
+    "markdown.code.family" : {
+      "description" : "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own.",
+      "title" : "Code Font",
+      "type" : "string"
+    },
     "markdown.code.scale" : {
       "default" : 0.875,
       "description" : "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default.",
@@ -2374,6 +2491,12 @@
       "title" : "Text Width",
       "type" : "number"
     },
+    "markdown.remoteImages" : {
+      "default" : false,
+      "description" : "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images.",
+      "title" : "Load Web Images Automatically",
+      "type" : "boolean"
+    },
     "markdown.spacing.paragraph" : {
       "default" : 1,
       "description" : "The gap after each paragraph, as a share of the text size.",
@@ -2407,6 +2530,12 @@
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
       "title" : "MinimumVersion",
       "type" : "string"
+    },
+    "mobile.allowIPhoneConnections" : {
+      "default" : false,
+      "description" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.",
+      "title" : "Allow iPhone Connections",
+      "type" : "boolean"
     },
     "navigation.history.scope" : {
       "default" : "workspaces",
@@ -2936,6 +3065,18 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.groupHeader.memberCount" : {
+      "default" : false,
+      "description" : "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner.",
+      "title" : "Show Group Member Count",
+      "type" : "boolean"
+    },
+    "sidebar.groupHeader.unreadCount" : {
+      "default" : false,
+      "description" : "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner.",
+      "title" : "Show Group Unread Count",
+      "type" : "boolean"
+    },
     "sidebar.hoverCards.delay" : {
       "default" : 250,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
@@ -3070,6 +3211,12 @@
       "default" : true,
       "description" : "sidebar.showProjects",
       "title" : "Show Projects",
+      "type" : "boolean"
+    },
+    "sidebar.showSearchButton" : {
+      "default" : true,
+      "description" : "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette.",
+      "title" : "Show Search Button",
       "type" : "boolean"
     },
     "sidebar.showSpaces" : {
@@ -3637,11 +3784,12 @@
       "type" : "boolean"
     },
     "tabs.newTabPosition" : {
-      "default" : "end",
+      "default" : "afterCurrent",
       "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
       "enum" : [
+        "afterCurrent",
         "end",
-        "afterCurrent"
+        "start"
       ],
       "title" : "New Tab Position",
       "type" : "string"

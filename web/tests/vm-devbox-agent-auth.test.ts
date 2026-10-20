@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/vmGuestEnv";
+import { resolveVmGuestKind } from "../services/vms/vmKind";
 import { runChild } from "./helpers/run-child";
 
 // Each coding agent on a Cloud machine signs in one of two ways: the team's
@@ -36,7 +37,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-type Machine = { root: string; home: string; bin: string; calls: string; launchers: Record<Agent, string> };
+type Machine = { root: string; home: string; bin: string; calls: string; auth: string; config: string; kind: string; modelPlane: string; launchers: Record<Agent, string> };
 
 /**
  * A HOME; for each agent a fake executable that prints the env and arguments
@@ -52,12 +53,26 @@ function machine(): Machine {
   mkdirSync(home, { recursive: true });
   mkdirSync(bin, { recursive: true });
   const calls = path.join(root, "curl.calls");
+  const kind = path.join(root, "vm-kind");
+  writeFileSync(kind, "owner\n");
+  const auth = path.join(root, "agent-auth.sh");
+  writeFileSync(auth, readFileSync(path.join(templateDir, "agent-auth.sh"), "utf8").replaceAll("/etc/cmux/vm-kind", kind));
+  const modelPlane = path.join(root, "model-plane.env");
+  writeFileSync(modelPlane, `export CMUX_CODEROUTER_URL='${ORIGIN}'\nexport OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\nexport ANTHROPIC_BASE_URL='${ORIGIN}'\nexport ANTHROPIC_API_KEY='${PLACEHOLDER}'\n`);
+  const config = path.join(root, "agent-config.sh");
+  writeFileSync(
+    config,
+    readFileSync(path.join(templateDir, "agent-config.sh"), "utf8")
+      .replaceAll("/etc/cmux/vm-kind", kind)
+      .replaceAll("/etc/cmux/model-plane.env", modelPlane),
+  );
   writeFileSync(
     path.join(bin, "curl"),
     [
       "#!/bin/sh",
       `printf '%s\\n' "$*" >> ${JSON.stringify(calls)}`,
       'case "$*" in',
+      '  */api/vm/reflection/kind*) printf \'{"kind":"%s"}\' "${FAKE_VM_KIND:-team}" ;;',
       // The catalog fetch asks for the status line (curl -w '\n%{http_code}').
       `  */opencode/config*) printf '%s\\n200' ${JSON.stringify(OPENCODE_CATALOG)} ;;`,
       // No answer is an HTTP error (curl -f: 22) unless a test names another exit.
@@ -74,7 +89,7 @@ function machine(): Machine {
       real,
       [
         "#!/bin/sh",
-        ...["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_CUSTOM_HEADERS", "OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENCODE_CONFIG"]
+        ...["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CONFIG_DIR", "OPENAI_BASE_URL", "OPENAI_API_KEY", "CODEX_HOME", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "XDG_DATA_HOME", "XDG_CONFIG_HOME"]
           .map((name) => `printf "${name}=%s\\n" "\${${name}-<unset>}"`),
         'printf "args=%s\\n" "$*"',
         "",
@@ -84,15 +99,15 @@ function machine(): Machine {
     writeFileSync(
       launcher,
       readFileSync(path.join(templateDir, `cmux-${agent}`), "utf8")
-        .replaceAll("/etc/cmux/agent-config.sh", path.join(templateDir, "agent-config.sh"))
-        .replaceAll("/etc/cmux/agent-auth.sh", path.join(templateDir, "agent-auth.sh"))
+        .replaceAll("/etc/cmux/agent-config.sh", config)
+        .replaceAll("/etc/cmux/agent-auth.sh", auth)
         .replaceAll(`/usr/local/libexec/cmux-${agent}-real`, real),
     );
     chmodSync(real, 0o755);
     chmodSync(launcher, 0o755);
     launchers[agent] = launcher;
   }
-  return { root, home, bin, calls, launchers };
+  return { root, home, bin, calls, auth, config, kind, modelPlane, launchers };
 }
 
 /** The env a login shell on the machine starts from: the baked model plane. */
@@ -118,7 +133,7 @@ function parse(stdout: string): Record<string, string> {
 async function launch(m: Machine, agent: Agent, extra: Record<string, string> = {}, shellPrefix = "") {
   const result = await runChild(
     "/bin/bash",
-    ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${shellPrefix} ${m.launchers[agent]} --resume x`],
+    ["-c", `. ${m.config}; ${shellPrefix} ${m.launchers[agent]} --resume x`],
     { env: bootEnv(m, extra) },
   );
   expect(result.stderr).toBe("");
@@ -541,7 +556,7 @@ describe("cr use", () => {
         HOME: m.home,
         LANG: "en_US.UTF-8",
         CMUX_TUI_BIN: "/usr/bin/true",
-        CMUX_AGENT_AUTH_LIB: path.join(templateDir, "agent-auth.sh"),
+        CMUX_AGENT_AUTH_LIB: m.auth,
         // What a machine shell exports after agent-config.sh set Claude's pair aside.
         CMUX_CODEROUTER_URL: ORIGIN,
         OPENAI_BASE_URL: `${ORIGIN}/v1`,
@@ -581,6 +596,98 @@ describe("cr use", () => {
     expect(team.stdout).toContain("The team has no Codex account yet. Add one with cr add codex, or switch with cr use own codex.");
     expect(team.stdout).not.toContain("no Claude Code account");
     expect((await launch(m, "codex")).args).toBe("--resume x");
+  });
+
+  test("a shared-team machine never selects a personal agent login", async () => {
+    const m = machine();
+    const kind = resolveVmGuestKind({ userId: "user-owner", ownerTeamId: "team-shared" });
+    expect(kind).toBe("team");
+    const soloTeamKind = resolveVmGuestKind({ userId: "user-owner", ownerTeamId: "team-solo" });
+    expect(soloTeamKind).toBe("team");
+    const modelEnv = path.join(m.root, "model-plane.env");
+    writeFileSync(modelEnv, `export CMUX_CODEROUTER_URL='${ORIGIN}'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
+    const synced = await runChild("/bin/sh", [path.join(templateDir, "cmux-vm-kind-sync")], {
+      env: {
+        PATH: `${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        CMUX_VM_KIND_FILE: m.kind,
+        CMUX_VM_MODEL_ENV_FILE: modelEnv,
+        FAKE_VM_KIND: kind!,
+      },
+    });
+    expect(synced.status).toBe(0);
+    expect(readFileSync(m.kind, "utf8")).toBe("team\n");
+    cmuxCodexConfig(m);
+    for (const agent of AGENTS) {
+      choose(m, "own", agent);
+      signIn(m, agent);
+    }
+
+    const claude = await launch(m, "claude", { FAKE_ACCESS: ALL });
+    expect(claude.ANTHROPIC_BASE_URL).toBe(ORIGIN);
+    expect(claude.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect(claude.CLAUDE_CONFIG_DIR).toBe(path.join(m.home, ".config/cmux/claude-team"));
+    const codex = await launch(m, "codex", { FAKE_ACCESS: ALL });
+    expect(codex.args).toBe("--resume x");
+    expect(codex.OPENAI_API_KEY).toBe(PLACEHOLDER);
+    expect(codex.CODEX_HOME).toBe(path.join(m.home, ".config/cmux/codex-team"));
+    const opencode = await launch(m, "opencode", { FAKE_ACCESS: ALL });
+    expect(opencode.OPENCODE_CONFIG).toBe(path.join(m.home, ".config/cmux/opencode-team.json"));
+    expect(opencode.OPENAI_API_KEY).toBe(PLACEHOLDER);
+    expect(opencode.XDG_DATA_HOME).toBe(path.join(m.home, ".local/share/cmux-team"));
+    expect(opencode.XDG_CONFIG_HOME).toBe(path.join(m.home, ".config/cmux-team"));
+
+    const forcedClaude = await launch(m, "claude", {
+      ANTHROPIC_API_KEY: "personal-claude",
+      ANTHROPIC_AUTH_TOKEN: "personal-token",
+      CLAUDE_CODE_USE_BEDROCK: "1",
+      CLAUDE_CODE_USE_VERTEX: "1",
+      CLAUDE_CODE_USE_FOUNDRY: "1",
+      FAKE_ACCESS: ALL,
+    });
+    expect(forcedClaude.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect(forcedClaude.ANTHROPIC_AUTH_TOKEN).toBe("<unset>");
+    expect(forcedClaude.CLAUDE_CODE_USE_BEDROCK).toBe("<unset>");
+    expect(forcedClaude.CLAUDE_CODE_USE_VERTEX).toBe("<unset>");
+    expect(forcedClaude.CLAUDE_CODE_USE_FOUNDRY).toBe("<unset>");
+    expect((await launch(m, "codex", { OPENAI_API_KEY: "personal-codex", FAKE_ACCESS: ALL })).OPENAI_API_KEY).toBe(PLACEHOLDER);
+    const forcedOpenCode = await launch(m, "opencode", {
+      OPENAI_API_KEY: "personal-opencode",
+      ANTHROPIC_API_KEY: "personal-anthropic",
+      OPENCODE_CONFIG_DIR: "/personal/opencode-config",
+      FAKE_ACCESS: ALL,
+    });
+    expect(forcedOpenCode.OPENAI_API_KEY).toBe(PLACEHOLDER);
+    expect(forcedOpenCode.ANTHROPIC_API_KEY).toBe("<unset>");
+    expect(forcedOpenCode.OPENCODE_CONFIG_DIR).toBe("<unset>");
+    const persistedPath = path.join(m.home, ".config/cmux/model-plane.env");
+    const persistedPlane = existsSync(persistedPath) ? readFileSync(persistedPath, "utf8") : "";
+    expect(persistedPlane).not.toContain("personal-claude");
+    expect(persistedPlane).not.toContain("personal-token");
+    expect(persistedPlane).not.toContain("personal-codex");
+    expect(persistedPlane).not.toContain("personal-opencode");
+    expect(persistedPlane).not.toContain("personal-anthropic");
+
+    const status = await cr(m, ["--json"], { FAKE_ACCESS: ALL });
+    expect(status.stdout).toBe(
+      '{"agents":[{"agent":"claude","mode":"team","reason":"shared-machine","chosen":false},'
+      + '{"agent":"codex","mode":"team","reason":"shared-machine","chosen":false},'
+      + '{"agent":"opencode","mode":"team","reason":"shared-machine","chosen":false}]}\n',
+    );
+
+    const blocked = machine();
+    writeFileSync(blocked.kind, "team\n");
+    mkdirSync(path.join(blocked.home, ".config"), { recursive: true });
+    writeFileSync(path.join(blocked.home, ".config/cmux"), "not a directory");
+    for (const agent of ["claude", "codex"] as const) {
+      const refused = await runChild(blocked.launchers[agent], ["--resume", "x"], { env: bootEnv(blocked) });
+      expect(refused.status).not.toBe(0);
+      expect(refused.stdout).not.toContain("args=");
+    }
+    mkdirSync(path.join(blocked.home, ".local/share"), { recursive: true });
+    writeFileSync(path.join(blocked.home, ".local/share/cmux-team"), "not a directory");
+    const openCodeRefused = await runChild(blocked.launchers.opencode, ["--resume", "x"], { env: bootEnv(blocked) });
+    expect(openCodeRefused.status).not.toBe(0);
+    expect(openCodeRefused.stdout).not.toContain("args=");
   });
 
   test("an agent argument limits the change to that agent", async () => {

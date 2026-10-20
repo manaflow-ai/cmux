@@ -1,11 +1,12 @@
 public import CoreGraphics
+import Accelerate
 import Foundation
 
 /// Flattened sidebar: rows with frames, plus the live gap when dragging.
 public nonisolated struct SidebarLayout: Hashable, Sendable {
     public private(set) var rows: [SidebarRow]
-    /// Key to row index, so lookups stay O(1) with 1,000 workspaces.
-    private var index: [SidebarRowKey: Int]
+    /// Key to row index, so lookups stay O(1) with 10,000 workspaces, and a fold's splice rehashes no row.
+    private var index: SidebarLayoutKeyIndex
     public var totalHeight: CGFloat
     /// Top of the open gap, if any.
     public var gapY: CGFloat?
@@ -25,20 +26,73 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         self.gapY = gapY
         self.gapHeight = gapHeight
         self.gapShift = gapShift
-        var index: [SidebarRowKey: Int] = [:]
-        index.reserveCapacity(rows.count)
-        for (i, row) in rows.enumerated() { index[row.key] = i }
-        self.index = index
+        self.index = SidebarLayoutKeyIndex(rows: rows)
     }
 
     public static let empty = SidebarLayout(rows: [], totalHeight: 0, gapY: nil, gapHeight: 0, gapShift: 0)
 
-    public func row(for key: SidebarRowKey) -> SidebarRow? { index[key].map { rows[$0] } }
+    public func row(for key: SidebarRowKey) -> SidebarRow? { index.position(of: key).map { rows[$0] } }
+
+    /// The position of `key`'s row in `rows`, or nil.
+    func position(of key: SidebarRowKey) -> Int? { index.position(of: key) }
+
+    /// Replaces `rows[range]` with `new` and moves every row after them by `dy` (a group's fold,
+    /// `folding`): the cost is the replaced rows plus one move per later row; no key is hashed again.
+    mutating func replaceRows(_ range: Range<Int>, with new: [SidebarRow], shiftingFollowingBy dy: CGFloat) {
+        rows.replaceSubrange(range, with: new)
+        if dy != 0 {
+            Self.shiftY(of: &rows, from: range.lowerBound + new.count, by: dy)
+            totalHeight += dy
+        }
+        index.splice(start: range.lowerBound, removed: range.count, inserted: new.map(\.key), rows: rows)
+    }
+
+    /// Moves the y of `rows[start...]` by `dy`: one strided vector add over the rows' `y` field (no row is
+    /// copied), so a fold at 10,000 workspaces moves the rows below it in microseconds; a plain loop without it.
+    private static func shiftY(of rows: inout [SidebarRow], from start: Int, by dy: CGFloat) {
+        let count = rows.count - start
+        guard count > 0 else { return }
+        let stride = MemoryLayout<SidebarRow>.stride
+        guard CGFloat.NativeType.self == Double.self, let offset = MemoryLayout<SidebarRow>.offset(of: \SidebarRow.y),
+              stride % MemoryLayout<Double>.stride == 0, offset % MemoryLayout<Double>.alignment == 0 else {
+            for i in start..<rows.count { rows[i].y += dy }
+            return
+        }
+        var add = Double(dy)
+        rows.withUnsafeMutableBytes { bytes in
+            // crash-allow: `y` is a stored CGFloat (Double) at `offset` in each row, rows are `stride` bytes apart,
+            // and the buffer holds `rows.count` rows; the add writes only those `count` doubles.
+            guard let base = bytes.baseAddress else { return }
+            let first = (base + start * stride + offset).assumingMemoryBound(to: Double.self)
+            vDSP_vsaddD(first, vDSP_Stride(stride / MemoryLayout<Double>.stride), &add, first,
+                        vDSP_Stride(stride / MemoryLayout<Double>.stride), vDSP_Length(count))
+        }
+    }
+
+    /// Replaces the row at `position` with `row` of the same key and frame (a header's fold flag).
+    mutating func setRow(_ row: SidebarRow, at position: Int) {
+        rows[position] = row
+    }
+
+    // Equal layouts draw the same: the key index is how lookups are found, not what is drawn.
+    public static func == (lhs: SidebarLayout, rhs: SidebarLayout) -> Bool {
+        lhs.rows == rhs.rows && lhs.totalHeight == rhs.totalHeight && lhs.gapY == rhs.gapY && lhs.gapHeight == rhs.gapHeight
+            && lhs.gapShift == rhs.gapShift && lhs.rowSpacing == rhs.rowSpacing
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(rows)
+        hasher.combine(totalHeight)
+        hasher.combine(gapY)
+        hasher.combine(gapHeight)
+        hasher.combine(gapShift)
+        hasher.combine(rowSpacing)
+    }
 
     /// Replaces a workspace row's content in place, keeping its frame
     /// (a row update whose height is unchanged, `SidebarListView.patchRows`).
     mutating func setContent(_ content: WorkspaceRowContent, for key: SidebarRowKey) {
-        guard let i = index[key] else { return }
+        guard let i = index.position(of: key) else { return }
         rows[i].content = content
     }
 

@@ -106,6 +106,18 @@ jobs:
           cp "$out/MANIFEST.md" "$RUNNER_TEMP/handoff/"
           cat "$out/MANIFEST.md" >> "$GITHUB_STEP_SUMMARY"
 
+      # Fails the build before the signer gets it: what App Store Connect
+      # rejects only after an upload (ITMS-90626, 90683, ...). The checker
+      # is the built commit's; testflight-build.sh also runs it.
+      - name: App Store review rules (built app)
+        run: |
+          set -euo pipefail
+          root="$HOME/cnx-ios-builds"
+          [ "$HOSTED_FALLBACK" != true ] || root="$RUNNER_TEMP/cnx-builds"
+          out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"
+          python3 -I scripts/cmux-next/check-app-store-rules.py --source .
+          python3 -I scripts/cmux-next/check-app-store-rules.py --app "$out/CnxApp.xcarchive/Products/Applications/CnxApp.app"
+
       - name: Hand the archive to the signer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

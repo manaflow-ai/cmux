@@ -28,15 +28,26 @@ public final class AgentCursorLayer {
     public static let gray = CGColor(srgbRed: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 1)
     /// The pointer's rim, so the gray reads over any page.
     static let rim = CGColor(gray: 1, alpha: 1)
-    /// The name tag and caption material, gray Liquid Glass (pill gallery
-    /// P1, user 2026-10-20): a neutral gray tint the page shows through. The
-    /// cursor overlay sits in its own panel above Chromium's child windows,
-    /// so it cannot blur the page; the tint is opaque enough to stand in for
-    /// the blur and keep the label readable over busy pages.
-    static let glass = CGColor(srgbRed: 0xD6 / 255, green: 0xD6 / 255, blue: 0xD8 / 255, alpha: 0.78)
+    /// The glass dart's tint over the blur of the page under it (user,
+    /// 2026-10-20: "glassier, but clearly visible on every kind of surface").
+    static let dartTint = gray.copy(alpha: 0.55) ?? gray
+    /// The dark hairline outside the white rim: it draws the dart's edge on
+    /// white pages, where the white rim does not show; the rim draws it on
+    /// dark pages and terminals. A soft shadow lifts it off busy photos.
+    static let outline = CGColor(gray: 0, alpha: 0.45)
+    /// The dart's specular highlight, top-left to the middle.
+    static let dartSheen: [CGColor] = [CGColor(gray: 1, alpha: 0.45), CGColor(gray: 1, alpha: 0)]
+    /// The name tag and caption tint, gray Liquid Glass (pill gallery P1, user
+    /// 2026-10-20): 18% system gray over the real blur the overlay panel's
+    /// behind-window glass draws under each tag shape (``glassRoot``).
+    static let glass = CGColor(srgbRed: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 0.18)
     static let glassText = CGColor(srgbRed: 0x1D / 255, green: 0x1D / 255, blue: 0x1F / 255, alpha: 0.88)
     /// The glass's specular rim: a light inner edge.
     static let glassRim = CGColor(gray: 1, alpha: 0.55)
+    /// The tag's tint while the pointer is on it (it is a link).
+    static let glassHover = CGColor(srgbRed: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 0.32)
+    /// The tag's rim while the pointer is on it.
+    static let glassHoverRim = CGColor(gray: 1, alpha: 0.85)
     /// The glass's top highlight, fading out before the middle.
     static let glassSheen: [CGColor] = [CGColor(gray: 1, alpha: 0.5), CGColor(gray: 1, alpha: 0)]
 
@@ -45,6 +56,10 @@ public final class AgentCursorLayer {
     /// and caption sit on `root` and stay level.
     public let heading = CALayer()
     let arrow = CAShapeLayer()
+    /// The dark hairline and shadow under the dart's white rim.
+    let arrowOutline = CAShapeLayer()
+    /// The dart's specular highlight, masked to its shape.
+    let arrowSheen = CAGradientLayer()
     let ripple = CAShapeLayer()
     let indicator = CAShapeLayer()
     /// The keystroke caption: a pill under and right of the arrow with what
@@ -59,6 +74,25 @@ public final class AgentCursorLayer {
     let nameDot = CAShapeLayer()
     /// The glass's specular highlight across the tag's top half.
     let nameSheen = CAGradientLayer()
+    /// The cursor's blur shapes, in the window's glass mask layer
+    /// (`WindowOverlayHost.agentCursorGlassLayer`): moved, faded, hidden and
+    /// removed with ``root`` (``roots``), so the blur stays under the tag.
+    public let glassRoot = CALayer()
+    /// The tag's blur well: an opaque capsule in the tag's frame.
+    let glassTag = CALayer()
+    /// The caption's blur well.
+    let glassCaption = CALayer()
+    /// Turns the dart's blur well with ``heading``.
+    public let glassHeading = CALayer()
+    /// The dart's blur well: its shape, opaque.
+    let glassArrow = CAShapeLayer()
+    /// The layers that turn with the travel heading.
+    var headings: [CALayer] { [heading, glassHeading] }
+    /// How long the last glide played, 0 when it moved at once (Reduce
+    /// Motion, animations off); nil before any glide (diagnostics and tests).
+    public internal(set) var lastGlideDuration: CFTimeInterval?
+    /// The layers that carry the cursor's position, visibility and idle fade.
+    var roots: [CALayer] { [root, glassRoot] }
     private let fill: CGColor
     /// The cursor has a name tag to show.
     let hasName: Bool
@@ -74,16 +108,29 @@ public final class AgentCursorLayer {
         root.anchorPoint = .zero
         heading.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
         heading.anchorPoint = .zero
+        arrowOutline.path = Self.arrowPath
+        arrowOutline.fillColor = nil
+        arrowOutline.strokeColor = Self.outline
+        arrowOutline.lineWidth = 2.9
+        arrowOutline.lineJoin = .round
+        arrowOutline.shadowColor = CGColor(gray: 0, alpha: 1)
+        arrowOutline.shadowOpacity = 0.28
+        arrowOutline.shadowRadius = 2.5
+        arrowOutline.shadowOffset = CGSize(width: 0, height: 1)
         arrow.path = Self.arrowPath
-        arrow.fillColor = color
+        arrow.fillColor = color.copy(alpha: Self.dartTint.alpha)
         arrow.strokeColor = Self.rim
-        arrow.lineWidth = 1.5
+        arrow.lineWidth = 1.4
         arrow.lineJoin = .round
-        arrow.shadowColor = CGColor(gray: 0, alpha: 1)
-        arrow.shadowOpacity = 0.3
-        arrow.shadowRadius = 2
-        arrow.shadowOffset = .zero
-        arrow.shadowPath = Self.arrowPath
+        let box = Self.arrowPath.boundingBoxOfPath
+        arrowSheen.frame = box
+        arrowSheen.colors = Self.dartSheen
+        arrowSheen.startPoint = CGPoint(x: 0, y: 0)
+        arrowSheen.endPoint = CGPoint(x: 1, y: 1)
+        let sheenMask = CAShapeLayer()
+        var toSheen = CGAffineTransform(translationX: -box.minX, y: -box.minY)
+        sheenMask.path = Self.arrowPath.copy(using: &toSheen)
+        arrowSheen.mask = sheenMask
         ripple.path = CGPath(ellipseIn: CGRect(x: -10, y: -10, width: 20, height: 20), transform: nil)
         ripple.fillColor = color.copy(alpha: 0.3)
         ripple.strokeColor = color.copy(alpha: 0.6)
@@ -151,8 +198,29 @@ public final class AgentCursorLayer {
         } else {
             nameTag.isHidden = true
         }
+        glassRoot.bounds = root.bounds
+        glassRoot.anchorPoint = .zero
+        glassHeading.bounds = heading.bounds
+        glassHeading.anchorPoint = .zero
+        glassArrow.path = Self.arrowPath
+        glassArrow.fillColor = CGColor(gray: 0, alpha: 1)
+        glassHeading.addSublayer(glassArrow)
+        glassRoot.addSublayer(glassHeading)
+        for well in [glassTag, glassCaption] {
+            well.backgroundColor = CGColor(gray: 0, alpha: 1)
+            well.cornerCurve = .continuous
+            well.anchorPoint = .zero
+            glassRoot.addSublayer(well)
+        }
+        glassTag.frame = nameTag.frame
+        glassTag.cornerRadius = nameTag.cornerRadius
+        glassTag.isHidden = nameTag.isHidden
+        glassCaption.cornerRadius = Self.captionHeight / 2
+        glassCaption.opacity = 0
         heading.addSublayer(ripple)
+        heading.addSublayer(arrowOutline)
         heading.addSublayer(arrow)
+        heading.addSublayer(arrowSheen)
         root.addSublayer(heading)
         root.addSublayer(indicator)
         root.addSublayer(nameTag)
@@ -204,10 +272,13 @@ public final class AgentCursorLayer {
                                    width: width - padding * 2, height: lineHeight)
         captionText.contentsScale = scale
         captionText.string = text
-        caption.opacity = 1
-        caption.removeAnimation(forKey: Self.captionHideKey)
-        caption.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: Self.captionHideDelay, on: caption),
-                    forKey: Self.captionHideKey)
+        glassCaption.frame = caption.frame
+        for layer in [caption, glassCaption] {
+            layer.opacity = 1
+            layer.removeAnimation(forKey: Self.captionHideKey)
+            layer.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: Self.captionHideDelay, on: layer),
+                      forKey: Self.captionHideKey)
+        }
     }
 
     /// The name tag's text, nil without a tag (diagnostics: `debug.agent_cursor`).
@@ -218,8 +289,21 @@ public final class AgentCursorLayer {
     /// The person paused or took over: an outline, no fill.
     public var isPaused = false {
         didSet {
-            arrow.fillColor = isPaused ? nil : fill
+            arrow.fillColor = isPaused ? nil : fill.copy(alpha: Self.dartTint.alpha)
             arrow.strokeColor = isPaused ? fill : Self.rim
+            arrowSheen.isHidden = isPaused
+            glassArrow.isHidden = isPaused || showsIndicator
+        }
+    }
+
+    /// The pointer is on the tag (it is a link to the agent's workspace): a
+    /// little more tint and a brighter rim.
+    public var isTagHighlighted = false {
+        didSet {
+            guard isTagHighlighted != oldValue else { return }
+            nameTag.backgroundColor = isTagHighlighted ? Self.glassHover : Self.glass
+            nameTag.borderColor = isTagHighlighted ? Self.glassHoverRim : Self.glassRim
+            nameTag.borderWidth = isTagHighlighted ? 1 : 0.75
         }
     }
 
@@ -227,9 +311,13 @@ public final class AgentCursorLayer {
     public var showsIndicator = false {
         didSet {
             indicator.isHidden = !showsIndicator
+            heading.isHidden = showsIndicator
+            glassArrow.isHidden = showsIndicator || isPaused
             arrow.isHidden = showsIndicator
             caption.isHidden = showsIndicator
+            glassCaption.isHidden = showsIndicator
             nameTag.isHidden = showsIndicator || !hasName
+            glassTag.isHidden = nameTag.isHidden
         }
     }
 
@@ -237,7 +325,9 @@ public final class AgentCursorLayer {
     /// seconds from now and holds the cursor hidden; every agent action arms
     /// it again, which shows the cursor at once. No timer.
     func armIdleHide(after delay: CFTimeInterval) {
-        root.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: delay, on: root), forKey: Self.idleHideKey)
+        for layer in roots {
+            layer.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: delay, on: layer), forKey: Self.idleHideKey)
+        }
     }
 
     static let idleHideKey = "agentCursor.idleHide"
