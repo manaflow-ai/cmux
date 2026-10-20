@@ -23,15 +23,17 @@ export class CloudSocketAuthority {
 
   async changed(team: string, user: string): Promise<void> {
     const notice = this.begin(user, true)
+    // New connections may have observed newer membership while this RPC was held.
+    const sockets = [...this.sockets()]
     try {
       let version: string | null
       try { version = await this.current(team, user) }
       catch (error) {
-        if (this.checks.get(user)?.notice === notice) this.closeStale(user, null)
+        if (this.checks.get(user)?.notice === notice) this.closeStale(user, null, sockets)
         throw error // No acknowledgement: the durable outbox retries an unavailable owner.
       }
       // A newer notice owns the check if its RPC overtook this one.
-      if (this.checks.get(user)?.notice === notice) this.closeStale(user, version)
+      if (this.checks.get(user)?.notice === notice) this.closeStale(user, version, sockets)
     } finally { this.finish(user) }
   }
 
@@ -55,8 +57,8 @@ export class CloudSocketAuthority {
     return member.authority_version
   }
 
-  private closeStale(user: string, version: string | null): void {
-    for (const socket of this.sockets()) {
+  private closeStale(user: string, version: string | null, sockets: ReadonlyArray<WebSocket>): void {
+    for (const socket of sockets) {
       const attachment = socket.deserializeAttachment() as Attachment | null
       if (attachment?.principal.user === user && (version === null || attachment.team_authority !== version)) {
         closeQuietly(socket, 4401, "team authority changed")
