@@ -7,10 +7,13 @@
 /// relaunch (manaflow-ai/cmux#21847). Session restore drops records that match.
 /// The title and subtitle are matched as the exact pair each shipped locale
 /// used, so a user notification that reuses one of the strings is kept.
-public enum RetiredMemoryPressureNotice {
+public struct RetiredMemoryPressureNotice: Sendable {
+    /// Creates a matcher.
+    public init() {}
+
     /// Whether a workspace-level notification is the retired memory-pressure warning.
-    public static func matches(title: String, subtitle: String) -> Bool {
-        titlesBySubtitle[subtitle]?.contains(title) ?? false
+    public func matches(title: String, subtitle: String) -> Bool {
+        Self.titlesBySubtitle[subtitle]?.contains(title) ?? false
     }
 
     private static let titlesBySubtitle: [String: Set<String>] = Dictionary(
