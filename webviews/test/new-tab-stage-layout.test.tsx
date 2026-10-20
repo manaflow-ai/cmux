@@ -105,7 +105,7 @@ const PROJECTS = [
   { cwd: "/Users/you/src/web", label: "web" },
 ];
 
-async function render(template?: "default" | "threads") {
+async function render(template?: "default" | "threads", projects = PROJECTS) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -118,7 +118,7 @@ async function render(template?: "default" | "threads") {
           snapshot={noChat(sessions())}
           lastAgent="claude"
           cwd="/Users/you/src/app"
-          projects={PROJECTS}
+          projects={projects}
           {...(template ? { template } : {})}
           {...props}
         />
@@ -201,4 +201,50 @@ test("an older failed chat behind newer idle ones still shows as needing you", a
   });
   const cards = needsYouCards([...idle, failed], now, translate);
   expect(cards.map((card) => card.sessionId)).toEqual(["s-failed"]);
+});
+
+// Review (PR 22119, Greptile P0): the needs-you rows come from one pass that keeps three, in
+// recentSessions' order (asking first, then newest), never from a sort of every chat.
+test("the needs-you rows keep the first three: chats asking first, then the newest failures", async () => {
+  const { needsYouCards } = await import("../src/agent-session/acpmux/newtab/screenModel");
+  const { translate } = await import("../src/agent-session/acpmux/i18n");
+  const now = Date.now();
+  const make = (id: string, indicator: "input" | "failed" | "lost" | "done", minutes: number) =>
+    session({ sessionId: id, title: id, indicator, updatedAt: now - minutes * 60_000 });
+  const chats = [
+    make("failed-new", "failed", 1),
+    make("idle", "done", 0),
+    make("lost-old", "lost", 50),
+    make("asking-old", "input", 40),
+    make("failed-mid", "failed", 10),
+    make("asking-new", "input", 5),
+    make("failed-oldest", "failed", 90),
+  ];
+  expect(needsYouCards(chats, now, translate).map((card) => card.sessionId)).toEqual([
+    "asking-new",
+    "asking-old",
+    "failed-new",
+  ]);
+  expect(needsYouCards(chats, now, translate, 5).map((card) => card.sessionId)).toEqual([
+    "asking-new",
+    "asking-old",
+    "failed-new",
+    "failed-mid",
+    "lost-old",
+  ]);
+});
+
+// Review (PR 22119, Greptile P2): a chat with no project runs in a private agent-home folder that
+// App lists among the projects; the environment card never offers it by its workspace id.
+test("the environment card lists no private agent-home folder", async () => {
+  const home = "/Users/you/Library/Application Support/cmux/agent-home/ws-0f3a9c";
+  const root = await render(undefined, [{ cwd: home, label: "ws-0f3a9c" }, ...PROJECTS]);
+  try {
+    const env = host.querySelector(".nt-env")!;
+    const rows = [...env.querySelectorAll(".nt-stage-row")].map((row) => row.textContent ?? "");
+    expect(rows.join("|")).toContain("web");
+    expect(rows.join("|")).not.toContain("ws-0f3a9c");
+  } finally {
+    act(() => root.unmount());
+  }
 });

@@ -7,6 +7,7 @@ import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
 import { ProjectBadge } from "../ProjectBadge";
 import { ProjectChooser, type Project } from "../ProjectChooser";
+import { isAgentHome } from "../sessionList";
 import type { ChatCard } from "./screenModel";
 import { useNt } from "./strings";
 
@@ -36,7 +37,9 @@ export function EnvironmentCard({
 }) {
   const t = useT();
   const nt = useNt();
-  const local = projects.filter((project) => !project.peer);
+  // This Mac's projects, without the private agent-home folders a chat with no project runs in
+  // (named after workspace ids; widgets.ts recentProjects drops them too).
+  const local = projects.filter((project) => !project.peer && !isAgentHome(project.cwd));
   const shown = current ? local.find((project) => project.cwd === current) : undefined;
   const others = local.filter((project) => project.cwd !== current).slice(0, OTHER_PROJECTS);
   const where = machineName ?? t("composer.thisMac");
