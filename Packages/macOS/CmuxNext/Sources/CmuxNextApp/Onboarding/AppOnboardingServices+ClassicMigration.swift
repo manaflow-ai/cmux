@@ -158,35 +158,72 @@ extension AppOnboardingServices {
         var lastError: (any Error)?
         var reveal: String?
         var openedInFirstWindow = false
-        for (index, window) in plan.windows.enumerated() {
-            let target = index == 0 ? windows.targetWindow(preferring: firstWindow) : UUID().uuidString.lowercased()
+        // Every SSH host starts connecting now, all together. A workspace whose
+        // host is not up when its turn comes is made after the local ones, so a
+        // host that is off (a laptop away from its network) holds back nothing.
+        let knownMachines = Set(services.machines.ssh.map(\.machineID))
+        var hosts: [String: DaemonService] = [:]
+        for saved in plan.workspaces {
+            guard let remote = saved.remote, hosts[remote.sshDestination] == nil else { continue }
+            hosts[remote.sshDestination] = try? startClassicDaemon(for: remote)
+        }
+        let targets = plan.windows.indices.map { $0 == 0 ? windows.targetWindow(preferring: firstWindow) : UUID().uuidString.lowercased() }
+        var later: [(index: Int, saved: ClassicSessionWorkspace)] = []
+
+        func make(_ saved: ClassicSessionWorkspace, window index: Int) async throws {
+            let window = plan.windows[index]
             let frame = index == 0 ? nil : window.frame.flatMap(Self.onScreen)
-            for saved in window.workspaces {
-                ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .pending)
-                try await save(ledger, to: repository)
-                var made: String?
-                do {
-                    made = try await importClassicWorkspace(saved, into: target, frame: frame, summary: &outcome.summary,
-                                                            unreachable: &unreachable) { id in
-                        ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .created, nextWorkspace: id)
-                        try? await self.save(ledger, to: repository)
-                    }
-                } catch {
-                    // Stays pending with its half-made workspace: the next manual run closes and remakes it.
-                    lastError = error
-                    continue
+            ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .pending)
+            try await save(ledger, to: repository)
+            var made: String?
+            do {
+                made = try await importClassicWorkspace(saved, into: targets[index], frame: frame, summary: &outcome.summary,
+                                                        unreachable: &unreachable,
+                                                        on: saved.remote.flatMap { hosts[$0.sshDestination] }) { id in
+                    ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .created, nextWorkspace: id)
+                    try? await self.save(ledger, to: repository)
                 }
-                guard let made else {
-                    // Nothing came over (an SSH host that did not connect): the next manual run tries again.
-                    continue
-                }
-                await applyClassicIdentity(saved, to: made, groups: groups)
-                ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .done, nextWorkspace: made)
-                try await save(ledger, to: repository)
-                outcome.opened.append(made)
-                if index == 0 { openedInFirstWindow = true }
-                if index == 0, saved.key == window.selectedKey { reveal = made }
+            } catch {
+                // Stays pending with its half-made workspace: the next manual run closes and remakes it.
+                lastError = error
+                return
             }
+            // Nothing came over (an SSH host that did not connect): the next manual run tries again.
+            guard let made else { return }
+            await applyClassicIdentity(saved, to: made, groups: groups)
+            ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .done, nextWorkspace: made)
+            try await save(ledger, to: repository)
+            outcome.opened.append(made)
+            if index == 0 { openedInFirstWindow = true }
+            if index == 0, saved.key == window.selectedKey { reveal = made }
+        }
+
+        for (index, window) in plan.windows.enumerated() {
+            for saved in window.workspaces {
+                if let remote = saved.remote, let host = hosts[remote.sshDestination], host.connection == nil {
+                    later.append((index, saved))
+                    continue
+                }
+                try await make(saved, window: index)
+            }
+        }
+        if !later.isEmpty {
+            // The hosts still connecting, waited for together (each within its connect limit).
+            let waiting = Set(later.compactMap { $0.saved.remote?.sshDestination })
+            let waits = waiting.compactMap { destination in
+                hosts[destination].map { daemon in Task { @MainActor in (destination, (try? await self.connected(daemon)) != nil) } }
+            }
+            for wait in waits {
+                let (destination, up) = await wait.value
+                guard !up else { continue }
+                unreachable.insert(destination)
+                // A machine this run added and that never connected is not left in the list.
+                if let daemon = hosts[destination], !knownMachines.contains(daemon.machineID),
+                   let session = services.machines.sshSession(daemon.machineID) {
+                    await services.ssh.forget(session)
+                }
+            }
+            for (index, saved) in later { try await make(saved, window: index) }
         }
         ledger.state = .completed
         try await save(ledger, to: repository)

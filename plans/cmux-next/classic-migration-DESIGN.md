@@ -108,7 +108,9 @@ staging). `CMUX_NEXT_CLASSIC_MIGRATION=0` turns it off, `=1` turns it on for dev
 | Downgrade: classic's own restore | Classic reads its untouched session file and restores as before. | `theFirstLaunch…` (file bytes unchanged), `backupsCopyAndNeverTouchClassicFiles` |
 | Group deleted here before a merge | New members get a new group. | `aGroupDeletedHereIsMadeAgainForNewMembers` |
 | Interrupted midway (quit, crash, power) | Ledger `inProgress`: next launch resumes, closes the half-made workspace, makes it once. | `aRunCutOffMidwayResumesWithoutDuplicates` (both suites) |
-| Both apps installed, classic running | No first run or merge while classic runs (it may still save); a resume still finishes. | `whetherALaunchRuns`, `theSameClassicSaveRunsOnce` |
+| Both apps installed, classic running | No first run or merge while classic runs (it may still save); a resume still finishes. "Running" (`ClassicRunningProbe`) is classic's launch sentinel `~/.local/state/cmux/lifecycle/<bundle>/running.sentinel` (written at launch, removed at the end of a clean quit) plus a save under 90 s old; no sentinel is a classic that quit, an old save with a sentinel one that crashed. A classic older than the sentinel counts as not running (a later save still merges). | `whetherALaunchRuns`, `whileClassicRunsNothingComesThenItsQuitSaveMigrates` |
+| Sparkle update relaunch | Classic's quit save is seconds old; the first launch still migrates. (Before 2026-10-20 a save under 90 s old counted as "classic running", so the first launch after every update migrated nothing.) | `theFirstLaunchBringsEverythingOnce` (all profiles), `onlyAnotherProcessWithClassicsIDIsClassic` |
+| Classic crashed or was force quit | Its last save is an autosave without scrollback; each terminal's scrollback comes from classic's checkpoint (`session-<bundle>-scrollback/<panel>.json`). A quit save's own scrollback always wins. | `aCrashedClassicsScrollbackComesFromItsCheckpoints`, `aQuitSavesOwnScrollbackWins` |
 | Both running, same bundle ID (stable) | Cannot happen after Sparkle replaces the app; a second copy elsewhere counts as "classic running". | design only |
 | cmux-next in use before this build | Baseline: recorded, nothing made; later merges bring only new classic work. | `aBaselineRecordsWithoutMaking` |
 | Damaged session file | Next copy (`-previous`, archive) is tried; if none reads, nothing is made, launch is fine, a later good save migrates. | `aDamagedSessionFileIsLeftAndRetriedOnceClassicSavesAgain`, `aFileThatIsNotASessionIsAnError` |
@@ -118,9 +120,10 @@ staging). `CMUX_NEXT_CLASSIC_MIGRATION=0` turns it off, `=1` turns it on for dev
 | Same `stableId` twice | First wins. | `theFirstRunBringsEveryWindow…` |
 | Snapshot without ids | Key from `workspaceId`, else a stable digest. | `keysFallBackToWorkspaceIDThenADigest` |
 | Missing folder | Opens the home folder (existing). | `aWorkspaceWhoseFolderIsGoneStillComesOver` |
-| SSH host down | Left for the next manual run; toast says so. | existing SSH tests |
+| SSH host down | Every host starts connecting at the run's start; a workspace whose host is not up at its turn is made after the local ones, so local workspaces never wait. One that never connects is left for the next manual run; toast says so. | `anOffSSHHostDoesNotHoldBackLocalWorkspaces` |
 | Cloud VM | Skipped once, recorded; toast says so. | first-launch tests |
-| Huge session | 64 MB cap; one workspace at a time, ledger saved per step, so a slow run resumes. | design only |
+| Huge session | 512 MB cap (classic reads its own with none; a heavy quit save passes 64 MB at about 150 full terminals); one workspace at a time, ledger saved per step, so a slow run resumes. | `aHeavyQuitSaveOverSixtyFourMegabytesStillReads`, `aHugeSessionComesOverOnceWithTheFirstWindowFirst` (520 workspaces) |
+| Only `-previous` left | The channel still counts by its copy. | `aChannelWithOnlyItsPreviousCopyIsStillFound`, `onlyThePreviousCopyLeftStillMigrates` |
 | Nightly reads stable's file | Own channel first, else newest; debug never. | `theOwnChannelIsPreferredThenTheNewest`, `candidatesAreTheFileItsCopyThenTheNewestArchive` |
 
 ## 5. Update handoff plan (not published)
@@ -190,3 +193,26 @@ cmux-next nightly under their bundle ID. The legacy-identity jobs (`nightly.yml`
   round trip) is not closed by a resume; it would remain as one extra workspace.
 - Closing the launch's empty New Tab page assumes the person did not start using it during the
   first seconds of the migration.
+
+## 7. Upgrade simulations (2026-10-20)
+
+`ClassicUpgradeSimulationTests` and `ClassicUpgradeHugeSimulationTests` (CmuxNextAppTests, live
+daemon, fleet only) write a simulated classic user's session in classic's schema
+(`ClassicUpgradeProfile`) into a scratch Application Support folder and run cmux-next's launch on
+it (`ClassicUpgradeSimulator`). Each run checks: every workspace that can come over did (ledger
+`done`, workspace present), none twice, one cmux-next window per classic window in classic's order,
+names, split panes and tabs per pane, groups and their collapsed state, pins, colors, no modal or
+sheet, the first window before the migration's work (10 s budget), a migration time budget, and
+classic's folder byte for byte unchanged (SHA-256 of every file). Then a relaunch and the import
+action make nothing more.
+
+Profiles: fresh, small, many groups (12, one pinned and empty), nested splits (depth 6, three tabs a
+pane), browsers and viewers (viewer-only workspace stays), three windows (one off screen),
+pre-2026-06 schema (no ids, groups or panel types), messy (unknown and mistyped fields, dangling
+group, group without id, duplicate `stableId`, missing folder, odd names, Cloud VM, websocket
+remote, null layout, empty split side), huge (520 workspaces, 4 windows, 30 groups). Paths: classic
+running then quitting, damaged session with good `-previous`, both damaged with an archive, only
+`-previous` left, a run cut off midway, downgrade and re-upgrade with a new group, the import action
+during the launch run, SSH hosts that are off. Lines starting `CLASSIC-SIM` in the fleet log give
+the timings.
+

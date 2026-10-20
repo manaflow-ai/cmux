@@ -45,6 +45,6 @@ public nonisolated struct ClassicRunningProbe: Sendable {
 
     /// Whether the classic that wrote `source` is running now (`now` in seconds since 1970).
     public func isRunning(_ source: ClassicMigrationSource, now: Double) -> Bool {
-        now - source.modifiedAt < Self.quietSeconds
+        FileManager.default.fileExists(atPath: sentinel(channel: source.bundleID).path) && now - source.modifiedAt < Self.quietSeconds
     }
 }
