@@ -640,6 +640,15 @@ Object.assign(variants, {
     steps: [wait("[data-agent-harness]")],
     note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
   }),
+  // Settings > Agents > Chiefs (u2586): every Chief; a row opens the same editor as Home.
+  "agents-chiefs": variant("agents", {
+    steps: [wait('[data-card="chiefs"] [data-chief]')],
+    note: "Chiefs: picture, name, role, backend and a Locked badge; New Chief opens the editor.",
+  }),
+  "agents-chief-editor": variant("agents", {
+    steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
+    note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],
@@ -787,6 +796,7 @@ export default settingsPageEntry({
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",

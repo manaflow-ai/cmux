@@ -179,6 +179,13 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
   };
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
+    // Return in a Bring Your Own field adds that backend; it never saves the Chief. The click
+    // runs in the same Return key event, so the host still sees the person's gesture.
+    const byo = event?.currentTarget.querySelector("[data-chief-byo]");
+    if (byo?.contains(document.activeElement)) {
+      byo.querySelector<HTMLButtonElement>("[data-chief-byo-add]:not(:disabled)")?.click();
+      return;
+    }
     if (!ready) return;
     setBusy(true);
     setError(undefined);
@@ -411,8 +418,8 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
             </span>
             <input
               type="checkbox"
-              role="switch"
               className="ce-switch"
+              data-chief-lock=""
               aria-label={t("chief.lock.title")}
               checked={locked}
               disabled={readOnly}
