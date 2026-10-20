@@ -518,6 +518,9 @@ struct CloudCreateMachineSheet: View {
         let available = (limits?.memoryOptionsMb ?? [])
             .filter { memoryMb in
                 guard let diskByMemoryMb = limits?.diskByMemoryMb else {
+                    guard limits?.vcpusByMemoryMb == nil else {
+                        return limits?.maxDiskMb != nil || memoryMb > 0
+                    }
                     return legacyDiskMb(for: memoryMb) != nil || limits?.maxDiskMb != nil || memoryMb > 0
                 }
                 return diskByMemoryMb[String(memoryMb)].map { $0 > 0 } ?? true
@@ -529,6 +532,9 @@ struct CloudCreateMachineSheet: View {
     static func diskMb(for memoryMb: Int, limits: CloudMachineLimits?) -> Int? {
         guard memoryMb > 0 else { return nil }
         guard let diskByMemoryMb = limits?.diskByMemoryMb else {
+            if limits?.vcpusByMemoryMb != nil {
+                return limits?.maxDiskMb ?? memoryMb
+            }
             return legacyDiskMb(for: memoryMb) ?? limits?.maxDiskMb ?? memoryMb
         }
         if let served = diskByMemoryMb[String(memoryMb)] {

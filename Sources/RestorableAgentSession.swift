@@ -3280,6 +3280,23 @@ struct RestorableAgentSessionIndex: Sendable {
         // so the candidate whose encoding matches it is the one Claude can resume from.
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
             let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
+            // A test or legacy hook record can carry a config root that is no
+            // longer resolvable. The transcript path still contains Claude's
+            // authoritative `projects/<slug>` segment, so use it before
+            // falling back to the launch cwd. This also handles nested
+            // `<session>/messages/<session>.jsonl` transcripts.
+            let transcriptComponents = (expandedTranscriptPath as NSString)
+                .standardizingPath
+                .split(separator: "/")
+            if let projectsIndex = transcriptComponents.firstIndex(of: "projects"),
+               projectsIndex + 1 < transcriptComponents.endIndex {
+                let transcriptProjectDir = String(transcriptComponents[projectsIndex + 1])
+                if let matched = candidates.first(where: {
+                    encodeClaudeProjectDir($0) == transcriptProjectDir
+                }) {
+                    return matched
+                }
+            }
             let roots = lookup.configRoots(for: record)
             let expectedProjectDirName = claudeProjectDirName(
                 containingTranscriptPath: expandedTranscriptPath,

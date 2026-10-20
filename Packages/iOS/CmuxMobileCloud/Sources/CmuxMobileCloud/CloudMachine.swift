@@ -181,6 +181,9 @@ public struct CloudMachineLimits: Sendable, Equatable {
     /// Disk per advertised memory size, keyed by the memory value in MB.
     /// Nil means the control plane predates the server-owned disk contract.
     public var diskByMemoryMb: [String: Int]?
+    /// vCPUs per advertised memory size, keyed by the memory value in MB.
+    /// Nil means the control plane did not send the server sizing maps.
+    public var vcpusByMemoryMb: [String: Int]?
     /// The shared vCPU and memory pool; nil for plans without one (Go, free)
     /// and control planes that predate it.
     public var resourcePool: CloudResourcePool?
@@ -195,6 +198,7 @@ public struct CloudMachineLimits: Sendable, Equatable {
         memoryUpgradePlanID: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
         diskByMemoryMb: [String: Int]? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil,
         resourcePool: CloudResourcePool? = nil
     ) {
         self.maxActiveMachines = maxActiveMachines
@@ -206,6 +210,7 @@ public struct CloudMachineLimits: Sendable, Equatable {
         self.memoryUpgradePlanID = memoryUpgradePlanID
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
         self.diskByMemoryMb = diskByMemoryMb
+        self.vcpusByMemoryMb = vcpusByMemoryMb
         self.resourcePool = resourcePool
     }
 }

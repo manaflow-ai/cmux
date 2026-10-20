@@ -178,6 +178,7 @@ import Testing
             "memoryOptionsMb": [4096, 8192, 16384, 24576],
             "maxDiskMb": 131072,
             "diskByMemoryMb": {"4096": 24576, "8192": 49152, "16384": 98304, "24576": 131072},
+            "vcpusByMemoryMb": {"4096": 4, "8192": 8, "16384": 16, "24576": 24},
             "lockedMemoryOptionsMb": [32768, 65536],
             "memoryUpgradePlanId": "max",
             "memoryUpgradePlansByMb": {"32768": "max", "65536": "max"}
@@ -194,7 +195,8 @@ import Testing
             lockedMemoryOptionsMb: [32768, 65536],
             memoryUpgradePlanID: "max",
             memoryUpgradePlansByMb: ["32768": "max", "65536": "max"],
-            diskByMemoryMb: ["4096": 24576, "8192": 49152, "16384": 98304, "24576": 131072]
+            diskByMemoryMb: ["4096": 24576, "8192": 49152, "16384": 98304, "24576": 131072],
+            vcpusByMemoryMb: ["4096": 4, "8192": 8, "16384": 16, "24576": 24]
         ))
     }
 

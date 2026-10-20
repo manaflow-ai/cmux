@@ -25,6 +25,15 @@ import Testing
         #expect(CloudCreateMachineSheet.diskMb(for: 20_480, limits: limits) == 131_072)
     }
 
+    @Test func vcpuMapWithoutDiskMetadataUsesServerMaximumFallback() {
+        let limits = CloudMachineLimits(
+            memoryOptionsMb: [8_192],
+            maxDiskMb: 131_072,
+            vcpusByMemoryMb: ["8192": 8]
+        )
+        #expect(CloudCreateMachineSheet.diskMb(for: 8_192, limits: limits) == 131_072)
+    }
+
     @Test func toggleIsDisabledDuringEveryTransitionPhase() {
         let phases: [CloudSystemVPNPhase] = [.preparing, .connecting, .disconnecting]
 

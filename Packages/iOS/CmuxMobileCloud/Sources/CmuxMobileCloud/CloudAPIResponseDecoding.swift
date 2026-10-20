@@ -64,6 +64,7 @@ public struct CloudAPIResponseDecoding: Sendable {
                 memoryUpgradePlanID: limits["memoryUpgradePlanId"] as? String,
                 memoryUpgradePlansByMb: limits["memoryUpgradePlansByMb"] as? [String: String],
                 diskByMemoryMb: Self.positiveIntMap(limits["diskByMemoryMb"]),
+                vcpusByMemoryMb: Self.positiveIntMap(limits["vcpusByMemoryMb"]),
                 resourcePool: Self.resourcePool(limits)
             )
         } else {

@@ -258,6 +258,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
         isFeatureSuspended = false
         let previousPrivateAddress = info.privateAddress
+        let previousDesktopPort = self.summary.desktopPort
         refreshGeneration &+= 1
         refreshCoordinator.invalidate()
         if self.summary.id != summary.id || self.summary.provider != summary.provider
@@ -266,6 +267,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         self.summary = .cloud(summary)
         summaryGeneration &+= 1
+        if previousDesktopPort != summary.desktopPort {
+            portsCache = nil
+            portDiscovery.invalidate()
+        }
         if summary.status == "running", notificationSync == nil {
             installNotificationSync()
         }
