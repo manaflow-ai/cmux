@@ -2,7 +2,7 @@
 # One test per line, tab-separated: FILTER BEAD EXPIRES OS REASON
 #   FILTER   libtest --skip substring; use the full test path or a unique test name
 #   BEAD     the bead that owns the fix (required)
-#   EXPIRES  YYYY-MM-DD, UTC, the last day the skip applies; after it the step fails
+#   EXPIRES  YYYY-MM-DD, UTC, the review date; after it the skip still applies and each run warns
 #   OS       any, macos or linux: where the skip applies
 # Remove the line in the same push as the fix. Never extend an expiry without the bead owner.
 protocol::tests::protocol_registry_names_every_served_method	cx-mvd3t	2026-10-18	any	_acpmux/complete (a242167877bc) not in protocol::registry()

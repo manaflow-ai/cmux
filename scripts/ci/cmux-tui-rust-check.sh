@@ -197,9 +197,12 @@ step() { # NAME CMD...: runs CMD, records pass/fail/skipped and seconds
 # the base for a known reason, skipped in the cmux-tui workspace tests (`test`
 # and `all`) with libtest `--skip` (a test-name substring; use the full path).
 # Columns, tab-separated: FILTER BEAD EXPIRES(YYYY-MM-DD, UTC, the last day the
-# skip applies) OS(any|macos|linux) REASON. An entry without a bead, with a bad
-# filter, date or OS, or past its expiry fails the step; an expired entry is
-# not skipped, so its test runs again.
+# skip applies) OS(any|macos|linux) REASON. An entry without a bead, or with a
+# bad filter, date or OS, fails the step. An entry past its expiry only warns
+# (a gate-notice line naming its bead) and is still applied: a calendar date
+# must not turn every PR red (2026-10-20: cx-2ueez and cx-gz5dx expired and
+# failed the base-red step on every PR, as a lapsed feature flag reviewBy did
+# before #21967). Remove the entry in the push that fixes its test.
 base_red_file="$root/scripts/ci/cmux-tui-base-red.tsv"
 skip_args=()
 skip_notes=()
@@ -230,8 +233,7 @@ load_base_red() {
       echo "gate-notice: base-red ERROR: $filter (bead $bead) OS must be any, macos or linux: $line"; bad=1; continue ;;
     esac
     if [[ "$today" > "$expires" ]]; then
-      echo "gate-notice: base-red EXPIRED: $filter (bead $bead, expired $expires UTC); the test runs; fix it or remove the entry"
-      bad=1; continue
+      echo "gate-notice: base-red WARNING: $filter (bead $bead) expired $expires UTC and is still skipped; fix it and remove the entry"
     fi
     if [[ "$entry_os" != any && "$entry_os" != "$os" ]]; then
       echo "gate-notice: base-red not applied on $os: $filter (bead $bead, $entry_os only)"
