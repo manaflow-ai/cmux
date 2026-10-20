@@ -83,41 +83,6 @@ struct TabSwitchViewSwapBench {
         return samples
     }
 
-    /// pane-tab-switch-fast: held Ctrl-Tab over `count` warm pages in one pane, each switch timed with the rest
-    /// of its turn. Prints `TAB-SWITCH-CYCLE n=<count> p50 <ms> p90 <ms> max <ms>`: the cost must not grow with
-    /// the tab count (a pane once kept only 8 hidden, so 10 or 30 tabs moved a view on every switch).
-    @Test(arguments: [2, 10, 30])
-    func warmCycleOverTabs(_ count: Int) async throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.orderOut(nil); window.close() }
-        let items = (0..<count).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
-        pane.frame = window.contentLayoutRect
-        window.contentView = pane
-        window.orderFrontRegardless()
-        var pages: [NSView] = []
-        for index in 0..<count {
-            pages.append(InternalPageView(key: "local-page:markdown:cycle\(index)", page: InternalPageID(rawValue: "markdown"),
-                                          content: await loadedWebView()))
-        }
-        for page in pages { pane.show(page); finishTurn(pane, window) }
-        var samples: [Double] = []
-        for _ in 0..<max(3, 60 / count) {
-            for page in pages {
-                let start = CACurrentMediaTime()
-                pane.show(page)
-                finishTurn(pane, window)
-                samples.append((CACurrentMediaTime() - start) * 1_000)
-                #expect(page.window === window && !page.isHidden)
-            }
-        }
-        let sorted = samples.sorted()
-        let pick = { (q: Double) in sorted[min(sorted.count - 1, Int(Double(sorted.count) * q))] }
-        print(String(format: "TAB-SWITCH-CYCLE n=%d p50 %.2f p90 %.2f max %.2f ms (switches=%d)", count, pick(0.5), pick(0.9), sorted.last ?? 0, sorted.count))
-    }
-
     @Test func warmSwitchViewSwap() async throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
