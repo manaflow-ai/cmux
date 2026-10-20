@@ -12,8 +12,10 @@ extension SidebarController {
     private var tileSize: CGSize { CGSize(width: metrics.tileWidth, height: metrics.tileHeight) }
 
     /// The mouse-down tracking loop (SidebarDocumentView.mouseDown): a drag starts after 4 pt.
-    func trackPinDrag(from down: NSEvent, in view: NSView) {
-        guard let window = view.window, placer != nil, query.isEmpty else { return }
+    /// - Returns: True when the press became a drag (a lifted tile or row), false for a click.
+    @discardableResult
+    func trackPinDrag(from down: NSEvent, in view: NSView) -> Bool {
+        guard let window = view.window, placer != nil, query.isEmpty else { return false }
         let start = view.convert(down.locationInWindow, from: nil)
         var dragging = false
         while let e = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp, .keyDown]) {
@@ -22,21 +24,22 @@ extension SidebarController {
                 let p = view.convert(e.locationInWindow, from: nil)
                 if !dragging {
                     guard hypot(p.x - start.x, p.y - start.y) >= 4 else { continue }
-                    guard beginPinDrag(at: start) else { return }
+                    guard beginPinDrag(at: start) else { return false }
                     dragging = true
                 }
                 _ = view.autoscroll(with: e)
                 movePinDrag(to: view.convert(e.locationInWindow, from: nil))
             case .leftMouseUp:
                 if dragging { endPinDrag() }
-                return
+                return dragging
             case .keyDown where e.keyCode == 53:
                 if dragging { cancelPinDrag() }
-                return
+                return true
             default:
                 continue
             }
         }
+        return dragging
     }
 
     /// Lifts the tile or row under `p` (document coordinates). False: nothing to drag there.

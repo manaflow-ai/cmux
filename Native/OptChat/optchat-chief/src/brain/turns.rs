@@ -56,6 +56,18 @@ impl Brain {
         if self.phase != Phase::Idle || !self.queue.iter().any(Queued::wakes) || !self.ready() {
             return;
         }
+        // A turn an upstream error cut waits out its backoff first; a new
+        // message from a person starts it at once.
+        if self
+            .resume_at
+            .is_some_and(|at| at > std::time::Instant::now())
+            && !self
+                .queue
+                .iter()
+                .any(|q| matches!(q.source, Source::Message { .. }))
+        {
+            return;
+        }
         self.phase = Phase::Settling;
         // The bound counts from the first wait for this turn: a wait that
         // starts over (the log changed under it) does not reset it.
@@ -397,9 +409,19 @@ impl Brain {
         self.stop_wanted = false;
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
-        // The strictest origin of the turn: a paired device's message (or
-        // a remote turn this one supersedes) makes it ask for every local
-        // effect, unless the user turned on remote.autoApprove on the Mac.
+        // Per-turn ambient state is read before choosing the policy. The whole
+        // Home view is untrusted: terminal/browser titles and URLs are just as
+        // attacker-controlled as terminal screen text. Asking whenever Home is
+        // available also covers a later `chief workspace` refresh in this turn.
+        let home = self
+            .settings
+            .home_view
+            .as_ref()
+            .and_then(crate::home_view::HomeView::read);
+        let ambient_requires_approval = home.is_some();
+        // The strictest origin wins. Paired-device work asks unless the owner
+        // explicitly opted into auto-approval; another participant and
+        // ambient Home text always ask.
         self.turn_remote = std::mem::take(&mut self.remote_taint)
             || items.iter().any(|i| {
                 matches!(
@@ -410,16 +432,30 @@ impl Brain {
                     } | Source::Resume { remote: true, .. }
                 )
             });
-        self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
+        let participant_requires_approval = items.iter().any(|i| {
+            matches!(
+                i.source,
+                Source::Message {
+                    requires_approval: true,
+                    ..
+                } | Source::Resume {
+                    requires_approval: true,
+                    ..
+                }
+            )
+        });
+        self.turn_ask = participant_requires_approval
+            || ambient_requires_approval
+            || (self.turn_remote && !self.chief.remote_auto_approve);
         self.clear_turn_approvals();
         self.interrupt.set_gate(self.turn_ask);
         // The shared rule (cmux_chief::policy::turn_policy, the corpus's
         // `policy` cases).
-        let policy = cmux_chief::policy::turn_policy(
-            self.turn_remote,
-            self.chief.remote_auto_approve,
-            &self.settings.policy,
-        );
+        let policy = if self.turn_ask {
+            crate::approval::ASK.to_owned()
+        } else {
+            self.settings.policy.clone()
+        };
         let images: Vec<super::images::TurnImage> = items
             .iter()
             .flat_map(|i| i.images.iter().cloned())
@@ -458,12 +494,7 @@ impl Brain {
         // never before a cache mark: the subagents at work now (the reference
         // client's line). Never logged.
         let at_work = self.at_work_line();
-        // The person's Home workspace as it is now (home_view): after the view, never logged.
-        let home = self
-            .settings
-            .home_view
-            .as_ref()
-            .and_then(crate::home_view::HomeView::read);
+        // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = at_work
             .iter()
             .chain(home.iter())
@@ -762,7 +793,7 @@ impl Brain {
     /// batches, past the read cursor, with their images described like a
     /// turn's own. False: the write failed (the host stops).
     pub(super) fn log_delivered(&mut self, items: &[Queued]) -> bool {
-        self.taint_remote(items);
+        self.taint_approval(items);
         let at = self.chat.status().messages;
         let batch: Vec<Item> = items.iter().map(item).collect();
         let answers = self.answers_of(items);
@@ -1062,6 +1093,11 @@ impl Brain {
     }
 
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
+        if let Some(cut) = self.is_cut(key, &outcome) {
+            self.turn_cut(key, outcome, cut);
+            return;
+        }
+        self.cuts = 0;
         let outcome_done = outcome.done_draft.take();
         if self.state.turn.as_ref().is_some_and(|t| t.key == key) {
             self.turn_view = None;
@@ -1271,6 +1307,204 @@ impl Brain {
     }
 }
 
+/// Turns that may be cut in a row before the next one fails: an update
+/// relaunch cuts one, a gateway redeploy (40 s to 2 min, a181 2026-10-19)
+/// a few; a link or upstream that stays down must not loop.
+pub(super) const MAX_CUTS: u32 = 3;
+
+/// The waits before a turn cut by an upstream error runs again: about
+/// 3 min in all, longer than a gateway redeploy.
+pub(super) const UPSTREAM_RESUME_BACKOFF: [std::time::Duration; 3] = [
+    std::time::Duration::from_secs(15),
+    std::time::Duration::from_secs(45),
+    std::time::Duration::from_secs(120),
+];
+
+/// Why a turn was cut rather than failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Cut {
+    /// Its acpmux link went away: lost while it ran, or still gone at its
+    /// `session/new` after the tries (`turn::new_session_with_retry`). It
+    /// runs again once acpmux is back.
+    Link,
+    /// The model's endpoint answered a passing error (the sr2 gateway's
+    /// 502 or a refused connection while it redeploys). It runs again after
+    /// an `UPSTREAM_RESUME_BACKOFF` wait.
+    Upstream,
+}
+
+/// Errors from the model's endpoint that a later try can cure.
+const UPSTREAM_TRANSIENT: [&str; 8] = [
+    "API Error: 502",
+    "API Error: 503",
+    "API Error: 504",
+    "API Error: 529",
+    "upstream request failed",
+    "Connection refused",
+    "ECONNREFUSED",
+    "ECONNRESET",
+];
+
+/// Whether, and why, a failed turn was cut.
+pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
+    let error = outcome.error.as_deref()?;
+    if outcome.orphan.is_some() {
+        return (error == crate::turn::CONNECTION_LOST).then_some(Cut::Link);
+    }
+    if outcome.refused || outcome.cancelled {
+        return None;
+    }
+    if outcome.reply.is_none()
+        && [
+            "acpmux is not connected",
+            "connection closed",
+            "acpmux is shutting down",
+        ]
+        .iter()
+        .any(|t| error.contains(t))
+    {
+        return Some(Cut::Link);
+    }
+    UPSTREAM_TRANSIENT
+        .iter()
+        .any(|t| error.contains(t))
+        .then_some(Cut::Upstream)
+}
+
+impl Brain {
+    /// Why turn `key` was cut and runs again instead of failing (`cut_kind`):
+    /// never one the owner or a newer message stopped, at most `MAX_CUTS` in
+    /// a row.
+    fn is_cut(&self, key: &str, outcome: &TurnOutcome) -> Option<Cut> {
+        if self.stop_wanted
+            || self.owner_stopped
+            || self.cuts >= MAX_CUTS
+            || self.state.turn.as_ref().is_none_or(|t| t.key != key)
+        {
+            return None;
+        }
+        cut_kind(outcome)
+    }
+
+    /// Sets the waits before a turn an upstream error cut runs again (tests
+    /// shorten them).
+    pub fn set_upstream_resume_backoff(&mut self, waits: Vec<std::time::Duration>) {
+        self.upstream_backoff = waits;
+    }
+
+    /// The upstream resume wait is over: the cut turn may start.
+    pub(super) fn on_resume_timer(&mut self) {
+        if self
+            .resume_at
+            .is_some_and(|at| at <= std::time::Instant::now())
+        {
+            self.resume_at = None;
+            self.maybe_start_turn();
+        }
+    }
+
+    fn turn_cut(&mut self, key: &str, outcome: TurnOutcome, cut: Cut) {
+        self.cuts += 1;
+        let error = outcome.error.clone().unwrap_or_default();
+        let when = match cut {
+            Cut::Link => "once acpmux is back".to_owned(),
+            Cut::Upstream => {
+                let wait = self
+                    .upstream_backoff
+                    .get(self.cuts as usize - 1)
+                    .or(self.upstream_backoff.last())
+                    .copied()
+                    .unwrap_or_default();
+                self.resume_at = Some(std::time::Instant::now() + wait);
+                format!("in {} s", wait.as_secs())
+            }
+        };
+        (self.log)(&format!(
+            "turn {key} was cut ({error}); it runs again on the resume note {when} ({} of {MAX_CUTS})",
+            self.cuts
+        ));
+        let (cut_id, cut_name) = match self.state.turn.as_ref() {
+            Some(t) => (t.session_id.clone(), Some(t.session.clone())),
+            None => (None, None),
+        };
+        self.trace_end(key, &outcome, false);
+        self.turn_view = None;
+        let main = self.turn_side().is_none();
+        let had: Vec<Option<String>> = self
+            .state
+            .resumes
+            .iter()
+            .map(|r| r.conversation.clone())
+            .collect();
+        // recover() closes the pending turn as a host restart does; only a
+        // session still running (the lost turn's) becomes an orphan here.
+        let orphans = self.state.orphans.clone();
+        let _ = super::recover::recover(&self.chat, &mut self.state, true);
+        self.state.orphans = orphans;
+        let mut extra = Vec::new();
+        match outcome.orphan {
+            Some(lost) => {
+                match self
+                    .state
+                    .orphans
+                    .iter_mut()
+                    .find(|o| o.session == lost.session)
+                {
+                    Some(o) => o.after = o.after.max(lost.after),
+                    None => self.state.orphans.push(lost),
+                }
+            }
+            None => {
+                // No session runs on: a half-started one is ended at the
+                // next connect, and the turn's fold position goes.
+                self.stale_sessions.extend(cut_name);
+                if let Some(id) = cut_id {
+                    extra.push((crate::state::fold_key(&id), None));
+                }
+            }
+        }
+        if cut == Cut::Link {
+            // The link thread sends the turn's Lost before its Down: no
+            // turn starts until the next daemon is up.
+            self.agents_up = false;
+        }
+        // The resume runs before any newer message, as after a restart.
+        let fresh: Vec<crate::state::Resume> = self
+            .state
+            .resumes
+            .iter()
+            .filter(|r| !had.contains(&r.conversation))
+            .cloned()
+            .collect();
+        for resume in fresh.into_iter().rev() {
+            self.queue.push_front(Queued {
+                text: super::recover::RESUMED.to_owned(),
+                source: Source::Resume {
+                    remote: resume.remote,
+                    cut: resume.messages,
+                },
+                images: Vec::new(),
+                conversation: resume.conversation,
+                logged: false,
+            });
+        }
+        self.turn_remote = false;
+        self.turn_ask = false;
+        self.clear_turn_approvals();
+        self.interrupt.set_gate(false);
+        self.stop_wanted = false;
+        self.save_with(extra);
+        if main {
+            self.set_typing(false);
+        }
+        self.phase = Phase::Idle;
+        if let Some(hook) = &self.after_turn {
+            hook(key);
+        }
+        self.maybe_start_turn();
+    }
+}
+
 /// The memory note a failed turn leaves after the messages it did not answer.
 pub fn failure_note(error: &str) -> String {
     let error: String = error
@@ -1321,17 +1555,28 @@ fn source_name(source: &Source) -> &'static str {
 fn item(queued: &Queued) -> Item {
     let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
-        Source::Message { seq, id, remote } => Item {
+        Source::Message {
+            seq,
+            id,
+            remote,
+            requires_approval,
+        } => Item {
             seq: Some(*seq),
             images,
             conversation: queued.conversation.clone(),
             id: queued.conversation.as_ref().map(|_| id.clone()),
             remote: remote.is_some(),
+            requires_approval: *requires_approval,
             ..Item::default()
         },
-        Source::Resume { remote, cut } => Item {
+        Source::Resume {
+            remote,
+            requires_approval,
+            cut,
+        } => Item {
             conversation: queued.conversation.clone(),
             remote: *remote,
+            requires_approval: *requires_approval,
             resume: true,
             cut: cut.clone(),
             ..Item::default()

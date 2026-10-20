@@ -33,33 +33,42 @@ enum TerminalPasteboard {
     }
 
     /// Text to paste: file URLs become shell-escaped paths, then URLs, then
-    /// plain strings.
+    /// plain strings. Line endings become LF so Ghostty's unsafe-paste check
+    /// sees every line break before an unbracketed paste can submit it.
     static func pasteText(from pasteboard: NSPasteboard) -> String? {
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
            !urls.isEmpty {
-            return urls.map { shellEscaped($0.path) }.joined(separator: " ")
+            return normalizedLineEndings(urls.map { shellEscaped($0.path) }.joined(separator: " "))
         }
         if let string = pasteboard.string(forType: .string) {
-            return string
+            return normalizedLineEndings(string)
         }
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !urls.isEmpty {
-            return urls.map(\.absoluteString).joined(separator: " ")
+            return normalizedLineEndings(urls.map(\.absoluteString).joined(separator: " "))
         }
         return nil
     }
 
     /// ``pasteText(from:)`` on contents already read (same order).
     static func pasteText(from contents: TerminalPasteboardContents) -> String? {
-        if !contents.fileURLs.isEmpty { return contents.fileURLs.map { shellEscaped($0.path) }.joined(separator: " ") }
-        if let string = contents.string { return string }
-        if !contents.urls.isEmpty { return contents.urls.map(\.absoluteString).joined(separator: " ") }
+        if !contents.fileURLs.isEmpty {
+            return normalizedLineEndings(contents.fileURLs.map { shellEscaped($0.path) }.joined(separator: " "))
+        }
+        if let string = contents.string { return normalizedLineEndings(string) }
+        if !contents.urls.isEmpty {
+            return normalizedLineEndings(contents.urls.map(\.absoluteString).joined(separator: " "))
+        }
         return nil
+    }
+
+    private static func normalizedLineEndings(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     }
 
     /// Backslash-escapes characters the shell would interpret, matching what
     /// Ghostty inserts for a dropped file.
     static func shellEscaped(_ path: String) -> String {
-        let special: Set<Character> = [" ", "\\", "\t", "\n", "'", "\"", "`", "!", "$", "&", "*", "(", ")", "[", "]", "{", "}", "<", ">", "|", ";", "?", "#", "~", "="]
+        let special: Set<Character> = [" ", "\\", "\t", "\n", "\r", "'", "\"", "`", "!", "$", "&", "*", "(", ")", "[", "]", "{", "}", "<", ">", "|", ";", "?", "#", "~", "="]
         var result = ""
         result.reserveCapacity(path.count)
         for character in path {

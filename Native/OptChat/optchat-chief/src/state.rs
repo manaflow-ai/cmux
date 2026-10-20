@@ -477,6 +477,13 @@ impl PendingTurn {
 /// One logged item's source, so a restart can finish its bookkeeping: a
 /// human message moves the read cursor, a child's report marks the child
 /// reported (else reconcile would queue the same report again).
+/// Persisted records created before effect provenance was stored fail closed.
+/// New constructors still use `Default::default()` (owner-authorized false),
+/// and serialization writes the field explicitly so a round trip is stable.
+fn legacy_requires_approval() -> bool {
+    true
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
     /// The conversation seq of a human message.
@@ -501,6 +508,10 @@ pub struct Item {
     /// A paired device sent the message (or the resume note of such a turn).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
+    /// The message came from someone other than the Chief's owner, or the
+    /// resumed turn otherwise required approval for effects.
+    #[serde(default = "legacy_requires_approval")]
+    pub requires_approval: bool,
     /// The resume note of a cut turn: a cut resume turn resumes again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resume: bool,
@@ -520,6 +531,9 @@ pub struct Resume {
     /// every local effect, as that turn did.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
+    /// The cut turn required approval independently of remote.autoApprove.
+    #[serde(default = "legacy_requires_approval")]
+    pub requires_approval: bool,
     /// The full text of the cut turn's human messages, in log order: the
     /// resume turn's new messages carry them after the note (they are in
     /// the log already and are not logged again).
@@ -911,5 +925,28 @@ impl FrozenRecord {
             cuts: self.cuts.clone(),
             starts: self.starts.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::{Item, Resume};
+
+    #[test]
+    fn legacy_pending_turns_require_approval_but_new_owner_records_round_trip() {
+        let old_item: Item = serde_json::from_str(r#"{"seq":1}"#).unwrap();
+        let old_resume: Resume = serde_json::from_str(r#"{"messages":["continue"]}"#).unwrap();
+        assert!(old_item.requires_approval);
+        assert!(old_resume.requires_approval);
+
+        let item = Item::default();
+        let resume = Resume::default();
+        assert!(!item.requires_approval);
+        assert!(!resume.requires_approval);
+        let item_again: Item = serde_json::from_slice(&serde_json::to_vec(&item).unwrap()).unwrap();
+        let resume_again: Resume =
+            serde_json::from_slice(&serde_json::to_vec(&resume).unwrap()).unwrap();
+        assert!(!item_again.requires_approval);
+        assert!(!resume_again.requires_approval);
     }
 }

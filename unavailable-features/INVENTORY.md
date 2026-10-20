@@ -29,7 +29,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 1 | Clear Browser History | `palette.browserClearHistory` | cmux-next keeps no browser history store yet (stale: `HistoryService.clearPages` exists) | Handlers/BrowserHandlers.swift | S | todo |
 | 2 | Restart CLI Listener | `palette.restartSocketListener` | needs app capability `control-socket-restart` | Handlers/SettingsHandlers.swift | S | todo |
 | 3 | Open All Workspace PR Links | `palette.openWorkspacePullRequests` | needs app capability `github-integration` | Handlers/WorkspaceHandlers.swift | S | todo |
-| 4 | Move whole column (multi-pane) | `moveColumnLeft/Right` refusal | Moving a whole column is not available yet | Handlers/ColumnHandlers.swift | S | todo |
+| 4 | Move whole column (multi-pane) | `moveColumnLeft/Right` refusal | Moving a whole column is not available yet | Handlers/ColumnHandlers.swift | S | done 31c23ce112e |
 | 5 | Toggle Match Terminal Background | `palette.toggleMatchTerminalBackground` | needs app capability `match-terminal-background` | Handlers/SidebarHandlers.swift | S | todo |
 | 6 | Enable/Disable cmux Browser | `palette.enableBrowser`, `palette.disableBrowser` | the cmux browser is always on | Handlers/BrowserHandlers.swift | S | done 60440702d7a |
 | 7 | Toggle Omnibar | `palette.browserToggleOmnibar` | The address bar cannot be hidden yet | Handlers/BrowserHandlers.swift | S | todo |
@@ -52,7 +52,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 24 | Right sidebar (6) | `toggleRightSidebar`, `focusRightSidebar`, `switchRightSidebarToSessions`, `switchRightSidebarToFeed`, `switchRightSidebarToDock`, `switchRightSidebarToMachines` | needs app capability `right-sidebar` | Handlers/SidebarHandlers.swift | L | todo |
 | 25 | Session vault (6) | `palette.openVaultPane`, `vaultFocusSession`, `vaultOpenSession`, `vaultResumeInNewWorkspace`, `vaultCopyResumeCommand`, `vaultOpenPullRequest` | needs the Vault panel / `session-vault` | Handlers/PaneHandlers+Verbs.swift, Handlers/SidebarHandlers.swift | L | todo |
 | 26 | Open Terminal as Chat | `palette.openTerminalChatView` | Agent chat views are not ported | Handlers/AgentHandlers.swift | L | done 0e035c2a1c5 |
-| 27 | Claude/Codex Teams (2) | `palette.launchClaudeTeams`, `palette.launchCodexTeams` | Teams launcher is not ported | Handlers/AgentHandlers.swift | M | todo |
+| 27 | Claude/Codex Teams (2) | `palette.launchClaudeTeams`, `palette.launchCodexTeams` | Teams launcher is not ported | Handlers/AgentHandlers.swift | M | done dcfa67e721a (first slice: one terminal tab runs the agent in team mode; classic tmux-shim splits for Claude teammates and the Codex subagent split watcher are left) |
 | 28 | React Grab | `toggleReactGrab` | React Grab injection is not ported | Handlers/BrowserHandlers.swift | M | done 2bdb267f752 |
 | 29 | VS Code inline (3) | `palette.openFolderInVSCodeInline`, `palette.vscodeServeWebStop`, `palette.vscodeServeWebRestart` | inline VS Code server is not ported | Handlers/WorkspaceHandlers.swift, Handlers/BrowserHandlers.swift | L | done b3e95eba7ab |
 | 30 | Upgrade to cmux Pro | `palette.pro.upgrade` | needs app capability `account-billing` | Handlers/SettingsHandlers.swift | M (billing: open the web billing page only, no money flow) | todo |
