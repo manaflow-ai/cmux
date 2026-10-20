@@ -53,6 +53,13 @@ public final class LayoutRootView: NSView {
     /// The pane the current drag empties, as the last preview decided the
     /// split room with it: the drop decides with the same pane (cx-ohle).
     var tabDragRemoving: PaneID?
+    /// The pane a terminal tab is dragged from: the facing edge of the pane next to it joins
+    /// (`DropZoneGeometry.joiningSharedEdge`).
+    var tabDragJoinsFrom: PaneID?
+    /// The target the drag shows now, and the one the App refused (`hideTabDragHighlight`): a refused
+    /// target stays hidden until the target changes, instead of drawing and hiding on every move (#22287).
+    var tabDragShownTarget: DropTarget?
+    var tabDragRefusedTarget: DropTarget?
     /// The pane edge the drag is over and since when; it splits once held for the dwell.
     var tabDragEdge: (hit: DropTarget, since: CFTimeInterval)?
     /// When the edge under a held pointer arms (a new split); nil when none is pending. The

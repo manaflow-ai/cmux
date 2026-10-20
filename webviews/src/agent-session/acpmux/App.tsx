@@ -149,6 +149,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
+import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
   SessionCwdContext,
@@ -447,6 +448,9 @@ const removeQueued = (promptId: string) =>
     (result) => result?.removed === true,
   );
 
+/// Resumes the chat's paused messages with another agent (conversation/AgentPairNote.tsx).
+const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { peer });
+
 /// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
 const editQueued = (promptId: string, edit: QueueEdit) =>
   callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
@@ -730,7 +734,11 @@ const SummaryRow = memo(
 );
 const PlanRow = memo(
   function PlanRow({ row }: RowProps) {
-    return row.plan ? <PlanList entries={row.plan} /> : <div className="acpmux-muted">{row.text}</div>;
+    return row.plan ? (
+      <PlanList entries={row.plan} ended={row.turnEnded} />
+    ) : (
+      <div className="acpmux-muted">{row.text}</div>
+    );
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -749,6 +757,12 @@ const CompactionRow = memo(
 const FailoverRow = memo(
   function FailoverRow({ row }: RowProps) {
     return row.failover ? <FailoverNote failover={row.failover} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const AgentPairRow = memo(
+  function AgentPairRow({ row }: RowProps) {
+    return row.agentPair ? <AgentPairNote pair={row.agentPair} onResume={resumeAgentPair} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -883,6 +897,7 @@ const defaultRegistry: NativeRegistry = {
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,
   failover: FailoverRow,
+  agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
@@ -1112,6 +1127,7 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
   (row.kind === "backgroundTask" ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
+    row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
     (row.kind === "activity" && !isEditRow(row)));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
@@ -4616,6 +4632,7 @@ function AcpmuxPane() {
             ),
           "chat.cancel": () => client.cancel(),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
+          "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.secret": ({ secretId, value }) =>
             client.secret(String(secretId), typeof value === "string" ? value : undefined),
