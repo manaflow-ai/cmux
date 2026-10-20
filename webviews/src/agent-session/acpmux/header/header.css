@@ -34,27 +34,27 @@
   .acpmux-reviewing:has(>.acpmux-diff-panel)>.acpmux-header,.acpmux-reviewing:has(>.acpmux-diff-panel)>.acpmux-scroll{margin-right:56%}
   .acpmux-reviewing>.acpmux-diff-panel{left:44%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
 }
-/* The chat's viewer (labs chatViewer, Lucas 2026-10-19): only Files and linked files sit beside the
+/* The chat's viewer (Lucas 2026-10-19): only Files and linked files sit beside the
    transcript from an ordinary pane width. Changes keeps the production layout above. */
 /* The right column's one width: Files, a file and Thread details (Lucas 2026-10-21; 320 leaves room for code). */
 .acpmux-main{container-type:inline-size;--acpmux-viewer-width:320px}
 @container (min-width:820px){
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-header,html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-scroll{visibility:visible;margin-right:var(--acpmux-viewer-width)}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer{left:auto;bottom:auto;height:100vh;width:var(--acpmux-viewer-width);border-left:var(--cmux-hairline,.5px) solid var(--agent-border);background:var(--agent-page-bg)}
+  .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-header,.acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-scroll{visibility:visible;margin-right:var(--acpmux-viewer-width)}
+  .acpmux-reviewing>.acpmux-file-viewer{left:auto;bottom:auto;height:100vh;width:var(--acpmux-viewer-width);border-left:var(--cmux-hairline,.5px) solid var(--agent-border);background:var(--agent-page-bg)}
   /* Files and a file read as Thread details' column does (Lucas 2026-10-19): rounded, its shadow, 8px in,
      a 28px title row with no line under it, the X as its close. */
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer{box-sizing:border-box;padding:8px 8px 10px;overflow:hidden;border-radius:var(--ui-popup-radius);box-shadow:var(--acpmux-popup-elevation);border-left:var(--cmux-hairline,.5px) solid var(--agent-border);font-size:var(--text-control);line-height:18px}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer>.acpmux-diff-header{height:28px;gap:2px;padding:0 2px 4px 4px;border-bottom:0}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer>.acpmux-diff-header .acpmux-diff-tool{width:26px;height:26px;border-radius:7px}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer .acpmux-files-search{padding:2px 0 6px}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer .acpmux-file-viewer-body{padding:0 0 6px}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-summary-card[data-placement=popover]{visibility:visible;right:calc(var(--acpmux-viewer-width) + 10px)}
+  .acpmux-reviewing>.acpmux-file-viewer{box-sizing:border-box;padding:8px 8px 10px;overflow:hidden;border-radius:var(--ui-popup-radius);box-shadow:var(--acpmux-popup-elevation);border-left:var(--cmux-hairline,.5px) solid var(--agent-border);font-size:var(--text-control);line-height:18px}
+  .acpmux-reviewing>.acpmux-file-viewer>.acpmux-diff-header{height:28px;gap:2px;padding:0 2px 4px 4px;border-bottom:0}
+  .acpmux-reviewing>.acpmux-file-viewer>.acpmux-diff-header .acpmux-diff-tool{width:26px;height:26px;border-radius:7px}
+  .acpmux-reviewing>.acpmux-file-viewer .acpmux-files-search{padding:2px 0 6px}
+  .acpmux-reviewing>.acpmux-file-viewer .acpmux-file-viewer-body{padding:0 0 6px}
+  .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-summary-card[data-placement=popover]{visibility:visible;right:calc(var(--acpmux-viewer-width) + 10px)}
 }
 /* The whole bottom stack shares the transcript's available width, including asks and the PR dock.
    Query its main container: the pane can be narrower than the page, and the viewer width is shared
    by the stage and dock rather than repeated here. */
 @container (min-width:820px){
-  html[data-lab-chat-viewer="on"] .acpmux-main:has(>.acpmux-stage.acpmux-reviewing>.acpmux-diff-panel.acpmux-file-viewer)>.acpmux-dock{display:flex;flex-direction:column;min-height:0;margin-right:var(--acpmux-viewer-width)}
+  .acpmux-main:has(>.acpmux-stage.acpmux-reviewing>.acpmux-diff-panel.acpmux-file-viewer)>.acpmux-dock{display:flex;flex-direction:column;min-height:0;margin-right:var(--acpmux-viewer-width)}
 }
 .acpmux-file-viewer{background:var(--agent-page-bg)}
 /* No Back chevron (only the X closes it): the name lines up with the search field below. */
@@ -138,7 +138,7 @@
 .acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
 .acpmux-header[data-tab-row] .acpmux-handoff-header-tools{pointer-events:auto}
 .acpmux-header[data-tab-row]::after{content:"";position:absolute;inset:100% 0 auto;height:12px;background:linear-gradient(var(--agent-page-bg),transparent);pointer-events:none}
-/* The thread's project and title at the header's start (header/ThreadTitle.tsx, layout.json threadTitle):
+/* The thread's project and title at the header's start (header/ThreadTitle.tsx):
    the project muted, a slash, the title in full ink; each is a quiet button, the title turns into a field. */
 .acpmux-thread-title{flex:0 1 auto;display:flex;align-items:center;gap:2px;min-width:0;margin-right:8px;font-size:var(--text-control);line-height:20px}
 .acpmux-thread-title__project,.acpmux-thread-title__name{flex:0 1 auto;min-width:0;height:24px;padding:0 6px;border:0;border-radius:6px;background:none;font:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}

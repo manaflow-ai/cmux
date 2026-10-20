@@ -1,7 +1,7 @@
 // Link and path chips in replies (decision D4): an icon, the name with a dotted underline, and
 // the full address in the tooltip. A path chip asks the host where its path is (`link.inspect`)
 // and opens through the host (`link.openPath`, or `link.readPath` into the chat's viewer with
-// labs `chatViewer`: the deny list and the session's folders after
+// the deny list and the session's folders after
 // symlinks, then a user gesture; outside the folders, `agentPane.links.outsideRoots` decides and
 // the host's own sheet asks). A web chip is an ordinary link, which the host opens outside the
 // pane after a real click; its icon is the site's favicon when cmux already has one.

@@ -8,7 +8,6 @@ const native = { "folder.openIn": { apps: [{ id: "editor", name: "Editor" }] } }
 
 const open: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-button"));
-  ctx.document.defaultView!.cmuxAcpmuxBridge!.applyCustomization({ layout: { threadTitle: true } });
   if (ctx.find({ selector: ".acpmux-summary-button" }).getAttribute("aria-pressed") !== "true")
     await ctx.click({ selector: ".acpmux-summary-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-card__close"));

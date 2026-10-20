@@ -1,5 +1,5 @@
 // A file from the chat (a path chip, a changed file's Open in tab) in the chat's viewer, beside the
-// transcript (labs `chatViewer`, Lucas 2026-10-19). It takes the changes view's slot and layout, so
+// transcript (Lucas 2026-10-19). It takes the changes view's slot and layout, so
 // Files and linked files share one viewer and the chat stays on screen; the app's file tab is one click
 // away (Open in tab).
 import type { KeyboardEvent } from "react";

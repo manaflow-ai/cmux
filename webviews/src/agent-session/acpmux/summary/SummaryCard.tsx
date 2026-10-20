@@ -1,4 +1,3 @@
-import { useThreadTitle } from "../header/threadTitleSetting";
 import type { ReactNode } from "react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -113,8 +112,6 @@ export function SummaryCard({
     return () => document.removeEventListener("pointerdown", away, true);
   }, [close, popover]);
   useEscapeCloses(shown && !gallery, dismiss);
-  // Every hook runs before the hidden card returns: opening it must not add one (Lucas 2026-10-18).
-  const threadDetails = useThreadTitle();
   if (!shown) {
     // Keep the inline column's width stable before the first summary row arrives. The rail is
     // intentionally invisible until it has content, but removing it from the flex row would make
@@ -131,7 +128,7 @@ export function SummaryCard({
     count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
   ].filter(Boolean);
-  const title = threadDetails ? t("summary.threadDetails") : t("summary.open");
+  const title = t("summary.threadDetails");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
   return (
@@ -169,7 +166,7 @@ export function SummaryCard({
                 data-selected={onSubagents ? undefined : ""}
                 onClick={() => showTab("summary")}
               >
-                {threadDetails ? title : t("summary.title")}
+                {title}
               </button>
               <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
                 <button
@@ -192,7 +189,7 @@ export function SummaryCard({
               </span>
             </div>
           ) : card.column ? (
-            <span className="acpmux-summary-card__title">{threadDetails ? title : t("summary.title")}</span>
+            <span className="acpmux-summary-card__title">{title}</span>
           ) : (
             <button
               type="button"
@@ -203,7 +200,7 @@ export function SummaryCard({
               onClick={() => card.fold(!card.collapsed)}
             >
               <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
-              <span className="acpmux-summary-card__title">{threadDetails ? title : t("summary.title")}</span>
+              <span className="acpmux-summary-card__title">{title}</span>
               {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
             </button>
           )}

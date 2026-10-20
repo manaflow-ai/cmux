@@ -1,4 +1,4 @@
-// The chat's folder in the chat's viewer (labs `chatViewer`, Lucas 2026-10-19): the header's Files
+// The chat's folder in the chat's viewer (Lucas 2026-10-19): the header's Files
 // opens here, beside the transcript, instead of a file tree in a new column that scrolls the chat and
 // its tabs out of view. A folder opens in place; a file opens in the viewer (FileViewer.tsx), whose
 // Back returns here. Listing is the session host's `git.files.list` (`file.list`), search its

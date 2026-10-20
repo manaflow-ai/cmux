@@ -1,4 +1,4 @@
-// The thread's place at the header's start (Lucas 2026-10-17, layout.json `threadTitle`): its
+// The thread's place at the header's start (Lucas 2026-10-17): its
 // project, as a label, then its title, which renames the chat in place (`pane.rename`): Return or
 // leaving the field keeps the name, Escape puts the old one back.
 import { useRef, useState } from "react";

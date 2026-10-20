@@ -200,8 +200,6 @@ import {
   setMessageMenuSource,
 } from "./conversation/messageMenu";
 import { openPathChip, setPathViewer } from "./chips/host";
-import { configureLabs, useLab } from "./labs";
-import { configureThreadTitle, useThreadTitle } from "./header/threadTitleSetting";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
 import { useChatViewer } from "./useChatViewer";
@@ -226,7 +224,7 @@ import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
-import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
+import { setTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
@@ -331,9 +329,9 @@ import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 /// cards (conversation/CodeBlock.tsx, conversation/EditDiff.tsx), so opening it waits on nothing.
 const loadDiffPanel = () => import("./DiffPanel");
 const DiffPanel = lazy(() => loadDiffPanel().then((module) => ({ default: module.DiffPanel })));
-/// A file in the chat's viewer (labs `chatViewer`): loaded on its first open.
+/// A file in the chat's viewer: loaded on its first open.
 const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
-/// The chat's folder in the chat's viewer (labs `chatViewer`): loaded on its first open.
+/// The chat's folder in the chat's viewer: loaded on its first open.
 const FilesView = lazy(() => import("./FilesView").then((module) => ({ default: module.FilesView })));
 /// The viewer column while its chunk loads: the column exists from the first frame, so the chat
 /// and Thread details move once, not twice (Lucas 2026-10-21, a new chat's first Files open).
@@ -3282,7 +3280,6 @@ function AcpmuxPane() {
   // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
   // name (`claude-2`), and "New chat" before it has a title, never nothing.
   const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
-  const threadTitle = useThreadTitle();
   const childRows = useMemo(
     () =>
       subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
@@ -3508,9 +3505,6 @@ function AcpmuxPane() {
   }>();
   // Only Files and linked files use the chat viewer (Lucas 2026-10-19). Changes keeps the
   // production host action and falls back to its existing in-place diff when the host cannot open it.
-  const chatViewer = useLab("chatViewer");
-  const chatViewerRef = useRef(chatViewer);
-  chatViewerRef.current = chatViewer;
   const localCwd =
     snapshot.summary && !snapshot.summary.peer && !(snapshot.summary.host && snapshot.summary.hostKind !== "local")
       ? snapshot.summary.cwd
@@ -3522,7 +3516,7 @@ function AcpmuxPane() {
       inspectorOpenRef.current = false;
       setInspectorOpen(false);
       setDiffView(undefined);
-      if (chatViewerRef.current) openViewer(detailsRef.current, () => undefined);
+      openViewer(detailsRef.current, () => undefined);
     },
     callNative,
   );
@@ -3539,7 +3533,7 @@ function AcpmuxPane() {
     filesSource,
   } = viewer;
   // Thread details floats while the viewer holds the right side (chatViewerPanels.ts).
-  const detailsFloats = detailsFloat(chatViewer, {
+  const detailsFloats = detailsFloat({
     diff: diffView !== undefined,
     file: fileView !== undefined,
     files: filesView !== undefined,
@@ -3974,15 +3968,12 @@ function AcpmuxPane() {
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
   useEffect(() => {
-    if (!chatViewer || quick) return undefined;
+    if (quick || !localCwd) return undefined;
     setPathViewer(viewFile);
     return () => setPathViewer(undefined);
-  }, [chatViewer, quick, viewFile]);
-  /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
-  const tabRow = useTabRow();
-  // The thread title needs its own row; native tabs occupy the integrated header's leading area.
-  const inTabRow = tabRow.height > 0 && !quick && !threadTitle;
-  const tabRowTools = useTabRowTools(inTabRow ? tabRow : undefined, reportTabRowTools);
+  }, [localCwd, quick, viewFile]);
+  // The project and editable thread title need their own row. Release any native tab-row tools space.
+  const tabRowTools = useTabRowTools(undefined, reportTabRowTools);
   // Only Claude's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`).
   const stopsSubagents = snapshot.summary?.harness === "claude";
   const stopSubagent = useMemo(
@@ -4487,8 +4478,6 @@ function AcpmuxPane() {
             /* a user renderer must not take down the transcript */
           }
         }
-        configureThreadTitle(customization.layout);
-        configureLabs(customization.layout);
         if (customization.layout) {
           configureDictation(customization.layout);
           configureQuickActions(customization.layout);
@@ -6415,7 +6404,7 @@ function AcpmuxPane() {
             onOpenImage={quick ? undefined : openImage}
             subagents={cardSubagents}
             details={
-              quick || !threadTitle ? undefined : (
+              quick ? undefined : (
                 <ThreadDetails
                   folder={localCwd}
                   {...(machineName ? { machine: machineName } : {})}
@@ -6595,10 +6584,9 @@ function AcpmuxPane() {
             <>
               <div
                 className={`acpmux-stage${diffFiles || fileOpen || filesOpen ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
-                style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
-                <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
-                  {threadTitle && !quick && snapshot.sessionId && (
+                <header className="acpmux-header">
+                  {!quick && snapshot.sessionId && (
                     <ThreadTitle
                       key={snapshot.sessionId}
                       folder={localCwd}
@@ -6662,15 +6650,8 @@ function AcpmuxPane() {
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
                       hasChanges={lastEditTurn !== undefined && localCwd !== undefined}
                       onChanges={(mode) => runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)}
-                      onFiles={
-                        localCwd
-                          ? (mode, opener) =>
-                              chatViewer
-                                ? toggleFilesViewer(localCwd, opener)
-                                : runSplitAction(HEADER_ACTIONS.files, localCwd, mode)
-                          : undefined
-                      }
-                      viewing={chatViewer && filesOpen && !diffView ? [HEADER_ACTIONS.files] : undefined}
+                      onFiles={localCwd ? (_mode, opener) => toggleFilesViewer(localCwd, opener) : undefined}
+                      viewing={filesOpen && !diffView ? [HEADER_ACTIONS.files] : undefined}
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
                         ignoreFailure(

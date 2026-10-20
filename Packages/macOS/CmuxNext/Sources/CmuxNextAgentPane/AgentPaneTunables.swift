@@ -262,22 +262,19 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
-                   thoughtFoldThreshold: thoughtFoldThreshold.value, labs: labTunables.mapValues { $0.value })
+                   thoughtFoldThreshold: thoughtFoldThreshold.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            liveThoughtViewport: Bool = true,
-                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport, labs: [String: Bool] = [:]) -> [String: String] {
+                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if thoughtFoldThreshold != .viewport { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
-        for (name, tunable) in labTunables {
-            attributes["lab-\(name)"] = (labs[name] ?? tunable.defaultValue) ? "on" : "off"
-        }
         return attributes
     }
 
@@ -342,7 +339,6 @@ public nonisolated struct AgentPaneTunables {
 
     public static var all: [TunableDescriptor] {
         [
-            chatViewer.descriptor,
             chatWidth.descriptor,
             codexToolRuns.descriptor,
             composerPlainFooter.descriptor,

@@ -26,14 +26,14 @@ export function setChipHost(next: Call | undefined): void {
 type PathViewer = (path: string, opener?: HTMLElement) => void | Promise<void>;
 let viewer: PathViewer | undefined;
 
-/// A path chip's click: the chat's viewer while one is set (labs `chatViewer`, App.tsx), else the
+/// A path chip's click: the chat's viewer while one is set (App.tsx), else the
 /// host opens the path (a tab, a folder in Finder).
 export function openPathChip(path: string, opener?: HTMLElement): void {
   if (viewer) void Promise.resolve(viewer(path, opener)).catch(() => undefined);
   else void callChipHost("link.openPath", { path });
 }
 
-/// The App sets the chat's viewer while `chatViewer` is on, and clears it.
+/// The App sets the chat's viewer while local Files is available, and clears it.
 export function setPathViewer(next: PathViewer | undefined): void {
   viewer = next;
 }
