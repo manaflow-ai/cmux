@@ -9,7 +9,7 @@
 //   the column to its content. Widths are a view setting kept per file (`TableWidths`), never
 //   written to the file: GFM has no column widths, and a resize must not mark the file edited.
 import type { Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
-import { TextSelection, type EditorState } from "@milkdown/kit/prose/state";
+import { AllSelection, TextSelection, type EditorState } from "@milkdown/kit/prose/state";
 import {
   CellSelection,
   TableMap,
@@ -319,11 +319,13 @@ export function tableKeyDown(view: EditorView, event: KeyboardEvent, schema: Sch
 
   if (event.key === "a" && event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey) {
     if (state.selection instanceof CellSelection) {
-      // The whole table is selected: Cmd-A goes on to the whole document.
       const rect = selectedRect(state);
-      return !(rect.left === 0 && rect.top === 0 && rect.right === rect.map.width && rect.bottom === rect.map.height)
-        ? selectTable(view)
-        : false;
+      if (!(rect.left === 0 && rect.top === 0 && rect.right === rect.map.width && rect.bottom === rect.map.height))
+        return selectTable(view);
+      // The whole table is selected: Cmd-A goes on to the whole document. Selected here, not left
+      // to the base keymap's Mod-a: that binding is Ctrl-A wherever navigator.platform is not a Mac.
+      view.dispatch(state.tr.setSelection(new AllSelection(state.doc)));
+      return true;
     }
     const cell = cellAround(state);
     if (!cell) return false;
