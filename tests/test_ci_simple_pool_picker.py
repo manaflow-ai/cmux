@@ -125,9 +125,9 @@ class NeverQueueBehindBlacksmithTests(unittest.TestCase):
             pool(picker.BLACKSMITH[2], 10, 10, 5))
 
     def state(self, blacksmith, **kwargs):
-        defaults = dict(jobs=2, owned=(pool("glaeda-std-xcode-26.6", 8, free=0, queued=6),
-                                       pool("glaeda-light-xcode-26.6", 4, free=1)),
-                        blacksmith=blacksmith, owned_enabled=True)
+        defaults = dict(jobs=2, owned=(pool("glaeda-std-xcode-26.6", 8, running=8, free=0, queued=1),
+                                       pool("glaeda-light-xcode-26.6", 4, free=1, queued=1)),
+                        blacksmith=blacksmith, owned_enabled=True, wait_on_owned=True)
         defaults.update(kwargs)
         return picker.State(**defaults)
 
@@ -165,6 +165,48 @@ class NeverQueueBehindBlacksmithTests(unittest.TestCase):
         by_label = {item.label: item for item in state.blacksmith}
         self.assertTrue(by_label[picker.BLACKSMITH[1]].stalled)
         self.assertFalse(by_label[picker.BLACKSMITH[0]].stalled)
+
+    def test_only_a_rescued_head_waits_on_the_fleet(self):
+        # A trusted fork (CI_PR_POOL_FORK_ALLOWED) may take a free mini, but owned_pool_rescue never
+        # rescues a fork head, and the bot's re-run already waited once: both keep the old rule.
+        choice = picker.pick(self.state(self.FULL, wait_on_owned=False))
+        self.assertEqual(choice.label, picker.BLACKSMITH[1])
+        self.assertFalse(choice.owned)
+        repo = "manaflow-ai/cmux"
+        self.assertTrue(picker.wait_on_owned({}, head=repo, repository=repo))
+        self.assertTrue(picker.wait_on_owned({"GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": "lawrencecchen"},
+                                             head=repo, repository=repo))
+        self.assertFalse(picker.wait_on_owned({}, head="teamleaderleo/cmux", repository=repo))
+        self.assertFalse(picker.wait_on_owned({"GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": "github-actions[bot]"},
+                                              head=repo, repository=repo))
+        self.assertFalse(picker.wait_on_owned({}, head="", repository=""))
+
+    def test_main_passes_the_wait_gate_for_a_trusted_fork(self):
+        seen = {}
+        original = picker.observe
+        picker.observe = lambda **kwargs: seen.update(kwargs) or picker.State(jobs=0)
+        try:
+            picker.main([], {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "HEAD_REPO": "teamleaderleo/cmux",
+                             "CI_PR_POOL_FORK_ALLOWED": "1", "RUN_JOBS": "2"})
+        finally:
+            picker.observe = original
+        self.assertEqual((seen["fork"], seen["wait_owned"]), (False, False))
+
+    def test_a_pool_with_no_online_runner_is_no_queue_to_wait_in(self):
+        state = self.state(self.FULL, owned=(pool("glaeda-std-xcode-26.6", 0, free=0),
+                                             pool("glaeda-light-xcode-26.6", 4, free=0, queued=2)))
+        self.assertEqual(picker.pick(state).label, "glaeda-light-xcode-26.6")
+        state = self.state(self.FULL, owned=(pool("glaeda-std-xcode-26.6", 0, free=0),))
+        self.assertFalse(picker.pick(state).owned)
+
+    def test_the_wait_takes_the_shortest_queue_for_its_size(self):
+        state = self.state(self.FULL, owned=(pool("glaeda-std-xcode-26.6", 8, free=0, queued=16),
+                                             pool("glaeda-light-xcode-26.6", 4, free=0, queued=2)))
+        self.assertEqual(picker.pick(state).label, "glaeda-light-xcode-26.6")
+        # A tie keeps owned order (std before light).
+        state = self.state(self.FULL, owned=(pool("glaeda-std-xcode-26.6", 8, free=0, queued=4),
+                                             pool("glaeda-light-xcode-26.6", 4, free=0, queued=2)))
+        self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
 
     def test_without_an_owned_pool_to_wait_on_the_rule_is_unchanged(self):
         # A fork, owned pools off or an unread runner list has no fleet queue to wait on.

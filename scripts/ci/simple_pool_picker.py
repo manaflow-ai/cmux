@@ -20,8 +20,9 @@ github-actions[bot]'s rescue attempt 3 moves its jobs to (ci-macos.yml).
 CI is minis first; Blacksmith is overflow only, and only while a label has a
 free slot for the run (in flight + queued + reserved below its capacity) and
 its queue is moving (stalled(), the cmux-next cascade's rule). With no owned
-pool free and no free, moving Blacksmith slot, the run waits on the first
-eligible owned pool instead of a Blacksmith queue (2026-10-20:
+pool free and no free, moving Blacksmith slot, a same-repository run (not the
+bot's re-run; State.wait_on_owned) waits on the online owned pool with the
+shortest queue for its size instead of a Blacksmith queue (2026-10-20:
 blacksmith-12vcpu-macos-26 queued 5+ hours, about 95 PRs behind 318 queued
 runs). Only a run with no owned pool to wait on (a fork, owned pools off, an
 unread runner list) still takes the least-loaded Blacksmith label. An owned
@@ -156,6 +157,11 @@ class State:
     overflow_enabled: bool = True
     fallback: str = BLACKSMITH[1]
     gui_required: bool = False
+    # Whether a run that no owned pool and no free Blacksmith slot fits may wait on an owned
+    # pool: only where the owned-pool rescue watches it (a same-repository head, never a trusted
+    # fork, which owned_pool_rescue never rescues) and not on the bot's re-run, which has already
+    # waited behind the fleet once. Off unless the caller says so (main(), wait_on_owned()).
+    wait_on_owned: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -182,6 +188,7 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
             fork=bool(state.get("fork", False)), owned_enabled=bool(state.get("owned_enabled", False)),
             overflow_enabled=bool(state.get("overflow_enabled", True)), fallback=str(state.get("fallback", BLACKSMITH[1])),
             gui_required=bool(state.get("gui_required", False)),
+            wait_on_owned=bool(state.get("wait_on_owned", False)),
         )
     if state.jobs <= 0:
         return Choice(state.fallback, "no macOS jobs")
@@ -199,14 +206,17 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
             # reliable. Keep GUI suites on a pool that advertises a GUI token.
             if state.gui_required and _owned_namespace(pool.label) == "aws":
                 continue
-            eligible.append(pool)
+            # A pool with no online runner is no queue to wait in.
+            if pool.capacity > 0:
+                eligible.append(pool)
             if fits(pool):
                 retry = _retry_label(state, pool)
                 return Choice(pool.label, "owned label has enough free runners now, its queue counted",
                               pool.xcode_app, True, retry_label=retry)
-    if eligible and state.overflow_enabled and _free_blacksmith(state) is None:
-        # Never a Blacksmith queue: wait behind the fleet, which the rescue watches.
-        pool = eligible[0]
+    if eligible and state.wait_on_owned and state.overflow_enabled and _free_blacksmith(state) is None:
+        # Never a Blacksmith queue: wait behind the fleet, which the rescue watches, on the owned
+        # pool with the shortest queue for its size (owned order on a tie).
+        pool = min(eligible, key=lambda pool: (pool.queued / pool.capacity, owned_order(pool.label)))
         return Choice(pool.label, "no owned pool and no Blacksmith label has a free, moving slot now; "
                       "waits on the owned label rather than a Blacksmith queue",
                       pool.xcode_app, True, retry_label=_retry_label(state, pool))
@@ -351,7 +361,16 @@ def _slots(raw: str | None) -> dict[str, int]:
     return result
 
 
-def observe(*, token: str, repository: str, jobs: int, env: Mapping[str, str], fork: bool) -> State:
+def wait_on_owned(env: Mapping[str, str], *, head: str, repository: str) -> bool:
+    """State.wait_on_owned for ci.yml's pick: a same-repository head, and not the bot's re-run."""
+    if not repository or head != repository:
+        return False
+    rerun = (env.get("GITHUB_RUN_ATTEMPT") or "1").strip() not in ("", "1")
+    return not (rerun and (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip() == "github-actions[bot]")
+
+
+def observe(*, token: str, repository: str, jobs: int, env: Mapping[str, str], fork: bool,
+            wait_owned: bool = False) -> State:
     """Read live runner and queue state once, degrading safely when unavailable."""
     fallback = (env.get("MACOS_RUNNER_PR") or BLACKSMITH[1]).strip() or BLACKSMITH[1]
     enabled = (env.get("CI_PR_POOL_OWNED") or "").strip() == "1"
@@ -367,8 +386,8 @@ def observe(*, token: str, repository: str, jobs: int, env: Mapping[str, str], f
             snapshot = api.snapshot()
         except Exception as error:  # noqa: BLE001 - queues then read as unknown (empty)
             print(f"::warning title=pool snapshot::{error}", file=sys.stderr)
-    return state_from(jobs=jobs, env=env, fork=fork, runners=runners, snapshot=snapshot,
-                      fallback=fallback, owned_enabled=enabled)
+    return dataclasses.replace(state_from(jobs=jobs, env=env, fork=fork, runners=runners, snapshot=snapshot,
+                                          fallback=fallback, owned_enabled=enabled), wait_on_owned=wait_owned)
 
 
 def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequence[Mapping[str, Any]] | None,
@@ -538,7 +557,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     head = env.get("HEAD_REPO") or repository
     trusted_fork = (env.get("CI_PR_POOL_FORK_ALLOWED") or "").strip() == "1"
     choice = pick(observe(token=env.get("ROUTE_TOKEN") or env.get("GH_TOKEN") or "", repository=repository,
-                       jobs=jobs, env=env, fork=head != repository and not trusted_fork))
+                       jobs=jobs, env=env, fork=head != repository and not trusted_fork,
+                       wait_owned=wait_on_owned(env, head=head, repository=repository)))
     values = write_outputs(choice, jobs, env.get("GITHUB_OUTPUT"), env)
     for key, value in values.items():
         print(f"{key}={value}")
