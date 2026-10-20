@@ -10,8 +10,8 @@
 # first window and the control socket, open terminal, browser, Settings and
 # agent chat tabs, snapshot each, check it lives 60 s, quit, dyld-load every
 # bundled Mach-O), then UI-fuzz the app in the same VM (scripts/fuzz/macos-matrix/
-# fuzz.py over VZ VNC; OS_SMOKE_FUZZ_STEPS, default 150; a crash or death fails
-# the major), copy the artifacts out, stop and delete the
+# fuzz.py over VZ VNC; OS_SMOKE_FUZZ_STEPS, default 150; a crash or death marks
+# the fuzz column FUZZ-FAIL but leaves the launch verdict alone), copy the artifacts out, stop and delete the
 # clone, release the lock. Base images stay. Majors run one at a time (the
 # Apple license allows at most two macOS VMs per host).
 #
@@ -228,16 +228,18 @@ for m in majors:
     ok = bool(res.get("ok")) and env.get("cycle_exit") == "0"
     fz_path = os.path.join(d, "fuzz", "summary.json")
     fz = json.load(open(fz_path)) if os.path.exists(fz_path) else {}
-    if env.get("fuzz_exit", "0") != "0" or fz.get("crashes", 0) or fz.get("relaunches", 0) or fz.get("guest_lost_at") is not None:
-        ok = False
-        res.setdefault("failed_steps", []).append("fuzz(crashes=%s dead=%s exit=%s)" % (fz.get("crashes"), fz.get("relaunches"), env.get("fuzz_exit")))
+    # Fuzz findings do not change PASS (the launch smoke stays the release gate); the fuzz column
+    # says FUZZ-FAIL, and the nightly macos-matrix-fuzz workflow fails on it.
+    fuzz_bad = bool(fz) and (env.get("fuzz_exit", "0") != "0" or fz.get("crashes", 0) or fz.get("relaunches", 0)
+                             or fz.get("guest_lost_at") is not None)
     failed |= not ok
     why = env.get("failure") or ",".join(res.get("failed_steps", [])) or ("" if res else "no result.json")
     launch = (res.get("steps", {}).get("launch") or {}).get("detail") or {}
     if isinstance(launch, dict) and launch.get("dyld"):
         why += ": " + launch["dyld"][0].strip()[:160]
     ls = res.get("launchservices")
-    fuzz_cell = "%s/%s/%s/%s" % (fz.get("steps", "-"), fz.get("crashes", "-"), fz.get("hangs", "-"), fz.get("relaunches", "-")) if fz else "-"
+    fuzz_cell = ("%s/%s/%s/%s" % (fz.get("steps", "-"), fz.get("crashes", "-"), fz.get("hangs", "-"), fz.get("relaunches", "-"))
+                 + (" FUZZ-FAIL" if fuzz_bad else "")) if fz else "-"
     rows.append((m, res.get("guest_os", "?"), "PASS" if ok else "FAIL", env.get("boot_s", "-"), str(res.get("launch_seconds", "-")),
                  env.get("total_s", "-"), fuzz_cell, why + (" | open exit %s" % ls["exit"] if ls else "")))
 print("\n%-5s %-8s %-5s %7s %8s %7s %12s  %s" % ("major", "guest", "res", "boot_s", "launch_s", "total_s", "fuzz s/c/h/d", "failure"))

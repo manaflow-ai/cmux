@@ -6,7 +6,7 @@ name: macOS matrix fuzz (cmux-next)
 # major: scripts/cmux-next/os-smoke/run.sh launches the build, runs the launch
 # probe and then scripts/fuzz/macos-matrix/fuzz.py (feature tour, seeded
 # random actions, palette commands, shortcuts, clicks and drags) in the same
-# VM. A crash or a dead app fails the major. The app reports its own crashes
+# VM. A crash or a dead app marks the major FUZZ-FAIL and fails this job. The app reports its own crashes
 # and main-thread stalls of 250 ms or more to Sentry, tagged with the OS
 # version, so Sentry splits these runs by OS. The PASS/FAIL table, each major's
 # fuzz counts (steps/crashes/hangs/deaths) and the probe log are in the step
@@ -110,6 +110,8 @@ jobs:
               --arg=--build-job --arg="$JOB" --arg=--majors --arg="$major" --label "$label" \
               --key "matrix-fuzz-${SHA:0:12}-$major-${GITHUB_RUN_ATTEMPT}" | tee "$log" || status=1
             grep -E "^(major|$major ) " "$log" >> "$GITHUB_STEP_SUMMARY" || true
+            # The smoke's PASS is the launch gate; a fuzz crash, death or lost guest shows as FUZZ-FAIL.
+            if grep -q "FUZZ-FAIL" "$log"; then status=1; fi
           done
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           exit "$status"

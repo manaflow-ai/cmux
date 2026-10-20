@@ -8,12 +8,15 @@ shipped nightly). Every Mach-O in nightly 3934457894701 has a minos of 14.0 or l
 7 files have 11.0, 4 have 12.0, 5 have 13.0 and 11 have 14.0. The nightly is arm64 only. A Tart VM on Apple
 silicon cannot run Intel macOS, so this matrix does not cover Intel Macs.
 
-| Major | Name    | Where it runs                                   | Image / host OS                         |
-|-------|---------|-------------------------------------------------|-----------------------------------------|
-| 14    | Sonoma  | Tart VM on a fleet Mac with the os-smoke images | `macos-sonoma-base` 14.8.7 (pinned)     |
-| 15    | Sequoia | Tart VM                                         | `macos-sequoia-base` 15.7.7 (pinned)    |
-| 26    | Tahoe   | Tart VM                                         | `macos-tahoe-base` 26.6.2 (pinned)      |
-| 27    | (27)    | No VM image yet (see "Left")                    | fleet hosts run 27.0 / 27.0.1           |
+| Major | Name         | Where it runs                                        | Image / host OS                                        |
+|-------|--------------|------------------------------------------------------|--------------------------------------------------------|
+| 14    | Sonoma       | Tart VM (fleet: os-smoke pin; cmux15: vanilla image) | `macos-sonoma-base` 14.8.7 / `macos-sonoma-vanilla:14.8.7` |
+| 15    | Sequoia      | Tart VM                                              | `macos-sequoia-base` 15.7.7 / `macos-sequoia-vanilla:15.7.7` |
+| 26    | Tahoe        | Tart VM                                              | `macos-tahoe-base` 26.6.2 / `macos-tahoe-vanilla:26.6.2` |
+| 27    | Golden Gate  | Tart VM on a macOS 27 host (no os-smoke pin yet)     | `macos-golden-gate-vanilla:27.0`                       |
+
+The vanilla images (login admin/admin) run with `FUZZ_IMAGE_<major>=ghcr.io/cirruslabs/macos-…-vanilla:<ver>`
+and `OS_SMOKE_HOST_LOCK=none` on a non-fleet Tart host. A macOS 27 guest needs a macOS 27 host.
 
 The image pins are in `scripts/cmux-next/os-smoke/images.json`. These images are public Cirrus Labs images and
 cost nothing. At this time the only host that holds all three images is `aws-m4pro-6`
@@ -48,7 +51,13 @@ The nightly app itself sends its crashes and its main-thread lag spikes of 250 m
 `CmuxSentryTelemetry` package). Each event carries its OS version, so the Sentry issues split by OS.
 
 Reproduce a finding: `vm.sh --majors 15 --replay <run>/15/steps.jsonl BUILD`. The same seed with the same
-build gives the same steps.
+build gives the same steps. `fuzz.py --replay … --minimize` delta-debugs a crashing replay to a minimal step list
+(`minimal.jsonl`). At each death the fuzzer saves the app's stderr (`dead-N.stderr.txt`): the Swift runtime's
+fatal-error text is not in the `.ips`. For allocator bugs, `FUZZ_DYLIB=<dylib>` loads a diagnostic dylib into the
+app (the guest copy is re-signed ad hoc without the hardened runtime).
+
+The guest helpers use `/usr/bin/perl` and `osascript`, not `python3`: a guest without the Command Line Tools has
+only the `python3` stub.
 
 ## Results
 

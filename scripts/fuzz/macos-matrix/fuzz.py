@@ -84,11 +84,14 @@ class Guest:
 
         A ping that runs past `timeout` returns the timeout (a hang), not None.
         """
-        cmd = (f"/usr/bin/python3 -I -c 'import subprocess,shlex,sys,time\nt=time.time()\ntry:\n"
-               f"  r=subprocess.run(shlex.split(sys.argv[1]),capture_output=True,timeout={timeout})\n"
-               f"  print(int((time.time()-t)*1000) if r.returncode==0 else -1)\n"
-               f"except subprocess.TimeoutExpired:\n  print({int(timeout * 1000)})' {shlex.quote(self._cli(['app', 'ping']))}")
-        r = self.sh(cmd.replace("\\n", "\n"), timeout + 15)
+        # Perl, not python3: a macOS 26 guest without the Command Line Tools has only the
+        # /usr/bin/python3 stub, which opens an install dialog and fails.
+        ms = int(timeout * 1000)
+        perl = ("use Time::HiRes qw(time); my $t = time; my $pid = fork;"
+                " if (!$pid) { open STDOUT, '>', '/dev/null'; open STDERR, '>', '/dev/null'; exec @ARGV; exit 127 }"
+                " my $ok = eval { local $SIG{ALRM} = sub { die \"t\\n\" }; alarm " + str(max(1, int(timeout + 0.999))) + "; waitpid($pid, 0); alarm 0; 1 };"
+                " if (!$ok) { kill 9, $pid; print " + str(ms) + " } else { print $? ? -1 : int((time - $t) * 1000) }")
+        r = self.sh(f"/usr/bin/perl -e {shlex.quote(perl)} -- {self._cli(['app', 'ping'])}", timeout + 15)
         try:
             v = int(r.stdout.strip().splitlines()[-1])
             return None if v < 0 else v
@@ -334,13 +337,11 @@ def check_input(g: Guest, vnc: RFB) -> dict:
 
 def new_reports(g: Guest, since: float, seen: set[str]) -> list[str]:
     """Crash (.ips) and hang reports of the app's processes written since `since` (epoch s)."""
-    code = ("import glob,os,sys\n"
-            "for d in (os.path.expanduser('~/Library/Logs/DiagnosticReports'), '/Library/Logs/DiagnosticReports'):\n"
-            "  for p in glob.glob(d + '/*'):\n"
-            "    n = os.path.basename(p)\n"
-            "    if ('cmux' in n or 'acpmux' in n or 'optchat' in n or n.endswith('.hang')) and os.path.getmtime(p) > float(sys.argv[1]):\n"
-            "      print(p)\n")
-    r = g.sh(f"/usr/bin/python3 -I -c {shlex.quote(code)} {since}")
+    perl = ("for my $d (glob('~/Library/Logs/DiagnosticReports'), '/Library/Logs/DiagnosticReports') {"
+            " for my $p (glob(\"$d/*\")) { my ($n) = $p =~ m{([^/]+)$};"
+            " next unless $n =~ /cmux|acpmux|optchat/ || $n =~ /\\.hang$/;"
+            " print \"$p\\n\" if (stat $p)[9] > $ARGV[0] } }")
+    r = g.sh(f"/usr/bin/perl -e {shlex.quote(perl)} {since}")
     return [p for p in r.stdout.splitlines() if p and p not in seen]
 
 
