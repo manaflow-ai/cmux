@@ -24,6 +24,11 @@ impl HostListener {
         Ok(Self(listener))
     }
 
+    /// The listening descriptor, for a shared host's event loop.
+    pub(crate) fn fd(&self) -> std::os::fd::RawFd {
+        self.0.as_raw_fd()
+    }
+
     pub(crate) fn accept(&self) -> io::Result<HostStream> {
         self.0.accept().map(|(stream, _)| stream)
     }

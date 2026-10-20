@@ -25,14 +25,42 @@ pub(crate) struct Slave(File);
 
 struct DescriptorCleanup {
     descriptor_limit: RawFd,
+    /// Room for the child's descriptor list (macOS), allocated before the
+    /// fork: the child lists its own table into it instead of probing every
+    /// descriptor up to the limit. A process with a raised limit (a shared
+    /// terminal host, 65,536) otherwise spent about 10 ms per spawn there.
+    #[cfg(target_os = "macos")]
+    listing: Vec<libc::proc_fdinfo>,
 }
 
 #[cfg(target_os = "linux")]
 const MAX_INDIVIDUAL_DESCRIPTOR_LIMIT: RawFd = 65_536;
 
+/// Spare entries for descriptors other threads open between sizing the
+/// list and the fork.
+#[cfg(target_os = "macos")]
+const LISTING_SLACK: usize = 1024;
+
 impl DescriptorCleanup {
     fn new(descriptor_limit: RawFd) -> Self {
-        Self { descriptor_limit }
+        Self {
+            descriptor_limit,
+            #[cfg(target_os = "macos")]
+            listing: {
+                // SAFETY: a size query (null buffer) for this process.
+                let bytes = unsafe {
+                    libc::proc_pidinfo(
+                        libc::getpid(),
+                        libc::PROC_PIDLISTFDS,
+                        0,
+                        std::ptr::null_mut(),
+                        0,
+                    )
+                };
+                let entries = usize::try_from(bytes).unwrap_or(0) / size_of::<libc::proc_fdinfo>();
+                vec![libc::proc_fdinfo { proc_fd: -1, proc_fdtype: 0 }; entries + LISTING_SLACK]
+            },
+        }
     }
 }
 
@@ -212,7 +240,7 @@ pub(crate) fn spawn(
     if descriptor_limit < 3 {
         bail!("failed to determine the process descriptor limit");
     }
-    let descriptor_cleanup = DescriptorCleanup::new(descriptor_limit);
+    let mut descriptor_cleanup = DescriptorCleanup::new(descriptor_limit);
     unsafe {
         process.pre_exec(move || {
             for signal in [
@@ -247,7 +275,7 @@ pub(crate) fn spawn(
                 return Err(io::Error::last_os_error());
             }
             crate::open_files::restore_open_file_limit_in_child()?;
-            mark_inherited_descriptors_close_on_exec(&descriptor_cleanup)?;
+            mark_inherited_descriptors_close_on_exec(&mut descriptor_cleanup)?;
             Ok(())
         });
     }
@@ -256,7 +284,7 @@ pub(crate) fn spawn(
     Ok(Box::new(child))
 }
 
-fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::Result<()> {
+fn mark_inherited_descriptors_close_on_exec(cleanup: &mut DescriptorCleanup) -> io::Result<()> {
     // `Command::spawn` installs a private CLOEXEC pipe so the child can
     // report pre-exec and exec failures. Closing every descriptor here would
     // close that pipe and make a failed exec look successful. Marking the
@@ -301,7 +329,46 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::
             return Err(io::Error::from_raw_os_error(libc::EOVERFLOW));
         }
     }
+    #[cfg(target_os = "macos")]
+    if mark_listed_descriptors_close_on_exec(&mut cleanup.listing)? {
+        return Ok(());
+    }
     mark_descriptors_close_on_exec_individually(cleanup.descriptor_limit)
+}
+
+/// Marks every descriptor the child's own table lists (between fork and
+/// exec: `proc_pidinfo` is one system call, no allocation). False when the
+/// list may be incomplete (it filled `listing`, or the call failed): the
+/// caller then probes every descriptor.
+#[cfg(target_os = "macos")]
+fn mark_listed_descriptors_close_on_exec(listing: &mut [libc::proc_fdinfo]) -> io::Result<bool> {
+    let capacity = size_of_val(listing);
+    let Ok(capacity_arg) = libc::c_int::try_from(capacity) else { return Ok(false) };
+    // SAFETY: `listing` is writable for `capacity` bytes; PROC_PIDLISTFDS
+    // fills it with this (the child's) descriptor table.
+    let bytes = unsafe {
+        libc::proc_pidinfo(
+            libc::getpid(),
+            libc::PROC_PIDLISTFDS,
+            0,
+            listing.as_mut_ptr().cast(),
+            capacity_arg,
+        )
+    };
+    let Ok(bytes) = usize::try_from(bytes) else { return Ok(false) };
+    if bytes == 0 || bytes >= capacity {
+        return Ok(false);
+    }
+    for entry in &listing[..bytes / size_of::<libc::proc_fdinfo>()] {
+        if entry.proc_fd < 3 {
+            continue;
+        }
+        match mark_descriptor_close_on_exec(entry.proc_fd) {
+            Err(error) if error.raw_os_error() == Some(libc::EBADF) => {}
+            result => result?,
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(target_os = "linux")]
@@ -677,8 +744,8 @@ mod linux_tests {
         let _inherited = unsafe { File::from_raw_fd(descriptor) };
         install_close_range_openat_and_fcntl_eperm_filter();
 
-        let cleanup = DescriptorCleanup::new(1_048_576);
-        let error = mark_inherited_descriptors_close_on_exec(&cleanup)
+        let mut cleanup = DescriptorCleanup::new(1_048_576);
+        let error = mark_inherited_descriptors_close_on_exec(&mut cleanup)
             .expect_err("oversized descriptor table should fail before an individual scan");
         assert_eq!(error.raw_os_error(), Some(libc::EOVERFLOW));
     }
@@ -710,7 +777,7 @@ mod linux_tests {
         let descriptor = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD, 200) };
         assert!(descriptor >= 200);
         let inherited = unsafe { File::from_raw_fd(descriptor) };
-        let cleanup = DescriptorCleanup::new(unsafe { libc::getdtablesize() });
+        let mut cleanup = DescriptorCleanup::new(unsafe { libc::getdtablesize() });
         let mut child_ready = [-1; 2];
         let mut parent_ready = [-1; 2];
         assert_eq!(unsafe { libc::pipe2(child_ready.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
@@ -737,7 +804,7 @@ mod linux_tests {
                 }
             }
             let marked =
-                mark_inherited_descriptors_close_on_exec(&cleanup).is_ok_and(|()| unsafe {
+                mark_inherited_descriptors_close_on_exec(&mut cleanup).is_ok_and(|()| unsafe {
                     let flags = libc::fcntl(descriptor, libc::F_GETFD);
                     flags != -1 && flags & libc::FD_CLOEXEC != 0
                 });

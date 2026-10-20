@@ -43,6 +43,16 @@ fn wait_for_spare(harness: &RecoveryHarness, daemon: libc::pid_t) -> u32 {
     }
 }
 
+/// A daemon with one host process per terminal, whatever the test runner's
+/// environment: a spare here is a process (shared hosts start a terminal
+/// as a slot of a running host, `shared_hosts.rs`).
+fn start_plain(name: &str) -> RecoveryHarness {
+    let mut harness = RecoveryHarness::start_unstarted(name);
+    harness.extra_env.push(("CMUX_TUI_SHARED_TERMINAL_HOSTS".into(), "0".into()));
+    harness.restart();
+    harness
+}
+
 fn new_tab(harness: &RecoveryHarness, id: u64, pane: u64, value: &str) -> (u64, String) {
     new_tab_with_id(harness, id, pane, value, None)
 }
@@ -83,7 +93,7 @@ fn host_pid_of(harness: &RecoveryHarness, terminal: &str) -> u32 {
 
 #[test]
 fn the_second_new_tab_adopts_the_spare_host_with_its_own_environment() {
-    let harness = RecoveryHarness::start("standby-host-adopt");
+    let harness = start_plain("standby-host-adopt");
     let daemon = harness.child.as_ref().unwrap().id() as libc::pid_t;
     run_cat_workspace(&harness.socket, 1, "standby");
     let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
@@ -132,7 +142,7 @@ fn wait_for_dead_or_gone(pid: u32) {
 
 #[test]
 fn a_spare_killed_before_adoption_leaves_the_next_tab_launching_as_before() {
-    let harness = RecoveryHarness::start("standby-host-killed");
+    let harness = start_plain("standby-host-killed");
     let daemon = harness.child.as_ref().unwrap().id() as libc::pid_t;
     run_cat_workspace(&harness.socket, 1, "standby");
     let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
@@ -157,7 +167,7 @@ fn a_spare_killed_before_adoption_leaves_the_next_tab_launching_as_before() {
 /// such a tab must adopt the spare too.
 #[test]
 fn a_new_tab_with_a_caller_chosen_terminal_id_adopts_the_spare() {
-    let harness = RecoveryHarness::start("standby-host-caller-id");
+    let harness = start_plain("standby-host-caller-id");
     let daemon = harness.child.as_ref().unwrap().id() as libc::pid_t;
     run_cat_workspace(&harness.socket, 1, "standby");
     let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
@@ -189,7 +199,7 @@ fn a_new_tab_with_a_caller_chosen_terminal_id_adopts_the_spare() {
 /// (plans/cmux-next/remote-state-ownership.md S1).
 #[test]
 fn a_sized_split_adopts_the_spare_with_the_callers_ids() {
-    let harness = RecoveryHarness::start("standby-host-split");
+    let harness = start_plain("standby-host-split");
     let daemon = harness.child.as_ref().unwrap().id() as libc::pid_t;
     run_cat_workspace(&harness.socket, 1, "standby");
     let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));

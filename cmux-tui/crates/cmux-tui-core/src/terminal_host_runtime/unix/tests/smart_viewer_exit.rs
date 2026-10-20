@@ -84,6 +84,7 @@ fn changing_defaults_forces_smart_renderers_to_a_fresh_snapshot() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: usize::MAX,
+                wake: None,
             },
         )
         .unwrap();
@@ -125,6 +126,7 @@ fn repeating_defaults_does_not_resync_smart_renderers() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: usize::MAX,
+                wake: None,
             },
         )
         .unwrap();
@@ -194,6 +196,7 @@ fn smart_attach_replays_source_bytes_ahead_of_parser_boundary_exactly_once() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
+        wake: None,
     };
     let boundary = state.subscribe(7, tap).unwrap();
     assert_eq!(boundary, 0);
@@ -258,6 +261,7 @@ fn smart_attach_cannot_miss_exit_between_dead_check_and_subscribe() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
+        wake: None,
     };
     assert_eq!(host.smart.subscribe(7, tap).unwrap(), 0);
     drop(term);
@@ -318,6 +322,7 @@ fn smart_attach_reports_retention_gap_instead_of_silent_corruption() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
+        wake: None,
     };
     let gap = state.subscribe(9, tap).unwrap_err();
     assert_eq!(gap, SmartReplayGap::Retention { requested_after: 0, retained_after: 1 });
@@ -337,6 +342,7 @@ fn smart_attach_distinguishes_subscriber_queue_overflow() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: 0,
+        wake: None,
     };
 
     let gap = state.subscribe(10, tap).unwrap_err();
@@ -360,6 +366,7 @@ fn smart_noisy_neighbor_is_evicted_without_stalling_other_renderers() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: capacity * (crate::terminal_host_protocol::HEADER_LEN + 1),
+                wake: None,
             },
             receiver,
         )
@@ -388,6 +395,7 @@ fn smart_failed_transition_is_closed_by_applied_resync_boundary() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
+        wake: None,
     };
     state.subscribe(1, tap).unwrap();
 
@@ -415,6 +423,7 @@ fn parser_output_send_failure_closes_published_transition() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: usize::MAX,
+                wake: None,
             },
         )
         .unwrap();
@@ -425,7 +434,14 @@ fn parser_output_send_failure_closes_published_transition() {
     let (parser_sender, parser_receiver) = sync_channel(1);
     drop(parser_receiver);
 
-    assert!(!enqueue_parser_output(&parser_sender, &budget, &state, vec![1, 2, 3], failed, 3,));
+    assert!(!enqueue_parser_output(
+        &parser_sender.into(),
+        &budget,
+        &state,
+        vec![1, 2, 3],
+        failed,
+        3,
+    ));
 
     assert_eq!(*budget.queued_bytes.lock().unwrap(), 0);
     assert_eq!(tap_receiver.recv().unwrap().kind, MessageKind::Output);

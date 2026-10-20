@@ -85,6 +85,15 @@ pub(crate) fn run_guarded_host_parser(
     end_process();
 }
 
+/// A shared host's parser job panicked: end this terminal and publish its
+/// exit (bounded), as the parser thread does; the process keeps running.
+pub(crate) fn after_parser_panic(host: &Arc<HostShared>) {
+    eprintln!("terminal-host: the parser panicked; publishing the exit and ending the terminal");
+    if !host.end_after_parser_failure(PARSER_FAILURE_EXIT_BOUND) {
+        eprintln!("terminal-host: the exit was not published in time");
+    }
+}
+
 impl HostShared {
     /// Ends a host whose parser is gone. No later byte can be applied, so
     /// the PTY stream counts as drained; the child is ended (the usual
@@ -124,24 +133,66 @@ pub(crate) fn run_host_parser(
     initial_colors: TerminalColorOverrides,
     signals: ParserSignals,
 ) {
-    let ParserSignals { pending_responses, title_changed, bell, program_status: _ } = signals;
-    let mut last_colors = initial_colors;
-    let mut last_pwd = None;
-    let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
-    // Ghostty can answer terminal queries without producing a parser
-    // frame. Flush those answers after every parser command, not only
-    // after PTY output, so lifecycle operations (for example resize
-    // during a Pi reload) cannot leave replies queued in memory and
-    // deliver them to a later TUI write.
-    let flush_pending_responses = || {
-        let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-        if !responses.is_empty() {
-            let mut writer = parser_host.writer.lock().unwrap();
-            let _ = writer.write_all(&responses);
-            let _ = writer.flush();
-        }
-    };
+    let mut parser = HostParser::new(parser_host, initial_colors, signals);
     while let Ok(command) = parser_command_receiver.recv() {
+        if !parser.apply(command) {
+            break;
+        }
+    }
+}
+
+/// The authoritative parser of one terminal host: its state between
+/// commands. A one-terminal host runs it on its parser thread
+/// ([`run_host_parser`]); a shared host runs it as a serial job.
+pub(crate) struct HostParser {
+    parser_host: Arc<HostShared>,
+    pending_responses: Arc<Mutex<Vec<u8>>>,
+    title_changed: Arc<AtomicBool>,
+    bell: Arc<AtomicBool>,
+    last_colors: TerminalColorOverrides,
+    last_pwd: Option<String>,
+    shell_marks: crate::prompt_mode_reset::ShellMarks,
+}
+
+impl HostParser {
+    pub(crate) fn new(
+        parser_host: Arc<HostShared>,
+        initial_colors: TerminalColorOverrides,
+        signals: ParserSignals,
+    ) -> Self {
+        let ParserSignals { pending_responses, title_changed, bell, program_status: _ } = signals;
+        Self {
+            parser_host,
+            pending_responses,
+            title_changed,
+            bell,
+            last_colors: initial_colors,
+            last_pwd: None,
+            shell_marks: crate::prompt_mode_reset::ShellMarks::default(),
+        }
+    }
+
+    /// Apply one command. False after `Drain`: the parser is done.
+    pub(crate) fn apply(&mut self, command: ParserCommand) -> bool {
+        let parser_host = &self.parser_host;
+        let title_changed = &self.title_changed;
+        let bell = &self.bell;
+        let last_colors = &mut self.last_colors;
+        let last_pwd = &mut self.last_pwd;
+        let shell_marks = &mut self.shell_marks;
+        // Ghostty can answer terminal queries without producing a parser
+        // frame. Flush those answers after every parser command, not only
+        // after PTY output, so lifecycle operations (for example resize
+        // during a Pi reload) cannot leave replies queued in memory and
+        // deliver them to a later TUI write.
+        let flush_pending_responses = || {
+            let responses = std::mem::take(&mut *self.pending_responses.lock().unwrap());
+            if !responses.is_empty() {
+                let mut writer = parser_host.writer.lock().unwrap();
+                let _ = writer.write_all(&responses);
+                let _ = writer.flush();
+            }
+        };
         match command {
             ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
                 let title = {
@@ -150,7 +201,7 @@ pub(crate) fn run_host_parser(
                         .cursor_activity()
                         .expect("valid host terminals expose cursor activity");
                     let normalized =
-                        crate::prompt_mode_reset::write_output(&mut term, &bytes, &mut shell_marks)
+                        crate::prompt_mode_reset::write_output(&mut term, &bytes, shell_marks)
                             .into_owned();
                     {
                         let mut metadata = parser_host.terminal_metadata.lock().unwrap();
@@ -169,14 +220,14 @@ pub(crate) fn run_host_parser(
                         .cursor_activity()
                         .expect("valid host terminals expose cursor activity")
                         != cursor_activity;
-                    let colors = if colors != last_colors || cursor_changed {
+                    let colors = if colors != *last_colors || cursor_changed {
                         let encoded = encode_terminal_color_overrides(&colors);
-                        last_colors = colors;
+                        *last_colors = colors;
                         Some(encoded)
                     } else {
                         None
                     };
-                    let pwd = changed_pwd_frame(&mut last_pwd, pwd);
+                    let pwd = changed_pwd_frame(last_pwd, pwd);
                     parser_host.broadcast_frames(output_transition_frames(normalized, colors, pwd));
                     // After this chunk's Output, so the owner's mirror shows
                     // what the program printed before it asked.
@@ -223,7 +274,7 @@ pub(crate) fn run_host_parser(
             }
             ParserCommand::SetDefaults { colors, source_cursor, response } => {
                 let colors = *colors;
-                last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
+                *last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
                 flush_pending_responses();
                 let _ = response.send(());
             }
@@ -253,8 +304,9 @@ pub(crate) fn run_host_parser(
                 parser_host.mark_pty_drained();
                 parser_host.publish_exit_if_drained();
                 flush_pending_responses();
-                break;
+                return false;
             }
         }
+        true
     }
 }
