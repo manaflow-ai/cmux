@@ -40,17 +40,18 @@ for spec in sys.argv[1:]:
                      p.get("rounds", {}), p.get("idle", {}), owners))
 
 print("| run | macOS | Cmd-T tab visible p50/p90 ms | split p50/p90 ms | workspace p50/p90 ms | first prompt p50 ms "
-      "| 20x Cmd-T burst: all tabs s | burst stalls n / total ms / max ms | CPU app+helpers % (rounds) | WindowServer % (rounds) | idle CPU % |")
-print("|---|---|---|---|---|---|---|---|---|---|---|")
+      "| 20x Cmd-T burst: all tabs s | burst stalls n / total ms / max ms | WebContent processes (55 / 75 tabs) | WebContent RSS MB (55 tabs) "
+      "| all-process CPU % (rounds, of 400) | WindowServer % (rounds) |")
+print("|---|---|---|---|---|---|---|---|---|---|---|---|")
 for label, major, guest, tab, split, ws, prompts, burst, rounds, idle, _ in rows:
     prompts = sorted(x for x in prompts if x is not None)
     p50 = round(prompts[len(prompts) // 2]) if prompts else None
     st = burst.get("stalls", {})
-    print("| %s | %s (%s) | %s / %s | %s / %s | %s / %s | %s | %s | %s / %s / %s | %s | %s | %s |" % (
+    print("| %s | %s (%s) | %s / %s | %s / %s | %s / %s | %s | %s | %s / %s / %s | %s / %s | %s | %s | %s |" % (
         label, major, guest, tab.get("visible_p50"), tab.get("visible_p90"), split.get("visible_p50"), split.get("visible_p90"),
         ws.get("visible_p50"), ws.get("visible_p90"), p50, burst.get("all_tabs_s"), st.get("count"), st.get("total_ms"),
-        st.get("max_ms"), round((rounds.get("app_cpu") or 0) + (rounds.get("kids_cpu") or 0)), rounds.get("ws_cpu"),
-        round((idle.get("app_cpu") or 0) + (idle.get("kids_cpu") or 0), 1)))
+        st.get("max_ms"), rounds.get("web_procs_end", "-"), burst.get("web_procs_end", "-"), rounds.get("web_mb_end", "-"),
+        rounds.get("all_cpu", "-"), rounds.get("ws_cpu")))
 print()
 for label, major, guest, *_, owners in rows:
     print("%s macOS %s burst stalls >=150 ms by owner: %s" % (label, major, ", ".join("%s %d ms" % kv for kv in owners.most_common(8))))

@@ -20,6 +20,14 @@ WindowServer every 0.5 s. A `sample` of the app runs during the burst. The
 stalls (`debug.hangs`, 50 ms watchdog) of each phase are summed and their top
 frames counted. Writes OUT/stress.json and prints STRESS lines.
 
+Budget (the lag guard, run.sh's stress phase on every supported major): the WebKit web content
+processes during the stress (one per New Tab page before the fix: 75 for 75 tabs) must stay at
+most STRESS_BUDGET_WEB_PROCS, and the 20x Cmd-T burst's longest main-thread stall and summed
+stalls under STRESS_BUDGET_MAX_MS and STRESS_BUDGET_TOTAL_MS (defaults below, set from the
+Tart runs in plans/cmux-next/sequoia-lag.md).
+Exit: 0 within budget, 1 the app died or never showed a window, 2 over budget, 3 skipped (a
+release build has no debug.* methods).
+
 Usage: stress-probe.py APP_PATH OUT_DIR
 Env: STRESS_ROUNDS (default 10), STRESS_BURST (20), STRESS_IDLE (15), STRESS_GHOSTTY
 (Ghostty config lines, "\\n" separated; default none).
@@ -34,6 +42,11 @@ exec(compile(_src[:_src.index("# 1. OS gate")], "guest-probe.py", "exec"))
 ROUNDS = int(os.environ.get("STRESS_ROUNDS", "10"))
 BURST = int(os.environ.get("STRESS_BURST", "20"))
 IDLE = float(os.environ.get("STRESS_IDLE", "15"))
+# The VMs' stall times swing 2x run to run (host load), so the time budgets only catch a large
+# regression; the WebContent process count is exact and is the main guard.
+BUDGET_MAX_MS = float(os.environ.get("STRESS_BUDGET_MAX_MS", "1500"))
+BUDGET_TOTAL_MS = float(os.environ.get("STRESS_BUDGET_TOTAL_MS", "6000"))
+BUDGET_WEB_PROCS = int(os.environ.get("STRESS_BUDGET_WEB_PROCS", "20"))
 report = {"guest_os": guest_os, "guest_build": result["guest_build"], "app": os.path.basename(APP),
           "rounds": [], "phases": {}}
 
@@ -82,10 +95,15 @@ class Sampler(threading.Thread):
             app = [r for r in rows if r[0] == self.pid]
             desc = [r for r in rows if r[0] in kids and r[0] != self.pid]
             ws = [r for r in rows if r[4].endswith("WindowServer")]
+            # WebKit's web content processes are launchd's children, not the app's.
+            web = [r for r in rows if "WebKit.WebContent" in r[4] or "WebKit.GPU" in r[4] or "WebKit.Networking" in r[4]]
             self.samples.append({"t": time.time(), "phase": self.phase,
                                  "app_cpu": sum(r[2] for r in app), "app_mb": sum(r[3] for r in app) / 1024,
                                  "kids_cpu": sum(r[2] for r in desc), "kids_mb": sum(r[3] for r in desc) / 1024,
-                                 "kids": len(desc), "ws_cpu": sum(r[2] for r in ws)})
+                                 "kids": len(desc), "ws_cpu": sum(r[2] for r in ws),
+                                 "web_cpu": sum(r[2] for r in web), "web_mb": sum(r[3] for r in web) / 1024,
+                                 "web_procs": sum(1 for r in web if "WebContent" in r[4]),
+                                 "all_cpu": sum(r[2] for r in rows)})
             self.stop_flag.wait(0.5)
 
     def summary(self, phase):
@@ -95,7 +113,9 @@ class Sampler(threading.Thread):
         mean = lambda k: round(sum(r[k] for r in rows) / len(rows), 1)
         return {"n": len(rows), "app_cpu": mean("app_cpu"), "kids_cpu": mean("kids_cpu"), "ws_cpu": mean("ws_cpu"),
                 "app_cpu_max": round(max(r["app_cpu"] for r in rows), 1), "ws_cpu_max": round(max(r["ws_cpu"] for r in rows), 1),
-                "app_mb_end": round(rows[-1]["app_mb"]), "kids_mb_end": round(rows[-1]["kids_mb"]), "kids_end": rows[-1]["kids"]}
+                "app_mb_end": round(rows[-1]["app_mb"]), "kids_mb_end": round(rows[-1]["kids_mb"]), "kids_end": rows[-1]["kids"],
+                "web_cpu": mean("web_cpu"), "web_mb_end": round(rows[-1]["web_mb"]), "web_procs_end": rows[-1]["web_procs"],
+                "web_procs_max": max(r["web_procs"] for r in rows), "all_cpu": mean("all_cpu")}
 
 
 def stall_summary(stalls):
@@ -138,8 +158,9 @@ try:
         sys.exit(1)
     report["launch_s"] = round(time.time() - started, 1)
     if not debug_router():
-        print("STRESS FAIL release build: the stress needs debug.* methods (a DEV build)", flush=True)
-        sys.exit(1)
+        print("STRESS skip release build: the stress needs debug.* methods (a DEV build)", flush=True)
+        exit_code = 3
+        sys.exit(3)
     rpc("action.run", {"action": "newTab", "focus": True, "wait": True})
     wait(lambda: terminal_count() >= 1, TAB_DEADLINE, alive)
     wait(lambda: False, 3, alive)  # past the launch preload delay
@@ -207,7 +228,15 @@ try:
     report["wakeups"] = rpc("debug.wakeups") if alive() else None
     report["layers"] = rpc("debug.layers") if alive() else None
     report["alive"] = alive()
-    exit_code = 0 if alive() else 1
+    stalls = report["phases"]["burst"]["stalls"]
+    web_procs = max([s.get("web_procs", 0) for s in sampler.samples] or [0])
+    report["budget"] = {"max_ms": BUDGET_MAX_MS, "total_ms": BUDGET_TOTAL_MS, "web_procs": BUDGET_WEB_PROCS,
+                        "ok": stalls["max_ms"] <= BUDGET_MAX_MS and stalls["total_ms"] <= BUDGET_TOTAL_MS
+                        and web_procs <= BUDGET_WEB_PROCS}
+    print("STRESS budget %s web content processes %d for %d tabs (budget %d), burst max stall %d ms (budget %d), "
+          "total %d ms (budget %d)" % ("ok" if report["budget"]["ok"] else "FAIL", web_procs, tabs(), BUDGET_WEB_PROCS,
+                                       stalls["max_ms"], BUDGET_MAX_MS, stalls["total_ms"], BUDGET_TOTAL_MS), flush=True)
+    exit_code = (0 if report["budget"]["ok"] else 2) if alive() else 1
 finally:
     sampler.stop_flag.set()
     for phase in ("rounds", "burst", "idle"):
@@ -222,8 +251,8 @@ finally:
     report["samples"] = sampler.samples
     with open(os.path.join(OUT, "stress.json"), "w") as f:
         json.dump(report, f, indent=1)
-    # run.sh's PASS/FAIL table reads result.json.
-    with open(os.path.join(OUT, "result.json"), "w") as f:
+    # run.sh's PASS/FAIL table reads result.json; as run.sh's stress phase the launch probe owns it.
+    with open(os.path.join(OUT, "result.json" if os.environ.get("STRESS_PHASE") != "1" else "stress-result.json"), "w") as f:
         json.dump({"ok": exit_code == 0, "guest_os": guest_os, "launch_seconds": report.get("launch_s"),
                    "steps": {"stress": {"ok": exit_code == 0}}, "failed_steps": [] if exit_code == 0 else ["stress"]}, f)
     if os.path.exists(os.path.join(OUT, "burst-sample.txt")):
