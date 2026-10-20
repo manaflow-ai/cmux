@@ -409,6 +409,12 @@ impl Viewer {
         let clock = self.session.clock();
         while let Some((stream, complete)) = self.session.pop_frame() {
             let keyframe = complete.flags & flags::KEYFRAME != 0;
+            if stream == 0 {
+                // The page's video is on the channel (another tab holds the
+                // lane): when this tab takes the lane back, its lane frames
+                // start again at a keyframe.
+                self.track_synced = false;
+            }
             let capture_us = complete.body.t_capture_us;
             let age_us = clock.map(|c| {
                 let host_now = i128::from(now) + i128::from(c.offset_us);

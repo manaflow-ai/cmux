@@ -1180,6 +1180,11 @@ public final class LiveCoordinator {
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
         store.handleMacData(.received(count: tree.workspaces.count), macID: macID)
+        // Streamed browser tabs of workspaces closed on the Mac go: a redial
+        // must not open them again (transport-verify-20261019.md defect 7).
+        // This phone's pending workspaces keep theirs.
+        StreamedBrowserDirectory.shared.retain(
+            tabs: Set(tree.surfaces.keys).union(store.workspaces.flatMap { $0.tabs.map(\.id) }))
         ConnectTimeline.shared.mark("workspaces_live", detail: "\(tree.workspaces.count) workspaces")
         scheduleSnapshotSave()
         // History items name their workspace and tab once the tree places their session.

@@ -31,9 +31,12 @@ public final class StreamedBrowserDirectory {
             warmMedia()
             return model
         }
-        let model = StreamedBrowserModel(tab: tab, url: url) { sink in
-            guard let link = await opener() else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
-            return try await link.openBrowser(tab: tab, url: url?.absoluteString, sink: sink)
+        let model = StreamedBrowserModel(tab: tab, url: url) { [weak self] sink, current in
+            // The opener of the link up now (a stream reopens on a new link).
+            guard let opener = await self?.opener, let link = await opener() else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
+            return try await link.openBrowser(tab: tab, url: (current ?? url)?.absoluteString, sink: sink)
         }
         models[tab] = model
         if !appActive { model.setAppActive(false) }
@@ -58,9 +61,19 @@ public final class StreamedBrowserDirectory {
         models.removeValue(forKey: tab)?.close()
     }
 
-    /// A new link: dropped streams come back.
+    /// The tabs the Mac lists now (every workspace's, and this phone's
+    /// pending ones): a tab whose workspace closed on the Mac is dropped, so
+    /// a redial never opens it again (transport-verify-20261019.md defect 7).
+    public func retain(tabs: Set<String>) {
+        for tab in models.keys where !tabs.contains(tab) { drop(tab: tab) }
+    }
+
+    /// A new link: the shown tab's stream comes back. Hidden tabs open when
+    /// they are shown again: each open claims the link's one media lane and
+    /// a Mac host, so reopening every tab the phone holds gave the lane to a
+    /// hidden one and made the Mac stop the shown tab's page (defect 7).
     public func linkChanged() {
-        for model in models.values { model.reconnect() }
+        for model in models.values where model.isShown { model.reconnect() }
         lastWarm = nil
         if !models.isEmpty { warmMedia() }
     }

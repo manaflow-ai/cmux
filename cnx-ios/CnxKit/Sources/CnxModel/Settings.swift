@@ -27,6 +27,15 @@ public enum TransportKind: String, CaseIterable, Identifiable, Sendable, Codable
         }
     }
 
+    /// The Settings root's value with the Developer dial policies that apply
+    /// to this transport: Block UDP is a WireGuard policy (WebRTC ignores it,
+    /// PROTOCOL.md "Transport switch"), Relay only applies to both.
+    public func settingsValue(blockUDP: Bool, relayOnly: Bool) -> String {
+        if blockUDP, self == .wireguard { return "\(title), UDP blocked" }
+        if relayOnly { return "\(title), relay only" }
+        return title
+    }
+
     /// The transport of an install with no saved choice.
     public static let fallback: TransportKind = .wireguard
 }
