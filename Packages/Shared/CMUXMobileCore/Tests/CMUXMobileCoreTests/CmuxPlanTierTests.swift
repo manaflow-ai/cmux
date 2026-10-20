@@ -25,7 +25,7 @@ import Testing
         #expect(CmuxPlanTier(planID: "go") == .go)
         #expect(CmuxPlanTier(planID: "pro") == .pro)
         #expect(CmuxPlanTier(planID: " MAX ") == .max)
-        // Team and Founder's Edition grant the Pro feature set.
+        // Team and legacy Founder grants grant the Pro feature set.
         #expect(CmuxPlanTier(planID: "team") == .pro)
         #expect(CmuxPlanTier(planID: "founders") == .pro)
         #expect(CmuxPlanTier(planID: "enterprise") == nil)

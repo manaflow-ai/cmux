@@ -526,7 +526,7 @@
           "granted": "Tildelt av cmux. Det er ingenting å endre.",
           "grantedNoCancel": "Tildelt av cmux, så det er ingenting å si opp.",
           "paymentFailed": "Oppdater betalingsmåten før du bytter abonnement.",
-          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
+          "foundersLifetime": "Livstidskjøpet ditt inkluderer Pro.",
           "adminOnly": "Bare teamadministratorer kan endre planen."
         },
         "names": {
@@ -582,8 +582,8 @@
         "title": "Avslutte {plan}?",
         "body": "Du beholder {plan} til {date}. Etter det mister du:",
         "bodyNoDate": "Du beholder {plan} til slutten av denne faktureringsperioden. Etter det mister du:",
-        "foundersBody": "{plan}-abonnementet ditt avsluttes {date}. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
-        "foundersBodyNoDate": "{plan}-abonnementet ditt avsluttes ved slutten av denne faktureringsperioden. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBody": "{plan}-abonnementet ditt avsluttes {date}. Etter det beholder du Pro fra livstidskjøpet ditt.",
+        "foundersBodyNoDate": "{plan}-abonnementet ditt avsluttes ved slutten av denne faktureringsperioden. Etter det beholder du Pro fra livstidskjøpet ditt.",
         "reasonLabel": "Hvorfor avslutter du? (valgfritt)",
         "otherPlaceholder": "Fortell oss mer (valgfritt)",
         "confirm": "Avslutt plan",

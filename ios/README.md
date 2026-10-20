@@ -125,8 +125,8 @@ entitlements omit `aps-environment=production`. That upload is intentionally
 blocked because TestFlight push would silently fail. Scheduled `main` uploads
 ship only to the internal TestFlight group. A manual run with
 `marketing_version_override` switches to the external beta bundle, installs its
-provisioning profile, and assigns the processed build to both the Founder's
-Edition and Pro groups. That external override reuses an already approved
+provisioning profile, and assigns the processed build to the configured external
+beta and Pro groups. That external override reuses an already approved
 marketing version and auto-submits the first build when Apple reports that Beta
 App Review is required.
 

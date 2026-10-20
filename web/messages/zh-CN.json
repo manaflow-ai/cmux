@@ -526,7 +526,7 @@
           "granted": "由 cmux 授予，没有可更改的内容。",
           "grantedNoCancel": "由 cmux 授予，因此无需取消。",
           "paymentFailed": "更改方案前，请先更新付款方式。",
-          "foundersLifetime": "Founder's Edition 永久包含 Pro。",
+          "foundersLifetime": "你的永久购买包含 Pro。",
           "adminOnly": "只有团队管理员可以更改套餐。"
         },
         "names": {
@@ -582,8 +582,8 @@
         "title": "取消 {plan}？",
         "body": "你可以使用 {plan} 到 {date}。之后你将失去：",
         "bodyNoDate": "你可以使用 {plan} 到本计费周期结束。之后你将失去：",
-        "foundersBody": "你的 {plan} 订阅将于 {date} 结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
-        "foundersBodyNoDate": "你的 {plan} 订阅将在本计费周期结束时结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
+        "foundersBody": "你的 {plan} 订阅将于 {date} 结束。之后你仍可通过永久购买使用 Pro。",
+        "foundersBodyNoDate": "你的 {plan} 订阅将在本计费周期结束时结束。之后你仍可通过永久购买使用 Pro。",
         "reasonLabel": "为什么取消？（可选）",
         "otherPlaceholder": "告诉我们更多（可选）",
         "confirm": "取消套餐",

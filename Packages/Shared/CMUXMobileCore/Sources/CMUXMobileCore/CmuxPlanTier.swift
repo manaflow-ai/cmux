@@ -11,7 +11,7 @@ public enum CmuxPlanTier: Int, Sendable, Comparable, CaseIterable {
     case free
     /// The entry Cloud plan: a small machine allowance, no Pro features.
     case go
-    /// Pro, and the plans that grant the Pro feature set (Team, Founder's Edition).
+    /// Pro, and the plans that grant the Pro feature set (Team, legacy Founder grants).
     case pro
     /// Max: everything in Pro plus the larger machine sizes and pool.
     case max

@@ -526,7 +526,7 @@
           "granted": "منحتها cmux. لا يوجد ما يمكن تغييره.",
           "grantedNoCancel": "منحتها cmux، لذا لا يوجد ما يمكن إلغاؤه.",
           "paymentFailed": "حدّث طريقة الدفع قبل تغيير الخطة.",
-          "foundersLifetime": "يتضمن Founder's Edition خطة Pro مدى الحياة.",
+          "foundersLifetime": "يتضمن شراؤك مدى الحياة خطة Pro.",
           "adminOnly": "يمكن لمسؤولي الفريق فقط تغيير الخطة."
         },
         "names": {
@@ -582,8 +582,8 @@
         "title": "إلغاء {plan}؟",
         "body": "تبقى لديك {plan} حتى {date}. بعد ذلك ستفقد:",
         "bodyNoDate": "تبقى لديك {plan} حتى نهاية فترة الفوترة هذه. بعد ذلك ستفقد:",
-        "foundersBody": "ينتهي اشتراك {plan} في {date}. بعد ذلك ستحصل على Pro، المضمّنة مدى الحياة في Founder's Edition.",
-        "foundersBodyNoDate": "ينتهي اشتراك {plan} في نهاية فترة الفوترة هذه. بعد ذلك ستحصل على Pro، المضمّنة مدى الحياة في Founder's Edition.",
+        "foundersBody": "ينتهي اشتراك {plan} في {date}. بعد ذلك تحتفظ بخطة Pro من شرائك مدى الحياة.",
+        "foundersBodyNoDate": "ينتهي اشتراك {plan} في نهاية فترة الفوترة هذه. بعد ذلك تحتفظ بخطة Pro من شرائك مدى الحياة.",
         "reasonLabel": "لماذا تلغي؟ (اختياري)",
         "otherPlaceholder": "أخبرنا بالمزيد (اختياري)",
         "confirm": "إلغاء الخطة",

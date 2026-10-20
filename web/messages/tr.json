@@ -526,7 +526,7 @@
           "granted": "cmux tarafından verildi. Değiştirilecek bir şey yok.",
           "grantedNoCancel": "cmux tarafından verildi, bu yüzden iptal edilecek bir şey yok.",
           "paymentFailed": "Planı değiştirmeden önce ödeme yönteminizi güncelleyin.",
-          "foundersLifetime": "Founder's Edition ömür boyu Pro içerir.",
+          "foundersLifetime": "Ömür boyu satın alımınız Pro içerir.",
           "adminOnly": "Planı yalnızca ekip yöneticileri değiştirebilir."
         },
         "names": {
@@ -582,8 +582,8 @@
         "title": "{plan} iptal edilsin mi?",
         "body": "{plan} planı {date} tarihine kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
         "bodyNoDate": "{plan} planı bu fatura döneminin sonuna kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
-        "foundersBody": "{plan} aboneliğiniz {date} tarihinde sona erer. Sonrasında Founder's Edition'ın ömür boyu içerdiği Pro'ya sahip olursunuz.",
-        "foundersBodyNoDate": "{plan} aboneliğiniz bu fatura döneminin sonunda sona erer. Sonrasında Founder's Edition'ın ömür boyu içerdiği Pro'ya sahip olursunuz.",
+        "foundersBody": "{plan} aboneliğiniz {date} tarihinde sona erer. Sonrasında ömür boyu satın alımınızla Pro'yu korursunuz.",
+        "foundersBodyNoDate": "{plan} aboneliğiniz bu fatura döneminin sonunda sona erer. Sonrasında ömür boyu satın alımınızla Pro'yu korursunuz.",
         "reasonLabel": "Neden iptal ediyorsunuz? (isteğe bağlı)",
         "otherPlaceholder": "Bize daha fazlasını anlatın (isteğe bağlı)",
         "confirm": "Planı iptal et",

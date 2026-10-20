@@ -526,7 +526,7 @@
           "granted": "Concedido pela cmux. Não há nada a alterar.",
           "grantedNoCancel": "Concedido pelo cmux, então não há nada para cancelar.",
           "paymentFailed": "Atualize sua forma de pagamento antes de mudar de plano.",
-          "foundersLifetime": "O Founder's Edition inclui o Pro para sempre.",
+          "foundersLifetime": "Sua compra vitalícia inclui o Pro.",
           "adminOnly": "Só administradores da equipe podem alterar o plano."
         },
         "names": {
@@ -582,8 +582,8 @@
         "title": "Cancelar {plan}?",
         "body": "Você mantém o {plan} até {date}. Depois disso, você perde:",
         "bodyNoDate": "Você mantém o {plan} até o fim deste período de cobrança. Depois disso, você perde:",
-        "foundersBody": "Sua assinatura {plan} termina em {date}. Depois disso, você tem o Pro, que o Founder's Edition inclui para sempre.",
-        "foundersBodyNoDate": "Sua assinatura {plan} termina no fim deste período de cobrança. Depois disso, você tem o Pro, que o Founder's Edition inclui para sempre.",
+        "foundersBody": "Sua assinatura {plan} termina em {date}. Depois disso, você mantém o Pro da sua compra vitalícia.",
+        "foundersBodyNoDate": "Sua assinatura {plan} termina no fim deste período de cobrança. Depois disso, você mantém o Pro da sua compra vitalícia.",
         "reasonLabel": "Por que você está cancelando? (opcional)",
         "otherPlaceholder": "Conte mais (opcional)",
         "confirm": "Cancelar plano",

@@ -526,7 +526,7 @@
           "granted": "Przyznany przez cmux. Nie ma czego zmieniać.",
           "grantedNoCancel": "Przyznany przez cmux, więc nie ma czego anulować.",
           "paymentFailed": "Zaktualizuj metodę płatności przed zmianą planu.",
-          "foundersLifetime": "Founder's Edition obejmuje Pro dożywotnio.",
+          "foundersLifetime": "Twój dożywotni zakup obejmuje Pro.",
           "adminOnly": "Tylko administratorzy zespołu mogą zmienić plan."
         },
         "names": {
@@ -582,8 +582,8 @@
         "title": "Anulować {plan}?",
         "body": "Zachowujesz {plan} do {date}. Potem tracisz:",
         "bodyNoDate": "Zachowujesz {plan} do końca tego okresu rozliczeniowego. Potem tracisz:",
-        "foundersBody": "Twoja subskrypcja {plan} kończy się {date}. Potem masz Pro, które Founder's Edition obejmuje dożywotnio.",
-        "foundersBodyNoDate": "Twoja subskrypcja {plan} kończy się z końcem tego okresu rozliczeniowego. Potem masz Pro, które Founder's Edition obejmuje dożywotnio.",
+        "foundersBody": "Twoja subskrypcja {plan} kończy się {date}. Potem zachowujesz Pro dzięki dożywotniemu zakupowi.",
+        "foundersBodyNoDate": "Twoja subskrypcja {plan} kończy się z końcem tego okresu rozliczeniowego. Potem zachowujesz Pro dzięki dożywotniemu zakupowi.",
         "reasonLabel": "Dlaczego anulujesz? (opcjonalnie)",
         "otherPlaceholder": "Powiedz nam więcej (opcjonalnie)",
         "confirm": "Anuluj plan",

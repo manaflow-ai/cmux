@@ -526,7 +526,7 @@
           "granted": "Tildelt af cmux. Der er intet at ændre.",
           "grantedNoCancel": "Tildelt af cmux, så der er intet at opsige.",
           "paymentFailed": "Opdater din betalingsmetode, før du skifter abonnement.",
-          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
+          "foundersLifetime": "Dit livstidskøb inkluderer Pro.",
           "adminOnly": "Kun teamadministratorer kan ændre planen."
         },
         "names": {
@@ -582,8 +582,8 @@
         "title": "Opsig {plan}?",
         "body": "Du beholder {plan} indtil den {date}. Derefter mister du:",
         "bodyNoDate": "Du beholder {plan} til slutningen af denne faktureringsperiode. Derefter mister du:",
-        "foundersBody": "Dit {plan}-abonnement slutter den {date}. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
-        "foundersBodyNoDate": "Dit {plan}-abonnement slutter ved udgangen af denne faktureringsperiode. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBody": "Dit {plan}-abonnement slutter den {date}. Derefter beholder du Pro fra dit livstidskøb.",
+        "foundersBodyNoDate": "Dit {plan}-abonnement slutter ved udgangen af denne faktureringsperiode. Derefter beholder du Pro fra dit livstidskøb.",
         "reasonLabel": "Hvorfor opsiger du? (valgfrit)",
         "otherPlaceholder": "Fortæl os mere (valgfrit)",
         "confirm": "Opsig plan",

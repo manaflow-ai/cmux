@@ -526,7 +526,7 @@
           "granted": "Otorgado por cmux. No hay nada que cambiar.",
           "grantedNoCancel": "Otorgado por cmux, así que no hay nada que cancelar.",
           "paymentFailed": "Actualiza tu método de pago antes de cambiar de plan.",
-          "foundersLifetime": "Founder's Edition incluye Pro de por vida.",
+          "foundersLifetime": "Tu compra de por vida incluye Pro.",
           "adminOnly": "Solo los administradores del equipo pueden cambiar el plan."
         },
         "names": {
@@ -582,8 +582,8 @@
         "title": "¿Cancelar {plan}?",
         "body": "Conservas {plan} hasta el {date}. Después, pierdes:",
         "bodyNoDate": "Conservas {plan} hasta el final de este período de facturación. Después, pierdes:",
-        "foundersBody": "Tu suscripción {plan} termina el {date}. Después tendrás Pro, que Founder's Edition incluye de por vida.",
-        "foundersBodyNoDate": "Tu suscripción {plan} termina al final de este período de facturación. Después tendrás Pro, que Founder's Edition incluye de por vida.",
+        "foundersBody": "Tu suscripción {plan} termina el {date}. Después conservas Pro gracias a tu compra de por vida.",
+        "foundersBodyNoDate": "Tu suscripción {plan} termina al final de este período de facturación. Después conservas Pro gracias a tu compra de por vida.",
         "reasonLabel": "¿Por qué cancelas? (opcional)",
         "otherPlaceholder": "Cuéntanos más (opcional)",
         "confirm": "Cancelar plan",

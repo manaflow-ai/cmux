@@ -178,10 +178,10 @@ extension CMUXCLI {
     private static func cloudVMResizePlanName(_ planID: String) -> String {
         let localizedName: String
         switch planID.lowercased() {
-        case "pro": localizedName = String(localized: "pricing.native.plan.pro", defaultValue: "Pro")
+        // Legacy Founder grants carry Pro's limits.
+        case "pro", "founders", "founders-edition": localizedName = String(localized: "pricing.native.plan.pro", defaultValue: "Pro")
         case "max": localizedName = String(localized: "pricing.native.plan.max", defaultValue: "Max")
         case "team": localizedName = String(localized: "pricing.native.plan.team", defaultValue: "Team")
-        case "founders", "founders-edition": localizedName = String(localized: "cli.vm.resize.planName.founders", defaultValue: "Founder's Edition")
         case "go": localizedName = String(localized: "pricing.native.plan.go", defaultValue: "Go")
         case "free": localizedName = String(localized: "pricing.native.plan.free", defaultValue: "Free")
         default: return planID

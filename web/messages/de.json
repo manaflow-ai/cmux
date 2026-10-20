@@ -526,7 +526,7 @@
           "granted": "Von cmux gewährt. Es gibt nichts zu ändern.",
           "grantedNoCancel": "Von cmux gewährt, daher gibt es nichts zu kündigen.",
           "paymentFailed": "Aktualisiere deine Zahlungsmethode, bevor du den Plan wechselst.",
-          "foundersLifetime": "Founder's Edition enthält Pro auf Lebenszeit.",
+          "foundersLifetime": "Dein lebenslanger Kauf enthält Pro.",
           "adminOnly": "Nur Team-Admins können den Plan ändern."
         },
         "names": {
@@ -582,8 +582,8 @@
         "title": "{plan} kündigen?",
         "body": "Du behältst {plan} bis zum {date}. Danach verlierst du:",
         "bodyNoDate": "Du behältst {plan} bis zum Ende dieses Abrechnungszeitraums. Danach verlierst du:",
-        "foundersBody": "Dein {plan}-Abonnement endet am {date}. Danach hast du Pro, das Founder's Edition auf Lebenszeit enthält.",
-        "foundersBodyNoDate": "Dein {plan}-Abonnement endet zum Ende dieses Abrechnungszeitraums. Danach hast du Pro, das Founder's Edition auf Lebenszeit enthält.",
+        "foundersBody": "Dein {plan}-Abonnement endet am {date}. Danach behältst du Pro aus deinem lebenslangen Kauf.",
+        "foundersBodyNoDate": "Dein {plan}-Abonnement endet zum Ende dieses Abrechnungszeitraums. Danach behältst du Pro aus deinem lebenslangen Kauf.",
         "reasonLabel": "Warum kündigst du? (optional)",
         "otherPlaceholder": "Erzähl uns mehr (optional)",
         "confirm": "Plan kündigen",

@@ -526,7 +526,7 @@
           "granted": "Concesso da cmux. Non c'è nulla da modificare.",
           "grantedNoCancel": "Concesso da cmux, quindi non c'è nulla da annullare.",
           "paymentFailed": "Aggiorna il metodo di pagamento prima di cambiare piano.",
-          "foundersLifetime": "Founder's Edition include Pro a vita.",
+          "foundersLifetime": "Il tuo acquisto a vita include Pro.",
           "adminOnly": "Solo gli amministratori del team possono modificare il piano."
         },
         "names": {
@@ -582,8 +582,8 @@
         "title": "Annullare {plan}?",
         "body": "Mantieni {plan} fino al {date}. Dopo perderai:",
         "bodyNoDate": "Mantieni {plan} fino alla fine di questo periodo di fatturazione. Dopo perderai:",
-        "foundersBody": "Il tuo abbonamento {plan} termina il {date}. Dopo avrai Pro, che Founder's Edition include a vita.",
-        "foundersBodyNoDate": "Il tuo abbonamento {plan} termina alla fine di questo periodo di fatturazione. Dopo avrai Pro, che Founder's Edition include a vita.",
+        "foundersBody": "Il tuo abbonamento {plan} termina il {date}. Dopo mantieni Pro grazie al tuo acquisto a vita.",
+        "foundersBodyNoDate": "Il tuo abbonamento {plan} termina alla fine di questo periodo di fatturazione. Dopo mantieni Pro grazie al tuo acquisto a vita.",
         "reasonLabel": "Perché annulli? (facoltativo)",
         "otherPlaceholder": "Raccontaci di più (facoltativo)",
         "confirm": "Annulla piano",

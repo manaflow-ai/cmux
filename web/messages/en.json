@@ -839,7 +839,7 @@
           "granted": "Granted by cmux. There is nothing to change.",
           "grantedNoCancel": "Granted by cmux, so there is nothing to cancel.",
           "paymentFailed": "Update your payment method before changing plans.",
-          "foundersLifetime": "Founder's Edition includes Pro for life.",
+          "foundersLifetime": "Your lifetime purchase includes Pro.",
           "adminOnly": "Only team admins can change the plan."
         },
         "names": {
@@ -895,8 +895,8 @@
         "title": "Cancel {plan}?",
         "body": "You keep {plan} until {date}. After that, you lose:",
         "bodyNoDate": "You keep {plan} until the end of this billing period. After that, you lose:",
-        "foundersBody": "Your {plan} subscription ends on {date}. After that, you have Pro, which Founder's Edition includes for life.",
-        "foundersBodyNoDate": "Your {plan} subscription ends at the end of this billing period. After that, you have Pro, which Founder's Edition includes for life.",
+        "foundersBody": "Your {plan} subscription ends on {date}. After that, you keep Pro from your lifetime purchase.",
+        "foundersBodyNoDate": "Your {plan} subscription ends at the end of this billing period. After that, you keep Pro from your lifetime purchase.",
         "reasonLabel": "Why are you canceling? (optional)",
         "otherPlaceholder": "Tell us more (optional)",
         "confirm": "Cancel plan",
