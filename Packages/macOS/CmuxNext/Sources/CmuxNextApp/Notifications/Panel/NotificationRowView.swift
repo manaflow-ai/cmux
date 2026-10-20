@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// One notification in the panel: unread dot, title and time, the source
-/// workspace, the body (two lines), and a dismiss button. A click opens it;
+/// workspace, the body (two lines), and a dismiss button. A press opens it;
 /// a right click shows the row's actions.
 final class NotificationRowView: NSView {
     struct Callbacks {
@@ -161,11 +161,15 @@ final class NotificationRowView: NSView {
 
     @objc private func dismissPressed() { callbacks.dismiss() }
 
-    override func mouseDown(with event: NSEvent) {}
-
-    override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { callbacks.open() }
+    /// A click opens the notification on the press (Lawrence 2026-10-19: "mouse down to immediately
+    /// open"); a Control-click goes to AppKit, which shows the row's menu.
+    override func mouseDown(with event: NSEvent) {
+        guard !event.modifierFlags.contains(.control) else { return super.mouseDown(with: event) }
+        callbacks.open()
     }
+
+    /// The press already opened it.
+    override func mouseUp(with event: NSEvent) {}
 
     override func menu(for event: NSEvent) -> NSMenu? { callbacks.menu() }
 

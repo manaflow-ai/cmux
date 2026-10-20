@@ -48,5 +48,7 @@ struct PhoneAccessSettingTests {
         let toggle = try #require(SettingsSchema.descriptor(for: ["phone", "allowConnections"]))
         #expect(toggle.defaultValue == .bool(false))
         #expect(toggle.help?.contains("is sent to cmux servers") == true)
+        // The cloud copy is the one exception to "not sent": the help names what is stored.
+        #expect(toggle.help?.contains("unread count and whether it is active") == true)
     }
 }

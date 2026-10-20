@@ -185,6 +185,13 @@ final class PromptBarView: NSView {
             if !update { addButton(Strings.passwordNever, prominent: false, response: .deny) }
             addButton(Strings.passwordNotNow, prominent: false, response: .cancel)
             addButton(update ? Strings.passwordUpdate : Strings.passwordSave, prominent: true, response: .accept)
+        case .verificationOffer(let offer):
+            // The code shows here, in chrome the page cannot read; Fill Code types it, never submits.
+            messageLabel.stringValue = offer.code.map { Strings.verificationCodeOffer(site: offer.senderSite, code: $0) }
+                ?? Strings.verificationLinkOffer(site: offer.senderSite)
+            addButton(Strings.verificationNotNow, prominent: false, response: .cancel)
+            if offer.link != nil { addButton(Strings.verificationOpenLink, prominent: offer.code == nil, response: .allowOnce) }
+            if offer.code != nil { addButton(Strings.verificationFillCode, prominent: true, response: .accept) }
         }
         if !inputField.isHidden {
             window?.makeFirstResponder(inputField)
@@ -201,6 +208,9 @@ final class PromptBarView: NSView {
             prompt.respond(.credentials(user: userField.stringValue, password: passwordField.stringValue))
         } else if case .openExternalApp = prompt.kind {
             prompt.respond(alwaysCheck.state == .on ? .allow : .allowOnce)
+        } else if case .verificationOffer(let offer) = prompt.kind {
+            // Return answers the prominent button: Fill Code, or Open Link when there is no code.
+            prompt.respond(offer.code != nil ? .accept : .allowOnce)
         } else {
             prompt.respond(.text(inputField.stringValue))
         }

@@ -80,6 +80,7 @@ pub(super) fn handle_command_with_cancellation(
             device_kind,
             device_name,
             device_id,
+            api_revision,
         } => cmd_server::set_client_info(
             mux,
             client,
@@ -91,6 +92,7 @@ pub(super) fn handle_command_with_cancellation(
             device_kind,
             device_name,
             device_id,
+            api_revision,
         ),
         Command::ListClients => cmd_server::list_clients(mux, client),
         Command::MachineUsage => cmd_server::machine_usage(mux),
@@ -184,9 +186,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::ApplyLayout { workspace, name, layout, cols, rows } => {
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
-        Command::Send { surface, terminal_id, text, bytes, paste } => {
-            cmd_terminal_io::send(mux, client, writer, surface, terminal_id, text, bytes, paste)
-        }
+        Command::Send(params) => cmd_terminal_io::send(mux, client, writer, params),
         Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {
             cmd_terminal_io::clear_history(mux, surface, fallback_key)
@@ -596,6 +596,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::PageCredential(params) => page_credential::page_credential(mux, client, params),
         Command::WsListen(params) => page_listener::ws_listen(mux, client, params),
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
+        Command::CloudRequestsList(_) => cloud_conversations::requests_list(mux, client),
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)
         }

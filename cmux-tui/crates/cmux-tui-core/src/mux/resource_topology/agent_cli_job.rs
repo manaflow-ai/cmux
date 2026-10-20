@@ -45,7 +45,7 @@ impl Mux {
         let previous = self
             .workspace_registry
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unwrap_or_else(PoisonError::into_inner)
             .lookup_resource_creation(
                 &correlation,
                 &mutation.id,
@@ -66,8 +66,7 @@ impl Mux {
                     error
                 }
             })?;
-        let mut fields =
-            serde_json::Map::from_iter([("correlation_key".to_owned(), json!(correlation))]);
+        let mut fields = Map::from_iter([("correlation_key".to_owned(), json!(correlation))]);
         match previous {
             // The same intent replays with acpmux offline or a different
             // version/cache. Blocked/failed effects use their durable result.
