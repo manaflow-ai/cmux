@@ -23,7 +23,7 @@ extension WindowManager {
         _ = incognitoProfile()
         let daemon = services.daemon
         let browserTabs = services.cache.browserTabs
-        let choice: BrowserEngineChoice = if case .open(let choice) = browserTabs.resolve(requested: nil) {
+        let choice: BrowserEngineChoice = if case .open(let choice) = browserTabs.resolve(requested: nil, url: url) {
             choice
         } else {
             BrowserEngineChoice(engine: .webkit)

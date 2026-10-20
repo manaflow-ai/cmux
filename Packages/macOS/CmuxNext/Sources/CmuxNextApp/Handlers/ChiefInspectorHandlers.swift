@@ -96,7 +96,7 @@ enum ChiefInspectorHandlers {
         let handle = anchor.handle
         let connection = try context.requireConnection()
         guard case let browserTabs = context.services.cache.browserTabs,
-              case .open(let choice) = browserTabs.resolve(requested: nil) else {
+              case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else {
             throw ActionWorkFailure(MiscHandlerStrings.noBrowser)
         }
         let surface = try await browserTabs.open(choice, in: anchor, url: url.absoluteString, profile: nil)
