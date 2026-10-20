@@ -22,6 +22,10 @@ export type RunApiAttempt = {
   ordinal: number;
   status: string;
   providerVmId?: string | null;
+  /** The Run view's stable placement (`/api/runs/[id]`); it never carries provider handles. */
+  placement?: { sessionId?: string | null } | null;
+  /** Whether the attempt's terminal is retained and an attach ticket can be minted for it. */
+  attachable?: boolean;
   result?: Record<string, unknown> | null;
   exitCode?: number | null;
   error?: string | null;
@@ -357,7 +361,12 @@ function mapAttempt(attempt: RunApiAttempt, artifacts: RunApiArtifact[]): RunAtt
     label: stringValue(resultValue(result, "label")) ?? `Attempt ${String.fromCharCode(65 + attempt.ordinal)}`,
     direction: stringValue(resultValue(result, "direction")) ?? `Independent review ${attempt.ordinal + 1}`,
     worker: `${stringValue(resultValue(result, "provider")) ?? "cloud-vm"}${providerVmId ? ` · ${providerVmId}` : ""}`,
-    sessionId: stringValue(resultValue(result, "sessionId")) ?? providerVmId ?? attempt.id,
+    sessionId:
+      stringValue(resultValue(result, "sessionId")) ??
+      stringValue(attempt.placement?.sessionId) ??
+      providerVmId ??
+      attempt.id,
+    ...(typeof attempt.attachable === "boolean" ? { attachable: attempt.attachable } : {}),
     state,
     activity:
       stringValue(resultValue(result, "activity")) ??
@@ -493,7 +502,7 @@ export class RunBoardApiSession {
   private lastSequence = 0;
 
   constructor(
-    private readonly runId: string,
+    readonly runId: string,
     private readonly client: RunApiClient,
   ) {}
 

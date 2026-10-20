@@ -42,6 +42,18 @@ const succeeded: RunApiEvent = {
   payload: {},
 };
 
+describe("Run view attempts", () => {
+  test("use the view's placement session and attachable flag", () => {
+    const snapshot = normalizeRunSnapshot({
+      ...run,
+      attempts: [
+        { id: "attempt-1", ordinal: 0, status: "succeeded", placement: { sessionId: "session-1" }, attachable: false },
+      ],
+    });
+    expect(snapshot.attempts[0]).toMatchObject({ sessionId: "session-1", attachable: false });
+  });
+});
+
 describe("Run API client", () => {
   test("loads a snapshot before replaying events and maps API rows", async () => {
     const calls: string[] = [];

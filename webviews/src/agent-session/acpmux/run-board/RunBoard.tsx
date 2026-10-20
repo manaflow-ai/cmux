@@ -196,7 +196,8 @@ export function RunBoard({
   }, [client, recovered]);
 
   useEffect(() => {
-    if (!client || apiClient.current === client) return;
+    // A new client or a different run starts a fresh replay session (its cursor is per run).
+    if (!client || (apiClient.current === client && apiSession.current?.runId === snapshot.id)) return;
     apiClient.current = client;
     apiSession.current = new RunBoardApiSession(snapshot.id, client);
   }, [client, snapshot.id]);
@@ -206,9 +207,10 @@ export function RunBoard({
     let active = true;
     const refresh = async () => {
       const session = apiSession.current;
-      if (!session || !active) return;
+      const current = stateRef.current;
+      if (!session || !current || !active) return;
       try {
-        const next = await session.replay(stateRef.current?.snapshot ?? snapshot);
+        const next = await session.replay(current.snapshot);
         if (active) dispatch({ type: "receive", snapshot: next });
       } catch (error) {
         if (active) setApiError(error instanceof Error ? error.message : String(error));
@@ -229,7 +231,7 @@ export function RunBoard({
       active = false;
       if (timer) clearInterval(timer);
     };
-  }, [client, disconnected, pollMs]);
+  }, [client, disconnected, pollMs, snapshot.id]);
 
   const attempt = selectedAttempt(state);
   const approved = state.snapshot.attempts.find((item) => item.id === state.approval?.attemptId);
@@ -361,7 +363,7 @@ export function RunBoard({
             <button
               className="run-board-attach"
               type="button"
-              disabled={state.connection !== "live" || actionPending === "attach"}
+              disabled={state.connection !== "live" || actionPending === "attach" || attempt.attachable === false}
               onClick={() => void attach()}
             >
               {actionPending === "attach"

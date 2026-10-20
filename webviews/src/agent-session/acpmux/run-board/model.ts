@@ -14,6 +14,8 @@ export type RunAttempt = {
   direction: string;
   worker: string;
   sessionId: string;
+  /** False when the Run API says no terminal is retained to attach to; unset in fixtures. */
+  attachable?: boolean;
   state: "running" | "completed" | "failed";
   activity: string;
   build: "pending" | "passed" | "failed";
