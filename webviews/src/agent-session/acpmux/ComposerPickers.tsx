@@ -198,8 +198,7 @@ export function ComposerPickers({
   // harness, then Add harness…, read as an offer to switch), and another harness is Continue in…,
   // never a pick. Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
   // keeps the whole rail and its switch.
-  const locked =
-    !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
+  const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
   const allEntries: ModelPickerProps["catalog"] = pickerCatalog
     ? [
         ...pickerCatalog.harnesses

@@ -890,93 +890,93 @@ export function ModelPicker(props: ModelPickerProps) {
           {/* The rail: Starred, then one icon per harness; a click or arrow key shows its models. A
               started chat's harness is fixed, so its menu has none. */}
           {!harnessFixed && (
-          <ScrollArea
-            className="acpmux-mp-rail-scroll w-11 flex-none border-r-[0.5px] border-edge"
-            viewportClassName="acpmux-mp-rail-viewport"
-            horizontal
-          >
-            <PickerOptionList
-              className="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5"
-              aria-label={harnessText}
+            <ScrollArea
+              className="acpmux-mp-rail-scroll w-11 flex-none border-r-[0.5px] border-edge"
+              viewportClassName="acpmux-mp-rail-viewport"
+              horizontal
             >
-              <PickerOption
-                type="button"
-                className={railTab}
-                aria-label={starredText}
-                title={starredText}
-                aria-selected={starredView}
-                selected={starredView}
-                active={starredView}
-                keyboard={(event) => {
-                  if (!harnesses.length) return;
-                  if (event.key === "ArrowDown") {
-                    event.preventDefault();
-                    moveRail(-1, 1);
-                  } else if (event.key === "ArrowUp") {
-                    event.preventDefault();
-                    moveRail(-1, -1);
-                  } else if (event.key === "ArrowRight" || event.key === "Enter") {
-                    event.preventDefault();
-                    search.current?.focus();
-                  }
-                }}
-                onClick={() => showTab(STARRED, -1, true)}
+              <PickerOptionList
+                className="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5"
+                aria-label={harnessText}
               >
-                <StarGlyph filled={false} size={15} />
-              </PickerOption>
-              {harnesses.map((entry, index) => [
-                index === firstProfile && (
-                  <hr
-                    key="folder-section"
-                    className="my-0.5 h-0 w-5 flex-none border-0 border-t-[0.5px] border-edge"
-                    aria-label={t("picker.thisFolder")}
-                  />
-                ),
                 <PickerOption
                   type="button"
-                  key={entry.folder ? `folder:${entry.id}` : entry.name}
-                  aria-selected={entry.ids.includes(selectedHarness ?? "")}
-                  aria-disabled={blockedProfile(entry) || loginFor(entry) !== undefined || undefined}
-                  data-signed-out={loginFor(entry) !== undefined || undefined}
-                  disabled={!entry.pickable}
-                  data-harness-index={index}
-                  className={`acpmux-mp-harness ${railTab}`}
-                  title={railTitle(entry)}
-                  selected={entry.ids.includes(selectedHarness ?? "")}
+                  className={railTab}
+                  aria-label={starredText}
+                  title={starredText}
+                  aria-selected={starredView}
+                  selected={starredView}
+                  active={starredView}
                   keyboard={(event) => {
-                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    if (!harnesses.length) return;
+                    if (event.key === "ArrowDown") {
                       event.preventDefault();
-                      const step = event.key === "ArrowDown" ? 1 : -1;
-                      moveRail(index, step);
-                    } else if (event.key === "Enter" && enableProfile(entry)) {
+                      moveRail(-1, 1);
+                    } else if (event.key === "ArrowUp") {
                       event.preventDefault();
+                      moveRail(-1, -1);
                     } else if (event.key === "ArrowRight" || event.key === "Enter") {
                       event.preventDefault();
                       search.current?.focus();
                     }
                   }}
-                  // Hover only warms the harness; its models show on a click or an arrow key
-                  // (Leo 2026-10-11: a list that swaps under the pointer picks the wrong row).
-                  onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
-                  onClick={() => {
-                    if (enableProfile(entry)) return;
-                    showTab(entry.id, index, true);
-                  }}
-                  active={index === activeHarness}
+                  onClick={() => showTab(STARRED, -1, true)}
                 >
-                  {agentBrand(entry.mark ?? entry.id) ? (
-                    <AgentMark agent={entry.mark ?? entry.id} size={16} />
-                  ) : (
-                    // A harness without a mark: its initial, never an empty tab.
-                    <span aria-hidden="true" className="text-control font-semibold">
-                      {entry.name.trim().charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                  <span className="sr-only">{entry.name}</span>
-                </PickerOption>,
-              ])}
-            </PickerOptionList>
-          </ScrollArea>
+                  <StarGlyph filled={false} size={15} />
+                </PickerOption>
+                {harnesses.map((entry, index) => [
+                  index === firstProfile && (
+                    <hr
+                      key="folder-section"
+                      className="my-0.5 h-0 w-5 flex-none border-0 border-t-[0.5px] border-edge"
+                      aria-label={t("picker.thisFolder")}
+                    />
+                  ),
+                  <PickerOption
+                    type="button"
+                    key={entry.folder ? `folder:${entry.id}` : entry.name}
+                    aria-selected={entry.ids.includes(selectedHarness ?? "")}
+                    aria-disabled={blockedProfile(entry) || loginFor(entry) !== undefined || undefined}
+                    data-signed-out={loginFor(entry) !== undefined || undefined}
+                    disabled={!entry.pickable}
+                    data-harness-index={index}
+                    className={`acpmux-mp-harness ${railTab}`}
+                    title={railTitle(entry)}
+                    selected={entry.ids.includes(selectedHarness ?? "")}
+                    keyboard={(event) => {
+                      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                        event.preventDefault();
+                        const step = event.key === "ArrowDown" ? 1 : -1;
+                        moveRail(index, step);
+                      } else if (event.key === "Enter" && enableProfile(entry)) {
+                        event.preventDefault();
+                      } else if (event.key === "ArrowRight" || event.key === "Enter") {
+                        event.preventDefault();
+                        search.current?.focus();
+                      }
+                    }}
+                    // Hover only warms the harness; its models show on a click or an arrow key
+                    // (Leo 2026-10-11: a list that swaps under the pointer picks the wrong row).
+                    onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
+                    onClick={() => {
+                      if (enableProfile(entry)) return;
+                      showTab(entry.id, index, true);
+                    }}
+                    active={index === activeHarness}
+                  >
+                    {agentBrand(entry.mark ?? entry.id) ? (
+                      <AgentMark agent={entry.mark ?? entry.id} size={16} />
+                    ) : (
+                      // A harness without a mark: its initial, never an empty tab.
+                      <span aria-hidden="true" className="text-control font-semibold">
+                        {entry.name.trim().charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="sr-only">{entry.name}</span>
+                  </PickerOption>,
+                ])}
+              </PickerOptionList>
+            </ScrollArea>
           )}
           <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
             <div className="acpmux-mp-search flex h-9 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
