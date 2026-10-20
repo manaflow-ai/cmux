@@ -105,7 +105,15 @@ package actor CloudTeamScope {
         }, wireLeases: { try await leases.leases() }, refreshAuthority: { [weak self] in
             guard let self else { throw Failure.changed }
             return try await self.snapshot(selected, context: context)
-        }, nativeContext: { try await self.identity.nativeContext(team: found.id) })
+        }, nativeContext: { [weak self] in
+            guard let self else { throw Failure.changed }
+            try await self.check(selected, context)
+            let token = try await authority.token(version)
+            try await self.check(selected, context)
+            return NativeInstallContext(account: context.account, user: context.user, install: context.install,
+                environment: context.environment, point: context.point, token: token, generation: context.generation,
+                secureStorage: context.secureStorage)
+        })
     }
 
     package func token() async throws -> String {

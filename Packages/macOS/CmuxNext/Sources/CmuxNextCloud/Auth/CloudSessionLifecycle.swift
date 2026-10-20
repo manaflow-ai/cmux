@@ -26,7 +26,7 @@ package final class CloudSessionLifecycle {
     }
 
     package func isCurrent(_ value: AuthenticatedSessionIdentity) -> Bool {
-        !suspended && !stopped && identity == value && desired == value && current(value)
+        !suspended && !stopped && fencing == nil && identity == value && desired == value && current(value)
     }
 
     /// Returns the owned work so callers can join startup or retirement.
@@ -64,7 +64,11 @@ package final class CloudSessionLifecycle {
 
     /// Reconciles changed authority without retiring an unchanged account's install.
     package func authorityChanged(_ value: AuthenticatedSessionIdentity) -> Task<Void, Never> {
-        refresh(value)
+        if !stopped, !suspended, identity == value, desired == value, current(value) {
+            needsStart = true
+            requestFence()
+        }
+        return schedule()
     }
 
     /// Immediately fences late startup; its returned task joins local retirement.

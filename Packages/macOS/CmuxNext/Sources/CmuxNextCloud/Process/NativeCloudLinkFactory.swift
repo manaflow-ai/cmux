@@ -16,12 +16,14 @@ package struct NativeCloudLinkFactory: Sendable {
     }
     package func make(_ scope: CloudTeamScope.Snapshot) async throws -> NativeCloudLinkLease {
         try await scope.recheck()
-        let target = try await identity.nativeNetworkTarget(team: scope.team)
+        let context = try await scope.nativeContext()
+        let target = try await identity.nativeNetworkTarget(team: scope.team, context: context)
         try await scope.recheck()
         let label = String(name.map { $0.isASCII && ($0.isLetter || $0.isNumber || "._ -".contains($0)) ? $0 : "-" }.prefix(63))
             .trimmingCharacters(in: CharacterSet(charactersIn: "._ -"))
         let enrollment = try NativeDeviceEnrollment(scope: target.scope, identity: identity, paths: paths,
-            native: NativeDeviceHTTPTransport(origin: target.origin), session: session, name: label.isEmpty ? "cmux" : label)
+            native: NativeDeviceHTTPTransport(origin: target.origin), session: session, name: label.isEmpty ? "cmux" : label,
+            context: scope.nativeContext, recheck: scope.recheck)
         let namespace = try JSONEncoder().encode([scope.account, scope.team, target.scope.tenant, target.scope.mesh, target.origin.absoluteString])
         let key = SHA256.hash(data: namespace).map { String(format: "%02x", $0) }.joined()
         let child = NativeCloudLinkChild(bundleURL: bundle, publisher: try .current(),

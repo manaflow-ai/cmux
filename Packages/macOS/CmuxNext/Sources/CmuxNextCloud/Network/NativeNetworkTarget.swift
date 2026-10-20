@@ -39,6 +39,14 @@ extension MacInstallIdentity {
         // Validate caller selectors before token minting or any read.
         _ = try NativeDeviceScope(team: team, tenant: "selector", mesh: mesh ?? "mesh_" + String(repeating: "0", count: 26))
         let context = try await nativeContext(team: team)
+        return try await nativeNetworkTarget(team: team, mesh: mesh, context: context)
+    }
+
+    /// A scoped caller supplies its pinned install credential; discovery cannot enter personal recovery.
+    func nativeNetworkTarget(team: String, mesh: String? = nil, context: NativeInstallContext) async throws -> NativeNetworkTarget {
+        _ = try NativeDeviceScope(team: team, tenant: "selector", mesh: mesh ?? "mesh_" + String(repeating: "0", count: 26))
+        guard Self.team(ofToken: context.token) == team else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        try await nativeCheck(context)
         let body = try JSONEncoder().encode(NativeNetworkTargetCall(params: .init(mesh: mesh)))
         let reply = try await nativeOwnerRead(body, context: context)
         guard reply.status == 200, reply.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(reply.status) }
