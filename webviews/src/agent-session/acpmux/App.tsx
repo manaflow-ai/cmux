@@ -680,7 +680,8 @@ const WorkingRow = memo(
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
     a.row.at === b.row.at &&
-    a.row.durationMs === b.row.durationMs,
+    a.row.durationMs === b.row.durationMs &&
+    a.row.doing === b.row.doing,
 );
 
 /// How many turns back the header's Preview looks for a page.

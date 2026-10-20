@@ -1733,12 +1733,57 @@ jobs:
           fi
 
       - name: Checkout build ref
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' && (runner.environment != 'self-hosted' || needs.decide.outputs.track != 'nightly-next')
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
+
+      # The dedicated nightly-next builder keeps its checkout. actions/checkout
+      # fetches each commit at depth 1, which sends the whole tree again (118 s
+      # on cmux22, run 39440747033). A fetch without a depth limit, with a ref
+      # on the commit the workspace holds, sends only the new objects (2 s).
+      # The clean keeps the three Rust target directories the rust-cache step
+      # restores on a hosted runner, at the same paths, so cargo rebuilds only
+      # what changed and nothing is downloaded or uploaded.
+      - name: Checkout build ref (warm nightly-next builder)
+        if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+        env:
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad build sha: $BUILD_SHA" >&2; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          [ -d .git ] || git init -q .
+          git config gc.auto 0
+          if git remote get-url origin >/dev/null 2>&1; then git remote set-url origin "$REPO_URL"; else git remote add origin "$REPO_URL"; fi
+          # The negotiation tells the server what the workspace has only
+          # through refs; a detached HEAD alone makes it send the whole tree.
+          if git rev-parse -q --verify HEAD >/dev/null; then
+            git update-ref refs/remotes/origin/nightly-warm-base HEAD
+          fi
+          started=$SECONDS
+          git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
+          echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
+          git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
+          git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cnx-ios/rust/target/
+          git reset -q --hard "$BUILD_SHA"
+          git submodule sync -q --recursive
+          git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
+          # A hosted runner starts with clean submodules; drop what earlier runs left.
+          git submodule foreach -q --recursive 'git clean -ffdxq && git reset -q --hard'
+          git submodule foreach -q --recursive git config --local gc.auto 0
+          # Each fetch adds a pack and gc.auto is off: fold them past 40.
+          packs=$(find .git/objects/pack -name '*.pack' | wc -l | tr -d ' ')
+          if [ "$packs" -gt 40 ]; then
+            echo "$packs packs: repacking"
+            git repack -a -d -l -q
+          fi
+          test "$(git rev-parse HEAD)" = "$BUILD_SHA"
+          git status --short | head -20
 
       - name: Select Xcode
         if: inputs.nightly_next_unsigned_run == ''
@@ -1863,7 +1908,7 @@ jobs:
       # serial build path (2026-10-09). Their target dirs keep the dependency
       # builds between nightly-next runs; cargo still rebuilds what changed.
       - name: Restore the acpmux and OptChat Chief dependency builds (cmux-next)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next') && runner.environment != 'self-hosted'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
@@ -2218,6 +2263,23 @@ jobs:
             echo "Xcode compilation cache is empty; skipping cache save"
           fi
           echo "save=${save}" >> "$GITHUB_OUTPUT"
+
+      # The warm builder keeps the Rust target directories (above). Cargo
+      # never deletes old artifacts, so start them over above 30 GiB.
+      - name: Bound the kept Rust target directories (warm nightly-next builder)
+        if: always() && inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+        run: |
+          set -euo pipefail
+          dirs=(cmux-tui/target Native/OptChat/optchat-chief/target cnx-ios/rust/target)
+          kib=0
+          for d in "${dirs[@]}"; do
+            [ -d "$d" ] && kib=$((kib + $(du -sk "$d" | awk '{print $1}')))
+          done
+          echo "kept Rust target directories: $((kib / 1024)) MiB"
+          if [ "$kib" -gt $((30 * 1024 * 1024)) ]; then
+            echo "above 30 GiB: removing them; the next build compiles the helpers again"
+            rm -rf "${dirs[@]}"
+          fi
 
       - name: Save Xcode compilation cache
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
@@ -2846,7 +2908,10 @@ jobs:
           done
           if [ "$NIGHTLY_VARIANT" != "universal" ]; then
             # No fat Mach-O may survive thinning anywhere in the bundle.
-            fat="$(find "$APP" -type f -exec sh -c 'file -b "$1" | grep -q "Mach-O universal" && echo "$1"' _ {} \;)"
+            # Only files with a Mach-O or fat magic reach `file` (one process
+            # each); the per-file scan of the whole bundle took 90 s.
+            fat="$(find "$APP" -type f -print0 | python3 scripts/list-macho-candidates.py \
+              | xargs -0 sh -c 'for f do if file -b "$f" | grep -q "Mach-O universal"; then echo "$f"; fi; done' sh)"
             if [ -n "$fat" ]; then
               echo "Fat Mach-O files remain after thinning:" >&2
               echo "$fat" >&2
@@ -4050,8 +4115,8 @@ jobs:
           # ran from a copy or the detached mount) to stop through its socket
           # with this bundle's cmux-tui, which ends its terminals; SIGTERM only
           # that exact owner PID if the request fails, takes over 10 s, or the
-          # step is past its 80 s budget. Terminal hosts are never matched.
-          deadline=$((SECONDS + 80))
+          # step is past its 70 s budget. Terminal hosts are never matched.
+          deadline=$((SECONDS + 70))
           ps -axww -o pid= -o args= | while read -r pid args; do
             case "$args" in
               */Contents/Resources/bin/cmux-tui\ --headless\ *) ;;
@@ -4077,6 +4142,37 @@ jobs:
                   "$bin/acpmux daemon run"*) kill -TERM "$pid" 2>/dev/null || true ;;
                 esac
               done
+            fi
+          fi
+          # What still runs from this job's bundles (the signed app, and the
+          # DMG smoke's copy of the same app name) holds the runner in
+          # "Cleaning up orphan processes" and slows the post-job steps
+          # (run 39440747033: owners, the Chief host and the browser host
+          # outlived the requests above; the job's tail took 2 min). The runner
+          # is ephemeral and the smokes are done: SIGTERM those exact PIDs,
+          # then SIGKILL the ones still alive after 5 s.
+          app_name="$(basename "$app")"
+          left() {
+            ps -ww -o pid= -o args= -U "$(id -u)" | while read -r pid args; do
+              case "$args" in
+                *"/$app_name/Contents/"*) echo "$pid" ;;
+              esac
+            done
+          }
+          pids="$(left)"
+          if [ -n "$pids" ]; then
+            echo "SIGTERM to the processes still running from $app_name: $(echo $pids)"
+            # shellcheck disable=SC2086 # one PID per word
+            kill -TERM $pids 2>/dev/null || true
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+              [ -n "$(left)" ] || break
+              sleep 0.5
+            done
+            pids="$(left)"
+            if [ -n "$pids" ]; then
+              echo "SIGKILL to the processes that outlived SIGTERM: $(echo $pids)"
+              # shellcheck disable=SC2086
+              kill -KILL $pids 2>/dev/null || true
             fi
           fi
           echo "cmux processes after the stop:"

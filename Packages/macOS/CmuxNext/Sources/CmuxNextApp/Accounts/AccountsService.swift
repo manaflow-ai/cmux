@@ -1,5 +1,6 @@
 import AppKit
-import CmuxNextAccounts
+public import CmuxNextAccounts
+import CmuxNextCloud
 import CmuxNextCodeRouter
 import CmuxNextDaemon
 import Foundation
@@ -93,16 +94,11 @@ final class AccountsService: AccountsServices {
         return await Task.detached { await ProviderDetector(environment: environment).detectAll() }.value
     }
 
-    var isSignedInToCmux: Bool { showcaseMock?.isSignedInToCmux ?? services.cloud.isSignedIn }
+    var cmuxAccount: CmuxAccountState { showcaseMock?.cmuxAccount ?? CmuxAccountState(services.cloud.auth) }
 
-    func signInToCmux() {
-        if let showcaseMock { showcaseMock.signInToCmux(); model.refresh(); return }
-        let cloud = services.cloud
-        // task-owner: one hosted sign-in; ends when the browser flow returns
-        Task { [weak self] in
-            _ = await cloud.auth.signIn()
-            self?.model.refresh()
-        }
+    func runCmuxAccount(_ action: CmuxAccountAction) {
+        if let showcaseMock { showcaseMock.runCmuxAccount(action); model.refresh(); return }
+        services.cloud.auth.run(action, signOut: { [services] in await services.cloud.signOut() }, refresh: { [weak self] in self?.model.refresh() })
     }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
@@ -154,6 +150,9 @@ final class AccountsService: AccountsServices {
         if !services.inFrontPane({ $0.newTerminalTab(typing: line + "\r") }) { logger.info("no window for a terminal tab") }
     }
 }
+
+/// Settings > Accounts drives the same Cloud sign-in as every other entry point.
+extension CloudAuth: CmuxAccountSource {}
 
 /// Fixture mode: no Keychain item exists.
 private struct NoKeychain: KeychainProbing {
