@@ -137,6 +137,15 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
   once, dispatch `ios-internal-nightly.yml` on `rc/cnx-ios-builder` with `sha`.
 - Pause: set repo variable `IOS_INTERNAL_HOLD=1`; the trigger then dispatches
   nothing.
+- Production naming (2026-10-20): the app moved from `cnx-ios/` to `cmux-next-ios/`
+  (archive `CmuxMobileApp.xcarchive`, artifacts `cmux-mobile-internal-*`, build root
+  `~/cmux-mobile-builds`). The signing job runs `rc/cnx-ios-builder`'s own copy of the
+  workflow and of `testflight-build.sh`, so until an admin fast-forwards that branch to a
+  feat-cmux-next commit with the rename, the trigger skips with "has no
+  cmux-next-ios/scripts/testflight-build.sh" and nothing uploads (the last upload stays
+  installable). Admin step, once the rename is on feat-cmux-next:
+  `git push origin <feat-cmux-next sha>:refs/heads/rc/cnx-ios-builder`. The branch keeps
+  its name. After it, copy `scripts/ci/ios_internal_builder.py` to the mini as above.
 
 ## Not done (follow-ups)
 
