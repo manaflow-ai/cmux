@@ -56,7 +56,9 @@ public final class StreamedBrowserModel: BrowserTabState {
         case unavailable
     }
 
-    public let tab: String
+    /// The tab's key on the Mac. A new workspace's placeholder tab gets the
+    /// Mac's real id once it exists (``StreamedBrowserDirectory/rename(tab:to:)``).
+    public private(set) var tab: String
     public private(set) var url: URL?
     public private(set) var title = ""
     public private(set) var canGoBack = false
@@ -73,7 +75,7 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     @ObservationIgnored public let decoder = BrowserVideoDecoder()
     @ObservationIgnored let wire = RemoteBrowserWire()
-    @ObservationIgnored private let open: @Sendable (_ sink: any BrowserStreamSink, _ url: URL?) async throws -> any BrowserStreamConnection
+    @ObservationIgnored private let open: @Sendable (_ sink: any BrowserStreamSink, _ tab: String, _ url: URL?) async throws -> any BrowserStreamConnection
     @ObservationIgnored private var connection: (any BrowserStreamConnection)?
     @ObservationIgnored private var sink: Sink?
     @ObservationIgnored private var screen: RemoteBrowserWire.Screen?
@@ -147,12 +149,12 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     /// `open` opens the `browser` service on the current link.
     public convenience init(tab: String, url: URL?, open: @escaping @Sendable (_ sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection) {
-        self.init(tab: tab, url: url) { sink, _ in try await open(sink) }
+        self.init(tab: tab, url: url) { sink, _, _ in try await open(sink) }
     }
 
     /// `open` opens the `browser` service on the current link, at the page's
     /// current address (the Mac starts the page there when its host is gone).
-    public init(tab: String, url: URL?, open: @escaping @Sendable (_ sink: any BrowserStreamSink, _ url: URL?) async throws -> any BrowserStreamConnection) {
+    public init(tab: String, url: URL?, open: @escaping @Sendable (_ sink: any BrowserStreamSink, _ tab: String, _ url: URL?) async throws -> any BrowserStreamConnection) {
         self.tab = tab
         self.url = url
         self.open = open
@@ -191,7 +193,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         // task-owner: one dial per connect; the result lands on the main actor
         Task { [weak self] in
             do {
-                let connection = try await open(sink, url)
+                let connection = try await open(sink, tab, url)
                 self?.opened(connection, sink: sink)
             } catch {
                 log.error("browser \(tab, privacy: .public): \(String(describing: error), privacy: .public)")
@@ -224,6 +226,10 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// Whether the page is on screen now (and laid out): what opens again on
     /// a new link (``StreamedBrowserDirectory/linkChanged()``).
     public var isShown: Bool { visible && screen != nil }
+
+    /// The Mac's real id for this tab; the stream open now keeps going, and
+    /// the next open uses it.
+    func retab(_ key: String) { tab = key }
 
     /// Tells the Mac again that this tab is shown (another tab's stream
     /// opened, and an open takes the lane).

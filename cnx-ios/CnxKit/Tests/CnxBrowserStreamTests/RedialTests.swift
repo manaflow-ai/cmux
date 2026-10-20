@@ -101,6 +101,30 @@ final class FakeOpener: BrowserStreamOpening, @unchecked Sendable {
         #expect(second.tabs == ["s1"])
     }
 
+    /// Live check (switch row): a browser workspace made on the phone opens
+    /// its page under the placeholder tab id; the Mac's real tab id must take
+    /// it over, or the redial reopens the real tab's blank page.
+    @Test func aPlaceholderTabsPageMovesToTheRealTab() async throws {
+        let directory = StreamedBrowserDirectory()
+        let first = FakeOpener()
+        directory.opener = { first }
+        let page = try #require(directory.model(tab: "new-ab12-t1", url: nil))
+        await show(page, on: first)
+        first.sink("new-ab12-t1")?.browserMessage(Data(#"{"t":"rb.page","url":"https://example.org/typed","title":"T","loading":false,"can_go_back":true,"can_go_forward":false}"#.utf8))
+        await settle()
+        directory.rename(tab: "new-ab12-t1", to: "s108")
+        #expect(directory.model(tab: "s108", url: nil) === page)
+        #expect(first.stream("new-ab12-t1")?.closed == false, "the open stream keeps going")
+        directory.retain(tabs: ["s108"])
+        await dropLink(first, ["new-ab12-t1"])
+        let second = FakeOpener()
+        directory.opener = { second }
+        directory.linkChanged()
+        await until { !second.tabs.isEmpty }
+        #expect(second.tabs == ["s108"])
+        #expect(second.lock.withLock { second.opens.first?.url } == "https://example.org/typed")
+    }
+
     @Test func tabsTheMacNoLongerListsAreDropped() async throws {
         let directory = StreamedBrowserDirectory()
         let first = FakeOpener()

@@ -31,7 +31,7 @@ public final class StreamedBrowserDirectory {
             warmMedia()
             return model
         }
-        let model = StreamedBrowserModel(tab: tab, url: url) { [weak self] sink, current in
+        let model = StreamedBrowserModel(tab: tab, url: url) { [weak self] sink, tab, current in
             // The opener of the link up now (a stream reopens on a new link).
             guard let opener = await self?.opener, let link = await opener() else {
                 throw LinkError(code: "no-link", message: "Not connected to the Mac")
@@ -58,6 +58,16 @@ public final class StreamedBrowserDirectory {
         guard let opener else { return }
         // task-owner: fire and forget; the link ignores it without a media session
         Task { await opener()?.warmMedia() }
+    }
+
+    /// A new workspace's placeholder tab became the Mac's real tab: its page
+    /// keeps going under the real id (it opened under the placeholder's, and
+    /// a redial must reopen this page, not the real tab's blank one).
+    public func rename(tab old: String, to new: String) {
+        guard old != new, let model = models.removeValue(forKey: old) else { return }
+        models.removeValue(forKey: new)?.close()
+        model.retab(new)
+        models[new] = model
     }
 
     /// The tab closed on the phone.

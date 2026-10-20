@@ -348,6 +348,10 @@ public final class WorkspaceCreator {
     public private(set) var preferredMacID: String?
     /// A creation the Mac refused: the removed placeholder and the reason.
     @ObservationIgnored public var onFailure: (@MainActor (Workspace, String) -> Void)?
+    /// The placeholder's opening tab became the Mac's real tab (`from`,
+    /// `to`): a page the person already opened in it keeps going under the
+    /// real id (a streamed browser tab, verify/redial-video.md).
+    @ObservationIgnored public var onTabResolved: (@MainActor (_ from: String, _ to: String) -> Void)?
     /// A rename or close the Mac refused: the workspace, what failed
     /// ("Couldn't close cmux") and the reason. The change is already undone.
     @ObservationIgnored public var onManageFailure: (@MainActor (Workspace, String, String) -> Void)?
@@ -518,6 +522,9 @@ public final class WorkspaceCreator {
             let real = try await backend.create(request, placeholder: placeholder)
             store.resolvePending(placeholder.id, with: real)
             if let tab = Self.openingTab(of: real, for: request.start) {
+                if let first = Self.openingTab(of: placeholder, for: request.start), first.id != tab.id {
+                    onTabResolved?(first.id, tab.id)
+                }
                 store.noteOpened(tabID: tab.id, in: real.id)
             }
             phases[placeholder.id] = .created(real.id)
