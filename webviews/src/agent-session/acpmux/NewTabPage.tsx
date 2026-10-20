@@ -21,12 +21,13 @@ import {
   homePath,
   listed,
   projectLabel,
-  sessionEntry,
+  normalizedSessionEntry,
   sessionMark,
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
+import { seedWarmNewTab } from "./newtab/warmSnapshot";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -95,6 +96,8 @@ export type NewTabHost = {
   focusesField?: boolean;
   /// The page is agent history (the sidebar's History dot, cx-zlnl), not the New Tab page.
   history?: boolean;
+  /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
+  widgets?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -104,6 +107,8 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
   // The app's copy of the last picks: this page's own storage did not outlive the launch.
   seedLastPicks(object.lastPicks);
+  // The chats a page of this Mac listed last: the Chats list's first frame (newtab/warmSnapshot.ts).
+  seedWarmNewTab(object.warm);
   const keys = (typeof object.hotkeys === "object" && object.hotkeys !== null ? object.hotkeys : {}) as Record<
     string,
     unknown
@@ -138,6 +143,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
+    ...(object.widgets === true ? { widgets: true } : {}),
   };
 }
 
@@ -163,23 +169,33 @@ export function cycleKind(kind: TabKind, step = 1): TabKind {
   return TAB_KINDS[(index + step + TAB_KINDS.length) % TAB_KINDS.length]!;
 }
 
+type KindSwitchDirection = "next" | "previous";
+
 /// The newest sessions first, the ones waiting on the user ahead of them.
 export function recentSessions(
   sessions: AcpmuxSnapshot["sessions"],
   count = RECENT_COUNT,
   fold = true,
 ): AcpmuxSessionEntry[] {
+  // Snapshots already carry normalized entries from the direct client. Keep their identity so a
+  // New Tab render does not allocate and normalize every recent chat again. Gallery and older
+  // callers may still provide raw summaries, so retain the normalization fallback for those.
   const all = sessions
-    .map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
-    .filter(listed);
+    .map((session) => normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
+    // A chat nothing was sent in yet (a New Tab's chip pick starts one) is no recent chat.
+    .filter((entry) => listed(entry) && !entry.unsent);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
-  const order = (entries: AcpmuxSessionEntry[]) =>
-    entries.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  if (!fold) return order(all).slice(0, count);
+  // Chats reported in the same millisecond tie on their durable ids, so a snapshot's arrival order
+  // cannot make the rows trade places.
+  const ordered = all.sort(
+    (a, b) =>
+      urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.sessionId.localeCompare(b.sessionId),
+  );
+  if (!fold) return ordered.slice(0, count);
   // A child folds only under a parent this list shows; under one past the cut it lists on its own.
-  const shown = order(all.filter((entry) => !entry.spawnedBy)).slice(0, count);
+  const shown = ordered.filter((entry) => !entry.spawnedBy).slice(0, count);
   const parents = new Set(shown.map((entry) => entry.sessionId));
-  return order(all.filter((entry) => !folded(entry, parents))).slice(0, count);
+  return ordered.filter((entry) => !folded(entry, parents)).slice(0, count);
 }
 
 /// "now", "5m", "3h", "2d": the card's age, as compact as the sidebar's.
@@ -250,6 +266,10 @@ export function NewTabPage({
 }: Props) {
   const t = useT();
   const [kind, setKind] = useState<TabKind>(initialKind);
+  // The field is reused when the kind changes. A short directional handoff gives the new
+  // placeholder and context a visible swipe without moving the composer or stealing its focus.
+  const [kindSwitch, setKindSwitch] = useState<KindSwitchDirection>();
+  const kindSwitchTimer = useRef<number | undefined>(undefined);
   const [projectCwd, setProjectCwd] = useState(cwd);
   const [text, setText] = useState(location ?? "");
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
@@ -319,6 +339,29 @@ export function NewTabPage({
   const agent = agentDisplayName(snapshot.summary?.harness ?? snapshot.catalog[0]?.id ?? "agent");
   const placeholder = NEW_TAB_LABELS.placeholder[kind](t, kind === "agent" ? agent : folder);
 
+  const changeKind = (next: TabKind) => {
+    if (next === kind) return;
+    const direction: KindSwitchDirection = cycleKind(kind) === next ? "next" : "previous";
+    const view = field.current?.ownerDocument.defaultView;
+    if (kindSwitchTimer.current !== undefined) view?.clearTimeout(kindSwitchTimer.current);
+    // Clear first, then re-arm on the next frame. Consecutive forward switches (Tab) therefore
+    // restart the animation even though the direction stays the same.
+    setKindSwitch(undefined);
+    setKind(next);
+    view?.requestAnimationFrame(() => {
+      setKindSwitch(direction);
+      kindSwitchTimer.current = view.setTimeout(() => setKindSwitch(undefined), 220);
+    });
+  };
+
+  useEffect(
+    () => () => {
+      const view = field.current?.ownerDocument.defaultView;
+      if (kindSwitchTimer.current !== undefined) view?.clearTimeout(kindSwitchTimer.current);
+    },
+    [],
+  );
+
   // The field takes the keyboard when the page appears, as a browser's new tab does, and
   // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page; only
   // then, so an update (the App hands a new callback on each render) or a click into the field
@@ -339,7 +382,7 @@ export function NewTabPage({
     return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
   }, [inputToken]);
   const choose = (next: TabKind) => {
-    setKind(next);
+    changeKind(next);
     setBeforePrefix(undefined);
     field.current?.focus();
   };
@@ -398,10 +441,10 @@ export function NewTabPage({
     } else if (event.key === "Tab" && !event.altKey && !event.metaKey && !event.ctrlKey) {
       event.preventDefault();
       setBeforePrefix(undefined);
-      setKind((current) => cycleKind(current, event.shiftKey ? -1 : 1));
+      changeKind(cycleKind(kind, event.shiftKey ? -1 : 1));
     } else if (event.key === "Backspace" && text === "" && beforePrefix) {
       event.preventDefault();
-      setKind(beforePrefix);
+      changeKind(beforePrefix);
       setBeforePrefix(undefined);
     }
   };
@@ -412,7 +455,7 @@ export function NewTabPage({
     replacing.current = false;
     if (prefixed && prefixed.kind !== kind) {
       setBeforePrefix(kind);
-      setKind(prefixed.kind);
+      changeKind(prefixed.kind);
       setText(prefixed.text);
       return;
     }
@@ -424,7 +467,12 @@ export function NewTabPage({
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>
-          <div className="acpmux-newtab-row" role="presentation" onMouseDown={focusFromRow}>
+          <div
+            className="acpmux-newtab-row"
+            data-kind-switch={kindSwitch}
+            role="presentation"
+            onMouseDown={focusFromRow}
+          >
             <KindIcon kind={kind} />
             <input
               ref={field}
@@ -479,7 +527,7 @@ export function NewTabPage({
               ))}
             </fieldset>
           </div>
-          <div className="acpmux-newtab-under">
+          <div className="acpmux-newtab-under" data-kind-switch={kindSwitch}>
             <span className="acpmux-newtab-context">
               {kind !== "browser" && (
                 <ProjectChooser

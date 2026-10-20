@@ -32,7 +32,8 @@ export const HAND_ACTIONS = [
   "agent.send",
   "agent.cancel",
   "agent.deny",
-  "agent.events"
+  "agent.events",
+  "agent.stop"
 ] as const
 export type HandAction = (typeof HAND_ACTIONS)[number]
 export const isHandAction = (a: unknown): a is HandAction => typeof a === "string" && (HAND_ACTIONS as ReadonlyArray<string>).includes(a)
@@ -48,6 +49,12 @@ export interface HandSummary {
   readonly revoked_at: number | null
   readonly last_seen: number | null
   readonly online: boolean
+  /** A sandbox hand (its VM was made for it and is deleted with it). */
+  readonly sandbox?: boolean
+  /** Its permission level (hand-levels.ts). */
+  readonly level?: string
+  /** Requests waiting for the owner's answer (the app shows them; GET /v1/hands/<hand>/approvals). */
+  readonly pending_approvals?: number
 }
 
 export interface HandError {
@@ -66,6 +73,7 @@ export type AgentEvent =
   | { readonly kind: "turn_end"; readonly stop_reason?: string }
   | { readonly kind: "error"; readonly message?: string; readonly code?: number }
   | { readonly kind: "permission"; readonly permission_id?: string; readonly title?: string }
+  | { readonly kind: "session_end"; readonly reason?: string }
 
 export interface StoredEvent {
   readonly seq: number
@@ -90,6 +98,8 @@ export interface HandCaller {
   readonly kind: "owner" | "chief"
   readonly user: string
   readonly agent?: string
+  /** A Chief's conversation of the call: an agent session it starts is revoked there when it ends. */
+  readonly conversation?: string
 }
 
 export const callerLabel = (c: HandCaller) => (c.kind === "owner" ? `session:${c.user}` : `agent:${c.agent}`)
@@ -111,4 +121,19 @@ export const sameHex = (a: string, b: string): boolean => {
   let diff = 0
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
   return diff === 0
+}
+
+/**
+ * JSON of `v` within `max` characters, always parseable: long string fields are cut first, and a
+ * value that still does not fit is replaced by a marker.
+ */
+export const capJson = (v: unknown, max: number): string => {
+  const whole = JSON.stringify(v ?? null)
+  if (whole.length <= max) return whole
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    const cut = Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, typeof x === "string" && x.length > max / 4 ? `${x.slice(0, max / 4)}…[cut]` : x]))
+    const again = JSON.stringify({ ...cut, truncated: true })
+    if (again.length <= max) return again
+  }
+  return JSON.stringify({ kind: (v as { kind?: unknown } | null)?.kind ?? null, truncated: true })
 }

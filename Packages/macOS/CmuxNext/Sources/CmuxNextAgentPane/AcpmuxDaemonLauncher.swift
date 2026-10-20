@@ -34,13 +34,15 @@ nonisolated enum AcpmuxDaemonLauncher {
 
     /// The daemon's environment: this app's, without any inherited Computer
     /// Use variable, plus `childEnvironment`, the current Computer Use socket
-    /// and agent token (never the host token), and the launch knobs.
+    /// and agent token (never the host token), the session offer tools while
+    /// suggested tasks are on (``AcpmuxEnvironment/offersSessionTools``), and the launch knobs.
     static func spawnEnvironment(_ environment: AcpmuxEnvironment, inherited: [String: String]) -> [String: String] {
         let computerUse = Set(AcpmuxEnvironment.computerUseKeys + [AcpmuxEnvironment.computerUseHostKey])
         var variables = inherited.filter { !computerUse.contains($0.key) }.merging(environment.childEnvironment) { $1 }
         for key in AcpmuxEnvironment.computerUseKeys {
             if let value = environment.computerUse[key], !value.isEmpty { variables[key] = value }
         }
+        if environment.offersSessionTools { variables[AcpmuxEnvironment.offerToolsKey] = "1" }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
         variables["ACPMUX_LOGIN_ENV"] = "1"
         return variables

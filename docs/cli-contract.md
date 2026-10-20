@@ -234,6 +234,19 @@ else `current`; with `--socket` or `--session` they target that session's
 an incognito workspace that the session closes at its next start. Workspace
 groups and their order are personal state of this Mac's home session.
 
+```text
+cmux status wait KEY [--target <ws_…>|current] [--until settled|cleared|state=<s>] [--timeout <500ms|30s|5m>|--timeout-ms <n>]
+```
+
+`cmux status wait` blocks until the status entry `KEY` of the workspace holds
+`--until`, then prints `{workspace_id, key, cleared, entry}`. `settled`, the
+default, returns when the entry is gone (cleared, its owner ended or its TTL
+passed) or shows `success` (exit 0), or shows `error` (exit 1); a key with no
+entry is settled at once. `cleared` waits for the entry to go, and `state=<s>`
+(`busy`, `waiting`, `success`, `error` or `info`) for that state. It follows the
+session's event stream instead of polling, and a passed timeout exits 124 with
+`wait.timeout`, also when the daemon stops answering.
+
 Rooms and groups (workspace, tab, screen and saved tab groups) take their id or
 their exact name. The CLI reads the list on the request's connection and sends
 the id, so a retry with `--idempotency-key` repeats the same request; a name
@@ -403,7 +416,8 @@ refused. `--window` and `--id-format` are accepted and ignored.
 ### agent
 
 ```text
-cmux agent list [--terminal <term_id>] [--state working|blocked|idle|done|unknown]
+cmux agent list [--terminal <term_id>] [--state working|blocked|idle|done|unknown] [--needs-me]
+                [--sort needs-me|recent|none] [--limit <n>] [--counts]
 cmux agent report --terminal <term_id> --state <state> --source hook|socket [--source-session <id>]
 cmux agent hook install|uninstall|status [provider...]
 cmux agent hook emit --source <agent> --event <native-event> [--terminal <term_id>] [--payload-json <json>]
@@ -412,6 +426,11 @@ cmux agent plugin install <git-url> [--name <value>] [--force]
 cmux agent plugin use|update|remove <name-or-id>
 cmux agent plugin use --builtin
 ```
+
+`agent list` puts blocked agents first, then working, then idle and done
+(`--sort recent|none` for recency or the daemon's order). `--json` stays a bare
+array of agents; `--json --counts` adds the counts by state
+(`{"agents": [...], "counts": {...}}`).
 
 Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`
 and `pi`. `hook emit` reads the native payload from stdin when

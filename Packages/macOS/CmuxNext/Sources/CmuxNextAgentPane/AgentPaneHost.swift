@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import Foundation
 import os
 
@@ -55,6 +56,10 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
     /// Nothing listens on the Chief home's socket: only the Chief host starts
     /// that daemon, never a tab (cx-ebm.54).
     case chiefStopped
+    /// A daemon answers on `socketPath`, but this build may not use it: it runs another
+    /// executable (`holder`, the cmux app that owns it, when known) or failed the peer check
+    /// for `reason`. Its log says nothing, since the daemon itself never saw a failure.
+    case daemonRefused(holder: String?, socketPath: String, reason: String)
     case timedOut
 }
 
@@ -68,6 +73,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
+    /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`,
+    /// the `agent.suggestedTasks` Debug Settings toggle), read at each daemon start: a toggle applies to the next daemon
+    /// this app starts, never to the one already running.
+    private let offersSessionTools: @Sendable () -> Bool
     /// Called with the daemon socket after each successful find or start, so
     /// the Computer Use helper v2 can register this daemon.
     private let daemonReady: @Sendable (String) async -> Void
@@ -84,6 +93,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     public init(environment: AcpmuxEnvironment?, startsDaemons: Bool = true) {
         self.resolveEnvironment = { environment }
         self.computerUse = { [:] }
+        self.offersSessionTools = { environment?.offersSessionTools ?? false }
         self.daemonReady = { _ in }
         self.startsDaemons = startsDaemons
     }
@@ -92,9 +102,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// off the main thread, at the first handshake that needs it.
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
+                offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneTunables.suggestedTasks.value },
                 daemonReady: (@Sendable (String) async -> Void)? = nil) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
+        self.offersSessionTools = offersSessionTools
         self.daemonReady = daemonReady ?? { _ in }
         self.startsDaemons = true
     }
@@ -136,6 +148,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw AgentPaneHostError.acpmuxNotFound
         }
         environment.computerUse = computerUse()
+        environment.offersSessionTools = offersSessionTools()
         let daemonSocket = environment.socketPath
         Self.logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
@@ -161,6 +174,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return try AcpmuxStatus(result).endpoint()
     }
 
+    /// The pane's error for a peer check that refused the daemon on `environment`'s socket,
+    /// logged with who holds it, so "acpmux did not start" never hides a running daemon.
+    static func refused(_ refusal: AcpmuxServerPeer.Refusal, _ environment: AcpmuxEnvironment) -> AgentPaneHostError {
+        var holder: String?
+        if case .otherExecutable(let path) = refusal { holder = AcpmuxServerPeer.holderName(executablePath: path) }
+        logger.error("acpmux at \(environment.socketPath, privacy: .public) refused: \(refusal.description, privacy: .public); held by \(holder ?? "unknown", privacy: .public); this app runs \(environment.executable.path, privacy: .public)")
+        return .daemonRefused(holder: holder, socketPath: environment.socketPath, reason: refusal.description)
+    }
+
     /// A shutdown removes `daemon.pid`; kill -9 or a crash leaves it naming a dead process.
     private static func crashed(_ home: URL) -> Bool {
         guard let text = try? String(contentsOf: home.appendingPathComponent("daemon.pid"), encoding: .utf8),
@@ -177,7 +199,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // tag's. Never hand it off, stop it or use it.
             guard status.serves(home: environment.home) else {
                 logger.error("acpmux socket=\(environment.socketPath, privacy: .public) serves home=\(status.home ?? "", privacy: .public), not this app's home=\(environment.home.path, privacy: .public)")
-                throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
+                let holder = status.pid.flatMap(AcpmuxVersionHandoff.executablePath(pid:)).map(AcpmuxServerPeer.holderName(executablePath:))
+                throw AgentPaneHostError.daemonRefused(holder: holder, socketPath: environment.socketPath,
+                                                       reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)")
             }
             // After an update the daemon may be the previous build's: hand it
             // off (its agents keep running under their hosts) and start ours.
@@ -209,6 +233,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw AgentPaneHostError.timedOut
         } catch let error as AgentPaneHostError {
             throw error
+        } catch let refusal as AcpmuxServerPeer.Refusal {
+            throw Self.refused(refusal, environment)
         } catch {
             logger.error("acpmux status failed error=\(String(describing: error), privacy: .public)")
             throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
@@ -226,6 +252,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // exits because the socket is taken. Ask the winner.
             do {
                 return try await Self.verifiedEndpoint(environment)
+            } catch let refusal as AcpmuxServerPeer.Refusal {
+                throw Self.refused(refusal, environment)
             } catch {
                 throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
             }

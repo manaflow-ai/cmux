@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
@@ -11,6 +11,7 @@ import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { focusAfterEscape } from "../../ui/escapeFocus";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -24,6 +25,7 @@ export const CONTEXT_LABELS = {
   connectSSH: "composer.connectSSH",
   connectCloud: "composer.connectCloud",
   newChatHere: "composer.newChatHere",
+  noProject: "composer.noProject",
 } as const;
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -44,6 +46,8 @@ export function ComposerContext({
   projectChoices,
   onBrowseProject,
   onNewWorktree,
+  onNoProject,
+  noProject = false,
   localName,
   onNewChat,
   onBrowseFolder,
@@ -58,6 +62,9 @@ export function ComposerContext({
   onBrowseProject?(): void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
+  /// A new chat's Do not work in a project (FolderPopover); `noProject` while it is the choice.
+  onNoProject?(): void;
+  noProject?: boolean;
   /// This Mac's name (the handshake's `machineName`).
   localName?: string;
   /// A started chat's New Chat Here, or a folder picked from its menu: a new chat in that folder,
@@ -121,7 +128,13 @@ export function ComposerContext({
               face={
                 <LocationFace
                   icon={<FolderIcon />}
-                  value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+                  value={
+                    currentFolder
+                      ? projectLabel(currentFolder)
+                      : noProject
+                        ? t(CONTEXT_LABELS.noProject)
+                        : t(CONTEXT_LABELS.chooseFolder)
+                  }
                   chevron
                   middle={currentFolder !== undefined}
                 />
@@ -130,6 +143,8 @@ export function ComposerContext({
               current={currentFolder}
               onPick={(cwd) => onProject?.(cwd)}
               onBrowse={onBrowseProject}
+              onNoProject={onNoProject}
+              noProject={noProject && !currentFolder}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               localName={localName}
               peers={peers}
@@ -427,6 +442,7 @@ function LocationPicker({
   const [query, setQuery] = useState("");
   const { control, anchor, open, setOpen, side } = useLocationPopover();
   const press = usePopoverTrigger(open, setOpen);
+  const trigger = useRef<HTMLButtonElement>(null);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   // A folder list names duplicates apart by a short suffix, its path only on hover (projectSuffix.ts).
   const suffixes = useMemo(
@@ -512,6 +528,7 @@ function LocationPicker({
   return (
     <span ref={control} className="acpmux-location-picker">
       <button
+        ref={trigger}
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={label}
@@ -538,6 +555,10 @@ function LocationPicker({
           onQuery={setQuery}
           onSubmit={(path) => (path ? pick(path) : setOpen(false))}
           onCancel={() => setOpen(false)}
+          // Escape closes back onto the folder chip (escapeFocus.ts).
+          onCommand={(event) => {
+            if (event.key === "Escape") focusAfterEscape(trigger.current);
+          }}
           label={label}
           placeholder={t(CONTEXT_LABELS.folderSearch)}
           inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"

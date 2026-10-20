@@ -19,6 +19,20 @@ extension AppServices {
         return open?.faviconURL ?? origin + "/favicon.ico"
     }
 
+    /// The favicon address an open (not incognito) browser tab shows, by the tab's site origin (`BookmarkURL.faviconKey`),
+    /// the first tab per origin as `siteFaviconAddress` picks it; the site's own `/favicon.ico` is left out (a link
+    /// draws that one without storing it). One scan of the tabs for every link (sidebar links store these).
+    func openTabFaviconsByOrigin() -> [String: String] {
+        var byOrigin: [String: String] = [:]
+        for tab in machines.local.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) {
+            guard tab.kind == .browser, let favicon = tab.faviconURL, !cache.browserTabs.isIncognitoTab(tab.id),
+                  let origin = tab.url.flatMap(URL.init(string:)).flatMap(BookmarkURL.faviconKey(for:)), byOrigin[origin] == nil
+            else { continue }
+            byOrigin[origin] = favicon
+        }
+        return byOrigin.filter { $0.value != $0.key + "/favicon.ico" }
+    }
+
     /// The favicon of the page at `url` for `profile`, nil while it loads or without one.
     func siteFavicon(_ url: URL, profile: BrowserProfileID) -> TabImage? {
         guard let origin = BookmarkURL.faviconKey(for: url) else { return nil }

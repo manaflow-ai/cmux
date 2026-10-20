@@ -35,7 +35,7 @@ public nonisolated enum KeyboardReorder {
         for (index, node) in section.nodes.enumerated() {
             result.append(DropPosition(section: section.id, index: index))
             if case let .group(group) = node, !group.isCollapsed {
-                for child in 0...group.workspaces.count {
+                for child in 0...group.members.count { // a group's index counts its member rows (items too)
                     result.append(DropPosition(section: section.id, group: group.id, index: child))
                 }
             }

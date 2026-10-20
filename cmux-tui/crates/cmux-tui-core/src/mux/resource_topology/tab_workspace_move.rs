@@ -136,6 +136,10 @@ impl Mux {
                             public_id: WorkspacePublicId::random()?,
                             key: Mux::new_workspace_key()?,
                             name: mux.moved_tab_workspace_name(name.as_deref(), state),
+                            name_source: crate::resource_name::NameSource::for_requested(
+                                name.is_some(),
+                            ),
+                            name_revision: 0,
                             screens: Vec::new(),
                             active_screen: 0,
                         },
@@ -291,6 +295,8 @@ impl Mux {
                     public_id: target_ws.public_id.clone(),
                     key: target_ws.key.clone(),
                     name: target_ws.name.clone(),
+                    name_source: target_ws.name_source,
+                    name_revision: target_ws.name_revision,
                     group_key: mux.session.clone(),
                 };
                 let source_changes = std::mem::take(&mut changes);
@@ -361,6 +367,7 @@ impl Mux {
                     registry.session_id().as_str(),
                     &target_ws.public_id,
                     &target_ws.name,
+                    (target_ws.name_source, target_ws.name_revision),
                     target_wi,
                     true,
                 ));
@@ -372,6 +379,7 @@ impl Mux {
                         registry.session_id().as_str(),
                         &previous.public_id,
                         &previous.name,
+                        (previous.name_source, previous.name_revision),
                         state.active_workspace,
                         false,
                     ));
@@ -453,6 +461,7 @@ impl Mux {
                             registry.session_id().as_str(),
                             &shifted.public_id,
                             &shifted.name,
+                            (shifted.name_source, shifted.name_revision),
                             index + 1,
                             false,
                         ));

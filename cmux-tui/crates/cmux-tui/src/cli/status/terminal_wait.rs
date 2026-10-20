@@ -30,9 +30,9 @@ use super::super::resolve::{self, Failure, SocketRoute};
 use super::super::{GlobalArgs, Surface, UsageError, wire};
 
 /// The exit code of a wait whose timeout passed, as timeout(1) has it.
-const TIMEOUT_EXIT: i32 = 124;
+pub(super) const TIMEOUT_EXIT: i32 = 124;
 /// How long the daemon may take to open the event stream or answer a read.
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
+pub(super) const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 /// A read timeout may wake this much before the deadline it was set for.
 const DEADLINE_SLACK: Duration = Duration::from_millis(50);
 
@@ -122,7 +122,7 @@ fn parse(words: &[String]) -> Result<(Until, Option<Duration>), UsageError> {
 }
 
 /// `500ms`, `30s` (or `30`), `5m`, `1h`.
-fn duration(text: &str) -> Result<Duration, UsageError> {
+pub(super) fn duration(text: &str) -> Result<Duration, UsageError> {
     let invalid = || {
         UsageError::new(format!(
             "--timeout takes a duration such as 500ms, 30s, 5m or 1h, not {text:?}"
@@ -162,7 +162,7 @@ fn wait(global: &GlobalArgs, selector: &str, until: Until, timeout: Option<Durat
             );
         }
     };
-    if let Err(error) = resolve::apply_global_route(global, &mut plan.params) {
+    if let Err(error) = resolve::apply_global_route(global, &mut plan) {
         eprintln!("cmux: {error}");
         return 2;
     }
@@ -291,7 +291,7 @@ fn holds(record: &Value, until: Until) -> Result<bool, Failure> {
 
 /// How long to wait for one daemon answer: its usual bound, cut to what is
 /// left of the deadline (at least 1 ms: a zero socket timeout is refused).
-fn answer_wait(deadline: Option<Instant>) -> Duration {
+pub(super) fn answer_wait(deadline: Option<Instant>) -> Duration {
     deadline.map_or(ANSWER_TIMEOUT, |deadline| {
         deadline
             .saturating_duration_since(Instant::now())
@@ -300,7 +300,7 @@ fn answer_wait(deadline: Option<Instant>) -> Duration {
 }
 
 /// Whether the deadline has (all but) passed.
-fn past(deadline: Option<Instant>) -> bool {
+pub(super) fn past(deadline: Option<Instant>) -> bool {
     deadline.is_some_and(|deadline| Instant::now() + DEADLINE_SLACK >= deadline)
 }
 
