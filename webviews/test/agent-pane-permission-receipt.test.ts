@@ -31,6 +31,7 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
   const DENIED = "0190a000-0000-7000-8000-0000000000f3";
   const CANCELLED = "0190a000-0000-7000-8000-0000000000f4";
   const LIVE = "0190a000-0000-7000-8000-0000000000f5";
+  const LAG = "0190a000-0000-7000-8000-0000000000f6";
   const START = Date.now() - 90_000;
   type Step = [dir: string, kind: string, msg: Record<string, unknown>];
   const update = (update: Record<string, unknown>) => ({
@@ -90,14 +91,22 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     [DENIED]: log(DENIED, [...asked, picked("reject_once"), ...ended("Skipped the tests.")]),
     [CANCELLED]: log(CANCELLED, [...asked, decided({ outcome: "cancelled" }), ...ended("Stopped.", "cancelled")]),
     [LIVE]: log(LIVE, asked),
+    // The ask, its answer and the reply's first words reach the pane only through a resync.
+    [LAG]: log(LAG, asked.slice(0, 3)),
   };
+  const chunk = (text: string): Step => [
+    "in",
+    "agent_message_chunk",
+    update({ sessionUpdate: "agent_message_chunk", messageId: "reply-1", content: { type: "text", text } }),
+  ];
+  const missed = [asked[3]!, picked("allow_once"), chunk("Tests")].map((step, index) => record(LAG, step, 4 + index));
   const session = (sessionId: string) => ({
     sessionId,
     cwd: "/home/dev/uploader",
     title: "Build",
     harness: "claude",
     family: "claude",
-    status: sessionId === LIVE ? "waiting" : "idle",
+    status: sessionId === LIVE || sessionId === LAG ? "waiting" : "idle",
     turnCount: 1,
     updatedAt: START,
   });
@@ -113,6 +122,8 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
         return { session: session(id), lastSeq: chats[id]!.length, events: chats[id] };
       }
       case "_acpmux/events":
+        if (params.sessionId === LAG && Number(params.afterSeq) < 4)
+          return { events: missed, hasMore: false, lastSeq: missed.length + 3 };
         return { events: [], hasMore: false, lastSeq: 0 };
       default:
         return null;
@@ -142,9 +153,12 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
   };
   /// The transcript's permission receipts, as their text reads, with the turn's work opened.
   const receipts = async (page: Page) => {
-    const fold = page.locator(".acpmux-scroll button[aria-expanded='false']", { hasText: /Worked for|stopped after/ });
-    if (await fold.count()) await fold.first().click();
-    await page.waitForTimeout(200);
+    const fold = (expanded: boolean) =>
+      page.locator(`.acpmux-scroll button[aria-expanded='${expanded}']`, { hasText: /Worked for|stopped after/ });
+    if (await fold(false).count()) {
+      await fold(false).first().click();
+      await fold(true).first().waitFor({ timeout: 5_000 });
+    }
     return page
       .locator(".acpmux-scroll .acpmux-permission-record")
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).innerText.replace(/\s+/g, " ").trim()));
@@ -213,6 +227,20 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     push(picked("allow_once"));
     await page.locator(".acpmux-permission-record").first().waitFor({ timeout: 5_000 });
     expect(await page.locator(".acpmux-permission-ask").count()).toBe(0);
+    expect(await receipts(page)).toEqual(["Allowed: Run npm test"]);
+    await page.close();
+  });
+
+  test("a resync that brings the answer keeps one receipt and the reply that streams after it whole", async () => {
+    const page = await open(LAG, "Check the build");
+    const send = (message: Record<string, unknown>) => {
+      for (const ws of sockets) ws.send(JSON.stringify({ jsonrpc: "2.0", ...message }));
+    };
+    // acpmux dropped events for this client: the pane fetches them and replays them.
+    send({ method: "_acpmux/lagged", params: { sessionIds: [LAG], dropped: 3 } });
+    await page.getByText("Tests").first().waitFor({ timeout: 5_000 });
+    send({ method: "_acpmux/event", params: record(LAG, chunk(" pass."), 7) });
+    await page.getByText("Tests pass.").waitFor({ timeout: 5_000 });
     expect(await receipts(page)).toEqual(["Allowed: Run npm test"]);
     await page.close();
   });
