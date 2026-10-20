@@ -71,8 +71,6 @@ public final class ActiveTeam {
         case managed
         /// The account is not a member of that team.
         case notMember
-        /// Another switch is being saved.
-        case switching
         /// A call named a team that is not the active one.
         case notActive
     }
@@ -92,16 +90,24 @@ public final class ActiveTeam {
 
     /// Makes `id` the active team: saved for the account first, so a refused
     /// save leaves the current team in effect. Selecting the active team is a no-op.
+    /// A choice made while a save is in flight replaces any earlier waiting one, and
+    /// the running switch saves it next: the newest choice is the team cmux ends in.
     public func select(_ id: String) async throws {
         guard source.isAuthenticated else { throw Refusal.signedOut }
         guard managedTeamID == nil || id == managedTeamID else { throw Refusal.managed }
         guard source.availableTeams.contains(where: { $0.id == id }) else { throw Refusal.notMember }
-        guard id != self.id else { return }
-        guard !isSwitching else { throw Refusal.switching }
+        next = id
+        guard !isSwitching else { return }
         isSwitching = true
-        defer { isSwitching = false }
-        try await source.selectTeam(id: id)
+        defer { isSwitching = false; next = nil }
+        while let target = next {
+            next = nil
+            if target != self.id { try await source.selectTeam(id: target) }
+        }
     }
+
+    /// The newest choice not saved yet, while a switch runs.
+    @ObservationIgnored private var next: String?
 
     /// Re-reads the account's teams (one left or joined elsewhere).
     public func refresh() async {
