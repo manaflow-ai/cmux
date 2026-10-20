@@ -2548,9 +2548,18 @@ function PermissionAsk({
       harness={harness}
       focusComposer={focusComposer}
       onAnswer={answerPermission(permission)}
+      onDenyWithFeedback={denyWithFeedback(permission)}
     />
   );
 }
+
+/// Denies `permission`, then gives the agent what to do instead: into the running turn now (a
+/// steer; an agent that cannot steer stops the turn and takes it as the next prompt). Sent only once
+/// acpmux took the deny, so the agent never reads it before its tool is refused.
+const denyWithFeedback = (permission: AcpmuxPermission) => (optionId: string, text: string) =>
+  void callNative("chat.permission", { permissionId: permission.permissionId, optionId })
+    .then(() => (text ? callNative("chat.send", { text, attachments: [], steer: true }) : undefined))
+    .catch(() => undefined);
 
 /// The composer chips on the New Tab page (cx-e2aa): no chat exists yet, so a pick starts a deferred
 /// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
