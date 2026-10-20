@@ -173,12 +173,13 @@ export function currentTurn(
   return Math.max(0, low - 1);
 }
 
-/// The turns on screen, first to last, as the Codex rail's IntersectionObserver sees them (its root
-/// margin is -16 px at the top): a turn runs from its prompt to the next prompt (or the end), and
-/// counts once it reaches below the viewport's top 16 px and starts above its bottom. A prompt's
-/// row draws THREAD_PADDING_TOP below its layout top, which is the same 16 px: so the first turn is
-/// the last whose prompt's layout top is at or above `scrollTop`, and the last is the last whose
-/// prompt draws above the bottom edge.
+/// The turns on screen, first to last, as the Codex rail's IntersectionObserver sees them. Codex
+/// observes each turn's block, which starts LANDING_OFFSET (35 px) above its prompt's bubble (a jump
+/// puts the block's top at the view's top and the bubble 35 px down), with a -16 px top margin. So a
+/// turn stops counting once the next prompt's bubble is within 35 + 16 px of the top: a prompt just
+/// jumped to is the first lit turn, not the one above it. A bubble draws THREAD_PADDING_TOP below its
+/// layout top, so that is a layout top at or above `scrollTop + LANDING_OFFSET`. At the bottom a turn
+/// counts once its bubble is on screen: our turns have no block above the bubble to show first.
 export function visibleTurns(
   turns: readonly MinimapTurn[],
   tops: Float64Array,
@@ -187,7 +188,7 @@ export function visibleTurns(
   viewportHeight: number,
 ): { first: number; last: number } {
   const bottom = scrollTop + viewportHeight - THREAD_PADDING_TOP;
-  const first = currentTurn(turns, tops, scrollTop, 0);
+  const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0);
   let last = first;
   while (last + 1 < turns.length && (tops[turns[last + 1].index] ?? totalHeight) < bottom) last += 1;
   return { first, last };

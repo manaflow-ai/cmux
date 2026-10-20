@@ -64,17 +64,19 @@ export function animateScroll(
 
 /// Holds a jump's landing while the rows it crossed mount and measure: each frame, `offset()` says how
 /// far the target sits from where it should land (undefined while it is not mounted), and the scroll
-/// moves by that much, until it holds for three frames or `frames` run out. The reader's own input,
-/// or another scroll on `node`, ends it.
+/// moves by that much, until it holds for three frames or `frames` run out. Any input anywhere in the
+/// page (a wheel, a press, a key: the reader scrolling, Find, Jump to Latest) or another scroll on
+/// `node` ends it.
 export function settleScroll(node: HTMLElement, offset: () => number | undefined, frames: number): void {
   stopScroll(node);
   if (typeof requestAnimationFrame !== "function") return;
   let frame = 0;
   let left = frames;
   let steady = 0;
+  const page = node.ownerDocument.defaultView ?? window;
   const end = () => {
     cancelAnimationFrame(frame);
-    for (const name of READER_INPUTS) node.removeEventListener(name, end);
+    for (const name of READER_INPUTS) page.removeEventListener(name, end, true);
     if (running.get(node) === end) running.delete(node);
   };
   const step = () => {
@@ -92,7 +94,8 @@ export function settleScroll(node: HTMLElement, offset: () => number | undefined
     if (steady >= 3 || left <= 0) end();
     else frame = requestAnimationFrame(step);
   };
-  for (const name of READER_INPUTS) node.addEventListener(name, end, { passive: true });
+  // Captured on the window: added during the input that started the jump, it does not see that one.
+  for (const name of READER_INPUTS) page.addEventListener(name, end, { capture: true, passive: true });
   running.set(node, end);
   frame = requestAnimationFrame(step);
 }

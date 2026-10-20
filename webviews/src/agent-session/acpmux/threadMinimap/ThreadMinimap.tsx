@@ -51,6 +51,18 @@ const gutter = (width: number) => transcriptColumn(width).inset;
 
 type Jump = "click" | "step" | "scrub" | "bookmark";
 
+/// The band's first turn at the last commit: its key and row, where its prompt was in the layout,
+/// and where its row drew in the rail; and the first turn's key, which older turns change.
+type Anchor = { key: string; firstKey: string; index: number; layoutTop: number; y: number };
+
+/// How many turns arrived above `anchor`'s since it was taken (undefined: none, or it is gone).
+function prependedBy(anchor: Anchor | undefined, turns: readonly MinimapTurn[]): number | undefined {
+  if (!anchor || !turns.length || turns[0]!.key === anchor.firstKey) return undefined;
+  for (let index = anchor.index; index < turns.length; index += 1)
+    if (turns[index]!.key === anchor.key) return index - anchor.index;
+  return undefined;
+}
+
 /// The prompt row's element, when the virtualized transcript has it mounted.
 function mountedRow(scroller: HTMLElement, id: string): HTMLElement | undefined {
   for (const node of scroller.querySelectorAll<HTMLElement>(".acpmux-row")) if (node.dataset.rowId === id) return node;
@@ -120,7 +132,16 @@ export function ThreadMinimap({
   /// instead and follows the reader on the scroll's own frame.
   /// Another session's transcript starts from its own offset.
   const domTop = useRef<{ sessionId?: string; top: number } | undefined>(undefined);
-  const top = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : scrollTop;
+  /// The band's first turn as of the last commit (the older-turns effect below keeps it).
+  const anchor = useRef<Anchor | undefined>(undefined);
+  /// This commit adds turns above the anchored one: the rows' offsets moved by how far its prompt
+  /// did, and the transcript restores the reader's place only after this render, so the band reads
+  /// the offset as it will be.
+  const added = prependedBy(anchor.current, turns);
+  const anchored = added === undefined ? undefined : turns[anchor.current!.index + added];
+  const seen = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : undefined;
+  const shift = anchored && seen !== undefined ? (layout.tops[anchored.index] ?? 0) - anchor.current!.layoutTop : 0;
+  const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
   const shown = turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
   const height = railHeight(turns.length, windowHeight);
@@ -151,8 +172,10 @@ export function ThreadMinimap({
       const next = visibleTurns(all, tops, total, node.scrollTop, height);
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
     };
-    node.addEventListener("scroll", scrolled, { passive: true });
-    return () => node.removeEventListener("scroll", scrolled);
+    // Captured, so it runs before the transcript's own scroll handler and that one's render finds the
+    // band already drawn.
+    node.addEventListener("scroll", scrolled, { capture: true, passive: true });
+    return () => node.removeEventListener("scroll", scrolled, { capture: true });
   }, [scroller]);
 
   /// Scrolls the transcript to turn `index`: smoothly on the measured curve when its row is mounted,
@@ -199,24 +222,27 @@ export function ThreadMinimap({
   // Bookmarked Prompt (palette actions) are bridge commands that raise these events. They work
   // while the rail is hidden too (a narrow pane, few prompts).
   useEffect(() => {
-    const pending = { target: undefined as number | undefined, until: 0 };
-    /// Where the reader is: an earlier step's landing while its scroll is under way, else the view.
-    const from = (node: HTMLElement) =>
-      pending.target !== undefined && performance.now() < pending.until && Math.abs(node.scrollTop - pending.target) > 1
-        ? pending.target
-        : node.scrollTop;
-    /// From the turn being read (the last whose landing is at or above the view's top): forward
-    /// goes to the next match after it; back to its own prompt when that is above the view and
-    /// matches, else to the match before it.
+    /// An earlier step's turn, by its key (older turns arriving renumber the rows), while its scroll
+    /// and landing are under way.
+    const pending = { key: undefined as string | undefined, until: 0 };
+    /// From the turn being read (an earlier step's while it is under way, else the last whose
+    /// landing is at or above the view's top): forward goes to the next match after it; back to its
+    /// own prompt when that is above the view and matches, else to the match before it.
     const target = (by: -1 | 1, matches: (index: number) => boolean) => {
       const node = scroller.current;
       const { turns: all, tops, total } = live.current;
       if (!node || !all.length) return undefined;
-      const top = Math.min(from(node), Math.max(0, total - node.clientHeight));
+      const stepping =
+        pending.key !== undefined && performance.now() < pending.until
+          ? all.findIndex((turn) => turn.key === pending.key)
+          : -1;
+      const top = Math.min(node.scrollTop, Math.max(0, total - node.clientHeight));
       let reading = 0;
-      for (let index = 0; index < all.length; index += 1)
-        if (turnScrollTop(all[index]!, tops) <= top + 1) reading = index;
-      const start = by > 0 || turnScrollTop(all[reading]!, tops) >= top - 1 ? reading + by : reading;
+      if (stepping >= 0) reading = stepping;
+      else
+        for (let index = 0; index < all.length; index += 1)
+          if (turnScrollTop(all[index]!, tops) <= top + 1) reading = index;
+      const start = by > 0 || stepping >= 0 || turnScrollTop(all[reading]!, tops) >= top - 1 ? reading + by : reading;
       for (let index = start; index >= 0 && index < all.length; index += by) if (matches(index)) return index;
       return undefined;
     };
@@ -224,7 +250,7 @@ export function ThreadMinimap({
       if (index === undefined) return;
       const to = jump(index, how);
       if (to === undefined) return;
-      pending.target = to;
+      pending.key = live.current.turns[index]?.key;
       pending.until = performance.now() + STEP_PENDING_MS;
     };
     const any = () => true;
@@ -237,7 +263,7 @@ export function ThreadMinimap({
     ];
     // The reader's own scroll ends a pending step.
     const reader = () => {
-      pending.target = undefined;
+      pending.key = undefined;
     };
     const node = scroller.current;
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
@@ -260,21 +286,33 @@ export function ThreadMinimap({
   // Older turns that load above the reader (the transcript pages them in as it nears the top) add
   // rows above the band and would move it on screen in one frame: 150 px for a 30-turn page. The
   // band holds where it was instead. A rail that scrolls takes the new rows into its own scroll; one
-  // that grows glides back to center from where the band was, over SHIFT_MS. Where the band's first
-  // row sits comes from the rail's geometry, so no commit reads layout for it.
-  const anchor = useRef<{ key: string; firstKey: string; y: number } | undefined>(undefined);
+  // that grows glides back to center from where the band was, over SHIFT_MS (a second page during
+  // the glide starts from where the first one has got to). The hovered, focused and scrubbed rows
+  // and the card's stay on their prompts. Where the band's first row sits comes from the rail's
+  // geometry, so no commit reads layout for it.
+  const glide = useRef<Animation | undefined>(undefined);
+  const holding = useRef(false);
   useLayoutEffect(() => {
     const was = anchor.current;
     anchor.current = undefined;
+    holding.current = false;
     if (!shown || !turns.length) return;
-    const top = Math.round((viewportHeight - height) / 2);
+    const railTop = Math.round((viewportHeight - height) / 2);
     let scrolled = listTop;
-    if (was && was.firstKey !== turns[0]!.key) {
-      const index = turns.findIndex((turn) => turn.key === was.key);
+    if (added !== undefined && was) {
+      holding.current = true;
+      const index = was.index + added;
       const node = list.current;
       const shell = rail.current;
-      if (index >= 0 && node && shell) {
-        let moved = top + index * ROW_PITCH - scrolled - was.y;
+      if (added > 0) {
+        const by = (row: number | undefined) => (row === undefined ? row : row + added);
+        setHovered(by);
+        setFocused(by);
+        setCardRow(by);
+        if (scrub.current?.at !== undefined) scrub.current.at += added;
+      }
+      if (node && shell) {
+        let moved = railTop + index * ROW_PITCH - scrolled - was.y;
         const room = Math.max(0, turns.length * ROW_PITCH - height);
         const next = Math.max(0, Math.min(room, scrolled + moved));
         if (next !== scrolled) {
@@ -283,8 +321,17 @@ export function ThreadMinimap({
           scrolled = next;
           setListTop(next);
         }
-        if (Math.abs(moved) >= 0.5 && typeof shell.animate === "function" && !reducedMotion())
-          shell.animate([{ transform: `translateY(${-moved}px)` }, { transform: "translateY(0)" }], {
+        // Where a glide still under way has the rail now.
+        let from = 0;
+        const running = glide.current;
+        if (running && running.playState === "running") {
+          from = new DOMMatrixReadOnly(getComputedStyle(shell).transform).f;
+          running.cancel();
+        }
+        glide.current = undefined;
+        const start = from - moved;
+        if (Math.abs(start) >= 0.5 && typeof shell.animate === "function" && !reducedMotion())
+          glide.current = shell.animate([{ transform: `translateY(${start}px)` }, { transform: "translateY(0)" }], {
             duration: SHIFT_MS,
             easing: `cubic-bezier(${STEP_CURVE.join(", ")})`,
           });
@@ -292,13 +339,20 @@ export function ThreadMinimap({
     }
     const first = turns[onScreen.first];
     if (first)
-      anchor.current = { key: first.key, firstKey: turns[0]!.key, y: top + onScreen.first * ROW_PITCH - scrolled };
+      anchor.current = {
+        key: first.key,
+        firstKey: turns[0]!.key,
+        index: onScreen.first,
+        layoutTop: layout.tops[first.index] ?? 0,
+        y: railTop + onScreen.first * ROW_PITCH - scrolled,
+      };
   });
 
   // A rail longer than its room keeps the first prompt on screen in view while the reader scrolls.
   useLayoutEffect(() => {
     const node = list.current;
-    if (!node || !overflow || hovered !== undefined || focused !== undefined) return;
+    // The commit that added older turns placed the list itself, around the band.
+    if (!node || !overflow || hovered !== undefined || focused !== undefined || holding.current) return;
     const rowTop = onScreen.first * ROW_PITCH;
     if (rowTop >= node.scrollTop && rowTop + ROW_PITCH <= node.scrollTop + height) return;
     node.scrollTop = Math.max(0, rowTop - height / 3);
@@ -424,7 +478,10 @@ export function ThreadMinimap({
               state.moved = true;
               setScrubbing(true);
               // Captured only once it is a drag, so a plain click still lands on its row.
-              event.currentTarget.setPointerCapture?.(state.pointer);
+              // A synthetic pointer (the gallery's, a test's) has no capture to take.
+              try {
+                event.currentTarget.setPointerCapture?.(state.pointer);
+              } catch {}
             }
             const index = indexAt(event.clientY);
             if (index === state.at) return;

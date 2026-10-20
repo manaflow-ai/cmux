@@ -113,12 +113,13 @@ export default agentPaneEntry({
       },
     },
     "seventy-prompts": {
-      note: "Seventy prompts: the rail holds 57 rows in this window and scrolls the rest, with 2.5rem fades at an edge with more rows past it. It keeps the band on screen in view as the transcript scrolls.",
+      note: "Seventy prompts: the rail holds 70% of the window's height (about 44 rows at this height) and scrolls the rest, with 2.5rem fades at an edge with more rows past it. It keeps the band on screen in view as the transcript scrolls.",
       snapshot: chat(long, { title: "Thread minimap, a long chat" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="40"]')) return;
         await ctx.scroll({ selector: ".acpmux-scroll" }, 4000);
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__tick[aria-current="true"]'));
+        // The rail has scrolled to keep the band in view: rows past both of its edges.
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__list[data-fade-top][data-fade-bottom]"));
       },
     },
     "long-chat": {

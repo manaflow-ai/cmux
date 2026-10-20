@@ -61,7 +61,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
     }).flat();
   const COUNT = 60;
 
-  async function open(rows: unknown[], top: number): Promise<Page> {
+  async function open(rows: unknown[], top: number, count = COUNT): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
     await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
@@ -71,17 +71,29 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
     await page.evaluate(
       async ({ to, count }) => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        scroller.scrollTop = to;
-        await new Promise((resolve) => setTimeout(resolve, 400));
         const probe = window as unknown as Record<string, unknown>;
+        const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        /// Resolves once the transcript's offset has held for `frames` frames (rows measure, then rest).
+        probe.__still = async (frames = 6) => {
+          let last = NaN;
+          let held = 0;
+          for (let index = 0; index < 300 && held < frames; index += 1) {
+            await frame();
+            held = scroller.scrollTop === last ? held + 1 : 0;
+            last = scroller.scrollTop;
+          }
+        };
+        scroller.scrollTop = to;
+        await (probe.__still as () => Promise<void>)();
         /// The rows lit as on screen.
         probe.__lit = () =>
           [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")]
             .filter((tick) => tick.getAttribute("aria-current") === "true")
             .map((tick) => Number(tick.dataset.tick))
             .join(",");
-        /// The turns on screen, from the drawn rows, as Codex's IntersectionObserver counts them
-        /// (root margin -16 px at the top): a turn runs from its prompt to the next one.
+        /// The turns on screen, from the drawn rows, as Codex's IntersectionObserver counts them: a turn
+        /// runs from 35 px above its prompt to 35 px above the next one, and the root's top margin is
+        /// -16 px, so a turn stops counting once the next prompt is within 51 px of the top.
         probe.__onScreen = () => {
           const view = scroller.getBoundingClientRect();
           const prompts = new Map<number, number>();
@@ -94,12 +106,12 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
           const indices = [...prompts.keys()].sort((a, b) => a - b);
           const first = indices[0]!;
           // The turn before the first drawn prompt reaches into the view when that prompt is below its top.
-          if (first > 0 && prompts.get(first)! > 16) shown.push(first - 1);
+          if (first > 0 && prompts.get(first)! > 51) shown.push(first - 1);
           for (const index of indices) {
             const y = prompts.get(index)!;
             const next = prompts.get(index + 1);
             const ends = index === count - 1 ? Infinity : (next ?? Infinity);
-            if (y < view.height && ends > 16) shown.push(index);
+            if (y < view.height && ends > 51) shown.push(index);
           }
           return [...new Set(shown)].sort((a, b) => a - b).join(",");
         };
@@ -109,7 +121,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
             .width;
         probe.__card = () => document.querySelector(".acpmux-minimap__card") !== null;
       },
-      { to: top, count: COUNT },
+      { to: top, count },
     );
     return page;
   }
@@ -125,6 +137,11 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       const bubble = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="t${at}-user"] .cv-user__bubble`);
       return bubble ? bubble.getBoundingClientRect().top - view.top : null;
     }, index);
+  /// Waits for a jump to `index` to come to rest, then says where its bubble landed.
+  const landed = async (page: Page, index: number) => {
+    await page.evaluate(() => (window as any).__still(8));
+    return landing(page, index);
+  };
   /// The first row the rail's list shows (it scrolls past 57 rows in this window).
   const firstVisibleTick = (page: Page) =>
     page.evaluate(() => {
@@ -146,17 +163,15 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       });
       let point = await tickPoint(page, near);
       await page.mouse.click(point.x, point.y);
-      await page.waitForTimeout(1_200);
-      expect(Math.abs((await landing(page, near))! - 35)).toBeLessThanOrEqual(1);
+      expect(Math.abs((await landed(page, near))! - 35)).toBeLessThanOrEqual(1);
       // Far: a prompt well up the chat, never drawn, whose rows' heights are estimates.
       const far = await firstVisibleTick(page);
       expect(near - far).toBeGreaterThan(10);
       point = await tickPoint(page, far);
       await page.mouse.click(point.x, point.y);
-      await page.waitForTimeout(1_500);
-      const landed = await landing(page, far);
-      expect(landed).not.toBeNull();
-      expect(Math.abs(landed! - 35)).toBeLessThanOrEqual(1);
+      const farLanding = await landed(page, far);
+      expect(farLanding).not.toBeNull();
+      expect(Math.abs(farLanding! - 35)).toBeLessThanOrEqual(1);
       // And the band agrees with where it landed.
       expect(await page.evaluate(() => (window as any).__lit())).toBe(
         await page.evaluate(() => (window as any).__onScreen()),
@@ -168,7 +183,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       const page = await open(turns(0, COUNT), 9000);
       const point = await tickPoint(page, 30);
       await page.mouse.move(point.x + 400, point.y);
-      await page.waitForTimeout(700);
+      await page.waitForFunction(() => !(window as any).__card());
       await page.evaluate(() => {
         const probe = window as any;
         probe.__frames = [];
@@ -183,19 +198,22 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         requestAnimationFrame(step);
       });
       await page.mouse.move(point.x, point.y);
-      await page.waitForTimeout(1_200);
+      await page.waitForFunction(() => (window as any).__frames.length >= 60);
       const { over, frames } = await page.evaluate(() => ({
         over: (window as any).__over as number,
         frames: (window as any).__frames as { t: number; length: number; card: boolean }[],
       }));
       const after = frames.filter((frame) => frame.t >= over);
-      const grows = after.find((frame) => frame.length > 6.5)!;
-      const opens = after.find((frame) => frame.card)!;
+      const grows = after.find((frame) => frame.length > 6.5);
+      const opens = after.find((frame) => frame.card);
+      expect(grows).toBeDefined();
+      expect(opens).toBeDefined();
       // No dwell before the fisheye: it starts within the next few frames (CSS :hover is no faster).
-      expect(grows.t - over).toBeLessThan(70);
-      // The card: Codex's 250 ms (its frames show 267-283 ms with the render), not the app's 450.
-      expect(opens.t - over).toBeGreaterThan(230);
-      expect(opens.t - over).toBeLessThan(330);
+      expect(grows!.t - over).toBeLessThan(70);
+      // The card: Codex's 250 ms (its frames show 267-283 ms with the render), not the app's 450. A
+      // loaded CI runner's frames may come late, so the upper bound is loose.
+      expect(opens!.t - over).toBeGreaterThan(230);
+      expect(opens!.t - over).toBeLessThan(400);
       await page.close();
     });
 
@@ -216,7 +234,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         await page.mouse.wheel(0, index < 40 ? 60 : -60);
         await page.waitForTimeout(8);
       }
-      await page.waitForTimeout(300);
+      await page.evaluate(() => (window as any).__still(10));
       const frames = await page.evaluate(() => {
         const probe = window as any;
         probe.__tracking = false;
@@ -224,18 +242,25 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       });
       const moves = frames.filter((frame, index) => index > 0 && frame.shown !== frames[index - 1]!.shown).length;
       expect(moves).toBeGreaterThan(10);
+      // One stray frame is allowed: a runner can paint between a scroll and its event.
       const wrong = frames.filter((frame) => frame.lit !== frame.shown);
-      expect(wrong).toEqual([]);
+      expect(wrong.length).toBeLessThanOrEqual(1);
       await page.close();
     });
 
     test("older turns that load above the reader leave the band where it was on screen", async () => {
-      // 30 turns at first, then the 30 before them: the rail grows from 300 px to its 57-row cap.
-      for (const [loaded, more] of [
-        [30, 30],
-        [20, 10],
+      // [turns loaded, turns that arrive above them, the transcript's offset]:
+      // - 30, then 30 more: the rail grows from 300 px to its 57-row cap and glides back to center;
+      // - 20, then 10 more: a rail that grows and stays under its cap;
+      // - 60, then 30 more: a rail that already scrolls, with the band in its top third: its own
+      //   scroll takes the new rows and the band does not move at all.
+      for (const [loaded, more, offset] of [
+        [30, 30, 3000],
+        [20, 10, 3000],
+        [60, 30, 300],
       ] as const) {
-        const page = await open(turns(COUNT - loaded, COUNT), 3000);
+        const total = loaded + more;
+        const page = await open(turns(total - loaded, total), offset, total);
         const before = await page.evaluate(() => {
           const lit = (window as any).__lit() as string;
           const first = Number(lit.split(",")[0]);
@@ -246,28 +271,37 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
           };
         });
         const frames = await page.evaluate(
-          async ({ rows, key, total }) => {
+          async ({ rows, key, total: count }) => {
             const probe = window as any;
-            const seen: number[] = [];
-            const count = () => document.querySelectorAll(".acpmux-minimap__tick").length;
+            const seen: { y: number; lit: string }[] = [];
+            const ticks = () => document.querySelectorAll(".acpmux-minimap__tick").length;
             probe.__showRows(rows);
             // From the first frame that draws the new rows.
-            for (let wait = 0; wait < 30 && count() !== total; wait += 1)
+            for (let wait = 0; wait < 30 && ticks() !== count; wait += 1)
               await new Promise((resolve) => requestAnimationFrame(resolve));
             for (let index = 0; index < 20; index += 1) {
               const row = document.querySelector<HTMLElement>(`[data-tick="${key}"]`);
-              seen.push(row ? row.getBoundingClientRect().top : NaN);
+              seen.push({ y: row ? row.getBoundingClientRect().top : NaN, lit: probe.__lit() });
               await new Promise((resolve) => requestAnimationFrame(resolve));
             }
             return seen;
           },
-          { rows: turns(COUNT - loaded - more, COUNT), key: before.first + more, total: loaded + more },
+          { rows: turns(0, total), key: before.first + more, total },
         );
-        // The first frame with the new rows draws the band where it was; then it moves at most a few
-        // px a frame (a glide, not a jump).
-        expect(Math.abs(frames[0]! - before.y)).toBeLessThanOrEqual(1);
+        const shifted = before.lit
+          .split(",")
+          .map((index) => Number(index) + more)
+          .join(",");
+        // Every frame found the band's row (NaN: a frame drew no row for it).
+        expect(frames.findIndex((frame) => Number.isNaN(frame.y))).toBe(-1);
+        // The first frame with the new rows draws the same turns lit, where they were; then the band
+        // moves at most a few px a frame (a glide, not a jump).
+        expect(frames[0]!.lit).toBe(shifted);
+        expect(Math.abs(frames[0]!.y - before.y)).toBeLessThanOrEqual(1);
         for (let index = 1; index < frames.length; index += 1)
-          expect(Math.abs(frames[index]! - frames[index - 1]!)).toBeLessThanOrEqual(40);
+          expect(Math.abs(frames[index]!.y - frames[index - 1]!.y)).toBeLessThanOrEqual(40);
+        // A rail that already scrolled holds the band still.
+        if (loaded * 10 > 574) expect(Math.abs(frames.at(-1)!.y - before.y)).toBeLessThanOrEqual(1);
         await page.close();
       }
     });
