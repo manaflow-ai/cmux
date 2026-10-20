@@ -108,7 +108,12 @@ pub fn build_harness_dir(home: &Path, root: &Path) -> Option<PathBuf> {
     let dev = if parent == root.join("tags") {
         true
     } else if parent == root.join("builds") {
-        let kind = BuildIdentity::new(Some(key), None).kind();
+        // A key is the bundle id, plus `--<hash>` and/or `--<tag>` (a bundle
+        // that ships a tag its id does not end in, `com.cmuxterm.app.rc--lab`).
+        // `component` and `tag_slug` collapse runs of `-`, so `--` is only
+        // ever a separator and the part before it is the id whose kind decides.
+        let bundle_id = key.split("--").next().unwrap_or(key);
+        let kind = BuildIdentity::new(Some(bundle_id), None).kind();
         !matches!(kind, BuildKind::Nightly | BuildKind::Release | BuildKind::Rc)
     } else {
         false

@@ -16,6 +16,7 @@ mod daemon_env;
 // This process starts no agent; `harness add` only writes a file.
 const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
+use cmux_agent_pane_policy::build_identity::BuildIdentity;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -69,6 +70,14 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
     let nightly = acpmux_root.clone();
     let next = builds.join("com.cmuxterm.app.nightly.cmux-next");
     let release = builds.join("com.cmuxterm.app");
+    // A shipped bundle that ships a tag its id does not end in has a key
+    // `<bundle id>--<tag>`; it is still that shipped build.
+    let tagged = |id: &str| BuildIdentity::new(Some(id), Some("lab")).acpmux_home(&home);
+    let rc_tagged = tagged("com.cmuxterm.app.rc");
+    let release_tagged = tagged("com.cmuxterm.app");
+    for h in [&rc_tagged, &release_tagged] {
+        assert!(h.to_string_lossy().ends_with("--lab"), "not a tagged key: {h:?}");
+    }
     let shared = home.join(".config").join("cmux").join("harnesses");
 
     // The person's own harness, in the user folder.
@@ -102,8 +111,13 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
     assert!(!tag_list.contains(&"p4rtfake".into()), "{tag_list:?}");
 
     // Shipped builds list the person's harness and no DEV fake.
-    for (name, acpmux_home) in [("NIGHTLY", &nightly), ("cmux NEXT", &next), ("release", &release)]
-    {
+    for (name, acpmux_home) in [
+        ("NIGHTLY", &nightly),
+        ("cmux NEXT", &next),
+        ("release", &release),
+        ("tagged RC", &rc_tagged),
+        ("tagged release", &release_tagged),
+    ] {
         let ids = listed(&root, acpmux_home);
         assert!(ids.contains(&"mine".into()), "{name} lost the user's harness: {ids:?}");
         for fake in ["p4rtfake", "tagfake"] {
