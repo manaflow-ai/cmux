@@ -298,7 +298,9 @@ export function useSourceIcon(
   const origin = parsed?.protocol === "https:" ? parsed.origin : undefined;
   const answered = useSyncExternalStore(
     subscribe,
-    () => !!origin && inspectedIconOrigins.has(origin) &&
+    () =>
+      !!origin &&
+      inspectedIconOrigins.has(origin) &&
       // Existing readers keep their ownership while a new path is inspected; no new fetch starts.
       (!askingUrls.has(valid!) || fetchingIcons.has(origin)),
     () => false,

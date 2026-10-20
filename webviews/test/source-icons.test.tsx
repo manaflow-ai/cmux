@@ -520,7 +520,10 @@ test("a held icon is reused by origin during another path's inspection and after
   const calls: string[] = [];
   setChipHost(async (method) => {
     calls.push(method);
-    if (method === "link.inspect") return new Promise((resolve) => { finish = resolve; });
+    if (method === "link.inspect")
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
     return {};
   });
   await renderIcons(["https://held.example/two"]);
@@ -540,7 +543,10 @@ test("an earlier empty inspection cannot start a fetch while the current URL is 
   const calls: string[] = [];
   setChipHost(async (method) => {
     calls.push(method);
-    if (method === "link.inspect") return new Promise((resolve) => { finish = resolve; });
+    if (method === "link.inspect")
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
     return { icon: ICON };
   });
   await renderIcons([url]);
@@ -559,8 +565,14 @@ test("changing a reader's path during inspection never restarts its existing ori
   const calls: string[] = [];
   setChipHost(async (method) => {
     calls.push(method);
-    if (method === "link.inspect") return new Promise((resolve) => { inspect = resolve; });
-    if (method === "link.favicon") return new Promise((resolve) => { icon = resolve; });
+    if (method === "link.inspect")
+      return new Promise((resolve) => {
+        inspect = resolve;
+      });
+    if (method === "link.favicon")
+      return new Promise((resolve) => {
+        icon = resolve;
+      });
     return {};
   });
   function Reader({ url }: { url: string }) {
