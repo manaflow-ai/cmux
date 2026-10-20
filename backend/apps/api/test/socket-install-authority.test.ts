@@ -80,4 +80,28 @@ describe("committed install authority changes retire idle owner sockets", { time
       expect(await count(c, "cloud")).toBe(1)
     } finally { closeTeamSocket(socket) }
   })
+
+  it("published actors omit private socket incarnation metadata", async () => {
+    const { affected: c } = await world(), socket = await listenToOwnerWire(c.token, c.team, "user")
+    const event = new Promise<{ actor: Record<string, unknown> }>((resolve, reject) => {
+      const cleanup = () => { clearTimeout(deadline); socket.removeEventListener("message", message); socket.removeEventListener("close", closed) }
+      const message = (raw: MessageEvent) => {
+        try {
+          const frame = JSON.parse(raw.data as string)
+          if (frame.t === "event" && frame.op === "install.rename") { cleanup(); resolve(frame) }
+        } catch { cleanup(); reject(new Error("invalid owner event")) }
+      }
+      const closed = () => { cleanup(); reject(new Error("owner closed before its event")) }
+      // A missing protocol response must fail without leaving a listener or an unbounded wait.
+      const deadline = setTimeout(() => { cleanup(); reject(new Error("owner event deadline exceeded")) }, 10_000)
+      socket.addEventListener("message", message); socket.addEventListener("close", closed)
+    })
+    try {
+      socket.send(JSON.stringify({ t: "op", op: "install.rename", params: { install: c.install, name: "Renamed" },
+        idempotency_key: crypto.randomUUID(), origin: "user" }))
+      const frame = await event
+      expect(frame.actor).toMatchObject({ user: c.user, install: c.install })
+      expect(frame.actor).not.toHaveProperty("install_authority")
+    } finally { closeTeamSocket(socket) }
+  })
 })
