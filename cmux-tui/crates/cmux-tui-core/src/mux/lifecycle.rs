@@ -130,6 +130,7 @@ impl Mux {
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
+        self.stop_search_everything();
         self.finalize_terminal_journal("shutdown", screen_checkpoint);
         self.journal_kernel.shutdown();
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {

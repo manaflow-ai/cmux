@@ -120,6 +120,7 @@ impl Mux {
         if !self.terminal_command_history_enabled() {
             return;
         }
+        self.note_search_commands(&terminal, &commands);
         let Some(sender) = self.command_history_sender() else {
             self.report_internal_diagnostic("terminal command history worker not started");
             return;

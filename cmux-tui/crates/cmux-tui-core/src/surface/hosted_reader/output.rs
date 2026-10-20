@@ -138,6 +138,9 @@ impl HostedReader {
         {
             mux.post_terminal_notifications(surface.id, terminal_notifications);
         }
+        if let Some(mux) = mux.upgrade() {
+            mux.note_search_output(surface.id);
+        }
         if !finished_commands.is_empty()
             && let Some(mux) = mux.upgrade()
             && let Some(terminal) = surface.terminal_public_id()

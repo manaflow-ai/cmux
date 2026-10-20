@@ -187,6 +187,7 @@ mod raw_tab;
 mod remote_entry;
 mod remote_relay;
 mod remote_terminal_tabs_wire;
+mod search_everything;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
 mod cmd_attach;
@@ -1725,6 +1726,10 @@ enum Command {
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
+    /// The search-everything index (`search-v1`, server/search_everything.rs).
+    SearchQuery(search_everything::SearchQueryParams),
+    SearchOpened(search_everything::SearchOpenedParams),
+    SearchStats,
     ConversationOp(conversations::OpParams),
     ConversationTyping(conversations::TypingParams),
     ConversationDraft(conversations::DraftParams),

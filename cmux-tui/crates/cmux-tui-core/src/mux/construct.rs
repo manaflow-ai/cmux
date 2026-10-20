@@ -216,6 +216,7 @@ impl Mux {
             chiefs: Default::default(),
             cloud: Default::default(),
             history_search: OnceLock::new(),
+            search_everything: OnceLock::new(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]

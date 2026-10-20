@@ -1623,6 +1623,7 @@ dependencies = [
  "cmux-feed-core",
  "cmux-git",
  "cmux-history",
+ "cmux-search",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
