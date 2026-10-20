@@ -9,6 +9,25 @@ import GhosttyNextKit
 @MainActor
 final class TerminalClipboardRequests {
     weak var view: TerminalSurfaceView?
+    /// Set while a user paste (Cmd-V, Edit > Paste) runs. Ghostty asks for
+    /// the clipboard synchronously inside it; only then may a clipboard image
+    /// be saved and its path served. A program's OSC 52 read never is.
+    var userPasteInProgress = false
+
+    /// Runs `body` as a user paste (see `userPasteInProgress`).
+    func asUserPaste<T>(_ body: () -> T) -> T {
+        let previous = userPasteInProgress
+        userPasteInProgress = true
+        defer { userPasteInProgress = previous }
+        return body()
+    }
+
+    /// Whether `event` is the Cmd-V paste chord.
+    static func isPasteChord(_ event: NSEvent) -> Bool {
+        event.type == .keyDown
+            && event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function]) == .command
+            && event.charactersIgnoringModifiers?.lowercased() == "v"
+    }
 
     init(view: TerminalSurfaceView) {
         self.view = view
@@ -16,16 +35,17 @@ final class TerminalClipboardRequests {
 
     /// Serves a clipboard read with the pasteboard's text (and, when asked,
     /// the list of available types). A system clipboard holding only an
-    /// image serves the path of that image saved to a temporary file, as in
+    /// image serves, during a user paste only, the path of that image saved to a temporary file, as in
     /// the shipping cmux. Unavailable when there is nothing to serve, so a
     /// paste binding can fall through to the terminal.
     func completeRead(location: TerminalPasteboardLocation, wantsText: Bool, listAvailable: Bool,
                       state: UncheckedPointer) -> ghostty_clipboard_read_result_e {
         guard let surface = view?.surface else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
         let pasteboard = TerminalPasteboard.pasteboard(location)
-        let text: String? = if location == .standard, wantsText {
+        let imagePaste = location == .standard && userPasteInProgress
+        let text: String? = if imagePaste, wantsText {
             TerminalPasteboard.pasteTextSavingImage(from: pasteboard)
-        } else if location == .standard, TerminalPasteboard.pasteText(from: pasteboard) == nil,
+        } else if imagePaste, TerminalPasteboard.pasteText(from: pasteboard) == nil,
                   TerminalPasteboard.hasImage(pasteboard) {
             ""
         } else {

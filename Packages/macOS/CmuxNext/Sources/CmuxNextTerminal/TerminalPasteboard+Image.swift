@@ -17,7 +17,7 @@ extension TerminalPasteboard {
 
     /// Whether the pasteboard has an image a paste could deliver.
     static func hasImage(_ pasteboard: NSPasteboard) -> Bool {
-        imageData(from: pasteboard) != nil
+        pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
     }
 
     /// The image on the pasteboard as file bytes and an extension: PNG or

@@ -63,4 +63,16 @@ import Testing
         #expect(!TerminalPasteboard.hasImage(pasteboard))
         #expect(TerminalPasteboard.pasteTextSavingImage(from: pasteboard, directory: directory) == nil)
     }
+
+    @Test func onlyCommandVIsTheUserPasteChord() {
+        func key(_ chars: String, _ flags: NSEvent.ModifierFlags) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0,
+                             context: nil, characters: chars, charactersIgnoringModifiers: chars,
+                             isARepeat: false, keyCode: 9)!
+        }
+        #expect(TerminalClipboardRequests.isPasteChord(key("v", .command)))
+        #expect(!TerminalClipboardRequests.isPasteChord(key("v", [.command, .shift])))
+        #expect(!TerminalClipboardRequests.isPasteChord(key("v", .control)))
+        #expect(!TerminalClipboardRequests.isPasteChord(key("c", .command)))
+    }
 }

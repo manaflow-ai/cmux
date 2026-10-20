@@ -29,7 +29,7 @@ extension TerminalSurfaceView: NSMenuItemValidation {
     }
 
     @objc public func paste(_ sender: Any?) {
-        performBindingAction("paste_from_clipboard")
+        clipboardRequests.asUserPaste { performBindingAction("paste_from_clipboard") }
     }
 
     @objc public func pasteAsPlainText(_ sender: Any?) {
