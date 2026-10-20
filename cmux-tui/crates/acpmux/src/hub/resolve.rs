@@ -43,7 +43,7 @@ impl Hub {
         // A folder profile (H4) answers only a name the catalog does not know.
         let folder =
             cwd.and_then(|cwd| folder_profiles::resolve_for_session(cfg, &head, cwd, remote));
-        let (resolved, profile, mut d, folder_root) = match folder {
+        let (resolved, mut profile, mut d, folder_root) = match folder {
             Some(found) => {
                 let (profile, root) = found.map_err(folder_refusal)?;
                 let d = crate::config::SessionDefaults {
@@ -84,6 +84,9 @@ impl Hub {
                 env: p.env.clone(),
             });
         }
+        if remote {
+            fix_remote_executable(&mut profile)?;
+        }
         Ok(Resolved {
             agent: resolved,
             profile,
@@ -94,6 +97,56 @@ impl Hub {
             preset_digest: preset_cfg.as_ref().and_then(|p| p.approval_digest()),
         })
     }
+
+    /// Resolve exactly what `new_session` will run while the remote request
+    /// is still in admission, before a session or child process exists.
+    pub(crate) async fn preflight_remote_new(
+        &self,
+        harness: Option<String>,
+        preset: Option<String>,
+        model: Option<String>,
+        cwd: Option<PathBuf>,
+    ) -> Result<(String, bool), RpcError> {
+        self.wait_startup().await;
+        let cfg = self.config.read().await;
+        let resolved =
+            self.resolve_new(&cfg, harness, &preset, model.as_deref(), true, cwd.as_deref())?;
+        let family = crate::config::derive_family(&resolved.agent, &resolved.profile);
+        let any_mode = crate::codex_app_server::is_profile_launch(&resolved.profile.argv);
+        Ok((family, any_mode))
+    }
+}
+
+/// A remote request never chooses argv[0] with cwd/model expansion or the
+/// child working directory. Freeze a bare PATH program or configured
+/// absolute path to its canonical absolute executable before any spawn.
+fn fix_remote_executable(profile: &mut HarnessProfile) -> Result<(), RpcError> {
+    let Some(program) = profile.argv.first() else { return Err(remote_executable_refused()) };
+    let path = Path::new(program);
+    if program.contains("${")
+        || program.starts_with("~/")
+        || (!path.is_absolute() && (program.contains('/') || program.contains('\\')))
+    {
+        return Err(remote_executable_refused());
+    }
+    let selected = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        crate::config::which(program).map(PathBuf::from).ok_or_else(remote_executable_refused)?
+    };
+    let selected = std::fs::canonicalize(selected).map_err(|_| remote_executable_refused())?;
+    if !selected.is_file() || !selected.is_absolute() {
+        return Err(remote_executable_refused());
+    }
+    profile.argv[0] = selected.to_string_lossy().into_owned();
+    Ok(())
+}
+
+fn remote_executable_refused() -> RpcError {
+    RpcError::invalid_params(
+        "this harness has no reviewed asking mode for a remote WebSocket connection",
+    )
+    .with_data(json!({"reason": "remote.executable_refused"}))
 }
 
 /// The profile a session's harness name runs at a spawn: the catalog's, else
