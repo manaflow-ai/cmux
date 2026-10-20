@@ -17,6 +17,8 @@ import CmuxNextHomeEngine
 @MainActor
 final class HomeNewMessageView: NSView {
     let field = HomeRecipientField()
+    /// One click adds a Chief (plans/cmux-next/chief-group-chats-DESIGN.md).
+    let chiefs = HomeChiefStrip()
     /// Clips the conversation below the field (its header slides under the field).
     let content = HomeNewMessageClip()
     let notice = ThemedLabel(wrappingLabelWithString: "")
@@ -41,6 +43,7 @@ final class HomeNewMessageView: NSView {
         content.layer?.masksToBounds = true
         addSubview(content)
         addSubview(field)
+        addSubview(chiefs)
         notice.font = Typography.caption
         notice.themeColor = { Palette.danger }
         notice.isHidden = true
@@ -50,14 +53,19 @@ final class HomeNewMessageView: NSView {
         let home = services.home
         field.contacts = { [weak home] in home?.contacts() ?? [] }
         field.onChange = { [weak self] _ in self?.recipientsChanged() }
+        chiefs.onChoose = { [weak self] chief in self?.field.choose(.contact(chief)) }
         field.onDone = { [weak self] in self?.focusMessageBox() }
         field.onEscape = { [weak self] in
             guard let self, isEmpty else { return }
             onEscape()
         }
         showComposer(carrying: "")
-        // task-owner: one read of the team and Chiefs for the suggestions
-        Task { await home.directory.refresh() }
+        refreshChiefs()
+        // task-owner: one read of the team and Chiefs for the suggestions; ends when it is read
+        Task { [weak self] in
+            await home.directory.refresh()
+            self?.refreshChiefs()
+        }
     }
 
     @available(*, unavailable)
@@ -120,6 +128,7 @@ final class HomeNewMessageView: NSView {
     /// one, else the blank page; the typed text moves with the message box.
     private func recipientsChanged() {
         say(nil)
+        refreshChiefs()
         guard let services else { return }
         let home = services.home
         let match = field.draft.existingConversation(in: home.homeStore.rows, me: home.homeStore.me?.id)
@@ -132,6 +141,13 @@ final class HomeNewMessageView: NSView {
             showComposer(carrying: text)
         }
         needsLayout = true
+    }
+
+    /// The Chiefs strip offers the Chiefs not chosen yet.
+    private func refreshChiefs() {
+        let shown = chiefs.isHidden
+        chiefs.show(field.draft.chiefShortcuts(contacts: services?.home.contacts() ?? []))
+        if shown != chiefs.isHidden { needsLayout = true }
     }
 
     private func showConversation(_ id: ConversationID, carrying text: String) {
@@ -224,6 +240,10 @@ final class HomeNewMessageView: NSView {
         let fieldHeight = field.height(forWidth: width)
         field.frame = NSRect(x: 0, y: 0, width: width, height: fieldHeight)
         var top = fieldHeight
+        if !chiefs.isHidden {
+            chiefs.frame = NSRect(x: 0, y: top, width: width, height: HomeChiefStrip.height)
+            top += HomeChiefStrip.height
+        }
         if !notice.isHidden {
             let height = ceil(notice.size(forWidth: width - 28).height)
             notice.frame = NSRect(x: 14, y: top + 6, width: width - 28, height: height)
