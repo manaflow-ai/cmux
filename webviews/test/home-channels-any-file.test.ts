@@ -7,7 +7,12 @@ const bytes = (text: string) => new TextEncoder().encode(text);
 
 describe("Channels attachments: any file", () => {
   test("an HTML page, a dotfile and an extensionless file go as text", () => {
-    for (const [name, type] of [["index.html", "text/html"], [".zshrc", ""], ["Makefile", ""], ["main.rs", "text/rust"]]) {
+    for (const [name, type] of [
+      ["index.html", "text/html"],
+      [".zshrc", ""],
+      ["Makefile", ""],
+      ["main.rs", "text/rust"],
+    ]) {
       const body = bytes("<p>héllo ✓</p>\n");
       const file = new File([body], name, { type });
       expect(refusal(file)).toBeUndefined();
