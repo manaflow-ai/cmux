@@ -82,6 +82,10 @@ entry is about.
 Audit events: `shared`, `unshared`, `requested`, `approved`, `denied`,
 `started`, `ended`, `permission_changed`, `device_added`, `device_removed`.
 Audit holds metadata only: never screen content, keystrokes or clipboard.
+Audit rows are never deleted or hidden: removing a device keeps every row that
+names it, and the device row itself stays (with `removed_at`), so entries
+carry its last known name in `viewerName`/`hostName`/`deviceName` even after
+it leaves `GET /v1/devices`.
 Relay changes are not audited. The User DO also keeps a `replay_msg(device_id,
 digest, expires_at)` table (digest = ts and low-S signature) for the 120 s
 replay cache.
@@ -89,7 +93,8 @@ replay cache.
 JSON shapes: a device is `{id, name, platform, signingKey, agreementKey,
 createdAt, lastSeenAt, macScreenShared, online}`; an ICE server is
 `{urls:[…], username?, credential?}`; an audit entry is `{id, ts, event,
-viewerId, hostId, deviceId, scope, sessionId, detail, durationS}` (`detail` carries the
+viewerId, hostId, deviceId, viewerName, hostName, deviceName, scope, sessionId,
+detail, durationS}` (`detail` carries the
 end reason, the decision, or `old->new` for a permission change).
 
 ## HTTP API (all JSON)
