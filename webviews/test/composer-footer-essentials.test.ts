@@ -1,6 +1,6 @@
 // Leo, 2026-10-13: the composer's footer still "tells too much". The bar and scope row show what a
 // person acts on and drop what is implied: the model without its vendor (its mark says that), the
-// default access mode as its lock alone, no context ring before anything is used, and this Mac's
+// default access mode as its lock alone, no context reading before anything is used, and this Mac's
 // name off the computer control. A mode that is not the default still says what it is, the folder
 // still reads, and every control keeps its full text in its title and its accessible text.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -85,7 +85,14 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     // shield); its full text stays in the title and the accessible text.
     expect(access?.title).toContain("Default");
     expect(access?.text).toContain("Default");
-    expect(await page.locator(".acpmux-context").count()).toBe(0);
+    // No usage before anything is used: Claude Code's split keeps the ring's place in the quiet
+    // row from the first frame (hq#1957, the composer holds still), but it draws only its track,
+    // never a share.
+    const rings = await page.$$eval(".acpmux-context-ring", (buttons) =>
+      buttons.map((button) => button.querySelectorAll("svg circle").length),
+    );
+    expect(rings.length).toBeGreaterThan(0);
+    for (const marks of rings) expect(marks).toBe(1);
     await page.close();
   });
 

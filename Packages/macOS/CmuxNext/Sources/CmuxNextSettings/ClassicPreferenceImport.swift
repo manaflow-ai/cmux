@@ -23,6 +23,10 @@ nonisolated enum ClassicPreferenceImport {
             if defaults.bool(forKey: "browserDisabledOverride") { return .bool(false) }
             return (defaults.object(forKey: "browserOpenTerminalLinksInCmuxBrowser") as? Bool).map(JSONValue.bool)
         },
+        // Classic's Disable cmux Browser switch.
+        Entry(next: LinkRouting.enabledPath) { defaults in
+            (defaults.object(forKey: "browserDisabledOverride") as? Bool).map { JSONValue.bool(!$0) }
+        },
         Entry(next: LinkRouting.hostsPath) { lines(defaults: $0, key: "browserHostWhitelist") },
         Entry(next: LinkRouting.rulesPath) { lines(defaults: $0, key: "browserExternalOpenPatterns") },
     ]

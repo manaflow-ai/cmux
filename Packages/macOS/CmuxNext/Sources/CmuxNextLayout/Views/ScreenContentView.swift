@@ -33,6 +33,14 @@ final class ScreenContentView: NSView {
     var scrollRidesFrames = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
+    /// A close's neighbours spring into its space: their terminals keep their grids until they
+    /// land (`LayoutViewContext.closingScreens`, the PTY resizes once at rest).
+    var closing = false {
+        didSet {
+            guard closing != oldValue else { return }
+            if closing { context.closingScreens.insert(screenID) } else { context.closingScreens.remove(screenID) }
+        }
+    }
     var motionState: ScreenPaneMotionState
     /// A divider released with this pointer velocity (pt/s along its axis): the next layout's
     /// spring starts from it (`SplitMotion.seed`).
@@ -62,6 +70,8 @@ final class ScreenContentView: NSView {
     /// came from scrolling (it flashes the scrollbar).
     var scrollbarOffset: CGFloat?
     var scrollbarFlash = false
+    /// The canvas this screen shows, its camera and a pointer drag (ScreenContentView+Canvas).
+    var canvasState = ScreenCanvasState()
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
@@ -115,7 +125,9 @@ final class ScreenContentView: NSView {
     /// divider drag) keep their spring. The strip scroll (including the
     /// spring back after the last column closes) is `syncScroll`'s.
     @discardableResult
-    func update(layout: ScreenLayout, zoomed: Bool = false, animated: Bool) -> Bool {
+    func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool) -> Bool {
+        // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
+        let animated = updateCanvas(canvas, animated: animated) && animated
         let structural = !self.layout.hasSameStructure(as: layout)
         let unzooming = self.zoomed && !zoomed
         let zooming = !self.zoomed && zoomed
@@ -123,7 +135,8 @@ final class ScreenContentView: NSView {
         self.zoomed = zoomed
         // The release's intent is in this layout (or was refused).
         if activeDrag == nil { rowDragPreview = nil }
-        return reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming)
+        let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming)
+        return moving || canvasState.camera.isMoving
     }
 
     @discardableResult
@@ -132,7 +145,8 @@ final class ScreenContentView: NSView {
         let before = geometry
         // One style read per pass: it is resolved from the settings.
         let style = context.style
-        baseGeometry = ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
+        applyCamera()
+        baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
         geometry = baseGeometry.shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
@@ -151,7 +165,7 @@ final class ScreenContentView: NSView {
         // with its velocity, instead of snapping to the end (hq-1d: Cmd-D measured 4 frames).
         let inFlight = splits && structural && arrivals.isEmpty && !departing
             && paneFrames.values.contains { $0.rect != $0.targetRect }
-        motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
+        motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, splitting: !arrivals.isEmpty, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
         let carried = !arrivals.isEmpty || departing || returning
         // Strip springs run in strip coordinates and fixed ones in the view's: a moved strip origin (a dock
         // that came or went) or a pane changing sides (a zoom shows its pane fixed) keeps it where it showed.
@@ -259,12 +273,15 @@ final class ScreenContentView: NSView {
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
         // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
         leadsFrame = departing && animateFrames && !covering
+        if departing && animateFrames && !covering { closing = true }
         reconcileDock()
+        reconcileCanvasStacking()
         // The scroll follows in `syncScroll`, which the root calls with the
         // focus after every update (ColumnScrollState.reduce).
         applyPresentation()
         let moving = animate && hasMotion
         if !moving { releaseCovered() }
+        if !(moving && closing) { closing = false }
         return moving
     }
 
@@ -307,6 +324,7 @@ final class ScreenContentView: NSView {
     func tearDown() {
         // A drag on a screen that goes away gets no release either.
         endDrag()
+        closing = false
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)
         }
