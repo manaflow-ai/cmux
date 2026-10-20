@@ -160,7 +160,7 @@ import Testing
             Issue.record("a refused read must not load")
         } catch let error as ArtifactUnavailable {
             #expect(error.message == "sample.md is outside the folders Studio shares with this phone. "
-                    + "To open it here, add its project folder in cmux on the Mac: Settings › General › Chats › Chat Folders.")
+                    + "To open it here, open a workspace in its project folder on the Mac, or add the folder in cmux on the Mac: Settings › General › Chats › Chat Folders.")
         } catch {
             Issue.record("unexpected \(error)")
         }
@@ -174,7 +174,7 @@ import Testing
             Issue.record("a refused read must not load")
         } catch let error as ArtifactUnavailable {
             #expect(error.message == "Studio isn't sharing any folders with this phone yet, so notes.md can't be opened here. "
-                    + "To open it here, add its project folder in cmux on the Mac: Settings › General › Chats › Chat Folders.")
+                    + "To open it here, open a workspace in its project folder on the Mac, or add the folder in cmux on the Mac: Settings › General › Chats › Chat Folders.")
         } catch {
             Issue.record("unexpected \(error)")
         }

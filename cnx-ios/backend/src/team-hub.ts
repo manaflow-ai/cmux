@@ -11,6 +11,11 @@ export interface Attachment {
   deviceId: string
   kind: "mac" | "phone"
   name: string
+  /**
+   * The team (or personal space) the socket was opened for: the team its device is registered in. It picks
+   * which of the user's Macs this socket hears about (hello, presence); it never widens who can be reached.
+   */
+  teamId: string
   /** Set before the hub closes a socket that a newer connection of the same device replaced. */
   replaced?: boolean
 }
@@ -18,9 +23,30 @@ export interface Attachment {
 export interface MacPresence {
   deviceId: string
   name: string
+  teamId: string
   online: boolean
   lastSeenAt: string | null
   ownerUserId: string
+}
+
+/** A device registration as the Worker hands it to the hub (POST /v1/devices). */
+export interface HubDevice {
+  deviceId: string
+  /** The owner key of src/index.ts (`<sub>` or `<projectId>:<sub>`): must be this hub's owner. */
+  ownerKey: string
+  kind: "mac" | "phone"
+  name: string
+  teamId: string
+  userId: string
+  projectId: string
+}
+
+/** A Mac from the database, to seed a new hub's presence list (offline until it connects). */
+export interface SeedMac {
+  deviceId: string
+  name: string
+  teamId: string
+  lastSeenAt: string | null
 }
 
 const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "bye"])
@@ -43,6 +69,12 @@ export const RELAY_ERROR_INTERVAL_MS = 5000
  */
 export const BUCKETS = { text: { rate: 20, burst: 60 }, binary: { rate: 12000, burst: 24000 } } as const
 
+/** The Durable Object name of a user's hub: `user:` and the owner key (src/index.ts), never a client value. */
+export const userHubName = (ownerKey: string) => `user:${ownerKey}`
+
+/** Thrown when a call names a device of another owner than the hub's: a Worker bug, never served. */
+export class WrongHubError extends Error {}
+
 export const uuidToBytes = (id: string): Uint8Array => {
   const hex = id.replace(/-/g, "")
   const out = new Uint8Array(16)
@@ -56,8 +88,12 @@ export const bytesToUuid = (b: Uint8Array): string => {
 }
 
 /**
- * One per team (idFromName(teamId)): signaling (introductions) and Mac presence of
- * PROTOCOL.md, on hibernating WebSockets. SQLite holds Mac presence rows and link sessions so a
+ * One per user (idFromName(userHubName(ownerKey)), PROTOCOL.md "Signaling WebSocket"): signaling
+ * (introductions, `wg-endpoints`) and Mac presence among one user's own devices, on hibernating WebSockets.
+ * The class keeps its old name so no Durable Object migration is needed; only the name it is reached by
+ * changed (it was the team id). A hub only ever holds the devices of its owner: the first call binds the
+ * owner key in storage and every later call naming another owner throws `WrongHubError`, so a routing bug
+ * cannot mix two users' devices. SQLite holds Mac presence rows, registered devices and link sessions so a
  * hibernation wake keeps the admission state; the membership cache and rate buckets are memory only.
  */
 export class TeamHub extends DurableObject<Env> {
@@ -71,87 +107,131 @@ export class TeamHub extends DurableObject<Env> {
   private readonly relayErrors = new WeakMap<WebSocket, Map<string, number>>()
   /** The open socket of each device, so a signal needs no socket scan (rebuilt lazily after hibernation). */
   private readonly live = new Map<string, WebSocket>()
+  private ownerKey: string | null | undefined
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     this.sql = ctx.storage.sql
+    this.schema()
+  }
+
+  /** The tables (again after `retireTeamHub` deleted them: the constructor does not rerun while the object stays in memory). */
+  private schema() {
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
     this.sql.exec(`CREATE TABLE IF NOT EXISTS macs (device_id TEXT PRIMARY KEY, name TEXT NOT NULL, owner_user_id TEXT NOT NULL, last_seen_at INTEGER)`)
-    // owner_project_id: added with multi-project support; NULL (older rows) means the primary project.
-    if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(macs)`).toArray().some((c) => c.name === "owner_project_id"))
-      this.sql.exec(`ALTER TABLE macs ADD COLUMN owner_project_id TEXT`)
-    // Devices registered in this team (both kinds), so a signal socket is admitted here without a
-    // database round trip (the Worker falls back to the database for a device this hub has not seen).
     this.sql.exec(`CREATE TABLE IF NOT EXISTS devices (device_id TEXT PRIMARY KEY, owner_key TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL)`)
     this.sql.exec(`CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, initiator TEXT NOT NULL, responder TEXT NOT NULL, created_at INTEGER NOT NULL)`)
+    // Columns added after the tables first shipped (a hub created by older code has the tables without them).
+    const addColumn = (table: string, column: string) => {
+      if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray().some((c) => c.name === column)) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`)
+    }
+    addColumn("macs", "owner_project_id")
+    addColumn("macs", "team_id")
+    addColumn("devices", "team_id")
+    // Devices deleted here, so a database read that raced the deletion cannot seed them back.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS forgotten (device_id TEXT PRIMARY KEY)`)
   }
 
   // ---- RPC from the Worker -------------------------------------------------------------------
 
-  /** Team membership through Stack, cached 60 s (15 s for a refusal). Throws when Stack fails. */
-  async isMember(teamId: string, caller: Caller): Promise<boolean> {
-    const key = `${caller.projectId}\u0000${caller.userId}`
-    const hit = this.members.get(key)
+  /** Team membership through Stack, cached 60 s (15 s for a refusal) per team. Throws when Stack fails. */
+  async isMember(teamId: string, caller: Caller, ownerKey: string): Promise<boolean> {
+    this.bind(ownerKey)
+    const hit = this.members.get(teamId)
     const now = Date.now()
     if (hit && now - hit.at < (hit.ok ? MEMBER_TTL_MS : NON_MEMBER_TTL_MS)) return hit.ok
     const ok = (await userTeams(this.env, caller)).includes(teamId)
-    this.members.set(key, { ok, at: now })
+    this.members.set(teamId, { ok, at: now })
     return ok
   }
 
-  /** A device registered in this team (POST /v1/devices): admits its signal socket here later. */
-  async rememberDevice(d: { deviceId: string; ownerKey: string; kind: "mac" | "phone"; name: string }): Promise<void> {
+  /**
+   * A device registered (POST /v1/devices): admits its signal socket here later without a database round trip.
+   * A Mac that changed team has its socket closed with 4001 `moved` (it reconnects for its new team) and the
+   * sockets of its old team hear it `removed`. A phone's open socket stays, as with team hubs: its links keep
+   * signaling (admission is by user), and it hears its old team's presence until it reconnects. A Mac that is
+   * new, renamed or moved is announced to the sockets of its team.
+   */
+  async register(d: HubDevice): Promise<void> {
+    this.bind(d.ownerKey)
+    this.sql.exec(`DELETE FROM forgotten WHERE device_id = ?`, d.deviceId)
+    const prevTeam = this.sql.exec<{ team_id: string | null }>(`SELECT team_id FROM devices WHERE device_id = ?`, d.deviceId).toArray()[0]?.team_id ?? null
+    const prevMac = this.macRow(d.deviceId)
+    const oldTeam = prevTeam ?? prevMac?.team_id ?? null
     this.sql.exec(
-      `INSERT INTO devices (device_id, owner_key, kind, name) VALUES (?, ?, ?, ?)
-       ON CONFLICT(device_id) DO UPDATE SET owner_key = excluded.owner_key, kind = excluded.kind, name = excluded.name`,
+      `INSERT INTO devices (device_id, owner_key, kind, name, team_id) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(device_id) DO UPDATE SET owner_key = excluded.owner_key, kind = excluded.kind, name = excluded.name, team_id = excluded.team_id`,
       d.deviceId,
       d.ownerKey,
       d.kind,
-      d.name
+      d.name,
+      d.teamId
     )
-  }
-
-  /** A device moved to another team: this hub no longer admits it (its open socket stays until it reconnects). */
-  async forgetRegistration(deviceId: string): Promise<void> {
-    this.sql.exec(`DELETE FROM devices WHERE device_id = ?`, deviceId)
-  }
-
-  /** A Mac registered (or renamed) in this team. Broadcasts presence when the name changed. */
-  async registerMac(m: { deviceId: string; name: string; ownerUserId: string; ownerProjectId: string }): Promise<void> {
-    const prev = this.macRow(m.deviceId)
-    this.sql.exec(
-      `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, last_seen_at) VALUES (?, ?, ?, ?, NULL)
-       ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id`,
-      m.deviceId,
-      m.name,
-      m.ownerUserId,
-      m.ownerProjectId
-    )
-    if (!prev || prev.name !== m.name) this.broadcast(JSON.stringify({ type: "presence", mac: this.presenceOf(m.deviceId) }))
-  }
-
-  /** A Mac moved to another team: drop it here and close its sockets. */
-  async forgetMac(deviceId: string): Promise<void> {
-    this.sql.exec(`DELETE FROM devices WHERE device_id = ?`, deviceId)
-    this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, deviceId)
-    for (const ws of this.ctx.getWebSockets(deviceId)) {
-      this.setAttach(ws, { ...this.attach(ws), replaced: true })
-      try {
-        ws.close(4001, "moved")
-      } catch {}
+    const moved = oldTeam !== null && oldTeam !== d.teamId
+    if (moved && d.kind === "mac") {
+      for (const ws of this.ctx.getWebSockets(d.deviceId)) {
+        this.setAttach(ws, { ...this.attach(ws), replaced: true })
+        try {
+          ws.close(4001, "moved")
+        } catch {}
+      }
+      this.live.delete(d.deviceId)
+      if (prevMac) this.broadcast(oldTeam, JSON.stringify({ type: "presence", mac: { ...this.presenceOf(d.deviceId), removed: true } }))
     }
+    if (d.kind !== "mac") {
+      // A Mac re-registered as a phone (not a real flow): it no longer appears in presence.
+      if (prevMac) this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, d.deviceId)
+      return
+    }
+    this.sql.exec(
+      `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at) VALUES (?, ?, ?, ?, ?, NULL)
+       ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id, team_id = excluded.team_id`,
+      d.deviceId,
+      d.name,
+      d.userId,
+      d.projectId,
+      d.teamId
+    )
+    if (!prevMac || prevMac.name !== d.name || moved || prevMac.team_id !== d.teamId)
+      this.broadcast(d.teamId, JSON.stringify({ type: "presence", mac: this.presenceOf(d.deviceId) }))
+  }
+
+  /**
+   * The owner's Macs from the database, once per hub: a new hub (every user's first after the move from team
+   * hubs) would otherwise list no offline Mac in `hello` until each registers again. Rows the hub already has
+   * win, and a device deleted here since (the database read may have raced the deletion) is not brought back.
+   */
+  async seed(ownerKey: string, owner: { userId: string; projectId: string }, macs: ReadonlyArray<SeedMac>): Promise<void> {
+    this.bind(ownerKey)
+    if (this.seeded()) return
+    for (const m of macs)
+      this.sql.exec(
+        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at)
+         SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM forgotten WHERE device_id = ?) ON CONFLICT(device_id) DO NOTHING`,
+        m.deviceId,
+        m.name,
+        owner.userId,
+        owner.projectId,
+        m.teamId,
+        m.lastSeenAt ? Date.parse(m.lastSeenAt) : null,
+        m.deviceId
+      )
+    this.sql.exec(`INSERT INTO meta (key, value) VALUES ('seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
   }
 
   /**
    * A device was deleted (PROTOCOL.md `DELETE /v1/devices/:deviceId`): drop a Mac from presence with a last
    * `removed` frame, close the device's socket with 4002 `removed`, and end its signaling sessions.
    */
-  async forgetDevice(deviceId: string): Promise<void> {
+  async forgetDevice(ownerKey: string, deviceId: string): Promise<void> {
+    this.bind(ownerKey)
     this.sql.exec(`DELETE FROM devices WHERE device_id = ?`, deviceId)
+    this.sql.exec(`INSERT INTO forgotten (device_id) VALUES (?) ON CONFLICT(device_id) DO NOTHING`, deviceId)
     const mac = this.macRow(deviceId)
     if (mac) {
       this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, deviceId)
       const lastSeenAt = mac.last_seen_at ? new Date(mac.last_seen_at).toISOString() : null
-      this.broadcast(JSON.stringify({ type: "presence", mac: { deviceId, name: mac.name, online: false, lastSeenAt, removed: true } }))
+      this.broadcast(mac.team_id, JSON.stringify({ type: "presence", mac: { deviceId, name: mac.name, online: false, lastSeenAt, removed: true } }))
     }
     for (const ws of this.ctx.getWebSockets(deviceId)) {
       this.setAttach(ws, { ...this.attach(ws), replaced: true })
@@ -165,8 +245,56 @@ export class TeamHub extends DurableObject<Env> {
     this.sql.exec(`DELETE FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId)
   }
 
+  /** Account data deletion (`DELETE /v1/me`): close every socket with 4002 `removed` and wipe this hub. */
+  async purge(ownerKey: string): Promise<void> {
+    this.bind(ownerKey)
+    for (const ws of this.ctx.getWebSockets()) {
+      this.setAttach(ws, { ...this.attach(ws), replaced: true })
+      try {
+        ws.close(4002, "removed")
+      } catch {}
+    }
+    this.live.clear()
+    this.sessions.clear()
+    this.members.clear()
+    for (const t of ["macs", "devices", "sessions", "meta", "forgotten"]) this.sql.exec(`DELETE FROM ${t}`)
+    this.ownerKey = null
+  }
+
+  /**
+   * Migration from team hubs (PROTOCOL.md 0.10.0): called on a hub by its old name (the team id). Hibernated
+   * sockets survive a deploy, so a Mac could stay in its team hub while its phone reconnects into the user hub
+   * and finds it offline. This closes every socket here with 1012 (clients reconnect, now into their user hub)
+   * and deletes the stored rows, which mixed the team's users. A user hub is never touched: only one whose own
+   * id is the id of `user:<its owner>` counts as one (an older Worker could have written an owner into a team hub).
+   */
+  async retireTeamHub(): Promise<{ closed: number }> {
+    const owner = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value
+    if (owner !== undefined && this.isUserHubOf(owner)) return { closed: 0 }
+    const open = this.ctx.getWebSockets().filter((ws) => !this.attach(ws)?.replaced)
+    // Already retired and nothing parked since (the sweep's common case): no writes.
+    if (open.length === 0 && this.sql.exec(`SELECT 1 FROM meta WHERE key = 'retired'`).toArray().length > 0) return { closed: 0 }
+    let closed = 0
+    for (const ws of this.ctx.getWebSockets()) {
+      if (this.attach(ws)?.replaced) continue
+      this.setAttach(ws, { ...this.attach(ws), replaced: true })
+      try {
+        ws.close(1012, "moved to the user hub")
+        closed++
+      } catch {}
+    }
+    this.live.clear()
+    this.sessions.clear()
+    this.ownerKey = undefined
+    await this.ctx.storage.deleteAll()
+    this.schema()
+    this.sql.exec(`INSERT INTO meta (key, value) VALUES ('retired', '1')`)
+    return { closed }
+  }
+
   /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
-  async placement(): Promise<{ colo: string | null }> {
+  async placement(ownerKey: string): Promise<{ colo: string | null }> {
+    this.bind(ownerKey)
     if (this.env.ENVIRONMENT === "test") return { colo: null }
     if (this.colo === undefined) {
       try {
@@ -179,11 +307,10 @@ export class TeamHub extends DurableObject<Env> {
     return { colo: this.colo }
   }
 
-  async macs(): Promise<Array<MacPresence>> {
-    return this.sql
-      .exec<{ device_id: string }>(`SELECT device_id FROM macs ORDER BY name`)
-      .toArray()
-      .map((r) => this.presence(r.device_id)!)
+  /** The owner's Macs with presence; only one team's when `teamId` is given. */
+  async macs(ownerKey: string, teamId?: string): Promise<Array<MacPresence>> {
+    this.bind(ownerKey)
+    return this.macList(teamId)
   }
 
   // ---- WebSocket -------------------------------------------------------------------------------
@@ -191,21 +318,39 @@ export class TeamHub extends DurableObject<Env> {
   override async fetch(req: Request): Promise<Response> {
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("expected websocket", { status: 426 })
     let att = JSON.parse(req.headers.get("x-cnx-attachment") ?? "null") as Attachment | null
-    // The Worker's fast path: only the caller's identity and device id; the device row is this hub's.
-    const claim = JSON.parse(req.headers.get("x-cnx-claim") ?? "null") as { userId: string; projectId: string; deviceId: string; ownerKey: string } | null
+    // The Worker's fast path: only the caller's identity, device id and team; the device row is this hub's.
+    const claim = JSON.parse(req.headers.get("x-cnx-claim") ?? "null") as { userId: string; projectId: string; deviceId: string; ownerKey: string; teamId: string } | null
+    const ownerKey = claim?.ownerKey ?? req.headers.get("x-cnx-owner-key")
+    if (!ownerKey) return new Response("missing owner", { status: 400 })
+    try {
+      this.bind(ownerKey)
+    } catch {
+      return new Response("wrong hub", { status: 500 })
+    }
     if (!att && claim) {
+      // Not seeded yet: let the Worker's slow path seed the owner's Macs from the database first.
+      if (!this.seeded()) return new Response("not seeded", { status: 409 })
       const row = this.sql
-        .exec<{ owner_key: string; kind: string; name: string }>(`SELECT owner_key, kind, name FROM devices WHERE device_id = ?`, claim.deviceId)
+        .exec<{ owner_key: string; kind: string; name: string; team_id: string | null }>(`SELECT owner_key, kind, name, team_id FROM devices WHERE device_id = ?`, claim.deviceId)
         .toArray()[0]
       if (!row) return new Response("unknown device", { status: 409 })
       if (row.owner_key !== claim.ownerKey) return new Response("not owner", { status: 403 })
-      att = { userId: claim.userId, projectId: claim.projectId, deviceId: claim.deviceId, kind: row.kind === "mac" ? "mac" : "phone", name: row.name }
+      // Registered in another team as far as this hub knows: the database decides (wrong_team or a newer row).
+      if (row.team_id !== claim.teamId) return new Response("other team", { status: 409 })
+      att = { userId: claim.userId, projectId: claim.projectId, deviceId: claim.deviceId, kind: row.kind === "mac" ? "mac" : "phone", name: row.name, teamId: claim.teamId }
     }
     if (!att) return new Response("missing identity", { status: 400 })
     if (!claim) {
       // The slow path checked the database: remember the device for next time.
-      const ownerKey = req.headers.get("x-cnx-owner-key")
-      if (ownerKey) await this.rememberDevice({ deviceId: att.deviceId, ownerKey, kind: att.kind, name: att.name })
+      this.sql.exec(
+        `INSERT INTO devices (device_id, owner_key, kind, name, team_id) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(device_id) DO UPDATE SET owner_key = excluded.owner_key, kind = excluded.kind, name = excluded.name, team_id = excluded.team_id`,
+        att.deviceId,
+        ownerKey,
+        att.kind,
+        att.name,
+        att.teamId
+      )
     }
     // One live socket per device: a reconnect replaces the old socket without an offline blip.
     for (const old of this.ctx.getWebSockets(att.deviceId)) {
@@ -221,17 +366,18 @@ export class TeamHub extends DurableObject<Env> {
     this.live.set(att.deviceId, server)
     if (att.kind === "mac") {
       this.sql.exec(
-        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, last_seen_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id, last_seen_at = excluded.last_seen_at`,
+        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id, team_id = excluded.team_id, last_seen_at = excluded.last_seen_at`,
         att.deviceId,
         att.name,
         att.userId,
         att.projectId,
+        att.teamId,
         Date.now()
       )
     }
-    server.send(JSON.stringify({ type: "hello", you: att.deviceId, macs: await this.macs() }))
-    if (att.kind === "mac") this.broadcast(JSON.stringify({ type: "presence", mac: this.presenceOf(att.deviceId) }), server)
+    server.send(JSON.stringify({ type: "hello", you: att.deviceId, macs: this.macList(att.teamId).map(({ teamId: _t, ...m }) => m) }))
+    if (att.kind === "mac") this.broadcast(att.teamId, JSON.stringify({ type: "presence", mac: this.presenceOf(att.deviceId) }), server)
     const proto = req.headers.get("x-cnx-subprotocol")
     return new Response(null, { status: 101, webSocket: client, ...(proto ? { headers: { "sec-websocket-protocol": proto } } : {}) })
   }
@@ -285,6 +431,31 @@ export class TeamHub extends DurableObject<Env> {
     return primaryProject(this.env).id
   }
 
+  /** Whether this object is the hub named `user:<ownerKey>` (its id derives from its name). */
+  private isUserHubOf(ownerKey: string): boolean {
+    return this.env.TEAM_HUB.idFromName(userHubName(ownerKey)).equals(this.ctx.id)
+  }
+
+  /**
+   * Binds this hub to its owner: the key must name this very object (`user:<ownerKey>`), so neither a routing bug
+   * nor an older Worker calling a team hub can bind one, and once bound any other owner is refused.
+   */
+  private bind(ownerKey: unknown) {
+    if (typeof ownerKey !== "string" || !ownerKey || !this.isUserHubOf(ownerKey)) throw new WrongHubError("not this user's hub")
+    if (this.ownerKey === undefined)
+      this.ownerKey = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value ?? null
+    if (this.ownerKey === null) {
+      this.sql.exec(`INSERT INTO meta (key, value) VALUES ('owner', ?)`, ownerKey)
+      this.ownerKey = ownerKey
+      return
+    }
+    if (this.ownerKey !== ownerKey) throw new WrongHubError("this hub belongs to another user")
+  }
+
+  private seeded(): boolean {
+    return this.sql.exec(`SELECT 1 FROM meta WHERE key = 'seeded'`).toArray().length > 0
+  }
+
   private attach(ws: WebSocket): Attachment {
     let att = this.attachments.get(ws)
     if (!att) {
@@ -307,7 +478,8 @@ export class TeamHub extends DurableObject<Env> {
     if (!att || att.replaced || att.kind !== "mac") return
     if (this.open(att.deviceId, ws)) return
     this.sql.exec(`UPDATE macs SET last_seen_at = ? WHERE device_id = ?`, Date.now(), att.deviceId)
-    if (this.macRow(att.deviceId)) this.broadcast(JSON.stringify({ type: "presence", mac: this.presenceOf(att.deviceId) }), ws)
+    const mac = this.macRow(att.deviceId)
+    if (mac) this.broadcast(mac.team_id, JSON.stringify({ type: "presence", mac: this.presenceOf(att.deviceId) }), ws)
   }
 
   /** The open, non-replaced socket of a device (excluding `except`). */
@@ -322,9 +494,11 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   /**
-   * PROTOCOL.md admission: `to` is a Mac owned by the sender's user, the same sub in the same Stack project (this opens or continues the
-   * session), or the sender is the Mac answering an existing session. A sessionId is bound to its
-   * first two parties; reusing it for anyone else is refused.
+   * PROTOCOL.md admission: `to` is a Mac of this hub's user (the same sub in the same Stack project as the
+   * sender; this opens or continues the session), or the sender is the Mac answering an existing session. A
+   * sessionId is bound to its first two parties; reusing it for anyone else is refused. Every device here is
+   * the hub owner's, so another user's device can never be reached; the owner check below is defense in depth.
+   * The team does not scope admission: a user's phone may dial any of the user's own Macs.
    */
   private admit(att: Attachment, to: string, sessionId: string): boolean {
     if (to === att.deviceId) return false
@@ -356,17 +530,31 @@ export class TeamHub extends DurableObject<Env> {
 
   private macRow(deviceId: string) {
     return this.sql
-      .exec<{ name: string; owner_user_id: string; owner_project_id: string | null; last_seen_at: number | null }>(
-        `SELECT name, owner_user_id, owner_project_id, last_seen_at FROM macs WHERE device_id = ?`,
+      .exec<{ name: string; owner_user_id: string; owner_project_id: string | null; team_id: string | null; last_seen_at: number | null }>(
+        `SELECT name, owner_user_id, owner_project_id, team_id, last_seen_at FROM macs WHERE device_id = ?`,
         deviceId
       )
       .toArray()[0]
   }
 
+  private macList(teamId?: string): Array<MacPresence> {
+    const rows = teamId === undefined
+      ? this.sql.exec<{ device_id: string }>(`SELECT device_id FROM macs ORDER BY name`).toArray()
+      : this.sql.exec<{ device_id: string }>(`SELECT device_id FROM macs WHERE team_id = ? ORDER BY name`, teamId).toArray()
+    return rows.map((r) => this.presence(r.device_id)!)
+  }
+
   private presence(deviceId: string): MacPresence | undefined {
     const r = this.macRow(deviceId)
     if (!r) return undefined
-    return { deviceId, name: r.name, online: !!this.open(deviceId), lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null, ownerUserId: r.owner_user_id }
+    return {
+      deviceId,
+      name: r.name,
+      teamId: r.team_id ?? "",
+      online: !!this.open(deviceId),
+      lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null,
+      ownerUserId: r.owner_user_id
+    }
   }
 
   /** The presence frame body: PROTOCOL.md `{deviceId, name, online, lastSeenAt}`. */
@@ -375,9 +563,12 @@ export class TeamHub extends DurableObject<Env> {
     return { deviceId: p.deviceId, name: p.name, online: p.online, lastSeenAt: p.lastSeenAt }
   }
 
-  private broadcast(text: string, except?: WebSocket) {
+  /** To the sockets opened for `teamId` (the only team whose Macs they list). */
+  private broadcast(teamId: string | null, text: string, except?: WebSocket) {
     for (const ws of this.ctx.getWebSockets()) {
-      if (ws === except || ws.readyState !== WebSocket.OPEN || this.attach(ws)?.replaced) continue
+      if (ws === except || ws.readyState !== WebSocket.OPEN) continue
+      const att = this.attach(ws)
+      if (!att || att.replaced || att.teamId !== teamId) continue
       try {
         ws.send(text)
       } catch {}

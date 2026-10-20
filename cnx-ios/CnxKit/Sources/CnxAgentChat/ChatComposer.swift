@@ -80,6 +80,14 @@ struct ChatComposer: View {
             if focused { expandRequested = false }
         }
         .onAppear { if expandOnAppear { expand() } }
+        // A returned prompt the Mac turned out to have run: out of the composer again,
+        // unless the person already changed it.
+        .onChange(of: store.withdrawnDraft) { _, draft in
+            guard let draft else { return }
+            store.withdrawnDraft = nil
+            if trimmed == draft.text.trimmingCharacters(in: .whitespacesAndNewlines) { text = "" }
+            attachments.removeAll { own in draft.attachments.contains { $0.id == own.id } }
+        }
         // A prompt that never reached the agent comes back to the composer.
         .onChange(of: store.returnedDraft) { _, draft in
             guard let draft else { return }
@@ -126,6 +134,9 @@ struct ChatComposer: View {
                     attachmentStrip
                 }
                 TextField(placeholder, text: $text, axis: .vertical)
+                    // Prompts are code-like: no autocorrect, no capitals (full verify D5).
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
                     .font(.body)
                     .lineLimit(1...8)
                     .focused(focus)
@@ -148,7 +159,9 @@ struct ChatComposer: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(placeholder)
                 } else {
-                    if store.currentModelName != nil || !store.modes.isEmpty { modelPill }
+                    // The menu is there whenever the agent offers models, even when the
+                    // current one is not among them (a default the account lacks, D4).
+                    if store.currentModelName != nil || !store.models.isEmpty || !store.modes.isEmpty { modelPill }
                     Spacer(minLength: 0)
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
                 }
@@ -309,7 +322,7 @@ struct ChatComposer: View {
 
     private func modelPillLabel(withEffort: Bool) -> some View {
         HStack(spacing: 4) {
-            Text(store.currentModelName ?? currentModeName ?? "")
+            Text(store.currentModelName ?? store.currentModelID ?? currentModeName ?? "Model")
             if withEffort, store.currentModelName != nil, let mode = currentModeName, store.currentModeID != store.modes.first?.id {
                 Text(mode).foregroundStyle(.secondary)
             }
@@ -523,6 +536,9 @@ struct QueuedPromptsView: View {
         .alert("Edit queued prompt", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }),
                presenting: editing) { item in
             TextField("Message", text: $editText, axis: .vertical)
+                // Prompts are code-like: no autocorrect, no capitals (full verify D5).
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
             Button("Cancel", role: .cancel) {}
             Button("Save") { store.editQueued(item.id, text: editText) }
                 .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

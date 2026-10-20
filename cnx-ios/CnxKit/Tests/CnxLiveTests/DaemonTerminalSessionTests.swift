@@ -14,6 +14,23 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var failNextAttaches = 0
     /// `identify` advertises attach-initial-size.
     var initialSize = false
+    /// The surface the terminal is on now (a daemon restart renumbers it).
+    var liveSurface = 7
+    /// `resolve-terminal` answers: terminal id to its surface (nil: the
+    /// daemon does not know the command).
+    var terminals: [String: Int]? = nil
+    /// The next N `resolve-terminal` answers have a null surface (restoring).
+    var restoring = 0
+    /// Terminals whose process exited while no surface shows them:
+    /// `resolve-terminal` answers a null surface with lifecycle `exited`.
+    var exited: Set<String> = []
+    /// The next N `resolve-terminal` answers are terminal_not_found (a registry
+    /// still loading right after the Mac app restarted).
+    var missing = 0
+    /// The `vt-state` replay an attach sends.
+    var replay = "hello\r\n$ "
+    /// Live output right after the attach reply (nil: none).
+    var afterAttach: String? = "\u{1B}[?1049hTUI"
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -32,6 +49,29 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         switch cmd {
         case "identify" where initialSize:
             return [reply(["capabilities": ["attach-initial-size"]])]
+        case "resolve-terminal":
+            guard let terminals = lock.withLock({ self.terminals }) else {
+                return [Self.line(["id": id, "ok": false, "error": "unknown command resolve-terminal"])]
+            }
+            let restoringNow: Bool = lock.withLock {
+                guard restoring > 0 else { return false }
+                restoring -= 1
+                return true
+            }
+            if restoringNow { return [reply(["surface": NSNull(), "terminal_id": object["terminal_id"] ?? ""])] }
+            if let terminal = object["terminal_id"] as? String, lock.withLock({ exited.contains(terminal) }) {
+                return [reply(["surface": NSNull(), "terminal_id": terminal, "lifecycle": "exited"])]
+            }
+            let missingNow: Bool = lock.withLock {
+                guard missing > 0 else { return false }
+                missing -= 1
+                return true
+            }
+            if missingNow { return [Self.line(["id": id, "ok": false, "error": "terminal_not_found"])] }
+            guard let id2 = object["terminal_id"] as? String, let surface = terminals[id2] else {
+                return [Self.line(["id": id, "ok": false, "error": "terminal_not_found"])]
+            }
+            return [reply(["surface": surface, "terminal_id": id2])]
         case "attach-surface":
             let fail: Bool = lock.withLock {
                 guard failNextAttaches > 0 else { return false }
@@ -43,12 +83,15 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                 return [Self.line(["event": "output", "surface": 7, "data": Data("stale".utf8).base64EncodedString()]),
                         Self.line(["id": id, "ok": false, "error": "unknown surface 7"])]
             }
-            guard object["surface"] as? Int == 7 else { return [Self.line(["id": id, "ok": false, "error": "unknown surface"])] }
+            let live = lock.withLock { liveSurface }
+            guard object["surface"] as? Int == live else {
+                return [Self.line(["id": id, "ok": false, "error": "unknown surface \(object["surface"] as? Int ?? -1)"])]
+            }
             return [
-                Self.line(["event": "vt-state", "surface": 7, "cols": 80, "rows": 24,
-                           "data": Data("hello\r\n$ ".utf8).base64EncodedString()]),
+                Self.line(["event": "vt-state", "surface": live, "cols": 80, "rows": 24,
+                           "data": Data(replay.utf8).base64EncodedString()]),
                 reply(["lease": "l1"]),
-                Self.line(["event": "output", "surface": 7, "data": Data("\u{1B}[?1049hTUI".utf8).base64EncodedString()]),
+            ] + (afterAttach.map { [Self.line(["event": "output", "surface": live, "data": Data($0.utf8).base64EncodedString()])] } ?? []) + [
                 Self.line(["event": "output", "surface": 8, "data": Data("other".utf8).base64EncodedString()]),
             ]
         default:
@@ -254,6 +297,162 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
     }
 
+    /// termfix-r13 D2 (T-LIFE-17 over `top`): a reattach to a terminal that
+    /// is on the alternate screen, and still is, never tells the screen it
+    /// left it. Leaving and re-entering switched the page out of TUI mode
+    /// with nothing held over it: blank (cursor only) for ~170 ms, then a
+    /// half-drawn screen.
+    @Test func aReattachToATUIStaysOnTheAlternateScreen() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.replay = "\u{1B}[?1049htop"
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached && session.isAlternateScreen }
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+
+        let before = events.count
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        let after = Array(events[before...])
+        #expect(!after.contains(.alternateScreen(false)), "the page left TUI mode during the reattach: \(after)")
+        #expect(after.contains(.output(Data("\u{1B}c".utf8))))
+        #expect(session.isAlternateScreen)
+
+        // A replay that is back on the primary screen (the program quit
+        // during the drop) leaves TUI mode before its rows.
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+        daemon.replay = "hello\r\n$ "
+        daemon.afterAttach = nil
+        let mark = events.count
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        let primary = Array(events[mark...])
+        let off = try #require(primary.firstIndex(of: .alternateScreen(false)))
+        let rows = try #require(primary.firstIndex(of: .output(Data("hello\r\n$ ".utf8))))
+        #expect(off < rows)
+    }
+
+    /// termfix-r13 D4 (T-LIFE-13): the Mac is gone; the session says so
+    /// (offline, not "Reattaching…" forever) and attaches again by itself.
+    @Test func aDroppedSessionShowsOfflineWhileTheMacIsGone() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.afterAttach = nil
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        session.macName = "mini"
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        // Attached, the Mac being called offline changes nothing on screen.
+        session.setMacOffline(true)
+        #expect(session.connectionState == .attached)
+        session.setMacOffline(false)
+
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+        #expect(session.connectionState == .reattaching(mac: "mini"))
+        session.setMacOffline(true)
+        #expect(session.connectionState == .offline(mac: "mini"))
+        #expect(events.last == .connection(.offline(mac: "mini")))
+        #expect(TerminalConnectionState.offline(mac: "mini").label == "mini is offline")
+
+        session.setMacOffline(false)
+        #expect(events.last == .connection(.reattaching(mac: "mini")))
+        let back = events.count
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        #expect(events[back...].contains(.connection(.attached)))
+    }
+
+    /// termfix-r13 D5 (T-INPUT-17): keys typed while the Mac is down are not
+    /// queued silently and run minutes later. Keys from a short blip still
+    /// go once the terminal is back; older ones are dropped and the screen
+    /// is told, so it can say they were not sent.
+    @Test func staleInputIsNeverSentAfterAReattach() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var clock: TimeInterval = 1000
+        session.now = { clock }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+
+        // Typed during the outage, then the Mac is back 15 minutes later.
+        session.send(Data("echo STALE\r".utf8))
+        clock += 15 * 60
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        try await waitUntil { events.contains(.inputNotSent(bytes: 11)) }
+        #expect(!daemon.recorded.contains { $0["cmd"] as? String == "send" }, "a stale command ran on the Mac")
+
+        // A blip: typed and the terminal back within the bound, sent once.
+        await channels.last?.close(code: "link_closed", reason: "blip")
+        try await waitUntil { !session.isAttached }
+        session.send(Data("x".utf8))
+        clock += DaemonTerminalSession.inputHoldLimit / 2
+        session.reconnect()
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
+        let sends = daemon.recorded.filter { $0["cmd"] as? String == "send" }
+        #expect(sends.count == 1)
+        #expect(sends.first?["bytes"] as? String == Data("x".utf8).base64EncodedString())
+    }
+
+    /// r13 review: keys typed over more than the hold limit while detached
+    /// are dropped all together, and input is refused until the next attach:
+    /// never only the last 2 s of a command (`mp\r` of `ls -la /tmp\r`).
+    @Test func noFragmentOfACommandRunsAfterAnOutage() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var clock: TimeInterval = 1000
+        session.now = { clock }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+
+        session.send(Data("ls -la /t".utf8))
+        clock += DaemonTerminalSession.inputHoldLimit + 1
+        session.send(Data("mp\r".utf8))
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        try await waitUntil { events.contains(.inputNotSent(bytes: 12)) }
+        #expect(!daemon.recorded.contains { $0["cmd"] as? String == "send" }, "a fragment of the command ran on the Mac")
+
+        // Attached again: typing works.
+        session.send(Data("x".utf8))
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "send" }.first?["bytes"] as? String == Data("x".utf8).base64EncodedString())
+    }
+
     /// termqa D3: right after the Mac's host restarts, a reattach can be refused
     /// ("unknown surface") for a moment. The screen keeps its last frame: no
     /// mirror reset and no error line until an attach succeeds, then the
@@ -375,11 +574,181 @@ final class ChannelLog: @unchecked Sendable {
 /// 14` and retried it six times: the session of a tab closed earlier (its
 /// host kept for the card) was attached again on every new link.
 @Suite struct ReattachSurfacesTests {
+    /// After the Mac's daemon restarted, the session's surface is gone and its
+    /// host id changed; its public id (`terminal_resource_id`) still matches.
+    @Test func aRenumberedTerminalStillReattachesByItsPublicID() throws {
+        let tab: [String: Any] = ["surface": 269, "kind": "pty", "title": "zsh", "terminal_id": "9a3aaba09e1e4e20b5cb5f9f8f9bc2dc",
+                                  "terminal_resource_id": "term_cfa558e1dfd01470a3ed86f97ad61d13"]
+        let reply = try JSONSerialization.data(withJSONObject: ["ok": true, "data": ["workspaces": [
+            ["id": 1, "key": "ws1", "name": "w", "screens": [["active": true, "active_pane": 1, "panes": [["id": 1, "active_tab": 0, "tabs": [tab]]]]]],
+        ]]])
+        let tree = try DaemonTree(reply: reply, macID: "m")
+        #expect(DaemonTerminalSession.shouldReattach(surface: 25, terminalID: "term_cfa558e1dfd01470a3ed86f97ad61d13", tree: tree))
+        #expect(!DaemonTerminalSession.shouldReattach(surface: 25, terminalID: "term_other", tree: tree))
+        #expect(DaemonTerminalSession.shouldReattach(surface: 269, terminalID: nil, tree: tree))
+    }
+
     @Test func aClosedTabsSurfaceIsNotAttachedAgain() {
         #expect(DaemonTerminalSession.surfacesToReattach([14, 16, 17], tree: [16, 17]) == [16, 17])
     }
 
     @Test func beforeTheTreeIsKnownEverySessionReattaches() {
         #expect(DaemonTerminalSession.surfacesToReattach([14, 16], tree: nil) == [14, 16])
+    }
+}
+
+/// transport-verify-20261019.md defect 2: after the Mac's daemon restarts it
+/// numbers its surfaces again, so the phone's open terminal stayed
+/// "Reattaching…" and printed `[unknown surface 15]`. A reattach finds the
+/// terminal by its durable id (`resolve-terminal`), and a terminal the Mac no
+/// longer has ends with a clear line instead of waiting forever.
+@MainActor @Suite struct TerminalRenumberTests {
+    private func waitUntil(attempts: Int = 200, _ condition: @MainActor () -> Bool) async throws {
+        for _ in 0..<attempts where !condition() { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(condition())
+    }
+
+    func session(_ daemon: FakeTerminalDaemon, _ channels: ChannelLog) -> DaemonTerminalSession {
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7, terminalID: "term_a") {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        session.reattachBackoff = [0.02, 0.02, 0.02]
+        return session
+    }
+
+    @Test func aReattachFollowsTheTerminalToItsNewSurface() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "Mac app restarted")
+        try await waitUntil { !session.isAttached }
+
+        // The daemon came back and put the terminal on surface 15.
+        daemon.liveSurface = 15
+        daemon.terminals = ["term_a": 15]
+        let before = events.count
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached }
+        #expect(session.surface == 15)
+        #expect(daemon.recorded.last { $0["cmd"] as? String == "attach-surface" }?["surface"] as? Int == 15)
+        let after = events[before...].compactMap { event -> String? in
+            if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
+            return nil
+        }
+        #expect(!after.contains { $0.contains("unknown surface") })
+        #expect(after.contains("hello\r\n$ "), "the new surface's replay shows")
+        session.send(Data("x".utf8))
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
+        #expect(daemon.recorded.last { $0["cmd"] as? String == "send" }?["surface"] as? Int == 15)
+    }
+
+    @Test func aTerminalTheMacNoLongerHasEndsWithAClearLine() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "Mac app restarted")
+        try await waitUntil { !session.isAttached }
+
+        daemon.liveSurface = 15
+        daemon.terminals = [:]
+        session.reconnect()
+        try await waitUntil(attempts: 400) { events.contains(.exited(code: 0)) }
+        let text = events.compactMap { event -> String? in
+            if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
+            return nil
+        }.joined()
+        #expect(text.contains("no longer open on the Mac"))
+        #expect(session.connectionState != .reattaching(mac: nil), "never stuck reattaching")
+        // Never attached to whatever the old number names now.
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count == 1)
+    }
+
+    /// PR #22555 review: a terminal whose shell exited during the outage
+    /// says so at once; it never waits "Reattaching…" and never offers a futile
+    /// "Type to try again".
+    @Test func aTerminalThatExitedWhileAwaySaysSoAtOnce() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+
+        daemon.exited = ["term_a"]
+        session.reconnect()
+        try await waitUntil { events.contains(.exited(code: 0)) }
+        let text = events.compactMap { event -> String? in
+            if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
+            return nil
+        }.joined()
+        #expect(text.contains("process exited"))
+        #expect(!text.contains("Type to try again"))
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "resolve-terminal" }.count == 1, "no retry round")
+    }
+
+    /// Review finding 1: a daemon still adopting its terminals answers a null
+    /// surface for a moment; the reattach waits and attaches, never ends.
+    @Test func aTerminalNotOnASurfaceYetIsWaitedFor() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "Mac app restarted")
+        try await waitUntil { !session.isAttached }
+        daemon.liveSurface = 15
+        daemon.restoring = 2
+        daemon.terminals = ["term_a": 15]
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached }
+        #expect(session.surface == 15)
+        #expect(!events.contains(.exited(code: 0)))
+    }
+
+    /// Live check: right after a Mac app restart the daemon answered
+    /// terminal_not_found once for a terminal that was there; it is retried.
+    @Test func aTerminalMissingForAMomentIsRetried() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "Mac app restarted")
+        try await waitUntil { !session.isAttached }
+        daemon.missing = 1
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached }
+        #expect(!events.contains(.exited(code: 0)))
+    }
+
+    @Test func aDaemonWithoutResolveStillReattachesByNumber() async throws {
+        let daemon = FakeTerminalDaemon()
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "background")
+        try await waitUntil { !session.isAttached }
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached }
+        #expect(session.surface == 7)
     }
 }
