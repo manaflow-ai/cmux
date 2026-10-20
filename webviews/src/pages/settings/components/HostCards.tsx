@@ -229,19 +229,17 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       {own && (
         <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
       )}
-      {!own && (
-        <div className="rows">
-          {opacity && (
-            <SettingRow
-              row={current === "none" ? opacity : overArt(opacity)}
-              focused={focus === BACKGROUND_OPACITY_KEY}
-            />
-          )}
-          {/* The window's other control: Frosted, Glass, Clear Glass (the desktop through the
-            wallpaper) or None. It replaces the Window Glass switch, which set Clear Glass. */}
-          {material && <SettingRow row={material} focused={focus === MATERIAL_KEY} />}
-        </div>
-      )}
+      <div className="rows">
+        {!own && opacity && (
+          <SettingRow
+            row={current === "none" ? opacity : overArt(opacity)}
+            focused={focus === BACKGROUND_OPACITY_KEY}
+          />
+        )}
+        {/* The window's other control, on either scope: Frosted, Glass, Clear Glass (the desktop
+          through the wallpaper) or None. It replaces the Window Glass switch, which set Clear Glass. */}
+        {material && <SettingRow row={material} focused={focus === MATERIAL_KEY} />}
+      </div>
       <div className="backdrop-grid">
         {own &&
           tile(
