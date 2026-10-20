@@ -248,6 +248,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         feeds[id] = Task { [weak indicator, model] in
             for await state in Observations({ model.connectionState }) {
                 guard let indicator else { return }
+                if case .offline = state { indicator.update(offline: true); continue }
+                indicator.update(offline: false)
                 if case .reattaching = state { indicator.update(reattaching: true) } else { indicator.update(reattaching: false) }
             }
         }
@@ -263,7 +265,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// A read (no host is created): the tab's pill says "Reattaching…" while
     /// its reattach has lasted 400 ms or more.
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
-        indicator(tab.id).isShown ? "Reattaching…" : nil
+        let indicator = indicator(tab.id)
+        if indicator.isOffline { return "Mac offline" }
+        return indicator.isShown ? "Reattaching…" : nil
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {

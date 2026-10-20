@@ -36,6 +36,11 @@ public final class LinkController {
     /// After a foreground a link that does not answer within this is redialed:
     /// a phone back from the background must not wait 8 s on a dead link.
     nonisolated static let foregroundProbeTimeout: Duration = .milliseconds(2000)
+    /// A link that does not answer within this after presence changed under
+    /// it (the Mac's signaling socket went or came back) is redialed: its
+    /// host may have restarted (termfix-r13 D2b: the dead link was kept until
+    /// the heartbeat, 26.7 s). A live link answers in milliseconds.
+    nonisolated static let presenceProbeTimeout: Duration = .milliseconds(1500)
     @ObservationIgnored private var quickProbe = false
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
     /// Runs right after a dial, in the same detached step (no main actor):
@@ -219,22 +224,28 @@ public final class LinkController {
                 self?.send(.retryDue(generation: generation))
             }
         case .probe(let generation):
-            guard let link else { return }
-            let clock = clock
             let timeout = quickProbe ? Self.foregroundProbeTimeout : Self.probeTimeout
             quickProbe = false
-            Task { [weak self] in
-                // The ping races a timeout: a frozen Mac never answers.
-                let result = await Self.race(timeout: timeout, clock: clock) { try await link.ping() }
-                guard let self else { return }
-                switch result {
-                case .success(let rtt):
-                    ConnectTimeline.shared.mark("link_alive", detail: "\(rtt) ms")
-                    guard case .connected(_, let path, _) = self.phase else { return }
-                    self.send(.linkUpdated(generation: generation, path: path, rttMillis: rtt))
-                case .failure(let error):
-                    self.send(.probeFailed(generation: generation, reason: Self.reason(error)))
-                }
+            probe(generation: generation, timeout: timeout)
+        case .quickProbe(let generation):
+            probe(generation: generation, timeout: Self.presenceProbeTimeout)
+        }
+    }
+
+    private func probe(generation: Int, timeout: Duration) {
+        guard let link else { return }
+        let clock = clock
+        Task { [weak self] in
+            // The ping races a timeout: a frozen Mac never answers.
+            let result = await Self.race(timeout: timeout, clock: clock) { try await link.ping() }
+            guard let self else { return }
+            switch result {
+            case .success(let rtt):
+                ConnectTimeline.shared.mark("link_alive", detail: "\(rtt) ms")
+                guard case .connected(_, let path, _) = self.phase else { return }
+                self.send(.linkUpdated(generation: generation, path: path, rttMillis: rtt))
+            case .failure(let error):
+                self.send(.probeFailed(generation: generation, reason: Self.reason(error)))
             }
         }
     }

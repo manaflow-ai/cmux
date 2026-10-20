@@ -99,6 +99,11 @@ public final class LiveCoordinator {
     /// Terminal tabs handed out, reattached on every new link.
     @ObservationIgnored private var terminals: [WeakTerminal] = []
     private struct WeakTerminal { weak var session: DaemonTerminalSession? }
+    /// Whether terminal tabs say their Mac is offline (termfix-r13 D4).
+    @ObservationIgnored private var terminalsOffline = false
+    /// When the link last stopped being connected (nil: connected or idle).
+    @ObservationIgnored private var linkDownSince: ContinuousClock.Instant?
+    @ObservationIgnored private var offlineTask: Task<Void, Never>?
     @ObservationIgnored private var chiefLive = false
     @ObservationIgnored private var discoveryTask: Task<Void, Never>?
     /// Follows the phone's network (Wi-Fi, cellular, airplane mode).
@@ -483,6 +488,10 @@ public final class LiveCoordinator {
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
             store.setMacs(current, teamID: teamID)
             retarget()
+            // The linked Mac's signaling socket is up (again): its host may
+            // have restarted under the live link. Probe it now instead of at
+            // the next heartbeat (termfix-r13 D2b), or dial now if waiting.
+            if mac.online, mac.deviceId == link.target?.macID { link.send(.macSignaled) }
         }
     }
 
@@ -1060,6 +1069,7 @@ public final class LiveCoordinator {
             return DaemonClient(channel: channel)
         })
         session.macName = link.target?.name
+        session.setMacOffline(terminalsOffline)
         terminals.removeAll { $0.session == nil }
         terminals.append(WeakTerminal(session: session))
         return session
@@ -1253,10 +1263,40 @@ public final class LiveCoordinator {
         scheduleSnapshotSave()
     }
 
+    /// Terminal tabs say the Mac is offline once the link has been down
+    /// for a bounded time, or at once when presence says so (T-LIFE-13:
+    /// offline label ≤ 5 s), never "Reattaching…" for 20 minutes (D4).
+    private func updateTerminalsOffline(_ phase: LinkMachine.Phase) {
+        let now = ContinuousClock.now
+        if phase.isConnected || phase == .idle {
+            linkDownSince = nil
+        } else if linkDownSince == nil {
+            linkDownSince = now
+        }
+        let down = linkDownSince.map { now - $0 } ?? .zero
+        let offline = phase.showsTerminalsOffline(notConnectedFor: down)
+        if offline != terminalsOffline {
+            terminalsOffline = offline
+            terminals.removeAll { $0.session == nil }
+            for terminal in terminals { terminal.session?.setMacOffline(offline) }
+        }
+        offlineTask?.cancel()
+        offlineTask = nil
+        guard !offline, linkDownSince != nil, down < LinkMachine.Phase.offlineAfter else { return }
+        let wait = LinkMachine.Phase.offlineAfter - down
+        offlineTask = Task { [weak self] in
+            guard let clock = self?.clock else { return }
+            do { try await clock.sleep(for: wait) } catch { return }
+            guard let self else { return }
+            self.updateTerminalsOffline(self.link.phase)
+        }
+    }
+
     private func phaseChanged() {
         let phase = link.phase
         let target = link.target
         updateMacState(phase, target: target)
+        updateTerminalsOffline(phase)
         var status = store.macLinkStatus
         status = [:]
         if let target, let line = phase.statusLine(macName: target.name) {

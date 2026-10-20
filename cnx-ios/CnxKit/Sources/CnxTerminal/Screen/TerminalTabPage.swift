@@ -67,7 +67,7 @@ public struct TerminalTabPage: View {
             .background(Color.black)
             // Not attached yet: the honest placeholder over the empty surface.
             .overlay {
-                if case .reattaching = model.connectionState {
+                if model.connectionState.keepsWarmFrame {
                     // Reattaching: a warm surface keeps its last frame live
                     // under no overlay; a cold tab shows its frame dimmed. The
                     // title pill says "Reattaching…" after 400 ms (SPEC P5).
@@ -108,8 +108,7 @@ public struct TerminalTabCard: View {
     let insets: EdgeInsets
 
     private var isReattaching: Bool {
-        if case .reattaching = model.connectionState { return true }
-        return false
+        model.connectionState.keepsWarmFrame
     }
 
     public init(model: TerminalModel, insets: EdgeInsets) {

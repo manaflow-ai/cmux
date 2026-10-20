@@ -41,6 +41,14 @@ public struct ReattachDebounce<Instant: InstantProtocol>: Sendable where Instant
 @Observable
 public final class ReattachIndicator<C: Clock> where C.Duration == Duration {
     public private(set) var isShown = false
+    /// The Mac is offline: the pill says so at once, with no reattach debounce
+    /// (termfix-r13 D4: "Reattaching…" stayed for 20 minutes).
+    public private(set) var isOffline = false
+
+    public func update(offline: Bool) {
+        if isOffline != offline { isOffline = offline }
+        if offline { update(reattaching: false) }
+    }
     @ObservationIgnored private var debounce: ReattachDebounce<C.Instant>
     @ObservationIgnored private let clock: C
     @ObservationIgnored private var pending: Task<Void, Never>?

@@ -45,8 +45,16 @@ public final class DaemonTerminalSession: TerminalSession {
     private var client: DaemonClient?
     /// The input-lane channel for `send`, once open.
     private var inputClient: DaemonClient?
-    /// Keystrokes not yet sent; sent as one `send` while none is out.
-    private var input: [Data] = []
+    /// Keystrokes not yet sent, with when they were typed; sent as one
+    /// `send` while none is out. Keys older than `inputHoldLimit` when the
+    /// terminal can take them are dropped, never sent late (termfix-r13 D5:
+    /// a command typed during an outage ran 15.4 minutes later).
+    private var input: [(bytes: Data, at: TimeInterval)] = []
+    /// How long typed keys may wait for the terminal (a blip) before they
+    /// are dropped and the screen is told (seconds).
+    public static let inputHoldLimit: TimeInterval = 2
+    /// The clock the hold is measured on (tests inject one).
+    var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     private var inputDraining = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     /// Decodes lines given to `handle(_:)` (the attach stream has its own, off the main actor).
@@ -76,10 +84,27 @@ public final class DaemonTerminalSession: TerminalSession {
     public var macName: String?
 
     /// `connecting` until the first attach, `reattaching` after a dropped
-    /// link, `attached` while the screen mirrors the Mac's terminal.
+    /// link, `offline` while the Mac is gone (`setMacOffline`), `attached`
+    /// while the screen mirrors the Mac's terminal.
     public var connectionState: TerminalConnectionState {
         if attached { return .attached }
+        if macOffline { return .offline(mac: macName) }
         return everAttached ? .reattaching(mac: macName) : .connecting(mac: macName)
+    }
+
+    /// The coordinator's word on the Mac (`LinkMachine.Phase.showsTerminalsOffline`).
+    private var macOffline = false
+
+    /// The Mac is offline or out of reach (true), or back (false). A
+    /// detached session then says so instead of "Reattaching…" forever
+    /// (termfix-r13 D4, T-LIFE-13); an attached one is unaffected.
+    public func setMacOffline(_ offline: Bool) {
+        guard offline != macOffline else { return }
+        let before = connectionState
+        macOffline = offline
+        let after = connectionState
+        if after != before, handler != nil, !ended { handler?(.connection(after)) }
+        if offline { expireInput() }
     }
 
     /// `open` returns a client on a fresh `daemon` channel to the Mac;
@@ -114,8 +139,29 @@ public final class DaemonTerminalSession: TerminalSession {
 
     public func send(_ bytes: Data) {
         guard !bytes.isEmpty else { return }
-        input.append(bytes)
-        drainInput()
+        input.append((bytes, now()))
+        if attached {
+            drainInput()
+        } else {
+            // Dropped once they are too old to send, not at the reattach:
+            // the screen says so while the person still remembers typing.
+            let limit = Self.inputHoldLimit
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(limit))
+                self?.expireInput()
+            }
+        }
+    }
+
+    /// Drops keys older than `inputHoldLimit` and tells the screen.
+    private func expireInput() {
+        let cutoff = now() - Self.inputHoldLimit
+        let stale = input.prefix { $0.at <= cutoff }
+        guard !stale.isEmpty else { return }
+        let bytes = stale.reduce(0) { $0 + $1.bytes.count }
+        input.removeFirst(stale.count)
+        log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (the terminal was unreachable for longer than \(Self.inputHoldLimit, privacy: .public) s)")
+        handler?(.inputNotSent(bytes: bytes))
     }
 
     public func resize(columns: Int, rows: Int) {
@@ -243,10 +289,15 @@ public final class DaemonTerminalSession: TerminalSession {
             // tells the screen where the Mac's screen starts in its taller
             // mirror (TerminalRowShift).
             log.notice("surface \(self.surface, privacy: .public): mirror reset cause=\(self.everAttached ? "reattach" : "attach", privacy: .public) size=\(self.attachedWithSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public)")
-            setAlternate(false)
-            handler?(.output(Data("\u{1B}c".utf8)))
             let held = heldEvents ?? []
             heldEvents = nil
+            // The screen goes straight to the replay's own alternate screen
+            // state (like a `resized` reset). Set to the primary screen first,
+            // a reattach to a TUI left TUI mode and came back: the page showed
+            // the empty primary screen with nothing held over it (termfix-r13
+            // D2, `top`: blank for ~170 ms, then half drawn).
+            setAlternate(Self.finalAlternate(held))
+            handler?(.output(Data("\u{1B}c".utf8)))
             for event in held { apply(event) }
             attachRetries = 0
             attached = true
@@ -433,11 +484,15 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     /// Sends queued keystrokes as one `send`, one request at a time, on the
-    /// input lane when open, else on the attach channel.
+    /// input lane when open, else on the attach channel. Keys that waited
+    /// longer than `inputHoldLimit` are dropped first.
     private func drainInput() {
-        guard attached, !inputDraining, !input.isEmpty, let target = inputClient ?? client else { return }
+        guard attached, !inputDraining else { return }
+        expireInput()
+        guard !input.isEmpty, let target = inputClient ?? client else { return }
         inputDraining = true
-        let batch = input.reduce(into: Data()) { $0.append($1) }
+        let typedAt = input[0].at
+        let batch = input.reduce(into: Data()) { $0.append($1.bytes) }
         input.removeAll()
         let surface = surface
         Task { [weak self] in
@@ -470,7 +525,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 // Keep the keystrokes: retry on the attach channel when the
                 // lane failed, or after the reattach when the link dropped.
                 lastError = LinkController.reason(error)
-                input.insert(batch, at: 0)
+                input.insert((batch, typedAt), at: 0)
                 if inputClient === target {
                     dropInputLane()
                 } else if self.client === target {
@@ -515,6 +570,15 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// Events that arrived before the Mac confirmed the attach (nil: none held).
     private var heldEvents: [DaemonTerminalInbound]?
+    /// The alternate screen state a replay ends in: its last switch, else
+    /// the primary screen (a replay on the primary screen has no switch).
+    static func finalAlternate(_ events: [DaemonTerminalInbound]) -> Bool {
+        for event in events.reversed() {
+            if case .alternateScreen(let on) = event { return on }
+        }
+        return false
+    }
+
     /// Failed reattach attempts since the last good attach.
     private var attachRetries = 0
     /// Delays before retrying a failed reattach (seconds); then the error shows.
