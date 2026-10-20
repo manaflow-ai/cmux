@@ -29,7 +29,7 @@ final class FilesPaneService: InternalPageProvider {
     private let icons = FileIconProvider()
     /// Favorites and Locations, shared by every Files tab (the composition root picks `.standard`).
     private let sidebar = SidebarModel(home: FileManager.default.homeDirectoryForCurrentUser, defaults: .standard)
-    private var volumeWatch: Task<Void, Never>?
+    private var volumeWatch: [Task<Void, Never>] = []
     private var titleWatch: [String: Task<Void, Never>] = [:]
     /// The folder the next new tab opens on (``open(folder:focus:)``); home when nil.
     private var pendingFolder: URL?
@@ -37,15 +37,10 @@ final class FilesPaneService: InternalPageProvider {
     init(services: AppServices) {
         self.services = services
         let sidebar = self.sidebar
-        volumeWatch = Task {
-            let center = NSWorkspace.shared.notificationCenter
-            await withTaskGroup(of: Void.self) { group in
-                for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
-                             NSWorkspace.didRenameVolumeNotification] {
-                    group.addTask { @MainActor in
-                        for await _ in center.notifications(named: name) { sidebar.refreshLocations() }
-                    }
-                }
+        volumeWatch = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
+                       NSWorkspace.didRenameVolumeNotification].map { name in
+            Task { @MainActor in
+                for await _ in NSWorkspace.shared.notificationCenter.notifications(named: name) { sidebar.refreshLocations() }
             }
         }
     }

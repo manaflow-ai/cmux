@@ -224,8 +224,8 @@ noisy upper bounds), with the core compiled `-O` outside the app
 | List (`DirectoryLister.listSync`) | 25-44 ms | 324-461 ms | `count items`: 353-865 ms / 816-8 019 ms |
 | Sort by name (flat key, index sort) | 2 ms | 29-32 ms | (inside its 56 s `name of every item`) |
 | Sort by date | 1 ms | 18-25 ms | |
-| Filter one keystroke (ASCII byte match) | 5 ms (before byte matcher) | 52-64 ms (before byte matcher) | |
+| Filter one keystroke (ASCII byte match, 2026-10-20, load 44-54) | 1 ms | 6-8 ms (was 52-64 ms with Foundation folding) | |
 | Scroll | NSTableView reuses cells: rows on screen only | same | |
 
 Not measured yet: first paint inside the app (needs a running build), scroll
-frame times, filter with the new byte matcher.
+frame times.
