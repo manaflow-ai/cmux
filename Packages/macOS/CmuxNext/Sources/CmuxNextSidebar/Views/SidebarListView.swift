@@ -106,6 +106,10 @@ final class SidebarListView: NSView {
     internal(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
+    /// The rect a list outside a scroll view shows (a space page, `SidebarSpacePaging`): rows are
+    /// realized for it only. Nil realizes the list's bounds, every row (space-switch-fast: a page
+    /// made every row view of its space, so a switch cost grew with the space's workspaces).
+    var pageViewport: NSRect?
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
