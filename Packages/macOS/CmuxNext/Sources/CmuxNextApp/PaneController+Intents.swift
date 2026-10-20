@@ -244,8 +244,8 @@ extension PaneController {
     /// the sidebar): a browser tab drops what does not apply to a page.
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
     /// `selectionPins`: the menu is on one of several selected tabs, its rows act on all of them, and Pin pins them (true) or unpins.
-    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil) -> NSMenu {
-        let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry, arguments: selectionPins == nil ? [:] : ActionInvocation.tabSelectionArguments)
+    static func tabMenu(_ id: String, tab: TabModel?, keepsTab: Bool, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil) -> NSMenu {
+        let menu = tabMenuEntries(id, tab: tab, keepsTab: keepsTab, registry: registry, arguments: selectionPins == nil ? [:] : ActionInvocation.tabSelectionArguments)
         // It sits in a submenu (More > New).
         func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
         if let item = all(menu).first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
@@ -255,10 +255,10 @@ extension PaneController {
         return selectionPins.map { menu.namingTabSelection(pins: $0) } ?? menu
     }
 
-    private static func tabMenuEntries(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry, arguments: [String: ActionValue]) -> NSMenu {
+    private static func tabMenuEntries(_ id: String, tab: TabModel?, keepsTab: Bool, registry: ActionRegistry, arguments: [String: ActionValue]) -> NSMenu {
         let target = ActionTargetRef(kind: .tab, id: id)
-        // Home keeps its tabs: no promote entries.
-        let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
+        // Home keeps its own tab: no promote entries (TabPromotion).
+        let kept = Set(TabPromotion.menuRemovals(keepsTab: keepsTab))
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
             // Reload and Mute are a page's rows (Chrome's Reload, Mute Site).
@@ -277,7 +277,8 @@ extension PaneController {
         switch target {
         case .tab(let id, let selection):
             select(id) // one of the selected tabs keeps the selection (TabMultiSelection)
-            return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind, sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
+            return Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
+                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
                                 registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil).themeRows(in: view.themeScope.fullStrength)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
