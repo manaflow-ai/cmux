@@ -345,6 +345,23 @@ def test_dogfood_artifacts_never_wait_for_the_side_lane() -> None:
         )
 
 
+def test_focused_dogfood_builds_the_macos_target_on_linux() -> None:
+    """Focused runs cross-compile the macOS target on a Linux runner.
+
+    The Mac leg queued 23-84 min and ran 17-20 min on 2026-10-20 and was the
+    focused run's critical path. Full runs keep the Mac build: the Linux path
+    packages neither npm nor PyPI, and cmux-tui-build-package.yml refuses
+    build_agent_plugin with it (the Linux path builds the plugin into its tree).
+    """
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    build = workflow["jobs"]["build-artifacts"]["with"]
+
+    assert build["darwin_builder"] == "${{ inputs.mode == 'full' && 'mac' || 'linux' }}"
+    assert build["build_agent_plugin"] == "${{ inputs.mode == 'full' }}"
+    assert build["package_npm"] == "${{ inputs.mode == 'full' }}"
+    assert build["package_pypi"] == "${{ inputs.mode == 'full' }}"
+
+
 def test_hosted_verification_gate_reports_every_selected_job_before_failing() -> None:
     """A red lint (often a base clippy red) must not hide whether the
     filtered Rust tests passed: the gate lists each selected job's result

@@ -1438,8 +1438,16 @@ jobs:
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
       target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
-      # Build the exact reference plugin beside the daemon artifact.
-      build_agent_plugin: true
+      # Focused runs build the macOS target on a Linux runner
+      # (scripts/ci/macos-cross.sh, the same path cmux-tui-artifacts
+      # publishes from), so they never wait in the macOS runner queue: the
+      # Mac leg queued 23-84 min and ran 17-20 min on 2026-10-20, and was the
+      # critical path. Full runs keep the Mac build, which also packages npm
+      # and PyPI. The Linux path builds the reference plugin into its own
+      # tree (cmux-tui-agent-screen-detection-<target>), so only full runs
+      # build it again as a separate artifact.
+      darwin_builder: ${{ inputs.mode == 'full' && 'mac' || 'linux' }}
+      build_agent_plugin: ${{ inputs.mode == 'full' }}
       verify_linux_arm64: ${{ inputs.mode == 'full' }}
       # The macOS builds go straight to Blacksmith macOS 15 on every attempt.
       # Never the minis' side label: there they queued behind the side lane
