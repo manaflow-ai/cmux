@@ -75,6 +75,15 @@ nonisolated enum ColumnLayoutSettingsSchema {
                 keywords: ["focus", "scroll", "wheel", "trackpad", "pane", "follows mouse", "hover", "pointer"]
             ),
             SettingDescriptor(
+                ColumnLayoutSettings.scrollAreasPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.scrollAreas", "Scroll Areas"),
+                help: SettingsText.keyed("settings.layout.scrollAreas.help",
+                                        "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."),
+                summary: SettingsText.keyed("settings.layout.scrollAreas.summary", "Splits scroll instead of squashing"),
+                kind: .toggle, default: .bool(ColumnLayoutSettings.scrollAreasFallback),
+                keywords: ["scroll", "area", "split", "squash", "dock", "horizontal", "overflow"]
+            ),
+            SettingDescriptor(
                 ColumnLayoutSettings.minimumPaneWidthPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.minimumPaneWidth", "Minimum Pane Width"),
                 kind: .number(SettingNumber(ColumnLayoutSettings.minimumPaneWidthRange, step: 10, unit: .points)),

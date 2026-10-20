@@ -41,6 +41,11 @@ fn hub() -> Arc<Hub> {
                 "env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/router"}},
             "fakecodex-router": {"argv": ["python3", FAKE], "family": "codex",
                 "env": {"OPENAI_BASE_URL": "http://127.0.0.1:9/v1"}},
+            // A profile that opts in to cmux's code mode (two tools, docs on demand).
+            "fakecodex-codemode": {"argv": ["python3", FAKE], "family": "codex",
+                "env": {"CMUX_MCP_CODE_MODE": "1"}},
+            "fakeclaude-codemode": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                "env": {"CMUX_MCP_CODE_MODE": "1"}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -185,6 +190,21 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     let codex = local.new_session("fakecodex").await;
     let listed: Value = serde_json::from_str(&local.ask(&codex, "mcp").await).unwrap();
     assert_eq!(cmux_args(&listed), json!(["mcp", "serve", "--all-tools"]), "{listed}");
+    // CMUX_MCP_CODE_MODE=1 opts a profile in to code mode (tests/agent-evals RESULTS: every
+    // tool passed more Claude tasks for less, so it stays the default).
+    let coded = local.new_session("fakecodex-codemode").await;
+    let listed: Value = serde_json::from_str(&local.ask(&coded, "mcp").await).unwrap();
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
+    let coded = local.new_session("fakeclaude-codemode").await;
+    let coded_argv: Vec<String> = serde_json::from_str(&local.ask(&coded, "hi").await).unwrap();
+    let at = coded_argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
+    let coded_config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&coded_argv[at + 1]).unwrap()).unwrap();
+    assert_eq!(
+        coded_config["mcpServers"]["cmux"]["args"],
+        json!(["mcp", "serve"]),
+        "{coded_config}"
+    );
 
     // Claude Code: the same servers in --mcp-config, the skills as a plugin,
     // every cmux tool, and its tool search on (it turns it off behind a

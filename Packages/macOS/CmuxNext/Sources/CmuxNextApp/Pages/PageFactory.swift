@@ -121,7 +121,13 @@ struct PageFactory {
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-            openTerminal: { [weak services] line in _ = services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } }
+            openTerminal: { [weak services] line in _ = services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } },
+            runUpdate: { [weak services] params, context in
+                guard let services, let updates = services.agentHarnesses.updates else { throw PageError.closed }
+                return try await updates.runPage(params, context: context, registry: services.registry)
+            },
+            updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
+            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() }
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
