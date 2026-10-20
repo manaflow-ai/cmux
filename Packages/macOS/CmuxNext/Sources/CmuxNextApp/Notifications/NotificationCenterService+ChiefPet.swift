@@ -58,9 +58,7 @@ extension NotificationCenterService {
     /// The pet's typed reply to `notice`, only while it is still its tab's unread notification, as a
     /// `notify --reply` banner's is (a notice read meanwhile must not type into whatever runs there
     /// now), and only while a program still runs in the foreground there: with the agent gone and its
-    /// shell back, the text and Return would run as a command. The check and the paste go over one
-    /// connection, back to back, and each write names the program it saw, so a daemon with
-    /// `send-expect-foreground-v1` refuses it when that program exited in between.
+    /// shell back, the text and Return would run as a command (``DaemonConnection/typeToForegroundProgram(_:text:)``).
     func typeChiefPetReply(_ text: String, to notice: ChiefPetNotice) async -> Bool {
         guard let services, !text.isEmpty, notice.reply == .type, let surface = notice.surface,
               let located = locate(surface: SurfaceID(rawValue: surface), in: services.daemon.store), located.tab.kind == .pty,
@@ -72,14 +70,7 @@ extension NotificationCenterService {
         let daemon = services.daemon(for: located.pane)
         // An older daemon ignores `expect_foreground`: the reply still goes, checked one round trip early.
         let guarded = daemon.supports(DaemonCapabilities.shared.sendExpectForeground)
-        let failed = await daemon.failure("chief-pet-reply") { connection in
-            let process = try await connection.request(TerminalProcessInfoRequest(surface: target), timeout: .seconds(1))
-            guard process.runningProgram != nil, let program = process.foregroundExecutable else {
-                throw ChiefPetReplyRefusal()
-            }
-            try await connection.send(target, text: text, paste: true, expectForeground: program)
-            try await connection.send(target, text: "\r", expectForeground: program)
-        }
+        let failed = await daemon.failure("chief-pet-reply") { try await $0.typeToForegroundProgram(target, text: text) }
         guard failed == nil else {
             note("pet reply refused: only a shell runs in \(located.tab.id), or the daemon refused")
             return false
@@ -104,6 +95,3 @@ extension NotificationCenterService {
         return true
     }
 }
-
-/// The pet's reply found only the terminal's shell in the foreground: the agent that asked is gone.
-private struct ChiefPetReplyRefusal: Error {}
