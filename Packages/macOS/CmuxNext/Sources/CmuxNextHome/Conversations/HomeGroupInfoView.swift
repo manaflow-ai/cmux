@@ -67,25 +67,33 @@ struct HomeGroupInfoView: View {
     }
 
     private var members: some View {
-        let info = model.info
-        let busy = model.isRunning
-        let current = model
+        let members: [HomeGroupMember] = model.info.members
+        let fits: Bool = members.count <= 6
         return VStack(alignment: .leading, spacing: Metrics.space1) {
             Text(HomeConversationStrings.infoMembers)
                 .font(Font(Typography.caption))
                 .foregroundStyle(colors.secondary)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(info.members) { member in
-                        let id = member.id
-                        let remove: (@MainActor () -> Void)? = info.isGroup && !member.isMe && !busy ? { current.remove(id) } : nil
-                        HomeGroupMemberRow(member: member, colors: colors, onRemove: remove)
+                    ForEach(members) { member in
+                        memberRow(member)
                     }
                 }
             }
             .frame(maxHeight: 200)
-            .fixedSize(horizontal: false, vertical: info.members.count <= 6)
+            .fixedSize(horizontal: false, vertical: fits)
         }
+    }
+
+    /// One member row; Remove only for another member of a group while no action runs.
+    private func memberRow(_ member: HomeGroupMember) -> HomeGroupMemberRow {
+        guard model.info.isGroup, !member.isMe, !model.isRunning else {
+            return HomeGroupMemberRow(member: member, colors: colors, onRemove: nil)
+        }
+        let current: HomeGroupInfoModel = model
+        let id: ParticipantID = member.id
+        let remove: @MainActor () -> Void = { current.remove(id) }
+        return HomeGroupMemberRow(member: member, colors: colors, onRemove: remove)
     }
 
     @ViewBuilder
@@ -103,9 +111,7 @@ struct HomeGroupInfoView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(model.shownAddable) { contact in
-                                let id = contact.id
-                                HomeGroupContactRow(contact: contact, isChosen: chosen.contains(id), colors: colors,
-                                                    onToggle: { model.toggle(id) })
+                                contactRow(contact, isChosen: chosen.contains(contact.id))
                             }
                         }
                     }
@@ -127,6 +133,14 @@ struct HomeGroupInfoView: View {
                 .disabled(model.isRunning)
                 .accessibilityIdentifier("cmux.home.groupInfo.addPeople")
         }
+    }
+
+    /// One contact row of Add People; its toggle chooses or unchooses the contact.
+    private func contactRow(_ contact: HomeContact, isChosen: Bool) -> HomeGroupContactRow {
+        let current: HomeGroupInfoModel = model
+        let id: ParticipantID = contact.id
+        let toggle: @MainActor () -> Void = { current.toggle(id) }
+        return HomeGroupContactRow(contact: contact, isChosen: isChosen, colors: colors, onToggle: toggle)
     }
 
     private var buttons: some View {
