@@ -2600,7 +2600,7 @@
   },
   "notifications.attention.*": {
    "value": {
-    "style": "none|steady|pulse|blink (blink)",
+    "style": "none|steady|pulse|blink (none)",
     "width": 2,
     "blinkCount": 2,
     "duration": 3,
@@ -2609,7 +2609,7 @@
     "showOnSidebar": true
    },
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AttentionSettings.swift:17-35 (AttentionSettings); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+Attention.swift:14-50 (Motion.attentionAnimation)",
-   "timing": "blink: blinkCount blinks over flash/2 x blinkCount (1.0 s for 2 at speed fast), then rests at 1 when persist. pulse: opacity 1 -> 0.3 (easeInEaseOut, period loop.pulse 1.8 s) for duration (3 s). steady: fadeIn. Reduce Motion: one fadeIn."
+   "timing": "blink: blinkCount blinks over flash/2 x blinkCount (1.0 s for 2 at speed fast), then rests at 1 when persist. pulse: opacity 1 -> 0.3 (easeInEaseOut, period loop.pulse 1.8 s) for duration (3 s). steady: one swell over 0.3 s, then rests at the steady opacity (0.75 subtle). Reduce Motion: one fadeIn."
   },
   "layout.paneBorder/paneBorderColor/paneBorderWidth/paneCornerRadius/panePadding": {
    "value": "pane chrome overrides",
