@@ -67,6 +67,7 @@ impl Daemon {
             .arg(&session)
             .arg("--state")
             .arg(home.path().join("state.json"))
+            .current_dir(home.path())
             .env_clear()
             .env("HOME", home.path())
             .env("CMUX_TUI_CONFIG", home.path().join("config.json"))
@@ -121,11 +122,7 @@ impl Drop for Agent {
     }
 }
 
-/// Synthetic test WG material and the public contract-vector signing key only.
-/// Decode exercises the same strict private frame as production; no secret
-/// factory or private-key export is added to the agent API for this fixture.
-fn frame() -> Zeroizing<Vec<u8>> {
-    let (private, public) = cmux_wg::testing::random_keypair();
+fn install_public_key() -> String {
     let install = cmux_server_core::install_key::InstallKey::generate(
         &cmux_server_core::install_key::SystemRandom::new(),
     )
@@ -135,6 +132,14 @@ fn frame() -> Zeroizing<Vec<u8>> {
     for name in ["x", "y"] {
         point.extend_from_slice(&URL_SAFE_NO_PAD.decode(install[name].as_str().unwrap()).unwrap());
     }
+    STANDARD.encode(point)
+}
+
+/// Synthetic test WG material and the public contract-vector signing key only.
+/// Decode exercises the same strict private frame as production; no secret
+/// factory or private-key export is added to the agent API for this fixture.
+fn frame() -> Zeroizing<Vec<u8>> {
+    let (private, public) = cmux_wg::testing::random_keypair();
     let vector: serde_json::Value =
         serde_json::from_str(include_str!("../../../../schemas/link-token/native.json")).unwrap();
     let header = serde_json::to_vec(&json!({
@@ -143,7 +148,7 @@ fn frame() -> Zeroizing<Vec<u8>> {
             "machine":"vm_00000000000000000004", "host":"host_00000000000000000002",
             "epoch":4, "user":"user_00000000000000000004", "install":"inst_00000000000000000004",
             "team":"team_00000000000000000001", "env":"dev", "wg_public_key":STANDARD.encode(public),
-            "install_public_key":STANDARD.encode(point)
+            "install_public_key":install_public_key()
         },
         "keyset":{"version":"0123456789abcdef","keys":{"test-k1":{"kty":"OKP","crv":"Ed25519","alg":"EdDSA","kid":"test-k1","x":vector["public_key"]}}}
     })).unwrap();
@@ -154,12 +159,59 @@ fn frame() -> Zeroizing<Vec<u8>> {
     bytes
 }
 
-#[test]
-#[ignore = "requires hosted Linux root; scripts/ci/verify-link-root-boundary.py"]
-fn receiver_root_privileged_native_chain_cancels_a_pending_original_policy_read() {
+fn hosted_root() {
     assert_eq!(std::env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
     // SAFETY: geteuid has no preconditions.
     assert_eq!(unsafe { libc::geteuid() }, 0);
+}
+
+fn policy_reader(
+    listener: &UnixListener,
+    daemon: &RootOwnedDaemon,
+) -> (std::io::BufReader<std::os::unix::net::UnixStream>, i32) {
+    ready(listener.as_raw_fd(), Duration::from_secs(15));
+    let (stream, _) = listener.accept().unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    // SAFETY: ucred is plain output data with its exact initialized length.
+    let mut peer: libc::ucred = unsafe { std::mem::zeroed() };
+    let mut length = size_of_val(&peer) as libc::socklen_t;
+    // SAFETY: the socket and correctly sized output pointers are live.
+    assert_eq!(
+        unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                (&raw mut peer).cast(),
+                &raw mut length,
+            )
+        },
+        0
+    );
+    assert_eq!(peer.uid, WORK_UID);
+    assert_ne!(
+        peer.pid as u32,
+        daemon.id(),
+        "the daemon fetched in place of its owned receiving child"
+    );
+    let stat = std::fs::read_to_string(format!("/proc/{}/stat", peer.pid)).unwrap();
+    let fields = stat.rsplit_once(')').unwrap().1.split_whitespace().collect::<Vec<_>>();
+    assert_eq!(
+        fields[1].parse::<u32>().unwrap(),
+        daemon.id(),
+        "the source reader is not the actual daemon's child"
+    );
+    let mut reader = std::io::BufReader::new(stream);
+    let mut request = String::new();
+    reader.read_line(&mut request).unwrap();
+    assert_eq!(request, "{\"op\":\"cloud.vm.network_policy\"}\n");
+    (reader, peer.pid)
+}
+
+#[test]
+#[ignore = "requires hosted Linux root; scripts/ci/verify-link-root-boundary.py"]
+fn receiver_root_privileged_native_chain_cancels_a_pending_original_policy_read() {
+    hosted_root();
     let host = Host::new_native().unwrap();
     let agent = Agent::start();
     let daemon = Daemon::start(&host);
@@ -169,42 +221,7 @@ fn receiver_root_privileged_native_chain_cancels_a_pending_original_policy_read(
         let request = host.prepare_native(&ticket).expect("current actual Native daemon");
         assert!(host.publish_native(request, frame()));
         drive_until(&host, |sent| sent);
-        ready(agent.listener.as_raw_fd(), Duration::from_secs(15));
-        let (stream, _) = agent.listener.accept().unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-        // SAFETY: ucred is plain output data with its exact initialized length.
-        let mut peer: libc::ucred = unsafe { std::mem::zeroed() };
-        let mut length = size_of_val(&peer) as libc::socklen_t;
-        // SAFETY: the socket and correctly sized output pointers are live.
-        assert_eq!(
-            unsafe {
-                libc::getsockopt(
-                    stream.as_raw_fd(),
-                    libc::SOL_SOCKET,
-                    libc::SO_PEERCRED,
-                    (&raw mut peer).cast(),
-                    &raw mut length,
-                )
-            },
-            0
-        );
-        assert_eq!(peer.uid, WORK_UID);
-        assert_ne!(
-            peer.pid as u32,
-            daemon.child.id(),
-            "the daemon fetched in place of its owned receiving child"
-        );
-        let stat = std::fs::read_to_string(format!("/proc/{}/stat", peer.pid)).unwrap();
-        let fields = stat.rsplit_once(')').unwrap().1.split_whitespace().collect::<Vec<_>>();
-        assert_eq!(
-            fields[1].parse::<u32>().unwrap(),
-            daemon.child.id(),
-            "the source reader is not the actual daemon's child"
-        );
-        let mut reader = std::io::BufReader::new(stream);
-        let mut request = String::new();
-        reader.read_line(&mut request).unwrap();
-        assert_eq!(request, "{\"op\":\"cloud.vm.network_policy\"}\n");
+        let (mut reader, pid) = policy_reader(&agent.listener, &daemon.child);
         let entry = cmux_link::entry_path::remote_entry_socket_path(&daemon.session);
         assert!(entry.exists(), "entry was not installed before private child startup");
         // Leave the original-root source read pending. Stop must cancel startup,
@@ -214,7 +231,7 @@ fn receiver_root_privileged_native_chain_cancels_a_pending_original_policy_read(
             StopReceipt::Acknowledged
         );
         assert!(
-            !Path::new(&format!("/proc/{}/stat", peer.pid)).exists(),
+            !Path::new(&format!("/proc/{pid}/stat")).exists(),
             "root acknowledged an unreaped receiving child"
         );
         assert!(!entry.exists());
@@ -229,3 +246,6 @@ fn receiver_root_privileged_native_chain_cancels_a_pending_original_policy_read(
     assert!(log.contains("token verifier mode control_plane: authenticated root startup"));
     println!("ROOT_BOUNDARY_EXECUTED native_pending_policy_chain");
 }
+
+#[path = "receiver_native_root/encrypted.rs"]
+mod encrypted;

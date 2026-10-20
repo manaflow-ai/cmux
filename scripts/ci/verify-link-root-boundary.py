@@ -47,7 +47,7 @@ def main() -> int:
     link = build_artifacts(workspace, "cmux-link", "receiver_root")
     native = build_artifacts(workspace, "cmux-tui", "receiver_native_root")
     # A dropped uid must be able to exec the fixture without opening the source
-    # checkout or cargo cache. Only this copied test artifact is made traversable.
+    # checkout or cargo cache. Only copied current-source artifacts are exposed.
     with tempfile.TemporaryDirectory(prefix="cmux-root-boundary-", dir="/tmp") as directory:
         target = Path(directory) / "receiver-root-tests"
         shutil.copy2(executable(link, "receiver_root", "test"), target)
@@ -72,6 +72,8 @@ def main() -> int:
                            "--test-threads=1", "--nocapture"])
         if "ROOT_BOUNDARY_EXECUTED native_pending_policy_chain" not in output:
             raise SystemExit("Native pending-policy process chain did not execute")
+        if "ROOT_BOUNDARY_EXECUTED native_encrypted_daemon_chain" not in output:
+            raise SystemExit("Native encrypted daemon process chain did not execute")
     return 0
 
 
