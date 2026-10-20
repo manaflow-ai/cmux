@@ -5,7 +5,7 @@ import CmuxNextControl
 /// whether a browser tab is in front of the person, revealing it after their
 /// banner click, and the banner itself.
 @MainActor
-final class AppBrowserPasskeyHost: BrowserPasskeyHost {
+final class AppBrowserPasskeyHost: BrowserPasskeyHost, Sendable {
     /// Banner ids of passkey requests carry this prefix; the banner click routes them here.
     nonisolated static let bannerPrefix = "cmux-passkey-"
 

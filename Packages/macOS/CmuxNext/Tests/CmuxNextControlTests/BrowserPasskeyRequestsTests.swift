@@ -14,15 +14,15 @@ import Testing
         let events = Mutex<[String]>([])
         let front = Mutex<Set<String>>([])
 
-        func isInFront(tabID: String) async -> Bool { front.withLock { $0.contains(tabID) } }
-        func reveal(tabID: String) async throws {
+        @MainActor func isInFront(tabID: String) async -> Bool { front.withLock { $0.contains(tabID) } }
+        @MainActor func reveal(tabID: String) async throws {
             events.withLock { $0.append("reveal \(tabID)") }
             front.withLock { _ = $0.insert(tabID) }
         }
-        func post(_ request: BrowserPasskeyRequest) async {
+        @MainActor func post(_ request: BrowserPasskeyRequest) async {
             events.withLock { $0.append("post \(request.tabID) \(request.agent) \(request.site)") }
         }
-        func withdraw(_ id: String) async { events.withLock { $0.append("withdraw \(id)") } }
+        @MainActor func withdraw(_ id: String) async { events.withLock { $0.append("withdraw \(id)") } }
 
         var log: [String] { events.withLock { $0 } }
     }
