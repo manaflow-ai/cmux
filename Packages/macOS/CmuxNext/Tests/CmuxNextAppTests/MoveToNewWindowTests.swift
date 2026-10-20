@@ -36,9 +36,10 @@ struct MoveToNewWindowTests {
             let terminal = try #require(pane.tabs.first)
             let browser = try await Self.browserTab(in: pane, services, connection)
             let source = try Self.window(ofTab: browser.id, services)
+            let frame = services.windows.controller(for: source)?.window?.frame
             let live = Live(browser, services)
             #expect(services.registry.perform("tab.moveToNewWindow", invocation: Self.on(.tab, browser.id)))
-            try await Self.expectMoved([live], from: source, services)
+            try await Self.expectMoved([live], from: source, frame: frame, services)
             // The terminal tab stayed in the source window, which stays open.
             #expect(try Self.window(ofTab: terminal.id, services) == source)
         }
@@ -52,9 +53,10 @@ struct MoveToNewWindowTests {
             try await PinnedPageTests.until({ services.daemon.store.tab(surface: browser.surface)?.tabGroup != nil })
             let group = try #require(browser.tabGroup)
             let source = try Self.window(ofTab: browser.id, services)
+            let frame = services.windows.controller(for: source)?.window?.frame
             let live = Live(browser, services)
             #expect(services.registry.perform("tabGroup.moveToNewWindow", invocation: Self.on(.tabGroup, group.rawValue)))
-            try await Self.expectMoved([live], from: source, services)
+            try await Self.expectMoved([live], from: source, frame: frame, services)
         }
     }
 
@@ -70,8 +72,9 @@ struct MoveToNewWindowTests {
             let moving = first.tabs.map { Live($0, services) }
             #expect(moving.count == 2)
             let source = try Self.window(ofTab: moving[0].tab, services)
+            let frame = services.windows.controller(for: source)?.window?.frame
             #expect(services.registry.perform("pane.moveToNewWindow", invocation: Self.on(.pane, first.id)))
-            try await Self.expectMoved(moving, from: source, services)
+            try await Self.expectMoved(moving, from: source, frame: frame, services)
             #expect(workspace.screens.flatMap(\.panes).count == 1, "the split stays behind")
         }
     }
@@ -86,9 +89,10 @@ struct MoveToNewWindowTests {
             let pane = try #require(workspace.screens.first?.panes.first)
             let moving = pane.tabs.map { Live($0, services) }
             let source = try Self.window(ofTab: moving[0].tab, services)
+            let frame = services.windows.controller(for: source)?.window?.frame
             let windows = services.windows.controllers.count
             #expect(services.registry.perform("pane.moveToNewWindow", invocation: Self.on(.pane, pane.id)))
-            try await Self.expectMoved(moving, from: source, services, sourceEmptied: true)
+            try await Self.expectMoved(moving, from: source, frame: frame, services, sourceEmptied: true)
             #expect(services.windows.controllers.count == windows, "a window was left empty, or a second opened")
         }
     }
@@ -98,21 +102,28 @@ struct MoveToNewWindowTests {
             let workspace = try await Self.newWorkspace(services)
             let moving = workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { Live($0, services) }
             let source = try Self.window(ofTab: moving[0].tab, services)
+            let frame = services.windows.controller(for: source)?.window?.frame
             #expect(services.registry.perform("moveWorkspaceToNewWindow", invocation: Self.on(.workspace, workspace.id)))
-            try await Self.expectMoved(moving, from: source, services)
+            try await Self.expectMoved(moving, from: source, frame: frame, services)
         }
     }
 
     @Test func aWorkspaceGroupMovesToANewWindowAlive() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let workspace = try await Self.newWorkspace(services)
-            #expect(services.registry.perform("workspace.moveToNewGroup", invocation: Self.on(.workspace, workspace.id)))
-            try await PinnedPageTests.until({ workspace.group != nil })
+            let name = "move-me-\(UUID().uuidString.prefix(6))"
+            #expect(services.registry.perform("workspace.moveToNewGroup",
+                                              invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace.id),
+                                                                           arguments: ["name": .string(name)], origin: .user)))
+            let personal = services.daemon.store.personal
+            try await PinnedPageTests.until({ personal.groups.contains { $0.name == name } && workspace.group != nil },
+                                            report: { "groups \(personal.groups.map(\.name)), workspace group \(String(describing: workspace.group))" })
             let group = try #require(workspace.group)
             let moving = workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { Live($0, services) }
             let source = try Self.window(ofTab: moving[0].tab, services)
+            let frame = services.windows.controller(for: source)?.window?.frame
             #expect(services.registry.perform("workspaceGroup.moveToNewWindow", invocation: Self.on(.workspaceGroup, group.rawValue)))
-            try await Self.expectMoved(moving, from: source, services)
+            try await Self.expectMoved(moving, from: source, frame: frame, services)
         }
     }
 
@@ -150,8 +161,10 @@ struct MoveToNewWindowTests {
     static func browserTab(in pane: PaneModel, _ services: AppServices, _ connection: DaemonConnection) async throws -> TabModel {
         let created = try await connection.newFrontendBrowserTab(url: "about:blank", engine: .webkit, in: pane.handle, activate: true)
         try await PinnedPageTests.until({ services.daemon.store.tab(surface: created.surface) != nil })
+        try await PinnedPageTests.until({ services.daemon.store.tab(surface: created.surface)?.resourceID != nil })
         let tab = try #require(services.daemon.store.tab(surface: created.surface))
-        try await PinnedPageTests.until({ services.cache.existingBrowser(tab.id) != nil }, report: { "no page entry for \(tab.id)" })
+        // The page entry the pane shows (made on first show; no window is ordered in here).
+        _ = try #require(services.cache.browser(for: tab), "no page entry for \(tab.id)")
         return tab
     }
 
@@ -166,9 +179,8 @@ struct MoveToNewWindowTests {
     /// Every tab of `live` shows in one window other than `source` (or, when
     /// the move emptied `source`, in the window that replaced it), placed
     /// beside the old frame, with its terminal and page entry unchanged.
-    static func expectMoved(_ live: [Live], from source: String, _ services: AppServices, sourceEmptied: Bool = false,
+    static func expectMoved(_ live: [Live], from source: String, frame sourceFrame: CGRect?, _ services: AppServices, sourceEmptied: Bool = false,
                             sourceLocation: SourceLocation = #_sourceLocation) async throws {
-        let sourceFrame = services.windows.controller(for: source)?.window?.frame
         func target() -> String? {
             let owners = Set(live.compactMap { try? window(ofTab: $0.tab, services) })
             guard owners.count == 1, let owner = owners.first else { return nil }
