@@ -51,7 +51,8 @@ an installed app down. So after a pull:
   (`cmux app call updates.rollback '{}'`); a Release CLI command is a follow-up.
 - To bring every Mac forward, publish a build above the bad one. Revert the bad
   change on `feat-cmux-next` and let promotion publish it. It gets a new, higher
-  build number, so every install updates to it.
+  build number, so every install updates to it. Every real pull starts this
+  for you (see Fix-forward below).
 
 Putting the old bytes back at a higher version would mean re-signing and
 re-notarizing them, because `CFBundleVersion` is inside the signature. That
@@ -106,17 +107,55 @@ anything.
 
 ### Switches
 
+Both canaries take their mode from one resolver,
+`scripts/ci/nightly_next_canary_mode.py`, so they always agree. Each run's log
+prints the mode and why.
+
 | `NIGHTLY_NEXT_CANARY` | Effect |
 | --- | --- |
-| unset or `report` | Both canaries run. A failure is an annotation and an issue; the build publishes and stays on the feed. |
-| `enforce` | A pre-publication failure fails `verify-signed-nightly`, so `publish-nightly` publishes nothing. A post-publication failure pulls the build. |
+| `report` | Both canaries run. A failure is an annotation and an issue; the build publishes and stays on the feed. |
+| `enforce` | A pre-publication failure (two attempts) fails `verify-signed-nightly`, so `publish-nightly` publishes nothing. A post-publication failure pulls the build, which starts the fix-forward. |
 | `off` | Skips both. |
+| unset or `auto` (the default) | `report` until `NIGHTLY_NEXT_CANARY_ENFORCE_AFTER`, then `enforce`, if the report week was clean (below). |
+| anything else | Fails the run: a typo never skips or enforces silently. |
 
-Turn it on:
+The auto flip: `NIGHTLY_NEXT_CANARY_ENFORCE_AFTER` is an ISO date or time in
+UTC, or `never`. Unset, it is the script's `DEFAULT_ENFORCE_AFTER`
+(2026-10-27 16:00 UTC, one week of report mode). From that time on, auto
+enforces only when the post-publication canary failed no build in the 7 days
+before it, read from the `nightly-next canary failed` issue. A failure in
+that week keeps auto in report until someone triages it and sets
+`enforce`, or moves the date. The week is fixed, so the decision never flaps.
+If the issue can't be read, the run stays in report and says so.
 
 ```bash
-gh variable set NIGHTLY_NEXT_CANARY -R manaflow-ai/cmux --body enforce
+gh variable set NIGHTLY_NEXT_CANARY -R manaflow-ai/cmux --body enforce   # enforce now
+gh variable set NIGHTLY_NEXT_CANARY -R manaflow-ai/cmux --body report    # never flip
+gh variable set NIGHTLY_NEXT_CANARY_ENFORCE_AFTER -R manaflow-ai/cmux --body 2026-11-03   # move the flip
+gh variable delete NIGHTLY_NEXT_CANARY -R manaflow-ai/cmux               # back to auto
 ```
+
+### Fix-forward
+
+A pull stops a bad build spreading but can't move a Mac that already has it.
+So every real pull (not a dry run), from the canary or by hand, runs
+`nightly-next-rollback.yml`'s `fix-forward` job
+(`scripts/ci/nightly_next_fix_forward.py`). It:
+
+1. maps the first pulled build and the build the feed now serves to their
+   commits (a build number is `<run id><attempt>`; that run's head);
+2. names the suspect: the newest change in the first pulled build (its pull
+   request, or its direct push), with its owner;
+3. dispatches `nightly-next-train.yml` on `NIGHTLY_NEXT_TRAIN_REF` (default
+   `feat-cmux-next`) with that change quarantined, when the train workflow is
+   there and declares a `pulled_build` input. It passes only the inputs the
+   train declares: `pulled_build`, `good_build`, `quarantine` (the suspect's
+   commit) and `reason`;
+4. otherwise opens or comments on one `nightly-next fix-forward needed` issue
+   with the range, the suspect and its owner, and how to fix forward by hand.
+
+The train (train design, PRs 1 and 2) builds the tip without the suspect;
+the higher build it publishes is what moves every Mac forward.
 
 Before publication, a recovered build (one whose notarization finished in a
 later run) gets only `verify-recovered-nightly-next`'s DMG launch smoke. The

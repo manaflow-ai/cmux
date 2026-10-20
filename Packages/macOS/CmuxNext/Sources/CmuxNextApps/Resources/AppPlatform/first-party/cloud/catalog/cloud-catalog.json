@@ -1435,6 +1435,7 @@
           "machine",
           "proxy",
           "url",
+          "incarnation",
           "generation"
         ],
         "properties": {
@@ -1447,7 +1448,9 @@
             "required": [
               "kind",
               "host",
-              "port"
+              "port",
+              "username",
+              "password"
             ],
             "properties": {
               "kind": {
@@ -1461,11 +1464,26 @@
               },
               "port": {
                 "type": "integer"
+              },
+              "username": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "password": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 256
               }
             }
           },
           "url": {
             "type": "string"
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           },
           "generation": {
             "type": "integer",
