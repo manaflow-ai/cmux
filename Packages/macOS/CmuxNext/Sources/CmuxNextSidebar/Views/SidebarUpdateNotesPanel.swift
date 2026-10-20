@@ -103,6 +103,8 @@ final class SidebarUpdateNotesPanel: NSPanel {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
+        // The density setting may have changed the floating panels' radius since the last show.
+        (contentView as? PopupHostView)?.cornerRadius = Metrics.panelCornerRadius
         place()
         // Already showing or fading in: it stays as it is (a second hover never restarts the fade).
         guard !wasVisible || reopening else { return }
