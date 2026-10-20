@@ -39,7 +39,7 @@ final class FilePageService: InternalPageProvider {
 
     let kind: FilePageKind
     // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
-    private unowned let services: AppServices
+    unowned let services: AppServices
     private let clock: any Clock<Duration>
     private let images: any RemoteImageFetching
     private var tabs: [String: Tab] = [:]
@@ -320,18 +320,11 @@ final class FilePageService: InternalPageProvider {
             return NSView()
         }
         native.anchor = { [weak page] in page }
-        if kind == .markdown { page.contextMenuEditor = Self.tableMenu(provider: provider, page: page) }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
-        // Selected text: Copy, then Send to Chief and Send to… (the terminal's and pages' rows).
-        let registry = services.registry
-        PageSelectionRows(rows: (["home.sendSelectionToChief", "home.sendSelectionTo"] as [ActionID]).compactMap { id in
-            registry.title(for: id).map { title in
-                (title: title, run: { text in
-                    _ = registry.perform(id, invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
-                })
-            }
-        }).install(on: page)
+        // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send to… on a selection; Reset
+        // Column Widths on a table (viewer-comments-DESIGN.md).
+        installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)
         tab.page = page
         tab.provider = provider
         tab.host = host
