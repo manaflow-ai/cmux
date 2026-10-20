@@ -196,6 +196,32 @@ test("a long chat draws each update as a fresh layout would: streaming, redraws,
   }
 });
 
+test("a virtualized final turn regains its last-turn marker after remounting", async () => {
+  const rows = turnView(Array.from({ length: 80 }, (_, index) => finishedTurn(index)).flat(), new Set());
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const finalId = "t79-end";
+  const finalSummary = () => dom.window.document.querySelector<HTMLElement>(`[data-row-id="${finalId}"]`);
+  try {
+    await act(async () =>
+      root.render(<VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />),
+    );
+    const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    scroller.scrollTop = 1e9;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    expect(finalSummary()?.hasAttribute("data-last-turn")).toBe(true);
+
+    scroller.scrollTop = 0;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    expect(finalSummary()).toBeNull();
+
+    scroller.scrollTop = 1e9;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    expect(finalSummary()?.hasAttribute("data-last-turn")).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("a new row registry places the whole chat again: rows not drawn yet take its estimate", async () => {
   const rows = turnView(Array.from({ length: 300 }, (_, index) => finishedTurn(index)).flat(), new Set());
   // A customization replaces the registry; its rows estimate taller before they are drawn.

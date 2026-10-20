@@ -213,7 +213,10 @@ const entry = componentEntry<Props>({
         "Search, rail and context-menu actions are direct local interactions with a quarter-second response budget.",
     },
   },
-  covers: ["agent-session/acpmux/SessionSidebar.tsx#SessionSidebar"],
+  covers: [
+    "agent-session/acpmux/SessionSidebar.tsx#SessionSidebar",
+    "agent-session/acpmux/SessionSidebar.tsx#SessionPreviewCard",
+  ],
   styles: () => import("./styles.css"),
   load: () => import("./SessionSidebar").then((module) => module.SessionSidebar),
   variants: {

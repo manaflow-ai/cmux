@@ -216,8 +216,9 @@
 .acpmux-newtab-actions{align-self:flex-end;margin-top:10px;margin-inline-end:-8px}
 .acpmux-newtab-actions .acpmux-newtab-all{width:auto;font-size:12.5px;color:var(--acpmux-composer-dim)}
 .acpmux-newtab-failed{margin:8px 10px 0;color:var(--agent-text);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
-/* Hover, press and focus: a tonal step from the theme, on the Motion `hover` fade (0.08 s, plans/cmux-next/motion.md). The host does not pass ui.animationSpeed to the page yet, so this is the fast default. Under Reduce Motion the fills change at once. Fills only, never size, so nothing shifts. */
-.acpmux-newtab{--acpmux-motion-hover:80ms}
+/* Hover, press and focus: a tonal step from the theme, on the host's Motion `hover` fade. The
+   compatibility alias falls back to 0.08 s before the host theme arrives. Under Reduce Motion the
+   fills change at once. Fills only, never size, so nothing shifts. */
 @media (prefers-reduced-motion:no-preference){.acpmux-newtab-kind,.acpmux-newtab-all,.acpmux-omni-row,.acpmux-newtab .acpmux-send{transition:background-color var(--acpmux-motion-hover) ease-out,color var(--acpmux-motion-hover) ease-out,box-shadow var(--acpmux-motion-hover) ease-out}.acpmux-omni-action{transition:opacity var(--acpmux-motion-hover) ease-out}}
 .acpmux-newtab-kind:not(.is-selected):hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .acpmux-newtab-kind:not(.is-selected):active{background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-text)}
@@ -739,3 +740,67 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-session-preview-quiet .acpmux-session-preview-title{font-size:var(--text-control);line-height:var(--text-control--line-height);}
 .acpmux-session-preview-quiet .acpmux-session-preview-copy{max-width:30ch;}
 .ui-card.acpmux-session-preview-outline{min-width:220px;max-width:300px;padding:10px 12px;border:0.5px solid color-mix(in srgb,var(--agent-accent) 34%,transparent);background:color-mix(in srgb,var(--agent-page-bg) 92%,var(--agent-text) 8%);box-shadow:none;}
+
+/* Trust remains an explicit, reversible control. Keep the actions visible instead of reducing them
+   to an indistinct text link, and give the primary answer the same affordance weight as other
+   permission controls. */
+.acpmux-trust-ask-action[data-action="trust"] {
+  background: var(--agent-accent, var(--agent-text));
+  color: var(--agent-accent-text, var(--acpmux-base));
+}
+.acpmux-trust-ask-action[data-action="trust"]:hover {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 86%, var(--agent-text));
+}
+.acpmux-trust-ask-action[data-action="distrust"],
+.acpmux-trust-ask-action[data-action="undo"] {
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
+}
+.acpmux-trust-ask-action[data-action="distrust"]:hover,
+.acpmux-trust-ask-action[data-action="undo"]:hover {
+  background: var(--acpmux-composer-hover);
+}
+
+/* The mic is a real control, not a tiny status glyph: its active treatment stays readable in
+   both themes and leaves room for the five-bar level meter. */
+.acpmux-mic {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  transition: background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out),
+    color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out),
+    box-shadow var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-mic[data-state="listening"],
+.acpmux-mic[data-state="finalizing"] {
+  background: color-mix(in srgb, var(--agent-danger) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-danger) 68%, transparent);
+}
+.acpmux-mic-meter {
+  gap: 2px;
+  height: 20px;
+}
+.acpmux-mic-meter span {
+  width: 2px;
+  height: 20px;
+}
+@media (prefers-contrast: more) {
+  .acpmux-mic[data-state="listening"],
+  .acpmux-mic[data-state="finalizing"] {
+    box-shadow: inset 0 0 0 1.5px currentColor;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-mic,
+  .acpmux-mic-meter span { transition: none; }
+}
+
+/* The host's all-zero motion policy is stronger than the browser preference: it is the explicit
+   `ui.animationSpeed: off` setting. Stop every pane animation, including loops owned by a child
+   surface that cannot consume the duration tokens directly. */
+:root[data-agent-motion="off"],
+:root[data-agent-motion="off"] *,
+:root[data-agent-motion="off"] *::before,
+:root[data-agent-motion="off"] *::after {
+  animation: none !important;
+  transition: none !important;
+}

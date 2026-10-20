@@ -11,6 +11,54 @@
       "note": "How theme and color changes animate: switching workspaces with other colors, a theme or light/dark change, a workspace color edit (Lawrence 2026-10-15). Web pages read the same values (WebTheme).",
       "rows": [
         {
+          "key": "appearance.colorTransition.reduceMotion",
+          "name": "reduceMotion",
+          "note": "What a color change does while macOS Reduce Motion is on. A color blend is not movement, so the default keeps a short crossfade (at most 100 ms, the motion policy's Reduce Motion fade cap).",
+          "title": {
+            "key": "settings.appearance.colorTransition.reduceMotion",
+            "text": "With Reduce Motion"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.reduceMotion.help",
+            "text": "What color changes do while Reduce Motion is on in macOS."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "crossfade",
+              "title": {
+                "key": "settings.choice.colorReduceCrossfade",
+                "text": "Short Crossfade"
+              },
+              "note": "At most 100 ms."
+            },
+            {
+              "value": "instant",
+              "title": {
+                "key": "settings.choice.colorReduceInstant",
+                "text": "Instant"
+              },
+              "note": "One frame."
+            },
+            {
+              "value": "full",
+              "title": {
+                "key": "settings.choice.colorReduceFull",
+                "text": "Same as Usual"
+              },
+              "note": "Reduce Motion does not change color changes."
+            }
+          ],
+          "default": "crossfade",
+          "keywords": [
+            "color",
+            "reduce motion",
+            "accessibility",
+            "instant",
+            "crossfade"
+          ]
+        },
+        {
           "key": "appearance.colorTransition.enabled",
           "name": "enabled",
           "note": "On by default (Lawrence 2026-10-15: every theme and color change animates smoothly, or is instant when turned off). Off, or a duration of 0, applies every change in one frame.",
@@ -329,54 +377,6 @@
             "srgb",
             "blend",
             "interpolation"
-          ]
-        },
-        {
-          "key": "appearance.colorTransition.reduceMotion",
-          "name": "reduceMotion",
-          "note": "What a color change does while macOS Reduce Motion is on. A color blend is not movement, so the default keeps a short crossfade (at most 100 ms, the motion policy's Reduce Motion fade cap).",
-          "title": {
-            "key": "settings.appearance.colorTransition.reduceMotion",
-            "text": "With Reduce Motion"
-          },
-          "help": {
-            "key": "settings.appearance.colorTransition.reduceMotion.help",
-            "text": "What color changes do while Reduce Motion is on in macOS."
-          },
-          "kind": "choice",
-          "choices": [
-            {
-              "value": "crossfade",
-              "title": {
-                "key": "settings.choice.colorReduceCrossfade",
-                "text": "Short Crossfade"
-              },
-              "note": "At most 100 ms."
-            },
-            {
-              "value": "instant",
-              "title": {
-                "key": "settings.choice.colorReduceInstant",
-                "text": "Instant"
-              },
-              "note": "One frame."
-            },
-            {
-              "value": "full",
-              "title": {
-                "key": "settings.choice.colorReduceFull",
-                "text": "Same as Usual"
-              },
-              "note": "Reduce Motion does not change color changes."
-            }
-          ],
-          "default": "crossfade",
-          "keywords": [
-            "color",
-            "reduce motion",
-            "accessibility",
-            "instant",
-            "crossfade"
           ]
         }
       ]
