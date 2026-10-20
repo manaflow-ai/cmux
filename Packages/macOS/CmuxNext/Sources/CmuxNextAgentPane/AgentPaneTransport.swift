@@ -78,6 +78,9 @@ import CmuxNextCompat
     /// A trusting `acp.trust.set` on a remote wire took the person's Trust click: it also allows
     /// one `session/new` on that connection (the start the trust question held, cx-1bhjj).
     var remoteTrustCredit = AgentPaneGestureCredit()
+    /// A folder pick took the person's gesture (``grantPicked(_:)``): the next `session/new` on this
+    /// Mac on that connection carries it as its own (``startCredit``). Nothing else spends it.
+    var pickCredit = AgentPaneGestureCredit()
     /// Home folders of the chat's machine the person chose by Use Home Folder (cx-1bhjj): only
     /// these may be trusted or started in there. Never this Mac's roots (``addedRoots``).
     public internal(set) var remoteHomeChosen: Set<String> = []
@@ -107,12 +110,12 @@ import CmuxNextCompat
     }
 
     /// `folder` the person's gesture picked (`workspace.useFolder`): made a root, and the gesture it
-    /// spent goes on to the chat's start and first prompt (``startCredit``). The New Tab page asks
-    /// for the folder in the same turn as the Send, so the pick took the Send's only gesture and the
-    /// chat's first prompt was refused ("Not sent. Press Retry to send it.").
+    /// spent goes on to the chat that starts there (``pickCredit``), then its first prompt. The New
+    /// Tab page asks for the folder in the same turn as the Send, so the pick took the Send's only
+    /// gesture and the chat's first prompt was refused ("Not sent. Press Retry to send it.").
     func grantPicked(_ folder: String) {
         grant(folder)
-        if socket != nil { startCredit.give(connection: current, at: gestures.uptime) }
+        if socket != nil { pickCredit.give(connection: current, at: gestures.uptime) }
     }
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
@@ -185,6 +188,7 @@ import CmuxNextCompat
         remoteWire = connection.remote != nil
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()
+        pickCredit.clear()
         decisions.reset()
         sentFirst = false
         let ids = AcpmuxRequestIds()
