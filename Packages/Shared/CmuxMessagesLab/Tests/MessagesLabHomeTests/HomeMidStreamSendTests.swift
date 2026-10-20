@@ -73,7 +73,14 @@ import Testing
         window.contentView = view
         view.layoutSubtreeIfNeeded()
         let projection = view.projection
+        // The display frames: work the view schedules for the next frame runs at each frame's start
+        // (an offscreen window has no display link; the stream commits once per frame, HomeStreamPacer).
+        var pending: [() -> Void] = []
+        view.controller.nextFrame = { pending.append($0) }
         func frame() {
+            let due = pending
+            pending.removeAll()
+            for f in due { f() }
             projection.refresh()
             window.contentView?.layoutSubtreeIfNeeded()
             CATransaction.flush()

@@ -36,11 +36,14 @@ struct AgentCursorTagClickTests {
     }
 
     @Test func onlyATagTakesTheMouse() throws {
-        let (_, carrier, _) = try setUp()
+        // The host holds the source weakly (the window controller owns it): keep it.
+        let (_, carrier, tags) = try setUp()
         let inSuper = { (p: NSPoint) in carrier.convert(p, to: carrier.superview) }
-        #expect(carrier.hitTest(inSuper(point(carrier, x: 150, y: 61))) === carrier, "on the tag")
-        #expect(carrier.hitTest(inSuper(point(carrier, x: 10, y: 10))) == nil, "everywhere else the page gets the click")
-        #expect(carrier.hitTest(inSuper(point(carrier, x: 99, y: 61))) == nil)
+        withExtendedLifetime(tags) {
+            #expect(carrier.hitTest(inSuper(point(carrier, x: 150, y: 61))) === carrier, "on the tag")
+            #expect(carrier.hitTest(inSuper(point(carrier, x: 10, y: 10))) == nil, "everywhere else the page gets the click")
+            #expect(carrier.hitTest(inSuper(point(carrier, x: 99, y: 61))) == nil)
+        }
     }
 
     @Test func aClickOnATagPressesIt() throws {
