@@ -10,6 +10,7 @@ import Testing
 @MainActor
 struct AgentSubagentPanesFocusTests {
     /// Hooks whose `place` holds its callbacks, as a pane still moving into place does.
+    @MainActor
     final class Recorder {
         var focused: [(key: String, script: Bool)] = []
         var created: (@MainActor (String) -> Void)?
@@ -44,7 +45,7 @@ struct AgentSubagentPanesFocusTests {
         #expect(panes.open("explore", focus: true, chat: "chat", hooks: recorder.hooks))
         #expect(recorder.focused.isEmpty, "nothing to focus before the tab exists")
         recorder.land("tab-explore")
-        #expect(recorder.focused.map(\.key) == ["tab-explore"])
+        #expect(recorder.focused.map({ $0.key }) == ["tab-explore"])
         #expect(recorder.focused.first?.script == false, "the person asked for it")
     }
 
