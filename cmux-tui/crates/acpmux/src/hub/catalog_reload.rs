@@ -65,6 +65,7 @@ impl Hub {
             current.shadowed_config = next.shadowed_config;
             current.pool = next.pool;
             current.web_roots = next.web_roots;
+            current.vm_host = next.vm_host;
             current.web_asking_modes = next.web_asking_modes;
             let start_changed = current.default_permission_mode != next.default_permission_mode
                 || current.last_permission_mode != next.last_permission_mode

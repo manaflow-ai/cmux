@@ -23,7 +23,7 @@ extension TabCell {
         let iconScale = dormant ? Self.hibernatedIconScale : 1
         let transform = CATransform3DMakeScale(iconScale, iconScale, 1)
         iconLayer.masksToBounds = dormant
-        if animated, let shrink = Motion.set(iconLayer, "transform", to: NSValue(caTransform3D: transform), movementFade: .hibernateIcon) {
+        if animated, let shrink = Motion.indicators.set(iconLayer, "transform", to: NSValue(caTransform3D: transform), movementFade: .hibernateIcon) {
             Self.easeIn(shrink, on: iconLayer, key: "transform")
         } else {
             iconLayer.removeAnimation(forKey: "transform")
@@ -49,7 +49,7 @@ extension TabCell {
         }()
         ring.lineWidth = Self.hibernationRingStroke
         themeScope.perform { ring.strokeColor = Self.hibernationRingColor.cgColor }
-        if animated, let fade = Motion.set(ring, "opacity", to: Float(1), fade: .hibernateRing, from: Float(0)) {
+        if animated, let fade = Motion.indicators.set(ring, "opacity", to: Float(1), fade: .hibernateRing, from: Float(0)) {
             Self.easeIn(fade, on: ring, key: "opacity")
         } else {
             ring.opacity = 1

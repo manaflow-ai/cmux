@@ -11,6 +11,11 @@ nonisolated struct AgentHarnessAddRequest: Equatable {
     var example: String?
     /// Env keys the profile reads from Keychain items of the same name (`keychain:KEY`), never values.
     var envKeys: [String] = []
+    /// An endpoint profile (`example: anthropic-endpoint|openai-endpoint`): its base URL, model
+    /// and the Keychain item that holds its key (`cmux-harness/<id>/<KEY>`), never the key.
+    var baseURL: String?
+    var model: String?
+    var keychainItem: String?
     var replace = false
 
     /// Nil when it names nothing to start: no command, registry agent or example.
@@ -29,7 +34,12 @@ nonisolated struct AgentHarnessAddRequest: Equatable {
         }
         if let protocolName, !protocolName.isEmpty { params["protocol"] = protocolName }
         if let registry, !registry.isEmpty { params["registry"] = registry }
-        if let example, !example.isEmpty { params["example"] = example }
+        if let example, !example.isEmpty {
+            params["example"] = example
+            if let baseURL, !baseURL.isEmpty { params["baseUrl"] = baseURL }
+            if let model, !model.isEmpty { params["model"] = model }
+            if let keychainItem, !keychainItem.isEmpty { params["keychainItem"] = keychainItem }
+        }
         if replace { params["replace"] = true }
         return params
     }

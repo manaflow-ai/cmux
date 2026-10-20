@@ -10,6 +10,8 @@ import type { ChangeItem, WhatsNewCategory } from "./types";
 export interface PartsContext {
   strings: Strings;
   onTry: (action: string) => void;
+  /** Each change with a picture shows it under its row (the Ledger: a visual per feature). */
+  rowMedia?: boolean;
 }
 
 export function categoryLabel(strings: Strings, category: WhatsNewCategory): string {
@@ -90,11 +92,26 @@ export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext
 }
 
 /** The lead change: headline, one paragraph, media, its action. */
-export function Hero({ item, ctx, level = 2 }: { item: ReleaseItem; ctx: PartsContext; level?: 1 | 2 }) {
+export function Hero({
+  item,
+  ctx,
+  level = 2,
+  titled = true,
+}: {
+  item: ReleaseItem;
+  ctx: PartsContext;
+  level?: 1 | 2;
+  /** False when the release title above already says it (the Ledger). */
+  titled?: boolean;
+}) {
   const Heading = level === 1 ? "h1" : "h2";
   return (
     <>
-      <Heading className="cl-headline">{item.title}</Heading>
+      {titled ? (
+        <Heading className="cl-headline">{item.title}</Heading>
+      ) : (
+        <h3 className="cl-row-title cll-lead">{item.title}</h3>
+      )}
       {item.summary
         .split(/\n{2,}/)
         .filter(Boolean)
@@ -135,6 +152,7 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
             <span className="cl-row-text">
               <span className="cl-row-title">{item.title}</span>
               {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
+              {ctx.rowMedia && item.media && <Media media={item.media} className="cl-row-media" />}
             </span>
             <RowActions item={item} ctx={ctx} />
           </li>

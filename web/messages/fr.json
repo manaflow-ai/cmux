@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "requis : cette machine est partagée avec l’équipe" },
   "agentHarness": {
     "title": "Configuration de harness détectée",
     "selectionNotice": "La sélection d’un fournisseur ne lance ni n’active ces harnesses.",

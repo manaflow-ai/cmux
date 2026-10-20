@@ -1,3 +1,4 @@
+import CmuxAgentCursor
 @testable import CmuxNextAgentCursor
 import Foundation
 import QuartzCore
@@ -49,14 +50,55 @@ struct AgentCursorSoftStyleTests {
         #expect(rim.level > 0.95 && cursor.arrow.lineWidth >= 1.2)
     }
 
-    @Test func theNameTagIsLightGlassWithDarkText() throws {
+    /// Pill gallery P1 (user, 2026-10-20: "gray and liquid glassy, think
+    /// about how Apple would design this"), now in the shared Liquid Glass
+    /// (``FloatingGlassStyle/agentTag``, Chief via a286): a neutral, translucent
+    /// capsule with continuous corners, a soft top-lit rim, a soft shadow and
+    /// dark label text; no agent color anywhere in it.
+    @Test func theNameTagIsGrayLiquidGlass() throws {
         let cursor = try placed()
-        let tag = try #require(gray(cursor.nameTag.backgroundColor))
+        let fill = try #require(cursor.nameTag.backgroundColor)
+        let tint = try #require(gray(fill))
+        #expect(tint.chroma < 0.02, "neutral gray, never an agent color")
+        #expect(fill.alpha > 0.3 && fill.alpha < 0.8, "a veil over the real blur, not the opaque fallback")
+        #expect(cursor.nameTag.cornerCurve == .continuous, "a continuous-corner capsule")
+        #expect(cursor.nameTag.cornerRadius * 2 >= cursor.nameTag.bounds.height - 0.5, "a capsule")
+        let rim = try #require(cursor.nameTag.sublayers?.compactMap { $0 as? CAGradientLayer }.first, "a top-lit rim")
+        let colors = try #require(rim.colors as? [CGColor])
+        #expect((colors.first?.alpha ?? 0) > (colors.last?.alpha ?? 1), "brighter at the top")
+        #expect(cursor.nameTag.shadowOpacity > 0.05 && cursor.nameTag.shadowOpacity < 0.3, "a subtle shadow")
         let text = try #require(gray(cursor.nameText.foregroundColor))
-        #expect(tag.level > 0.9, "light material, not the pointer fill")
-        #expect(text.level < 0.25, "dark text on the light tag")
-        #expect(cursor.nameTag.cornerRadius * 2 >= cursor.nameTag.bounds.height - 0.5, "a pill")
+        #expect(text.level < 0.3, "dark label text")
+        let dot = try #require(gray(cursor.nameDot.fillColor))
+        #expect(dot.chroma < 0.02, "the dot is gray too")
         #expect(cursor.nameTag.frame.minX < 16 && cursor.nameTag.frame.minY < 18, "tucked against the tip")
+    }
+
+    /// The tag's blur well: a capsule in the glass mask layer, the same shape
+    /// as the tag, moved, hidden and removed with the cursor.
+    @Test func theNameTagCutsItsShapeInTheGlassAndRidesWithIt() throws {
+        let visuals = CALayer(), glass = CALayer()
+        let host = AgentCursorLayerHost(hostLayer: visuals, glassLayer: glass, color: { _ in AgentCursorLayer.gray })
+        let session = "cmux-browser-cli:Claude"
+        host.apply(.place(session: session, point: CGPoint(x: 100, y: 100)))
+        let cursor = try #require(host.cursorLayer(for: session))
+        #expect(cursor.glassRoot.superlayer === glass)
+        #expect(cursor.glassRoot.position == cursor.root.position)
+        #expect(cursor.glassTag.frame == cursor.nameTag.frame)
+        #expect(cursor.glassTag.cornerCurve == .continuous && cursor.glassTag.cornerRadius == cursor.nameTag.cornerRadius)
+        #expect((cursor.glassTag.backgroundColor?.alpha ?? 0) == 1, "an opaque mask: full blur under the tag")
+        let plan = GlideMotion().plan(fromX: 100, fromY: 100, toX: 300, toY: 200, endHeading: 2.5)
+        host.apply(.glide(session: session, plan: plan))
+        // The end of the glide, not a stored animation: headless fleet hosts return none (see 1fac57d4412).
+        let last = try #require(plan.samples.last)
+        #expect(cursor.glassRoot.position == CGPoint(x: last.x, y: last.y), "the blur ends the glide under the tag")
+        #expect(cursor.glassRoot.position == cursor.root.position)
+        host.apply(.indicate(session: session, anchor: CGPoint(x: 5, y: 5)))
+        #expect(cursor.glassTag.isHidden, "no blur without the tag")
+        host.apply(.hide(session: session))
+        #expect(cursor.glassRoot.isHidden)
+        host.apply(.remove(session: session))
+        #expect(cursor.glassRoot.superlayer == nil)
     }
 
     @Test func thePausedOutlineStaysVisible() throws {
