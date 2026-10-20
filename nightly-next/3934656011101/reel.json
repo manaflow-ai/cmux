@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "build": "3934656011101",
+  "notes": "notes/3934656011101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22035,
+      "title": "ci: session jobs take the glaeda session label once runners carry it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22005,
+      "title": "Model menu: harness rail beside Claude Code's list, with Account",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21840,
+      "title": "agent pane: an agents pill above the composer while subagents run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21930,
+      "title": "chore(acpmux): delete the unmounted cascade and drill model pickers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21198,
+      "title": "feat(agent-pane): accept new tab inline suggestions safely",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21676,
+      "title": "agent pane: a Subagents tab in the summary card (cx-x62ev)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21676/1cf4a08b/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "1cf4a08b",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 21669,
+      "title": "cmux-next agent pane: chat menu New group, Fork from a message, Copy session ID",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22010,
+      "title": "agent pane: the prompt menu offers Undo, Redo and Select All (recut of #20903)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21393,
+      "title": "perf(cmux-next): memoize footnote scan during reveal frames",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21197,
+      "title": "cmux-next: group chat header controls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21974,
+      "title": "fix: Find keeps its match in view: stop following at once, hold until it stops moving",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21647,
+      "title": "cmux-next: agents_chat_send and agents_chat_read, one agent prompts another chat (cx-ncc.96)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
