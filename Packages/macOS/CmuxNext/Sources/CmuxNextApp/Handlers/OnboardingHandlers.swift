@@ -45,12 +45,14 @@ enum OnboardingHandlers {
             track: { registry.track($0) },
             destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
-        // A toast, never a sheet: the person can keep working while it runs.
+        // Every entrypoint previews the exact snapshot and waits for the
+        // person's answer before any browser, SSH host or agent is restored.
         registry.bind("workspace.importClassic", run: { _ in
             let window = NSApp.keyWindow ?? NSApp.mainWindow
             registry.track(Task { @MainActor in
                 do {
-                    let summary = try await AppOnboardingServices(owner: services.onboarding).importClassicSessions()
+                    let importer = AppOnboardingServices(owner: services.onboarding)
+                    guard let summary = try await importer.importClassicSessions() else { return nil }
                     let notice = ClassicImportStrings.notice(summary)
                     services.onboarding.classicImportNotice = notice
                     ClassicImportStrings.toast(notice, in: window)
@@ -89,6 +91,24 @@ enum OnboardingHandlers {
 }
 
 enum ClassicImportStrings {
+    static var previewTitle: String {
+        String(localized: "classicImport.preview.title", defaultValue: "Import these classic workspaces?", bundle: .module)
+    }
+    static var previewButton: String {
+        String(localized: "classicImport.preview.button", defaultValue: "Import", bundle: .module)
+    }
+    static func previewLines(_ plan: ClassicImportPlan) -> [String] {
+        let format = String(
+            localized: "classicImport.preview.summary",
+            defaultValue: "Source: %1$@\nWorkspaces: %2$@\nBrowser tabs: %3$@\nLocal file pages: %4$@\nSSH workspaces: %5$@\nAgent chats: %6$@\nCloud VM workspaces skipped: %7$@\nImporting loads saved browser pages, connects to saved SSH hosts, and resumes saved agent chats.",
+            bundle: .module
+        )
+        let text = String(
+            format: format, plan.source.fileName, String(plan.workspaces.count), String(plan.browserTabs),
+            String(plan.localFilePages), String(plan.sshWorkspaces), String(plan.agentChats), String(plan.skippedCloudVMs)
+        )
+        return text.components(separatedBy: "\n")
+    }
     static var imported: String {
         String(localized: "classicImport.toast.imported", defaultValue: "Workspaces from classic cmux are open.", bundle: .module)
     }

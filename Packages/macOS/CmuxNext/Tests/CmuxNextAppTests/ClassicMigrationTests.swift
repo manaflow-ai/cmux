@@ -117,7 +117,7 @@ struct ClassicMigrationTests {
     /// A later launch's run, on the same tree.
     @discardableResult
     private static func relaunch(_ services: AppServices) async throws -> ClassicMigrationOutcome {
-        try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic)
+        try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic) { _ in true }
     }
 
     private static func read(_ services: AppServices) -> Tree {

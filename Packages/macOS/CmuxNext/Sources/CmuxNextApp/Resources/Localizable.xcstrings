@@ -11444,6 +11444,399 @@
           }
         }
       }
+    },
+    "classicImport.preview.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvezi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importér"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортировать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İçe Aktar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпортувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入"
+          }
+        }
+      }
+    },
+    "classicImport.preview.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد استيراد مساحات العمل هذه من الإصدار الكلاسيكي؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvesti ove klasične radne prostore?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importér disse klassiske arbejdsområder?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Arbeitsbereiche aus Classic importieren?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import these classic workspaces?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Importar estos espacios de trabajo de la versión clásica?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer ces espaces de travail de la version classique ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importare questi spazi di lavoro della versione classica?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのクラシック版ワークスペースをインポートしますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំចូលកន្លែងធ្វើការបែបចាស់ទាំងនេះ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 클래식 작업 공간을 가져오시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importere disse klassiske arbeidsområdene?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaimportować te klasyczne obszary robocze?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar estes espaços de trabalho do cmux clássico?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортировать эти рабочие пространства из классической версии?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้าพื้นที่ทำงานแบบคลาสสิกเหล่านี้หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klasik çalışma alanları içe aktarılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпортувати ці робочі простори з класичної версії?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập các không gian làm việc cổ điển này?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要导入这些经典版工作区吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要匯入這些經典版工作區嗎？"
+          }
+        }
+      }
+    },
+    "classicImport.preview.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المصدر: %1$@\nمساحات العمل: %2$@\nعلامات تبويب المتصفح: %3$@\nصفحات الملفات المحلية: %4$@\nمساحات عمل SSH: %5$@\nمحادثات الوكلاء: %6$@\nمساحات عمل الأجهزة الافتراضية السحابية التي تم تخطيها: %7$@\nيؤدي الاستيراد إلى تحميل صفحات المتصفح المحفوظة والاتصال بمضيفي SSH المحفوظين واستئناف محادثات الوكلاء المحفوظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izvor: %1$@\nRadni prostori: %2$@\nKartice preglednika: %3$@\nStranice lokalnih datoteka: %4$@\nSSH radni prostori: %5$@\nRazgovori agenata: %6$@\nPreskočeni Cloud VM radni prostori: %7$@\nUvoz učitava sačuvane stranice preglednika, povezuje se sa sačuvanim SSH hostovima i nastavlja sačuvane razgovore agenata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kilde: %1$@\nArbejdsområder: %2$@\nBrowserfaner: %3$@\nLokale filsider: %4$@\nSSH-arbejdsområder: %5$@\nAgentchats: %6$@\nOversprungne Cloud VM-arbejdsområder: %7$@\nImporten indlæser gemte browsersider, opretter forbindelse til gemte SSH-værter og genoptager gemte agentchats."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelle: %1$@\nArbeitsbereiche: %2$@\nBrowser-Tabs: %3$@\nLokale Dateiseiten: %4$@\nSSH-Arbeitsbereiche: %5$@\nAgent-Chats: %6$@\nÜbersprungene Cloud-VM-Arbeitsbereiche: %7$@\nBeim Importieren werden gespeicherte Browserseiten geladen, Verbindungen zu gespeicherten SSH-Hosts hergestellt und gespeicherte Agent-Chats fortgesetzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source: %1$@\nWorkspaces: %2$@\nBrowser tabs: %3$@\nLocal file pages: %4$@\nSSH workspaces: %5$@\nAgent chats: %6$@\nCloud VM workspaces skipped: %7$@\nImporting loads saved browser pages, connects to saved SSH hosts, and resumes saved agent chats."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origen: %1$@\nEspacios de trabajo: %2$@\nPestañas del navegador: %3$@\nPáginas de archivos locales: %4$@\nEspacios de trabajo SSH: %5$@\nChats de agentes: %6$@\nEspacios de trabajo de VM en la nube omitidos: %7$@\nAl importar, se cargan las páginas guardadas del navegador, se conectan los hosts SSH guardados y se reanudan los chats de agentes guardados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source : %1$@\nEspaces de travail : %2$@\nOnglets du navigateur : %3$@\nPages de fichiers locaux : %4$@\nEspaces de travail SSH : %5$@\nDiscussions avec des agents : %6$@\nEspaces de travail de VM cloud ignorés : %7$@\nL’importation charge les pages de navigateur enregistrées, se connecte aux hôtes SSH enregistrés et reprend les discussions enregistrées avec les agents."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origine: %1$@\nSpazi di lavoro: %2$@\nSchede del browser: %3$@\nPagine di file locali: %4$@\nSpazi di lavoro SSH: %5$@\nChat degli agenti: %6$@\nSpazi di lavoro VM cloud ignorati: %7$@\nL’importazione carica le pagine del browser salvate, si connette agli host SSH salvati e riprende le chat degli agenti salvate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース：%1$@\nワークスペース：%2$@\nブラウザタブ：%3$@\nローカルファイルページ：%4$@\nSSH ワークスペース：%5$@\nエージェントチャット：%6$@\nスキップするクラウド VM ワークスペース：%7$@\nインポートすると、保存されたブラウザページを読み込み、保存された SSH ホストに接続し、保存されたエージェントチャットを再開します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រភព៖ %1$@\nកន្លែងធ្វើការ៖ %2$@\nផ្ទាំងកម្មវិធីរុករក៖ %3$@\nទំព័រឯកសារមូលដ្ឋាន៖ %4$@\nកន្លែងធ្វើការ SSH៖ %5$@\nការជជែករបស់ភ្នាក់ងារ៖ %6$@\nកន្លែងធ្វើការ Cloud VM ដែលបានរំលង៖ %7$@\nការនាំចូលនឹងផ្ទុកទំព័រកម្មវិធីរុករកដែលបានរក្សាទុក ភ្ជាប់ទៅម៉ាស៊ីន SSH ដែលបានរក្សាទុក និងបន្តការជជែករបស់ភ្នាក់ងារដែលបានរក្សាទុក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소스: %1$@\n작업 공간: %2$@\n브라우저 탭: %3$@\n로컬 파일 페이지: %4$@\nSSH 작업 공간: %5$@\n에이전트 채팅: %6$@\n건너뛴 클라우드 VM 작업 공간: %7$@\n가져오면 저장된 브라우저 페이지를 불러오고, 저장된 SSH 호스트에 연결하고, 저장된 에이전트 채팅을 재개합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kilde: %1$@\nArbeidsområder: %2$@\nNettleserfaner: %3$@\nLokale filsider: %4$@\nSSH-arbeidsområder: %5$@\nAgentchatter: %6$@\nCloud VM-arbeidsområder som hoppes over: %7$@\nImportering laster inn lagrede nettlesersider, kobler til lagrede SSH-verter og gjenopptar lagrede agentchatter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Źródło: %1$@\nObszary robocze: %2$@\nKarty przeglądarki: %3$@\nLokalne strony plików: %4$@\nObszary robocze SSH: %5$@\nCzaty agentów: %6$@\nPominięte obszary robocze maszyn wirtualnych w chmurze: %7$@\nImportowanie wczytuje zapisane strony przeglądarki, łączy się z zapisanymi hostami SSH i wznawia zapisane czaty agentów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origem: %1$@\nEspaços de trabalho: %2$@\nAbas do navegador: %3$@\nPáginas de arquivos locais: %4$@\nEspaços de trabalho SSH: %5$@\nChats de agentes: %6$@\nEspaços de trabalho de VM na nuvem ignorados: %7$@\nA importação carrega páginas salvas do navegador, conecta-se a hosts SSH salvos e retoma chats de agentes salvos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Источник: %1$@\nРабочие пространства: %2$@\nВкладки браузера: %3$@\nСтраницы локальных файлов: %4$@\nРабочие пространства SSH: %5$@\nЧаты агентов: %6$@\nПропущенные рабочие пространства облачных ВМ: %7$@\nПри импорте загружаются сохранённые страницы браузера, устанавливаются соединения с сохранёнными хостами SSH и возобновляются сохранённые чаты агентов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แหล่งที่มา: %1$@\nพื้นที่ทำงาน: %2$@\nแท็บเบราว์เซอร์: %3$@\nหน้าไฟล์ในเครื่อง: %4$@\nพื้นที่ทำงาน SSH: %5$@\nแชทตัวแทน: %6$@\nพื้นที่ทำงาน Cloud VM ที่ข้าม: %7$@\nการนำเข้าจะโหลดหน้าเบราว์เซอร์ที่บันทึกไว้ เชื่อมต่อกับโฮสต์ SSH ที่บันทึกไว้ และทำงานต่อในแชทตัวแทนที่บันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaynak: %1$@\nÇalışma alanları: %2$@\nTarayıcı sekmeleri: %3$@\nYerel dosya sayfaları: %4$@\nSSH çalışma alanları: %5$@\nAracı sohbetleri: %6$@\nAtlanan Bulut VM çalışma alanları: %7$@\nİçe aktarma kayıtlı tarayıcı sayfalarını yükler, kayıtlı SSH ana bilgisayarlarına bağlanır ve kayıtlı aracı sohbetlerini sürdürür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Джерело: %1$@\nРобочі простори: %2$@\nВкладки браузера: %3$@\nСторінки локальних файлів: %4$@\nРобочі простори SSH: %5$@\nЧати агентів: %6$@\nПропущені робочі простори хмарних ВМ: %7$@\nІмпорт завантажує збережені сторінки браузера, підключається до збережених хостів SSH і відновлює збережені чати агентів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nguồn: %1$@\nKhông gian làm việc: %2$@\nThẻ trình duyệt: %3$@\nTrang tệp cục bộ: %4$@\nKhông gian làm việc SSH: %5$@\nCuộc trò chuyện của tác nhân: %6$@\nKhông gian làm việc máy ảo đám mây bị bỏ qua: %7$@\nViệc nhập sẽ tải các trang trình duyệt đã lưu, kết nối với các máy chủ SSH đã lưu và tiếp tục các cuộc trò chuyện của tác nhân đã lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来源：%1$@\n工作区：%2$@\n浏览器标签页：%3$@\n本地文件页面：%4$@\nSSH 工作区：%5$@\n智能体聊天：%6$@\n已跳过的云虚拟机工作区：%7$@\n导入会加载已保存的浏览器页面、连接到已保存的 SSH 主机，并恢复已保存的智能体聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源：%1$@\n工作區：%2$@\n瀏覽器分頁：%3$@\n本機檔案頁面：%4$@\nSSH 工作區：%5$@\n代理程式聊天：%6$@\n略過的雲端 VM 工作區：%7$@\n匯入會載入已儲存的瀏覽器頁面、連線至已儲存的 SSH 主機，並繼續已儲存的代理程式聊天。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
