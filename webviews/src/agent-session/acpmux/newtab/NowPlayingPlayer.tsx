@@ -58,7 +58,11 @@ export function nowPlayingMenuItems(
     { id: "previous", label: labels.previous, disabled: !track.canPrevious, onSelect: () => onCommand("previous") },
   ];
   if (track.source)
-    items.push({ id: "open", label: nt("nowPlaying.openIn", { app: track.source }), onSelect: () => onCommand("open") });
+    items.push({
+      id: "open",
+      label: nt("nowPlaying.openIn", { app: track.source }),
+      onSelect: () => onCommand("open"),
+    });
   items.push(
     { id: "hide", label: nt("nowPlaying.hide"), separatorBefore: true, onSelect: () => onCommand("hide") },
     { id: "settings", label: nt("nowPlaying.settings"), onSelect: () => onCommand("settings") },

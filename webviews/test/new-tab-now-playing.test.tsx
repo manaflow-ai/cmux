@@ -197,7 +197,9 @@ const pick = async (label: string) => {
 };
 const rightClick = async (target: Element) =>
   act(async () => {
-    target.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+    target.dispatchEvent(
+      new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }),
+    );
   });
 const commands = (calls: { method: string; params?: Record<string, unknown> }[]) =>
   calls.filter((call) => call.method === "nowPlaying.command").map((call) => call.params?.command);
@@ -237,7 +239,9 @@ test("the player's right-click menu runs the controls, opens the app that plays 
     const play = host.querySelector<HTMLButtonElement>('.nt-player [data-command="playPause"]')!;
     play.focus();
     await act(async () => {
-      play.dispatchEvent(new window.KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }));
+      play.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }),
+      );
     });
     expect(menu(), "Shift-F10 opens no menu").toBeTruthy();
     await act(async () => {

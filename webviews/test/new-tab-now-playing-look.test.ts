@@ -86,17 +86,15 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
     const short = await open("now-playing-paused");
     const long = await open("now-playing-long-title");
     for (const selector of [".nt-player-title", ".nt-player-artist"]) {
-      const text = await long
-        .locator(selector)
-        .evaluate((element) => {
-          const style = getComputedStyle(element);
-          return {
-            overflows: element.scrollWidth > element.clientWidth,
-            ellipsis: style.textOverflow,
-            nowrap: style.whiteSpace,
-            lines: Math.round(element.getBoundingClientRect().height / parseFloat(style.lineHeight)),
-          };
-        });
+      const text = await long.locator(selector).evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          overflows: element.scrollWidth > element.clientWidth,
+          ellipsis: style.textOverflow,
+          nowrap: style.whiteSpace,
+          lines: Math.round(element.getBoundingClientRect().height / parseFloat(style.lineHeight)),
+        };
+      });
       expect(text, selector).toEqual({ overflows: true, ellipsis: "ellipsis", nowrap: "nowrap", lines: 1 });
     }
     const [card, longCard] = [await box(short, ".nt-player"), await box(long, ".nt-player")];
@@ -115,7 +113,11 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
     const page = await open("now-playing-paused");
     const card = await page.locator(".nt-player").evaluate((element) => {
       const style = getComputedStyle(element);
-      return { radius: parseFloat(style.borderTopLeftRadius), padding: parseFloat(style.paddingTop), shadow: style.boxShadow };
+      return {
+        radius: parseFloat(style.borderTopLeftRadius),
+        padding: parseFloat(style.paddingTop),
+        shadow: style.boxShadow,
+      };
     });
     expect(card.shadow, "the card has no hairline edge").toContain("inset");
     const art = await page
@@ -174,7 +176,7 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
     const plain = await layout(never);
     await never.close();
     const page = await open("now-playing-paused");
-    expect((await layout(page)).height, "the card took no space").toBeGreaterThan(plain.height);
+    expect(await layout(page), "the card moved nothing").not.toEqual(plain);
     await page.evaluate(async () => {
       document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.(null);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));

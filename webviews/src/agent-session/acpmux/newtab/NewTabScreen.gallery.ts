@@ -520,7 +520,11 @@ export default agentPaneEntry({
       native: { "nowPlaying.command": null },
       play: async (ctx) => {
         const { artwork: _artwork, duration: _duration, ...track } = nowPlayingTrack(true);
-        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.({ ...track, title: "Lo-fi beats to code to", artist: "YouTube" });
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.({
+          ...track,
+          title: "Lo-fi beats to code to",
+          artist: "YouTube",
+        });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-artwork=false]") !== null);
       },
     },
@@ -532,7 +536,8 @@ export default agentPaneEntry({
       play: async (ctx) => {
         ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.({
           ...nowPlayingTrack(true),
-          title: "Symphony No. 9 in D Minor, Op. 125 \u201cChoral\u201d: IV. Presto \u2013 Allegro assai \u2013 Alla marcia",
+          title:
+            "Symphony No. 9 in D Minor, Op. 125 \u201cChoral\u201d: IV. Presto \u2013 Allegro assai \u2013 Alla marcia",
           artist: "Berliner Philharmoniker, Herbert von Karajan, Gundula Janowitz, Hilde R\u00f6ssel-Majdan",
         });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-player") !== null);
@@ -557,7 +562,9 @@ export default agentPaneEntry({
       native: { "nowPlaying.command": null },
       play: async (ctx) => {
         ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.(null);
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-screen") !== null && ctx.document.querySelector(".nt-player") === null);
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".nt-screen") !== null && ctx.document.querySelector(".nt-player") === null,
+        );
       },
     },
     "now-playing-hidden": {
