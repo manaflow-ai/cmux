@@ -381,7 +381,7 @@ function FolderIcon() {
   );
 }
 
-/// The computer glyph of the location strip (also Thread details' machine row).
+/// The computer glyph of the location strip.
 export function ComputerIcon() {
   return (
     <svg

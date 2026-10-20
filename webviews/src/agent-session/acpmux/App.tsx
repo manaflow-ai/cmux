@@ -5669,6 +5669,7 @@ function AcpmuxPane() {
         quick || !threadTitle ? undefined : (
           <ThreadDetails
             folder={localCwd}
+            summary={snapshot.summary}
             {...(machineName ? { machine: machineName } : {})}
             openIn={(app) =>
               callNative<{ apps?: OpenInApp[] }>("folder.openIn", app ? { app } : {}).then((reply) => reply?.apps ?? [])
