@@ -85,6 +85,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case dismissUpdated
     /// A Now Playing card control (cx-ouoxo), for the App's Now Playing source.
     case nowPlaying(SidebarNowPlayingCommand)
+    /// The Now Playing card's x (u2437): the App runs `nowPlaying.hideCard`, which hides the card
+    /// until other media starts.
+    case hideNowPlayingCard
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Workspace rows dropped on a top section (the pinned tiles or the top

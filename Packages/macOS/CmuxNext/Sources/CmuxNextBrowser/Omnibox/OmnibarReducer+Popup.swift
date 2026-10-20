@@ -11,6 +11,7 @@ nonisolated extension OmnibarStep {
         case .tab: if !startKeywordOnTab() { move(1, clamp: false) }
         case .backTab: move(-1, clamp: false)
         case .enter(let disposition): enter(disposition)
+        case .enterAddingTLD(let disposition): enterAddingTLD(disposition)
         case .escape: escape()
         case .selectAll: selectAll()
         case .focusLocation: focusLocation()
@@ -74,6 +75,24 @@ nonisolated extension OmnibarStep {
         }
         if let typed = typedDestination, typed == destination { effects.append(.typedNavigation(typed)) }
         commit(destination, disposition)
+    }
+
+    /// Control-Enter (Chromium `OmniboxEditModel::OnControlKeyChanged`,
+    /// `AutocompleteInput` desired TLD "com"): the typed host without a dot
+    /// gets `www.` and `.com`, keeping its path. Anything else, an arrowed
+    /// row or a keyword session commits as Enter does.
+    private mutating func enterAddingTLD(_ disposition: OmnibarInput.Disposition) {
+        guard state.hasFocus, !state.isComposing else {
+            handled = false
+            return
+        }
+        let arrowed = (state.popup.selected ?? 0) > 0
+        guard state.keyword == nil, state.phase == .editing, !arrowed,
+              let url = OmnibarRules.desiredTLDURL(for: state.edit.userText, resolver: resolver.urlResolver) else {
+            return enter(disposition)
+        }
+        effects.append(.typedNavigation(url))
+        commit(url, disposition)
     }
 
     /// Chromium `OmniboxEditModel::OnEscapeKeyPressed`, one step per press:

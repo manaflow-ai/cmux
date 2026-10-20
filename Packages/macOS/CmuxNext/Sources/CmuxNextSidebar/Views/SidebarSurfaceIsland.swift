@@ -18,6 +18,8 @@ public protocol SidebarSurfaceIsland: AnyObject {
     var onHeightChange: (() -> Void)? { get set }
     /// The page ran one of its actions (the popover then closes).
     var onAction: (() -> Void)? { get set }
+    /// The page's x: the host sends its card's dismiss intent (one path for every card's x).
+    var onDismiss: (() -> Void)? { get set }
     /// The sidebar went away: the page cancels its subscriptions.
     func close()
 }
@@ -28,9 +30,11 @@ public protocol SidebarUpdateSurfaces: AnyObject {
     func island(_ kind: SidebarUpdateSurfaceKind) -> any SidebarSurfaceIsland
 }
 
-/// The popover's content: the ready surface, and the pointer leaving it
-/// (the popover then closes unless the pointer is back on the card).
+/// The popover's content: the ready surface, and the pointer coming into it
+/// (a pending close is called off) and leaving it (the popover then closes
+/// after a short delay unless the pointer is back on it or the card).
 final class SidebarPopoverIslandHost: NSView {
+    var onPointerEnter: (() -> Void)?
     var onPointerExit: (() -> Void)?
     private var tracking: NSTrackingArea?
 
@@ -58,6 +62,10 @@ final class SidebarPopoverIslandHost: NSView {
         let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onPointerEnter?()
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -93,6 +101,8 @@ final class SidebarUpdatedCardHost: NSView {
     private(set) var card: SidebarUpdatedCard?
     /// The page's height changed: the sidebar lays the slot out again.
     var onHeightChange: (() -> Void)?
+    /// The page's x (u2441): the slot sends `.dismissUpdated`, as every card's x sends its intent.
+    var onDismiss: (() -> Void)?
     /// Makes ``island`` once a card shows (a web page; none at launch without one).
     var surfaces: (any SidebarUpdateSurfaces)? {
         didSet {
@@ -109,6 +119,7 @@ final class SidebarUpdatedCardHost: NSView {
             island.view.autoresizingMask = [.width, .height]
             addSubview(island.view)
             island.onHeightChange = { [weak self] in self?.onHeightChange?() }
+            island.onDismiss = { [weak self] in self?.onDismiss?() }
         }
     }
 
