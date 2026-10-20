@@ -10,10 +10,10 @@ final class HomeMarkdownLineCache {
     /// Lines rendered (misses), for tests.
     private(set) var renders = 0
 
-    /// Chip links show as chips (`HomeMarkdown.render(_:chips:)`; the transcript's rendering).
+    /// Chip links show as chips (`HomeMarkdown.render(_:chips:)`; the transcript's rendering: `HomeLinkChip.showsInTranscript`).
     let chips: Bool
 
-    init(limit: Int = 4096, chips: Bool = true) { self.limit = limit; self.chips = chips }
+    init(limit: Int = 4096, chips: Bool = HomeLinkChip.showsInTranscript) { self.limit = limit; self.chips = chips }
 
     func rendered(_ raw: Substring) -> HomeMarkdown.Output {
         let key = String(raw)
