@@ -217,13 +217,16 @@ export class CloudDO extends CloudIdle {
    * Org workflows (plans/cmux-next/org-workflows-DESIGN.md): one machine or agent step of an
    * automation run of this team, from AutomationRunWorkflow. NOT an op: the run's own journal
    * (the Workflow's durable step) is the record. The machine must be a running machine of THIS
-   * team: the object is per team, so another team's machine id is not found. No answer carries
-   * a provider error; stdout and stderr go back to the run only.
+   * team: the object is per team, so another team's machine id is not found. Only a run charged
+   * to the machine's creator may use it (a teammate's automation cannot run commands, with root,
+   * on someone else's machine). No answer carries a provider error; stdout and stderr go back to
+   * the run only.
    */
-  async automationExec(entity: string, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply> {
+  async automationExec(entity: string, user: string | null, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply> {
     if (!this.isBound(entity)) return { ok: false, refusal: "not_found" }
     const row = this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
     if (!row) return { ok: false, refusal: "not_found" }
+    if (!user || row.creator !== user) return { ok: false, refusal: "forbidden" }
     if (row.status !== "running") return { ok: false, refusal: "not_running" }
     const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
     if (!driver) return { ok: false, refusal: "provider_failed" }
