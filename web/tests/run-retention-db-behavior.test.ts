@@ -86,6 +86,48 @@ describe("cloud Run terminal retention and cancellation", () => {
     }
   });
 
+  dbTest("never reaps the VM of an attempt promoted to a persistent runtime", async () => {
+    const userId = `retention-promoted-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0];
+      if (!attempt) throw new Error("run did not create an attempt");
+      const lease = await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "promoted-worker" });
+      await repo().recordAttemptProviderHandle({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        providerVmId: "vm-promoted",
+        providerWorkspaceId: "workspace-promoted",
+        providerTerminalId: "terminal-promoted",
+      });
+      await repo().ingestRunEvent({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        externalId: "promoted-succeeded",
+        attemptSequence: 1,
+        kind: "attempt.succeeded",
+        payload: { providerVmId: "vm-promoted" },
+      });
+      // Promotion (runtimeRepository.promoteAttemptToRuntime) links the attempt to the runtime
+      // that now owns this VM and leaves terminal_retain_until as it was.
+      const [runtime] = await sql!`insert into cloud_runtimes (owner_team_id) values (${userId}) returning id`;
+      await sql!`update run_attempts set runtime_id = ${runtime!.id} where id = ${attempt.id}`;
+
+      const claims = await repo().claimExpiredAttemptCleanups({ now: new Date(Date.now() + 60 * 60 * 1000), limit: 100 });
+      expect(claims.some((claim) => claim.attempt.id === attempt.id)).toBe(false);
+      for (const other of claims) {
+        await repo().finishAttemptCleanup({ attemptId: other.attempt.id, cleanupLeaseToken: other.cleanupLeaseToken, succeeded: false });
+      }
+    } finally {
+      await removeRuns(userId);
+      await sql!`delete from cloud_runtimes where owner_team_id = ${userId}`;
+    }
+  });
+
   dbTest("fences active workers and completes cancellation without a stuck status", async () => {
     const userId = `cancel-retention-${randomUUID()}`;
     try {
