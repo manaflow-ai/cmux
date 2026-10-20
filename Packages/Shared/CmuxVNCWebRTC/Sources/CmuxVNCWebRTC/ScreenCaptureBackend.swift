@@ -10,6 +10,7 @@ import ScreenCaptureKit
 /// the hardware encoder), and CGEvent posts the viewer's input as if from
 /// this Mac's own keyboard and mouse. Needs Screen Recording and
 /// Accessibility for the host app.
+// crash-allow: mutable state is behind `lock` and SCStream calls back on its one serial `queue`.
 public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     // @unchecked: state behind `lock`; SCStream calls back on `queue`.
     private let lock = NSLock()
@@ -176,6 +177,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 /// absolute pointer positions on the streamed display, button transitions
 /// with click counting, wheel scrolling, keys by virtual key code, and text
 /// as Unicode strings.
+// crash-allow: one per backend, driven only by the input channel's callbacks, which libwebrtc delivers one at a time.
 final class EventInjector: @unchecked Sendable {
     // @unchecked: used from the data channel's callbacks, one at a time.
     var display = CGRect.zero

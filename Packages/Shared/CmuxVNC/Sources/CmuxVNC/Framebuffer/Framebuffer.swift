@@ -53,9 +53,10 @@ final class Framebuffer {
     func fill(x: Int, y: Int, width w: Int, height h: Int, color: UInt32) {
         guard let rect = clip(x: x, y: y, width: w, height: h) else { return }
         pixels.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
             for row in rect.y ..< rect.y + rect.h {
                 let start = row * width + rect.x
-                buffer.baseAddress!.advanced(by: start).update(repeating: color, count: rect.w)
+                base.advanced(by: start).update(repeating: color, count: rect.w)
             }
         }
         markDirty(x: rect.x, y: rect.y, width: rect.w, height: rect.h)
@@ -83,10 +84,11 @@ final class Framebuffer {
     func blit(x: Int, y: Int, width w: Int, height h: Int, pixels source: UnsafeBufferPointer<UInt32>) {
         guard source.count >= w * h, let rect = clip(x: x, y: y, width: w, height: h) else { return }
         pixels.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress, let sourceBase = source.baseAddress else { return }
             for row in rect.y ..< rect.y + rect.h {
                 let from = (row - y) * w + (rect.x - x)
-                buffer.baseAddress!.advanced(by: row * width + rect.x)
-                    .update(from: source.baseAddress!.advanced(by: from), count: rect.w)
+                base.advanced(by: row * width + rect.x)
+                    .update(from: sourceBase.advanced(by: from), count: rect.w)
             }
         }
         markDirty(x: rect.x, y: rect.y, width: rect.w, height: rect.h)
@@ -99,7 +101,7 @@ final class Framebuffer {
               let target = clip(x: toX, y: toY, width: w, height: h), target.w == w, target.h == h else { return }
         let rows: [Int] = toY > fromY ? Array((0 ..< h).reversed()) : Array(0 ..< h)
         pixels.withUnsafeMutableBufferPointer { buffer in
-            let base = buffer.baseAddress!
+            guard let base = buffer.baseAddress else { return }
             for row in rows {
                 // update(from:) is memmove-safe for overlapping ranges within a row.
                 base.advanced(by: (toY + row) * width + toX).update(from: base.advanced(by: (fromY + row) * width + fromX), count: w)

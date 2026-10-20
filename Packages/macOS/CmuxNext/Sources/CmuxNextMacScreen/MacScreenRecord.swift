@@ -55,7 +55,8 @@ public nonisolated struct MacScreenRecord: Sendable, Hashable {
         } else if let macID {
             components.queryItems = [URLQueryItem(name: "mac", value: macID.uuidString)]
         }
-        return components.url!
+        // A scheme, a host and query items always form a URL; /dev/null only stands in for the type checker.
+        return components.url ?? URL(fileURLWithPath: "/dev/null")
     }
 
     public static func matches(_ url: URL?) -> Bool {

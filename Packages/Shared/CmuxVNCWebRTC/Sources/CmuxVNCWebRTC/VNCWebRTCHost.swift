@@ -5,6 +5,7 @@ import Network
 /// viewer's `rfb` data channel to a VNC server over TCP (by default this
 /// Mac's Screen Sharing, 127.0.0.1:5900). One viewer at a time; a new one
 /// replaces the old. The VNC server still authenticates the viewer.
+// crash-allow: `current` and the byte counters are read and written only under `lock`; the rest are `let`s.
 public final class VNCWebRTCHost: @unchecked Sendable {
     // @unchecked: `current` is behind `lock`.
     public let pairing: VNCPairing

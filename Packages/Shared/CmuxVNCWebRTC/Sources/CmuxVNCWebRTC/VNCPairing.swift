@@ -13,7 +13,8 @@ public struct VNCPairing: Sendable, Hashable, Codable {
     /// video track with input on a data channel (`ScreenStreamHost`).
     public var kind: String = "vnc"
 
-    public static let defaultSignal = URL(string: "https://cmux-vnc-signal.debussy.workers.dev")!
+    /// A constant https literal, so it always parses; /dev/null only stands in for the type checker.
+    public static let defaultSignal = URL(string: "https://cmux-vnc-signal.debussy.workers.dev") ?? URL(fileURLWithPath: "/dev/null")
 
     public init(signal: URL, room: String, secret: String, name: String, kind: String = "vnc") {
         self.signal = signal
@@ -53,7 +54,8 @@ public struct VNCPairing: Sendable, Hashable, Codable {
             URLQueryItem(name: "name", value: name),
             URLQueryItem(name: "kind", value: kind),
         ]
-        return components.url!
+        // A scheme, a host and query items always form a URL; /dev/null only stands in for the type checker.
+        return components.url ?? URL(fileURLWithPath: "/dev/null")
     }
 
     /// Parses a pairing link; nil for anything else.
@@ -69,9 +71,10 @@ public struct VNCPairing: Sendable, Hashable, Codable {
     }
 
     func url(_ path: String, query: [URLQueryItem] = []) -> URL {
-        var components = URLComponents(url: signal.appendingPathComponent("v1/rooms/\(room)/\(path)"), resolvingAgainstBaseURL: false)!
+        let base = signal.appendingPathComponent("v1/rooms/\(room)/\(path)")
+        guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return base }
         if !query.isEmpty { components.queryItems = query }
-        return components.url!
+        return components.url ?? base
     }
 
     private static func random(_ count: Int) -> [UInt8] {

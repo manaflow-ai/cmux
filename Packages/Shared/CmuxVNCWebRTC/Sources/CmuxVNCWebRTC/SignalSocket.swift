@@ -12,6 +12,7 @@ struct SignalMessage: Codable, Sendable {
 }
 
 /// The room's WebSocket for one role.
+// crash-allow: its only stored state is a `let` URLSessionWebSocketTask, which is thread-safe.
 final class SignalSocket: @unchecked Sendable {
     // @unchecked: URLSessionWebSocketTask is thread-safe; nothing else is mutable.
     private let task: URLSessionWebSocketTask

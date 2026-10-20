@@ -22,32 +22,36 @@ extension MacScreenTabView: InternalPageFocusing {}
 /// ("home" or "device:<device id>", never a secret), so a relaunched or
 /// reopened tab shows it again, behind the Connect card.
 final class MacScreenPageService: InternalPageProvider {
-    // crash-allow: AppServices owns this service for the app's whole life (a lazy property), so it outlives it.
-    private unowned let services: AppServices
+    /// Weak: AppServices owns this service (a lazy property), never the other way round.
+    private weak var services: AppServices?
+    /// The tabs' screens; AppServices made them before this service.
+    private let pages: MacScreenPages
     /// Browser tabs on a Mac Screen address already being replaced.
     private var replacing: Set<String> = []
 
     init(services: AppServices) {
         self.services = services
+        pages = services.macScreenPages
         var events = MacScreenTabEvents()
         events.titleChanged = { [weak self] key in
-            guard let pane = self?.services.paneController(showingTab: key) else { return }
+            guard let pane = self?.services?.paneController(showingTab: key) else { return }
             pane.apply(pane.snapshot())
         }
         events.openInNewTab = { [weak self] record, key in
-            guard let self, let pane = services.paneController(showingTab: key) ?? services.windows.active?.focusedPane else { return }
+            guard let self, let services = self.services,
+                  let pane = services.paneController(showingTab: key) ?? services.windows.active?.focusedPane else { return }
             open(record, in: pane, focus: true, byPerson: true)
         }
         events.closeTab = { [weak self] key in self?.close(key) }
         events.routeTitlesChanged = { [weak self] in
             // Unopened restored tabs take their device names (read from disk or the hub).
-            for controller in self?.services.windows.controllers ?? [] {
+            for controller in self?.services?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] { pane.apply(pane.snapshot()) }
             }
         }
         events.replaceTab = { [weak self] record, key in self?.replace(key, with: record) ?? false }
         events.storeTabID = { [weak self] key in
-            guard let self, let pane = services.paneController(showingTab: key),
+            guard let self, let services = self.services, let pane = services.paneController(showingTab: key),
                   let id = services.pages.stripID(showing: key, in: pane), id.rawValue != key else { return nil }
             return id.rawValue
         }
@@ -58,7 +62,7 @@ final class MacScreenPageService: InternalPageProvider {
     /// another tab took its place (Connect on the home page), so no
     /// “Closed” undo toast offers it back.
     private func close(_ key: String, replaced: Bool = false) {
-        guard let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { return }
+        guard let services, let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { return }
         services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue),
                                                                           origin: replaced ? .script : .user))
     }
@@ -70,14 +74,12 @@ final class MacScreenPageService: InternalPageProvider {
     /// never empties and closes). The new tab's route names `record`, so a
     /// relaunch shows the same Mac. False when no pane lists `key`.
     private func replace(_ key: String, with record: MacScreenRecord) -> Bool {
-        guard let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { return false }
+        guard let services, let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { return false }
         // The new tab goes after the selected one: this one.
         if pane.stripModel.selectedID != id { pane.select(id) }
         open(record, in: pane, focus: true, byPerson: true) { [weak self] in self?.close(key, replaced: true) }
         return true
     }
-
-    private var pages: MacScreenPages { services.macScreenPages }
 
     var page: InternalPageID { .macScreen }
     var title: String { MacScreenPages.homeTitle }
@@ -101,6 +103,7 @@ final class MacScreenPageService: InternalPageProvider {
               created: (@MainActor () -> Void)? = nil) -> String {
         let key = LocalPageTab.makeKey(.macScreen)
         pages.prepare(key, record: record, byPerson: byPerson)
+        guard let services else { return key }
         let window = services.windowController(showing: pane)
         var onCreated: (@MainActor (SurfaceID) -> Void)?
         if let created { onCreated = { _ in created() } }
@@ -120,7 +123,7 @@ final class MacScreenPageService: InternalPageProvider {
     /// address bar or opened as a browser tab: its tab opens in `pane`, else
     /// the active window's focused pane. Only a person's input connects at once.
     func openAddress(_ record: MacScreenRecord, in pane: PaneController?, focus: Bool) {
-        guard let pane = pane ?? services.windows.active?.focusedPane else { return }
+        guard let pane = pane ?? services?.windows.active?.focusedPane else { return }
         open(record, in: pane, focus: focus, byPerson: RemoteViewPageService.isPersonInput(ActionRunScope.current))
     }
 
@@ -132,7 +135,7 @@ final class MacScreenPageService: InternalPageProvider {
         let record = MacScreenRecord(url: url) ?? MacScreenRecord(macID: nil)
         // task-owner: one replacement after the snapshot that listed the tab is applied
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, let services else { return }
             if let pane = services.paneController(listing: key) {
                 open(record, in: pane, focus: pane.stripModel.selectedID?.rawValue == key, byPerson: false)
             }
@@ -166,12 +169,14 @@ extension AppServices {
                 } catch {}
             }
         }
+        // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the tap weakly
         Task { [weak shortcuts] in
             for await on in ObservationStream({ settings.snapshot.macScreen.systemShortcuts }) {
                 shortcuts?.enabled = on
             }
         }
         #if DEBUG
+        // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the services weakly
         Task { [weak self] in
             for await relayOnly in ObservationStream({ settings.snapshot.macScreenDebug.relayOnly }) {
                 self?.macScreenPages.relayOnly = relayOnly

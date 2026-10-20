@@ -1,6 +1,7 @@
 import CmuxVNC
 import CmuxVNCWebRTC
 import CoreImage
+import CoreImage.CIFilterBuiltins
 import Foundation
 
 // cmux-vnc-host: shares a VNC server (this Mac's Screen Sharing by default)
@@ -68,13 +69,13 @@ if let data = try? JSONEncoder().encode(pairing) {
 
 let parts = options.target.split(separator: ":")
 let targetHost = parts.count > 1 ? parts.dropLast().joined(separator: ":") : options.target
-let targetPort = parts.count > 1 ? UInt16(parts.last!) ?? 5900 : 5900
+let targetPort = parts.count > 1 ? parts.last.flatMap { UInt16($0) } ?? 5900 : 5900
 
 /// The link as a terminal QR code (two rows per character).
 func printQR(_ text: String) {
-    guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return }
-    filter.setValue(Data(text.utf8), forKey: "inputMessage")
-    filter.setValue("L", forKey: "inputCorrectionLevel")
+    let filter = CIFilter.qrCodeGenerator()
+    filter.message = Data(text.utf8)
+    filter.correctionLevel = "L"
     guard let image = filter.outputImage else { return }
     let context = CIContext()
     let width = Int(image.extent.width), height = Int(image.extent.height)

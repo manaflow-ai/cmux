@@ -27,6 +27,7 @@ public protocol ScreenSignalSocket: Sendable {
 /// throws ``ScreenSignalingError/fingerprintMismatch``, `bye` is sent and the
 /// socket closed. The ticket admits once, so no new signaling follows a
 /// closed socket; a peer connection already open outlives it.
+// crash-allow: `socket` and `closed` are read and written only under `lock`; every other field is a `let`.
 public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
     // @unchecked: `socket` and `opened` are behind `lock`.
 

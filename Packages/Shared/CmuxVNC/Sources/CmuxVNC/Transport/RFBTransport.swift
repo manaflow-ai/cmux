@@ -97,6 +97,7 @@ public final class NetworkRFBTransport: RFBTransport {
 
 /// Whether the transport was closed, and the open waiting for the
 /// connection: resumed exactly once, by the connection state or by a close.
+// crash-allow: `closed` and `opening` are read and written only while `lock` is held; the continuation resumes outside it, once.
 final class TransportLifecycle: @unchecked Sendable {
     private let lock = NSLock()
     private var closed = false
