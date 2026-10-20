@@ -103,7 +103,7 @@ cloud subagents, for these reasons.
 | B4 | One VM, no pool. No least-loaded choice, no auto-create, no auto-pause. The VM bills while it runs (about 0.26 USD/h). | this task (after B2) | A peer list in the same saved setting; pick the peer with the fewest live sessions; `deploy.sh pause` from the host when no cloud subagent lives. |
 | B5 | `zoom` and `date` (the Chief's memory) are not on the VM; the optchat MCP server is a local socket. | this task (later) | The view goes in the first message today. Next: serve the tool socket over the acpmux peer tunnel. |
 | B6 | Peer acpmux build is older than the Mac's (`acpmux host ls`: outdated). | a242 tooling | `deploy.sh up` (or `acpmux host update chief-subagents-1`) after each nightly. |
-| B7 | Cloud Chief (the Chief itself on a VM) loses its app tools on redeploy. | a235 | Separate path: not needed for cloud subagents of the Mac Chief. |
+| B7 | Cloud Chief (the Chief itself on a VM) loses its app tools on redeploy. | a235 | Done 2026-10-20: cmuxterm-hq [#2620](https://github.com/manaflow-ai/cmuxterm-hq/pull/2620) makes `deploy.sh up` write the relay unit and `CMUX_CHIEF_APP_SOCKET`. A real redeploy of 222a8d4f41f kept 491 app tools. Not needed for cloud subagents of the Mac Chief. |
 | B8 | Moving a whole Chief between hosts. | a284 | Separate: a moved Chief keeps `control cloud` because it lives in state.json. |
 | B9 | Tenant (non-HQ) VMs through the cmux Cloud VM API need acpmux in the devbox image. | a205 | After B2: same `place: "cloud"` with a tenant peer. |
 | B11 | The pool VM has a 32 GB disk with about 7 GB free. A full `cargo test` of optchat-chief filled it (2026-10-20). The fleet queue is also slow: two optchat-chief steps waited over 30 min without a worker. | this task / build-fleet owners | Cloud subagents send Rust and Swift tests to the fleet (as their first message says); the next `deploy.sh up` makes the disk 64 GB; a shared sccache is later. |
@@ -128,3 +128,21 @@ change, and its credential question (B3) had no default.
    Full crate, clippy and fmt on macOS: fleet step `cloudsub-green2-1ccfbdc`.
 5. Proof: after the nightly, `control cloud chief-subagents-1` and one real
    spawn that reports back.
+
+### B4 and B11 slice (2026-10-20)
+
+- `control cloud cloud1,cloud2` lists peers. Each new cloud subagent goes to
+  the peer with the fewest live (starting or running) cloud subagents,
+  counting the ones of the same spawn; ties go to the first listed.
+- `CloudVms` (optchat-chief `cloud_vms.rs`): before a cloud subagent starts,
+  the host resumes its peer's VM (a no-op when it runs). The host's minute
+  tick pauses a peer's VM once after 10 minutes with no live cloud subagent
+  on it; a `tell` to a finished subagent on a paused VM resumes it first.
+- The command is cmuxterm-hq `tools/cloud-subagents/deploy.sh`, named in
+  `~/.config/cloud-subagents/vm-cmd`, which `deploy.sh up` writes. No file:
+  the host leaves VMs alone. Everything stays behind the same opt-in: with
+  `control cloud` off and no `OPTCHAT_SUBAGENT_PEER`, subagents run local.
+- B11: `deploy.sh up` grows the VM disk to 64 GB (Freestyle resize is
+  grow-only, needs a running VM) and grows the guest file system.
+- Tests: two new tests in `tests/cloud_subagents.rs` (least busy peer and
+  resume; idle pause once, then resume).
