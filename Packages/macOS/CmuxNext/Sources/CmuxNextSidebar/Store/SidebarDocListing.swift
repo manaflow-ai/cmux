@@ -8,6 +8,9 @@ import Foundation
 /// `SidebarDocSections`); this puts them where the document has them:
 /// - a machine section lists its links, tabs and apps between its rows,
 ///   in document order (`SidebarNode.item`);
+/// - the document's pinned header (``SidebarLayoutDocument/pinnedHeaderSectionID(grouped:)``,
+///   Home and the App Store) is no list section: the band above the list draws
+///   it, so it stays at the top while the rows scroll;
 /// - every other section (Pinned, custom, app sections) is a list section
 ///   (`SectionID.custom`) at its own place in the document order: its items
 ///   draw in its own arrangement (`SidebarRowKey.block`), and its groups
@@ -40,11 +43,14 @@ extension SidebarDocProjection {
         // list rows; the machine lists follow; a section after them lists its groups only.
         var before: [SidebarSection] = [], after: [SidebarSection] = []
         var passedMachines = false
+        let header = projection.layout.pinnedHeaderSectionID(grouped: Set(projection.bandGroups.map(\.section)))
         for layoutSection in projection.layout.sections {
             if layoutSection.content == .workspaces {
                 passedMachines = true
                 continue
             }
+            // The pinned header (Home, the App Store) is no list section: the band above the list draws it, so it never scrolls.
+            if layoutSection.id == header { continue }
             let id = layoutSection.id.rawValue
             let nodes = projection.bandGroups.filter { $0.section == id }.map { SidebarNode.group(pulled[$0.id] ?? Self.emptyGroup($0)) }
             guard !passedMachines || !nodes.isEmpty else { continue }
