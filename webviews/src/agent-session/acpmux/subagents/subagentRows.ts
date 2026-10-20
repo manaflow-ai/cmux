@@ -12,8 +12,14 @@ export function subagentsIn(
   views: Record<string, AcpmuxRow[]> = {},
 ): Map<string, Subagent> {
   const found = new Map<string, Subagent>();
-  for (const row of [...rows, ...Object.values(views).flat()])
-    if (row.kind === SUBAGENTS) for (const agent of row.subagents ?? []) found.set(agent.id, agent);
+  // Reads the rows in place: the chat calls this on every snapshot, and copying every row (and
+  // every subagent view's rows) into one array first cost a whole-transcript allocation each time.
+  const scan = (list: readonly AcpmuxRow[]) => {
+    for (const row of list)
+      if (row.kind === SUBAGENTS) for (const agent of row.subagents ?? []) found.set(agent.id, agent);
+  };
+  scan(rows);
+  for (const view of Object.values(views)) scan(view);
   return found;
 }
 

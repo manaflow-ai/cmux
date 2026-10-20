@@ -113,6 +113,11 @@ public final class AgentActivityModel {
             var current = eventsBySession[session] ?? []
             let next = current.last.map { $0.seq + 1 } ?? 0
             current.append(contentsOf: events.filter { $0.seq >= next })
+            // Every change sends each followed session's events to the page as JSON on the main
+            // actor, so a long session that kept every event made each new one cost more.
+            if current.count > Self.maxEventsPerSession {
+                current.removeFirst(current.count - Self.maxEventsPerSession)
+            }
             eventsBySession[session] = current
         case let .connection(machine, state):
             connections[machine] = state
@@ -140,6 +145,9 @@ public final class AgentActivityModel {
                 connection: connections[machine] ?? .connected, sessions: sessions)
         }
     }
+
+    /// The newest events the pane keeps per session; the scrubber reaches back this far.
+    public static let maxEventsPerSession = 2000
 
     /// Machine id the App uses for this Mac.
     public static let localMachine = "local"
