@@ -24044,7 +24044,7 @@
       },
       "help" : {
         "key" : "settings.browser.defaultEngine.help",
-        "text" : "New browser tabs open in this engine."
+        "text" : "Browser tabs and cmux pages, such as History and Apps, open in this engine."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.defaultEngine",
@@ -24068,7 +24068,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.browser.defaultEngine",
-        "text" : "Default Engine"
+        "text" : "Browser Engine"
       },
       "validation" : "portable"
     },

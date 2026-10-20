@@ -30,7 +30,7 @@ final class InternalPageView: NSView {
 
     /// The view that takes the keyboard when the tab is focused: a React page's
     /// web content itself, so typing reaches the page without a click first.
-    var focusTarget: NSView { (content as? PageWebView)?.webKitView ?? content }
+    var focusTarget: NSView { (content as? PageWebView)?.focusView ?? content }
 
     override var acceptsFirstResponder: Bool { false }
 

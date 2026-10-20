@@ -1120,12 +1120,12 @@
     },
     "browser.defaultEngine" : {
       "default" : "chromium",
-      "description" : "New browser tabs open in this engine.",
+      "description" : "Browser tabs and cmux pages, such as History and Apps, open in this engine.",
       "enum" : [
         "chromium",
         "webkit"
       ],
-      "title" : "Default Engine",
+      "title" : "Browser Engine",
       "type" : "string"
     },
     "browser.hibernatePinnedTabs" : {
