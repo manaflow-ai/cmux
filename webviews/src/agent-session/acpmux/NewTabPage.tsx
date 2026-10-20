@@ -27,6 +27,7 @@ import {
 } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
+import { seedWarmNewTab } from "./newtab/warmSnapshot";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -106,6 +107,8 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
   // The app's copy of the last picks: this page's own storage did not outlive the launch.
   seedLastPicks(object.lastPicks);
+  // The chats a page of this Mac listed last: the Chats list's first frame (newtab/warmSnapshot.ts).
+  seedWarmNewTab(object.warm);
   const keys = (typeof object.hotkeys === "object" && object.hotkeys !== null ? object.hotkeys : {}) as Record<
     string,
     unknown
