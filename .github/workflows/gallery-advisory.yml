@@ -41,11 +41,15 @@ jobs:
           The full gallery PR matrix remains the authoritative visual check.
           EOF
 
+      # Full history for the merge base, but blobless: a full clone spent about
+      # 188 s of this job's 4.7 min (six runs, 2026-10-19). Git fetches the
+      # head's and the base worktree's files on checkout.
       - name: Checkout the PR head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Setup Bun

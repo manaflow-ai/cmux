@@ -5,7 +5,9 @@
   gap: 12px;
   padding: 16px;
   color: var(--cmux-text, #ddd);
-  font: var(--text-body) / 1.3 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-size: var(--text-body);
+  line-height: 1.3;
 }
 .sm-toolbar {
   display: flex;

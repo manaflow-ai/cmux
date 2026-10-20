@@ -1089,6 +1089,11 @@ path = "tests/test_cmux_next_checks_workflow.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_run_checks_concurrently.py"
+lane = "linux-guard"
+serial = true
+
+[[test]]
 path = "tests/test_cmux_next_release_build_retention.py"
 lane = "linux-guard"
 
@@ -1346,6 +1351,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_media_path_map.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_media_runner_scope.py"
 lane = "linux-guard"
 
 [[test]]

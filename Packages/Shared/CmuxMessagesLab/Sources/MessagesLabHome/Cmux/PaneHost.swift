@@ -370,6 +370,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: the Chief works: the round button beside the field is Stop,
     /// and Esc and Cmd-. in the field stop it (ChatController+Stop.swift).
     var isWorking = false { didSet { if isWorking != oldValue { updateStopButton() } } }
+    /// cmux: Up and Down in the field browse the sent messages (PaneHost+History.swift).
+    var composerHistory = ComposerHistory()
     var clock: Double { CACurrentMediaTime() - start }
     private var observers: [NSObjectProtocol] = []
 
@@ -586,11 +588,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// starts then, as before), or keeps the draft when it refuses.
     func send() {
         guard store != nil else { return }
+        composerHistory.end()
         intents?.send()
     }
 
     func textDidChange(_ notification: Notification) {
         guard let demo else { return }
+        composerHistory.textChanged(to: demo.compose.textView.view.string)
         dispatch(.setDraft(demo.compose.textView.view.string))
         intents?.draftChanged()
     }
