@@ -41,30 +41,61 @@ final class MouseSideButtons {
         }
     }
 
-    private var monitor: Any?
+    /// The route each held button chose on its press. The release follows it even when the
+    /// pointer moved or control mode changed in between, so a press that went to a remote host
+    /// never navigates on its release, and a release with no press of ours (pressed in another
+    /// app) passes on.
+    struct Presses {
+        private var held: [Button: Held] = [:]
 
-    func start(services: AppServices) {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp]) { [weak services] event in
-            guard Thread.isMainThread, let services else { return event } // main-proof: returns the event off the main thread
-            return MainActor.assumeIsolated { Self.handle(event, services: services) } // main-proof: guarded by Thread.isMainThread above
+        struct Held {
+            var route: Route
+            weak var browser: BrowserChromeView?
+        }
+
+        mutating func press(_ button: Button, route: Route, browser: BrowserChromeView?) {
+            held[button] = Held(route: route, browser: browser)
+        }
+
+        mutating func release(_ button: Button) -> Held? {
+            held.removeValue(forKey: button)
         }
     }
 
-    private static func handle(_ event: NSEvent, services: AppServices) -> NSEvent? {
-        guard let button = Button(buttonNumber: event.buttonNumber) else { return event }
-        guard let window = event.window else { return event }
-        let target = Target(window: window, screenPoint: window.convertPoint(toScreen: event.locationInWindow))
-        switch Route.of(button, enabled: NavigationTunables.mouseSideButtons.value,
-                        overForwardingView: target.forwardsButtons, overBrowser: target.browser != nil) {
-        case .pass:
-            return event
-        case .page(let button):
-            if event.type == .otherMouseUp { target.browser?.perform(button == .back ? .goBack : .goForward) }
-        case .history(let button):
-            if event.type == .otherMouseUp { _ = services.registry.perform(button == .back ? "focusHistoryBack" : "focusHistoryForward") }
+    private var monitor: Any?
+    private var presses = Presses()
+
+    func start(services: AppServices) {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp]) { [weak self, weak services] event in
+            guard Thread.isMainThread, let self, let services else { return event } // main-proof: returns the event off the main thread
+            return MainActor.assumeIsolated { self.handle(event, services: services) } // main-proof: guarded by Thread.isMainThread above
         }
-        return nil
+    }
+
+    private func handle(_ event: NSEvent, services: AppServices) -> NSEvent? {
+        guard let button = Button(buttonNumber: event.buttonNumber) else { return event }
+        if event.type == .otherMouseUp {
+            guard let held = presses.release(button) else { return event }
+            switch held.route {
+            case .pass:
+                return event
+            case .page(let button):
+                held.browser?.perform(button == .back ? .goBack : .goForward)
+            case .history(let button):
+                _ = services.registry.perform(button == .back ? "focusHistoryBack" : "focusHistoryForward")
+            }
+            return nil
+        }
+        guard let window = event.window else {
+            presses.press(button, route: .pass, browser: nil)
+            return event
+        }
+        let target = Target(window: window, screenPoint: window.convertPoint(toScreen: event.locationInWindow))
+        let route = Route.of(button, enabled: NavigationTunables.mouseSideButtons.value,
+                             overForwardingView: target.forwardsButtons, overBrowser: target.browser != nil)
+        presses.press(button, route: route, browser: target.browser)
+        return route == .pass ? event : nil
     }
 
     /// What is under the pointer: the browser tab, or a view that takes every mouse button.
