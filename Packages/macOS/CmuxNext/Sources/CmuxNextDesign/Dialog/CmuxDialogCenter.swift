@@ -214,7 +214,9 @@ public final class CmuxDialogCenter {
         for field in entry.spec.fields {
             switch field {
             case .text(let id, _, let initial, _, _): values[id] = .text(initial)
-            case .choice(let id, _, let options, let selected): values[id] = .text(selected ?? options.first?.value ?? "")
+            case .choice(let id, _, let options, let selected):
+                let enabled = options.filter(\.isEnabled)
+                values[id] = .text(selected.flatMap { s in enabled.first { $0.value == s }?.value } ?? enabled.first?.value ?? "")
             case .check(let id, _, let on): values[id] = .bool(on)
             case .preview: break
             }

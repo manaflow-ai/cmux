@@ -27,10 +27,12 @@ public nonisolated enum CmuxDialogField: Equatable, Sendable {
 public nonisolated struct CmuxDialogOption: Equatable, Sendable {
     public var label: String
     public var value: String
+    /// False lists the option greyed out: it cannot be picked.
     public var isEnabled = true
     public init(label: String, value: String, isEnabled: Bool = true) {
         self.label = label
         self.value = value
+        self.isEnabled = isEnabled
     }
 }
 
