@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextTerminal
 import CmuxNextWakeups
 import Foundation
 
@@ -23,12 +24,14 @@ enum TabLifecycle {
         // A person's terminal from an agent tab (a chat, the New Tab page) starts in the folder the
         // tab shows (#16620, #22225), asked before the terminal is placed so every placement gets
         // it: this pane, the strip beside a docked chat, a lone chat's dock, a split and a new
-        // workspace. Ghostty's `tab-` (`window-` for a new workspace) `inherit-working-directory =
-        // false` still starts it in the home folder. The window's keys wait meanwhile (cx-wb5.76).
+        // workspace. Ghostty's `tab-` (`window-` for a new workspace, `split-` for a split)
+        // `inherit-working-directory = false` still starts it in the home folder. The window's keys
+        // wait meanwhile (cx-wb5.76).
+        let splits = if case .split = PanePlacementRouting.route(ctx, invocation, from: focused, tiles: true) { true } else { false }
+        let kind: GhosttyWorkingDirectoryInheritance.Kind = opensWorkspace ? .window : splits ? .split : .tab
         if invocation["cwd"] == nil, invocation.origin == .user, let controller = ctx.services.paneController(for: focused),
            let agent = controller.selectedAgentView,
-           NewTerminalStart.uninherited(opensWorkspace ? .window : .tab, services: ctx.services, daemon: controller.daemon,
-                                        besides: controller.selectedTab) == nil {
+           NewTerminalStart.uninherited(kind, services: ctx.services, daemon: controller.daemon, besides: controller.selectedTab) == nil {
             let coordinator = ctx.services.keyRouter.creationInputCoordinator, window = controller.view.window
             let keys = coordinator.begin(in: window, generation: controller.workspace?.beginFocusIntent())
             ctx.registry.track(Task { @MainActor in
