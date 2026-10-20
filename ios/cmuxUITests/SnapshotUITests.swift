@@ -341,17 +341,16 @@ final class AgentChatModeUITests: XCTestCase {
         XCTAssertTrue(codex.waitForExistence(timeout: 8))
         codex.tap()
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
-        // The field is nested inside a `.contain` accessibility element. In
-        // RTL, XCTest can report that child as non-hittable even while the
-        // composer container is visible and tappable. Assert the real hit
-        // target and retain a child-field existence check.
-        let composer = app.otherElements["MobileAgentComposer"]
+        // RTL can omit the SwiftUI composer container identifier from the
+        // XCTest hierarchy even while its text field is visibly rendered.
+        // Assert the localized field's viewport presence instead of relying
+        // on the container export or `isHittable`.
+        let composer = app.textFields["Message your agent"]
         XCTAssertTrue(composer.waitForExistence(timeout: 8))
         XCTAssertTrue(
             composer.frame.intersects(app.frame),
             "The composer should remain visible in right-to-left layout"
         )
-        XCTAssertTrue(composer.textFields.firstMatch.waitForExistence(timeout: 8))
         keepScreenshot(app, named: "agent-codex-arabic")
     }
 
