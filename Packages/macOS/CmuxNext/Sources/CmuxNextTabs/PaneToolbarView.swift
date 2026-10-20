@@ -146,11 +146,18 @@ public final class PaneToolbarView: NSView {
         // only at the leading end.
         func slotX(_ fromTrailing: Int) -> CGFloat { bounds.width - Metrics.space2 - side - CGFloat(fromTrailing) * (side + gap) }
         let y = ((bounds.height - side) / 2).rounded()
-        moreButton.frame = NSRect(x: max(0, slotX(0)), y: y, width: side, height: side)
+        moreButton.frame = moreFrame(revealed: reveal.isRevealed)
         for (index, button) in buttons.enumerated() {
             button.frame = NSRect(x: max(0, slotX(buttons.count - index)), y: y, width: side, height: side)
         }
         applyTint()
+    }
+
+    /// "…"'s frame in the trailing slot, shown (`revealed`) or at rest.
+    func moreFrame(revealed: Bool) -> NSRect {
+        let side = TitlebarBandButton.side
+        let x = max(0, bounds.width - Metrics.space2 - side)
+        return NSRect(x: x, y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
     }
 
     override public func viewDidChangeEffectiveAppearance() {
