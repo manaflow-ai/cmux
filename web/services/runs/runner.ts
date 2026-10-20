@@ -92,8 +92,8 @@ async function processClaim(attempt: ClaimedRunAttempt): Promise<string> {
     try {
       if (!attempt.ownerTeamId) throw new Error("Queued Run lacks an immutable owner");
       client = await runCloudClient(attempt.userId, attempt.ownerTeamId);
-    } catch {
-      return await failClaim(attempt, "Run worker could not open the owner's Cloud session");
+    } catch (error) {
+      return await failClaim(attempt, `Run worker could not open the owner's Cloud session${sessionSetupStage(error)}`);
     }
     const executed = await executeClaim(attempt, client);
     if (lost) throw new RunInterrupted("Run lease lost");
@@ -112,6 +112,14 @@ async function processClaim(attempt: ClaimedRunAttempt): Promise<string> {
   } finally {
     clearInterval(timer);
   }
+}
+
+const SESSION_SETUP_STAGES = new Set(["owner-lookup", "session-create", "session-tokens", "cloud-origin"]);
+
+/** Only a known stage label, never the provider's message, joins the receipt. */
+function sessionSetupStage(error: unknown): string {
+  const stage = error instanceof Error ? (error as { stage?: unknown }).stage : undefined;
+  return typeof stage === "string" && SESSION_SETUP_STAGES.has(stage) ? ` (${stage})` : "";
 }
 
 /** Raw provider/database errors must never enter durable receipts. */
