@@ -1,3 +1,5 @@
+import { useThreadTitle } from "../header/headerStyle";
+import type { ReactNode } from "react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
@@ -29,8 +31,11 @@ export function SummaryCard({
   changes,
   onOpenChanges,
   subagents,
+  details,
 }: {
   card: SummaryCardControl;
+  /// The thread's folder, branch and commit at the top (ThreadDetails.tsx).
+  details?: ReactNode;
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
@@ -67,6 +72,19 @@ export function SummaryCard({
   const popover = shown && !card.column;
   const edges = useScrollEdges();
   const close = card.close;
+  const closeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    // An explicit header click enters the panel, as Files does. Automatic summary content
+    // arriving during a turn must leave the person's composer focus alone.
+    if (shown && document.activeElement?.matches(".acpmux-summary-button"))
+      closeButton.current?.focus({ preventScroll: true });
+  }, [shown]);
+  const dismiss = () => {
+    // Inline details is a sibling of main, rather than a child of the stage.
+    const button = panel.current?.closest(".acpmux-shell")?.querySelector<HTMLElement>(".acpmux-summary-button");
+    card.close();
+    button?.focus({ preventScroll: true });
+  };
   // Closing the Subagents tab leaves focus on the Subagents title that opened it; on a folded
   // popover, where that title is not drawn, on the fold button, else on the card itself.
   const closeTab = () => {
@@ -94,11 +112,9 @@ export function SummaryCard({
     document.addEventListener("pointerdown", away, true);
     return () => document.removeEventListener("pointerdown", away, true);
   }, [close, popover]);
-  useEscapeCloses(popover && !gallery, () => {
-    const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
-    card.close();
-    button?.focus();
-  });
+  useEscapeCloses(shown && !gallery, dismiss);
+  // Every hook runs before the hidden card returns: opening it must not add one (Lucas 2026-10-18).
+  const threadDetails = useThreadTitle();
   if (!shown) {
     // Keep the inline column's width stable before the first summary row arrives. The rail is
     // intentionally invisible until it has content, but removing it from the flex row would make
@@ -115,7 +131,7 @@ export function SummaryCard({
     count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
   ].filter(Boolean);
-  const title = t("summary.open");
+  const title = threadDetails ? t("summary.threadDetails") : t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
   return (
@@ -153,7 +169,7 @@ export function SummaryCard({
                 data-selected={onSubagents ? undefined : ""}
                 onClick={() => showTab("summary")}
               >
-                {t("summary.title")}
+                {threadDetails ? title : t("summary.title")}
               </button>
               <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
                 <button
@@ -176,7 +192,7 @@ export function SummaryCard({
               </span>
             </div>
           ) : card.column ? (
-            <span className="acpmux-summary-card__title">{t("summary.title")}</span>
+            <span className="acpmux-summary-card__title">{threadDetails ? title : t("summary.title")}</span>
           ) : (
             <button
               type="button"
@@ -187,29 +203,23 @@ export function SummaryCard({
               onClick={() => card.fold(!card.collapsed)}
             >
               <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
-              <span className="acpmux-summary-card__title">{t("summary.title")}</span>
+              <span className="acpmux-summary-card__title">{threadDetails ? title : t("summary.title")}</span>
               {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
             </button>
           )}
           {!tab && card.column && counts.length > 0 && (
             <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
           )}
-          {!card.column && (
-            <button
-              type="button"
-              className="acpmux-summary-card__close"
-              aria-label={t("summary.close")}
-              title={t("summary.close")}
-              onClick={(event) => {
-                // The button goes with the card: focus moves to the header's summary button.
-                const pane = event.currentTarget.closest(".acpmux-stage");
-                card.close();
-                pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
-              }}
-            >
-              <Icon name="action.close" size={12} />
-            </button>
-          )}
+          <button
+            ref={closeButton}
+            type="button"
+            className="acpmux-summary-card__close"
+            aria-label={t("image.close")}
+            title={t("image.close")}
+            onClick={dismiss}
+          >
+            <Icon name="action.close" size={12} />
+          </button>
         </div>
         {open && onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
@@ -218,6 +228,7 @@ export function SummaryCard({
         )}
         {summary && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
+            {details}
             {/* The subagents first: they are what the card follows while a turn runs. */}
             {agents.length > 0 && (
               <SubagentStatusList

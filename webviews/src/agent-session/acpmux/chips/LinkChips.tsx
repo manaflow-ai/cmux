@@ -1,13 +1,16 @@
 // Link and path chips in replies (decision D4): an icon, the name with a dotted underline, and
 // the full address in the tooltip. A path chip asks the host where its path is (`link.inspect`)
-// and opens through the host (`link.openPath`: the deny list and the session's folders after
+// and opens through the host (`link.openPath`, or `link.readPath` into the chat's viewer with
+// labs `chatViewer`: the deny list and the session's folders after
 // symlinks, then a user gesture; outside the folders, `agentPane.links.outsideRoots` decides and
 // the host's own sheet asks). A web chip is an ordinary link, which the host opens outside the
 // pane after a real click; its icon is the site's favicon when cmux already has one.
-import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
-import { callChipHost } from "./host";
+import { useContext, useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { callChipHost, openPathChip } from "./host";
+import { ReplySourceIconsContext } from "./ReplySourceIconsContext";
 import { FileDoc, Folder, Globe, Lock } from "../conversation/icons";
-import { usePathInfo, useSiteInfo } from "./linkStore";
+import { useLab } from "../labs";
+import { usePathInfo, useSiteInfo, useSourceIcon } from "./linkStore";
 import { isDeniedPath, pathName, textLinks } from "./paths";
 import { HOVER_INTENT } from "../../../ui/hoverIntent";
 import { AnchoredCard } from "../../../ui/Tooltip";
@@ -34,7 +37,7 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       type="button"
       className={`cv-chip is-path${outside ? " is-outside" : ""}`}
       data-path={path}
-      onClick={() => void callChipHost("link.openPath", { path })}
+      onClick={(event) => openPathChip(path, event.currentTarget)}
     >
       {folder ? <Folder size={15} className="cv-chip__icon" /> : <FileDoc size={15} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
@@ -43,13 +46,18 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
   );
 }
 
-/// A web chip: the site's favicon when cmux has one, else `icon` (GitHub, arXiv) or a globe; the
-/// link text; the full URL in the tooltip. The anchor keeps the host's link-click path.
+/// A web chip: the site's favicon when cmux has one, else `icon` (GitHub, arXiv), else the site's own
+/// icon fetched by the host for opted-in reply prose (labs sourceIcons), else a globe; the link
+/// text; the full URL in the tooltip. The anchor keeps the host's link-click path.
 export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
   const t = useT();
   const site = useSiteInfo(href);
-  const mark = site?.icon ? (
-    <img className="cv-chip__icon cv-chip__favicon" src={site.icon} alt="" width={14} height={14} />
+  const replyIcons = useContext(ReplySourceIconsContext);
+  const sourceIcons = useLab("sourceIcons");
+  const fetched = useSourceIcon(href, replyIcons && sourceIcons && !icon, "chat");
+  const favicon = site?.icon ?? (icon ? undefined : fetched);
+  const mark = favicon ? (
+    <img className="cv-chip__icon cv-chip__favicon" src={favicon} alt="" width={14} height={14} />
   ) : (
     (icon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />)
   );

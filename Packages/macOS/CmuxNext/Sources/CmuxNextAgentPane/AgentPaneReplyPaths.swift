@@ -4,7 +4,7 @@ import Foundation
 /// text, so the host decides, never the page: the path is expanded (`~/`, a relative path from
 /// the session's folder), made canonical (symlinks and `..` resolved, ``AcpmuxPathPolicy``), and
 /// compared with the session's folders by path components.
-nonisolated struct AgentPaneReplyPaths {
+nonisolated struct AgentPaneReplyPaths: Sendable {
     enum Place: String, Equatable, Sendable {
         /// Inside a root: the chip opens it.
         case root
@@ -92,6 +92,11 @@ nonisolated struct AgentPaneReplyPaths {
 
     func isInsideRoot(_ path: String) -> Bool {
         roots.contains { AcpmuxPathPolicy.contains(root: $0, path: path) }
+    }
+
+    /// Rechecks a canonical read target using the policy that authorized the request.
+    func allowsRead(_ path: String, outsideRootsAllowed: Bool) -> Bool {
+        !isDenied(path) && (isInsideRoot(path) || outsideRootsAllowed)
     }
 
     /// The chip for `text`, nil when it is not a path. An outside path is not checked on disk, so

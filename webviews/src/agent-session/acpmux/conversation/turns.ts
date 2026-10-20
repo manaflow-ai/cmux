@@ -390,6 +390,8 @@ function renderRows(body: readonly AcpmuxRow[], version: number): AcpmuxRow[] {
                   version,
                   at: row.at,
                   kind: RENDER,
+                  renderLive: row.renderLive,
+                  renderAttachment: row.renderAttachment,
                   items: [item],
                 },
               ]
@@ -482,7 +484,7 @@ function liveTurn(
   sessionStatus = false,
 ): AcpmuxRow[] {
   const drawn = turn.filter((row) => row.kind !== "typing");
-  const rows = liveRuns ? codexRuns(drawn) : drawn;
+  const rows = notesBetweenSteps(liveRuns ? codexRuns(drawn) : drawn);
   // A started chat's card that no row follows yet is not the turn's latest step.
   let last: AcpmuxRow | undefined;
   for (let index = rows.length - 1; index >= 0 && !last; index -= 1)
@@ -538,6 +540,21 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
   return `${label.split(/\s+/, 1)[0]} ${path.split("/").pop() || path}`;
+}
+
+/// A running turn's text that something followed is a note between steps, not the answer (the
+/// answer is the last text, as `answerAt` reads it once the turn ends): marked `settled`, as its copy
+/// in an open "Worked for" is, so the brain thought style draws it as a thought line
+/// (thoughtStyle.ts) while the turn runs too. Its version moves, so the row draws again.
+function notesBetweenSteps(rows: AcpmuxRow[]): AcpmuxRow[] {
+  // A started chats' card is not a step after the answer, just as it does not end a live thought.
+  let latest = rows.length - 1;
+  while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
+  return rows.map((row, index) =>
+    row.kind === "assistant" && index < latest && !row.settled
+      ? { ...row, settled: true, version: row.version * 2 + 1 }
+      : row,
+  );
 }
 
 /// The newest call still running in a live turn's latest row, by its title.

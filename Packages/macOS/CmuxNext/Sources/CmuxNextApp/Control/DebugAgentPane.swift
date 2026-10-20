@@ -34,6 +34,8 @@ import WebKit
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
 /// `readiness` (page body, transcript and composer metrics), `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
+/// `preview_theme` (`mode`: light, dark or reset) temporarily overrides the pane's scope for
+/// preview evidence without editing Ghostty configuration; reset returns it to inheritance;
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on), or `inspector` (`open` sets its visibility;
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
@@ -86,6 +88,7 @@ enum DebugAgentPane {
         let action = params["action"]?.stringValue ?? ""
         keepRenderingWhenCovered(view.webView)
         actAsUser(action, gestures: view.model.transport.gestures)
+        if action == "preview_theme" { return view.previewTheme(params["mode"]?.stringValue, pane: pane) }
         if action == "pid" {
             guard let pid = WebContentProcess.identifier(of: view.webView) else {
                 return .object(["pane": .string(pane), "error": .string("no WebContent process")])
@@ -212,6 +215,7 @@ enum DebugAgentPane {
         }
         const animationsPending = menuAnimations.some((animation) => animation.playState === 'running');
         return JSON.stringify({
+          page_url: location.href,
           body_text_length: bodyText.length,
           transcript_rows: transcriptRows,
           composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,

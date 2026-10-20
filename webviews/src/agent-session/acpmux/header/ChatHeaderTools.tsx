@@ -14,6 +14,7 @@ import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
+import { useHeaderStyle } from "./headerStyle";
 import { PullRequestChip } from "./PullRequestChip";
 import { useWorktree, WorktreePill } from "./WorktreePill";
 import type { MergeResult } from "./PullRequestMerge";
@@ -59,6 +60,9 @@ export type ChatMenuItem =
       shortcutAction?: string;
       disabled?: boolean;
       onSelect?: () => void;
+      /// Run `onSelect` once the menu has closed and given focus back to its button, so a dialog it
+      /// opens returns focus there when it closes.
+      afterClose?: boolean;
       children?: ChatMenuChild[];
     };
 
@@ -86,6 +90,7 @@ export function ChatHeaderTools({
   hasChanges = false,
   onChanges,
   onFiles,
+  viewing,
   previewUrl,
   onPreview,
   sideTabs = false,
@@ -117,7 +122,10 @@ export function ChatHeaderTools({
   /// Changes runs the diff viewer with the quick action's mode, as Terminal and Browser run their split.
   onChanges?: (mode: QuickActionMode) => void;
   /// Files runs the tree of the chat's folder with the quick action's mode; without it (a remote chat) Files hides.
-  onFiles?: (mode: QuickActionMode) => void;
+  onFiles?: (mode: QuickActionMode, opener?: HTMLElement) => void;
+  /// What the chat's own viewer shows (labs chatViewer: HEADER_ACTIONS.files): its button
+  /// lights, as a split the host reports lit does, so it reads as the way to close it.
+  viewing?: readonly string[];
   /// The local page the chat's last turn started or mentioned: Preview shows then, and while its page is open.
   previewUrl?: string;
   /// Preview opens `url` beside the chat with the quick action's mode; a click that closes it may name none.
@@ -159,10 +167,21 @@ export function ChatHeaderTools({
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
   const actions = useQuickActions();
-  const { lit, pullRequest } = useHeaderState();
+  const { lit, pullRequest, panelTabs } = useHeaderState();
+  // The [+] designs (headerStyle.ts): one menu of the tabs the chat opens beside it, in place of the
+  // quick-action buttons (Terminal keeps its button in `add-terminal`).
+  const style = useHeaderStyle();
+  const adds = style !== "buttons";
+  const trayed = style === "tray" || style === "labels" || style === "quiet" || style === "expand";
+  // Panels as tabs on the right (`agentChat.panelTabs`): with panes beside the chat its tab strip is
+  // where new tabs go, so the header keeps only the summary and "...", which lists the quick actions.
+  // [+] stays: it is the one place a tab is added from, and it adds to that strip.
+  const quiet = panelTabs && sideTabs && !adds;
   const worktree = useWorktree(folder, readStatus, statusKey);
   // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
-  const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
+  const on = (action: string, mode: QuickActionMode) =>
+    (action === HEADER_ACTIONS.files && viewing?.includes(action)) ||
+    (mode === "toggle" ? lit.includes(action) : undefined);
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
@@ -170,6 +189,8 @@ export function ChatHeaderTools({
   // Built when "..." reads its rows, after the App's tab state refresh (onMenuOpen): the props of this
   // render, and the lit splits as the App last pushed them.
   const live = useRef({
+    adds,
+    quiet,
     actions,
     tabTools,
     sideTabs,
@@ -180,8 +201,12 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
+    onTerminal,
+    onBrowser,
   });
   live.current = {
+    adds,
+    quiet,
     actions,
     tabTools,
     sideTabs,
@@ -192,9 +217,13 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
+    onTerminal,
+    onBrowser,
   };
   const foldedRows = (): ChatMenuItem[] => {
     const {
+      adds,
+      quiet,
       actions,
       tabTools,
       sideTabs,
@@ -205,11 +234,38 @@ export function ChatHeaderTools({
       onSideTabs,
       onFiles,
       onSplitDown,
+      onTerminal,
+      onBrowser,
     } = live.current;
     if (!tabTools) return [];
     const { lit } = headerState();
-    const shownIds = new Set(actions.map((action) => action.id));
+    // With [+], the tabs are its rows; "..." keeps only New tab / Hide tabs.
+    const shownIds = new Set<QuickActionId>(
+      adds
+        ? // The tray designs leave Split Down in "..." (Lucas 2026-10-17: not in the row).
+          QUICK_ACTION_IDS.filter((id) => id !== "newTab" && !(trayed && id === "splitDown"))
+        : quiet
+          ? []
+          : actions.map((action) => action.id),
+    );
     const folded: ChatMenuItem[] = [];
+    // Terminal and Browser always have a button, except in the quiet header.
+    if (quiet) {
+      folded.push({
+        key: "quick-terminal",
+        label: t("header.terminal"),
+        icon: "terminal",
+        shortcutAction: HEADER_ACTIONS.terminal,
+        onSelect: () => onTerminal(modeOf(actions, "terminal")),
+      });
+      folded.push({
+        key: "quick-browser",
+        label: t("header.browser"),
+        icon: "browser",
+        shortcutAction: HEADER_ACTIONS.browser,
+        onSelect: () => onBrowser(modeOf(actions, "browser")),
+      });
+    }
     if (onChanges && !shownIds.has("changes") && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
       folded.push({
         key: "quick-changes",
@@ -250,7 +306,156 @@ export function ChatHeaderTools({
     return folded;
   };
   const rows = () => menuGroups(foldedRows(), menu());
-  const buttons = tabTools && actions.length > 0 && (
+  // [+]'s rows: each tab the chat can open beside it now. Terminal, Browser and Split Down add
+  // another on every pick; Changes, Preview and Files open theirs and are left out while it is open.
+  const addRows = (): ChatMenuItem[] => {
+    const { lit } = headerState();
+    const rows: ChatMenuItem[] = [];
+    if (style !== "add-terminal")
+      rows.push({
+        key: "add-terminal",
+        label: t("header.terminal"),
+        icon: "terminal",
+        shortcutAction: HEADER_ACTIONS.terminal,
+        onSelect: () => onTerminal("open"),
+      });
+    rows.push({
+      key: "add-browser",
+      label: t("header.browser"),
+      icon: "browser",
+      shortcutAction: HEADER_ACTIONS.browser,
+      onSelect: () => onBrowser("open"),
+    });
+    if (onChanges && hasChanges && !lit.includes(HEADER_ACTIONS.changes))
+      rows.push({
+        key: "add-changes",
+        label: t("header.changes"),
+        icon: "diff.file",
+        shortcutAction: HEADER_ACTIONS.changes,
+        onSelect: () => onChanges("toggle"),
+      });
+    if (onPreview && previewUrl && !lit.includes(HEADER_ACTIONS.preview))
+      rows.push({
+        key: "add-preview",
+        label: t("header.preview"),
+        icon: "media.play",
+        onSelect: () => onPreview(previewUrl, "toggle"),
+      });
+    if (onFiles && !lit.includes(HEADER_ACTIONS.files))
+      rows.push({ key: "add-files", label: t("header.files"), icon: "folder", onSelect: () => onFiles("toggle") });
+    if (onSplitDown)
+      rows.push({
+        key: "add-splitDown",
+        label: t("header.splitDown"),
+        icon: "pane.split.down",
+        shortcutAction: HEADER_ACTIONS.splitDown,
+        onSelect: () => onSplitDown("open"),
+      });
+    return rows;
+  };
+  // The tray designs: every tab the chat can open beside it, laid out as one group. Terminal,
+  // Browser and Split Down add another on every click; Changes, Preview and Files toggle theirs and
+  // show lit while it is open.
+  const labeled = style === "labels" || style === "expand";
+  const trayItems = (): {
+    key: string;
+    label: string;
+    icon: string;
+    shortcut?: string;
+    pressed?: boolean;
+    run: (opener?: HTMLElement) => void;
+  }[] => {
+    const items: {
+      key: string;
+      label: string;
+      icon: string;
+      shortcut?: string;
+      pressed?: boolean;
+      run: (opener?: HTMLElement) => void;
+    }[] = [
+      {
+        key: "terminal",
+        label: t("header.terminal"),
+        icon: "terminal",
+        shortcut: terminalKey,
+        run: () => onTerminal("open"),
+      },
+      {
+        key: "browser",
+        label: t("header.browser"),
+        icon: "browser",
+        shortcut: browserKey,
+        run: () => onBrowser("open"),
+      },
+    ];
+    if (onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
+      items.push({
+        key: "changes",
+        label: t("header.changes"),
+        icon: "diff.file",
+        shortcut: changesKey,
+        pressed: on(HEADER_ACTIONS.changes, "toggle"),
+        run: () => onChanges("toggle"),
+      });
+    if (onPreview && (previewUrl || lit.includes(HEADER_ACTIONS.preview)))
+      items.push({
+        key: "preview",
+        label: t("header.preview"),
+        icon: "media.play",
+        pressed: lit.includes(HEADER_ACTIONS.preview),
+        run: () => onPreview(previewUrl, "toggle"),
+      });
+    if (onFiles)
+      items.push({
+        key: "files",
+        label: t("header.files"),
+        icon: "folder",
+        pressed: on(HEADER_ACTIONS.files, "toggle"),
+        run: (opener) => onFiles("toggle", opener),
+      });
+    return items;
+  };
+  const tray = tabTools && trayed && (
+    <fieldset className={`acpmux-header-tray acpmux-header-tray--${style}`}>
+      {trayItems().map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          data-quick-action={item.key}
+          className="acpmux-header-tool"
+          aria-label={item.label}
+          aria-pressed={item.pressed}
+          {...tooltipProps(item.label, item.shortcut)}
+          onClick={(event) => item.run(event.currentTarget)}
+        >
+          <Icon name={item.icon} size={15} />
+          {labeled && (
+            <span className="acpmux-header-tray__label" aria-hidden="true">
+              {item.label}
+            </span>
+          )}
+        </button>
+      ))}
+    </fieldset>
+  );
+  const addTools = tabTools && adds && !trayed && (
+    <>
+      {style === "add-terminal" && (
+        <button
+          type="button"
+          data-quick-action="terminal"
+          className="acpmux-header-tool"
+          aria-label={t("header.terminal")}
+          {...tooltipProps(t("header.terminal"), terminalKey)}
+          onClick={() => onTerminal("open")}
+        >
+          <Icon name="terminal" size={15} />
+        </button>
+      )}
+      <ChatMenu items={addRows} label={t("header.newTab")} icon="action.add" onOpen={onMenuOpen} />
+    </>
+  );
+  const buttons = tabTools && !quiet && !adds && actions.length > 0 && (
     <>
       {actions.map(({ id, mode }) =>
         id === "newTab" ? (
@@ -293,7 +498,7 @@ export function ChatHeaderTools({
               aria-label={t("header.files")}
               aria-pressed={on(HEADER_ACTIONS.files, mode)}
               title={t("header.files")}
-              onClick={() => onFiles(mode)}
+              onClick={(event) => onFiles(mode, event.currentTarget)}
             >
               <Icon name="folder" size={15} />
             </button>
@@ -365,7 +570,7 @@ export function ChatHeaderTools({
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
-      {buttons ? (
+      {buttons || addTools || tray ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (
             // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
@@ -390,9 +595,11 @@ export function ChatHeaderTools({
           ) : (
             buttons
           )}
+          {addTools}
+          {tray}
         </div>
       ) : null}
-      {buttons ? <hr className="acpmux-header-separator" aria-orientation="vertical" /> : null}
+      {buttons || addTools || tray ? <hr className="acpmux-header-separator" aria-orientation="vertical" /> : null}
       <div className="acpmux-header-tool-group acpmux-header-tool-group-meta">
         {sessionRail}
         {summary}
@@ -407,6 +614,10 @@ export function ChatHeaderTools({
     </div>
   );
 }
+
+/// How a quick action's click behaves as the person set it (toggle unless they chose open).
+const modeOf = (actions: readonly QuickAction[], id: QuickActionId): QuickActionMode =>
+  actions.find((action) => action.id === id)?.mode ?? "toggle";
 
 /// The quick actions that show whatever the chat holds (Changes and Preview need edits or a page,
 /// Files a folder on this Mac).
@@ -502,8 +713,13 @@ function ChatMenu({
   onOpen,
   expand,
   onExpanded,
+  label: named,
+  icon = "action.more",
 }: {
   items: () => ChatMenuItem[];
+  /// Another menu on the same pattern ([+], headerStyle.ts): its label and glyph.
+  label?: string;
+  icon?: string;
   /// No rows yet (Quick Chat before its session): the button stays, disabled.
   disabled?: boolean;
   onOpen?: () => Promise<unknown>;
@@ -537,19 +753,34 @@ function ChatMenu({
     onExpanded?.();
   }, [expand, onExpanded]);
   // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
-  const label = t("chatMenu.open");
+  const label = named ?? t("chatMenu.open");
   useEffect(() => registerPicker(label, () => showRef.current()), [label]);
   const onOpenChange = (next: boolean) => {
     if (next) return show();
     opening.current++;
     setOpen(false);
   };
+  /// A row's action that waits for the menu to finish closing (`afterClose`).
+  const afterClose = useRef<(() => void) | undefined>(undefined);
+  const trigger = useRef<HTMLButtonElement | null>(null);
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
   return (
-    <Menu open={open} onOpenChange={onOpenChange}>
+    <Menu
+      open={open}
+      onOpenChange={onOpenChange}
+      triggerRef={trigger}
+      onOpenChangeComplete={(next) => {
+        const run = afterClose.current;
+        afterClose.current = undefined;
+        if (next || !run) return;
+        // Focus is back on the menu's button before the action runs, so a dialog it opens returns there.
+        trigger.current?.focus();
+        run();
+      }}
+    >
       <MenuButton className="acpmux-header-tool" label={label} title={label} disabled={disabled}>
-        <Icon name="action.more" size={15} />
+        <Icon name={icon} size={15} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">
         {children
@@ -576,7 +807,13 @@ function ChatMenu({
                   ))}
                 </Submenu>
               ) : (
-                <ChatMenuRow key={row.key} item={row} />
+                <ChatMenuRow
+                  key={row.key}
+                  item={row}
+                  deferAction={(action) => {
+                    afterClose.current = action;
+                  }}
+                />
               ),
             )}
       </MenuPopup>
@@ -584,10 +821,17 @@ function ChatMenu({
   );
 }
 
-function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
+function ChatMenuRow({
+  item,
+  deferAction,
+}: {
+  item: Exclude<ChatMenuItem, "separator">;
+  deferAction: (action: () => void) => void;
+}) {
   const shortcut = useShortcut(item.shortcutAction ?? "");
+  const onSelect = item.afterClose && item.onSelect ? () => deferAction(item.onSelect!) : item.onSelect;
   return (
-    <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
+    <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={onSelect}>
       <Icon name={item.icon} size={15} />
       <span className="acpmux-chat-menu-label">{item.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}

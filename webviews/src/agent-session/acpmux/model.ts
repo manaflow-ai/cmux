@@ -11,7 +11,10 @@ import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
+import { isThoughtNote } from "./conversation/thoughtStyle";
 import type { ComposerAttachment } from "./attachments";
+import { labOn } from "./labs";
+import { PROMPT_LINES, promptExpanded } from "./conversation/promptCollapse";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
@@ -88,6 +91,10 @@ export type AcpmuxRow = {
   seq?: number;
   text?: string;
   streaming?: boolean;
+  /// This reply began on the live transport, never during attach or history replay.
+  renderLive?: boolean;
+  /// The attachment on which this row began, so virtualization cannot renew live execution.
+  renderAttachment?: number;
   pending?: boolean;
   failed?: boolean;
   items?: AcpmuxActivity[];
@@ -458,6 +465,12 @@ const LIST_INDENT = 28;
 const QUOTE_INDENT = 21;
 /// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset.
 const CODE_CHROME = 58.5;
+/// The slim code card (`data-chat-code="slim"`, conversation/chatLook.css): a 32px header over 12px.
+const SLIM_CODE_CHROME = 44;
+const codeChrome = () =>
+  typeof document !== "undefined" && document.documentElement.dataset.chatCode === "slim"
+    ? SLIM_CODE_CHROME
+    : CODE_CHROME;
 const CODE_PADDING = 13;
 /// Table rows: 23px lines with 17px of padding.
 const TABLE_ROW_HEIGHT = 40;
@@ -669,7 +682,7 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
       const lines = (block as Tokens.Code).text.split("\n");
       const { codeCharWidth, codeLineHeight } = metrics();
       const scrolls = lines.some((line) => line.length * codeCharWidth > width - CODE_PADDING);
-      return CODE_CHROME + lines.length * codeLineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
+      return codeChrome() + lines.length * codeLineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
     }
     case "table":
       return (1 + (block as Tokens.Table).rows.length) * TABLE_ROW_HEIGHT;
@@ -707,9 +720,11 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
   entry.text = text;
 }
 
-function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
+function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>, sessionId: string): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
+  // A note between steps drawn as a closed thought line, as a one-call tool row.
+  if (isThoughtNote(row)) return 36;
   // Another agent's message: its route line over two lines of the message; a notice is a tool
   // row's line (conversation/IncomingMessageCard.tsx).
   // Its images' 72px row with 6px below, and a steer's status line, as under a bubble.
@@ -728,6 +743,17 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   if (row.incoming?.kind === "hidden") return 0;
   // A preview row's text is its address, not prose: the card's height is fixed.
   if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width);
+  if (row.kind === "user" && labOn("promptCollapse")) {
+    const contentWidth = Math.max(80, USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES);
+    const height = textHeight(row.text, contentWidth, new Map());
+    const long = height > PROMPT_LINES * metrics().lineHeight;
+    return (
+      16 +
+      chromeHeight(row) +
+      (long && !promptExpanded(row.id, sessionId) ? PROMPT_LINES * metrics().lineHeight : height) +
+      (long ? 24 : 0)
+    );
+  }
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
@@ -759,6 +785,7 @@ export function layoutConversation(
   /// The last layout at this width, whose rows (by object) the new rows may start with: those
   /// keep their places, and only the rows after the first change are placed again.
   previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
+  sessionId = "",
 ): ConversationLayout {
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
@@ -781,7 +808,7 @@ export function layoutConversation(
       height =
         customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
           ? customHeight
-          : measuredRowHeight(row, width, cache);
+          : measuredRowHeight(row, width, cache, sessionId);
       known?.set(row, { width, height });
     }
     heights[index] = height;

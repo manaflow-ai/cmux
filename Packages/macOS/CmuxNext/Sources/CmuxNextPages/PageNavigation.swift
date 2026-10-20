@@ -7,11 +7,18 @@ public nonisolated struct PageNavigation: Sendable, Equatable {
     public let userClicked: Bool
     /// The navigation is in the page's main frame (not in a frame inside it).
     public let mainFrame: Bool
+    /// The target frame's current document, before this navigation (blank on its first load).
+    public let targetFrameURL: URL?
+    /// The document that requested the navigation, which may differ from the target frame.
+    public let sourceFrameURL: URL?
 
-    public init(url: URL, userClicked: Bool, mainFrame: Bool) {
+    public init(url: URL, userClicked: Bool, mainFrame: Bool,
+                targetFrameURL: URL? = nil, sourceFrameURL: URL? = nil) {
         self.url = url
         self.userClicked = userClicked
         self.mainFrame = mainFrame
+        self.targetFrameURL = targetFrameURL
+        self.sourceFrameURL = sourceFrameURL
     }
 
     /// What the host does with a navigation.
@@ -23,16 +30,19 @@ public nonisolated struct PageNavigation: Sendable, Equatable {
         case cancel
     }
 
-    /// The policy for `url`: the page's own origin never reaches `hook`; the main frame stays on
-    /// the page's own document (``PageDescriptor/isEntryDocument(_:)``), and a frame inside it may
-    /// load any document of the origin. `hook` decides every other navigation; without a hook, only
-    /// a link the user clicked in the main frame opens outside, and everything else (an automatic
-    /// redirect, a frame) is cancelled.
+    /// The policy for `url`: the main frame stays on the page's own document
+    /// (``PageDescriptor/isEntryDocument(_:)``). `hook` decides subframe navigations, including
+    /// the page's own origin, so a host can confine an untrusted frame after its first load. It
+    /// also decides main-frame navigations outside the page's origin. Without a hook, subframes
+    /// may load only the page's origin, and only a link the user clicked in the main frame opens
+    /// outside; everything else is cancelled.
     public static func policy(for url: URL?, page: PageDescriptor, userClicked: Bool, mainFrame: Bool,
+                              targetFrameURL: URL? = nil, sourceFrameURL: URL? = nil,
                               hook: ((PageNavigation) -> Policy)?) -> Policy {
         guard let url else { return .cancel }
-        if page.owns(url) { return !mainFrame || page.isEntryDocument(url) ? .allow : .cancel }
-        let navigation = PageNavigation(url: url, userClicked: userClicked, mainFrame: mainFrame)
+        if page.owns(url), mainFrame || hook == nil { return !mainFrame || page.isEntryDocument(url) ? .allow : .cancel }
+        let navigation = PageNavigation(url: url, userClicked: userClicked, mainFrame: mainFrame,
+                                        targetFrameURL: targetFrameURL, sourceFrameURL: sourceFrameURL)
         if let hook { return hook(navigation) }
         return userClicked && mainFrame && url.scheme?.lowercased() != "about" ? .openExternal : .cancel
     }

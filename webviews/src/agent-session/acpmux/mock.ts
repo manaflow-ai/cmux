@@ -1,4 +1,6 @@
 import { stricterTrust, type HarnessTrust, type TrustLevel } from "./folderTrust";
+import { labOn } from "./labs";
+import { liveRenderTurn, liveRenderDemoHTML, liveRenderShowcaseHTML, liveReactDemoSource } from "./mockFixture";
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
 import { FORK_OP } from "./operations";
 import { HANDOFF_OPS } from "./handoff/protocol";
@@ -113,6 +115,21 @@ export function mockTurn(prompt: string, turn: number): Step[] {
   const greeting = "/mock/project/src/greeting.ts";
   const notes = "/mock/project/NOTES.md";
   return [
+    // One mock turn exercises the running strip only in its lab (Lucas 2026-10-18).
+    ...(turn === 1 && labOn("planProgress")
+      ? [
+          {
+            update: {
+              sessionUpdate: "plan",
+              entries: [
+                { content: "Read src/greeting.ts", status: "in_progress", priority: "medium" },
+                { content: "Edit src/greeting.ts", status: "pending", priority: "medium" },
+                { content: "Write NOTES.md", status: "pending", priority: "medium" },
+              ],
+            },
+          },
+        ]
+      : []),
     { update: text("I'll look at the greeting helper") },
     { update: text(" first.") },
     {
@@ -250,6 +267,8 @@ export class MockAcpmuxSocket {
       if (entry.sessionId === sessionId) this.listCommands(sessionId, now - 7 * 60_000);
       const steps: SeedStep[] = entry.sessionId === sessionId ? workedTurn : sessionHistory(entry);
       for (const { ago, ...step } of steps) this.record(entry.sessionId, step as Step, now - ago);
+      if (entry.sessionId === sessionId && labOn("liveRender"))
+        for (const { ago, ...step } of liveRenderTurn()) this.record(entry.sessionId, step as Step, now - ago);
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
   }
@@ -665,9 +684,29 @@ export class MockAcpmuxSocket {
       msg: { text: prompt, promptId, ...(images.length > 0 ? { images } : {}) },
     });
     this.emit(target, { mux: "turn_started" });
-    const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
+    const showcase = /render a showcase/i.test(prompt);
+    const reactDemo = /render a react demo/i.test(prompt);
+    const demo = !this.script && labOn("liveRender") && (showcase || reactDemo || /render a demo/i.test(prompt));
+    const html = demo
+      ? showcase
+        ? liveRenderShowcaseHTML()
+        : reactDemo
+          ? liveReactDemoSource()
+          : liveRenderDemoHTML()
+      : "";
+    const fence = (reactDemo ? "```cmux-react\n" : "```cmux-render\n") + html + "\n```";
+    const steps: MockScript["steps"] =
+      this.script?.steps ??
+      (demo
+        ? Array.from({ length: Math.ceil(fence.length / 20) }, (_, index) => ({
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: fence.slice(index * 20, (index + 1) * 20) },
+            },
+          }))
+        : mockTurn(prompt, this.turns));
     for (const step of steps) {
-      if (!this.script) await this.delay(350);
+      if (!this.script) await this.delay(demo ? 30 : 350);
       if (running.cancelled || this.closed) break;
       this.emit(target, step, step.atMs === undefined ? undefined : started + step.atMs);
     }

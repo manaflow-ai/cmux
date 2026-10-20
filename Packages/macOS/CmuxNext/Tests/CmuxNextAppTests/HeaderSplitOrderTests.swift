@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import Testing
@@ -83,7 +84,7 @@ struct HeaderSplitOrderTests {
         }
 
         func click(_ id: String, toggles: AgentChatSplitToggles, url: String? = nil) {
-            let actions = AgentChatTabActions(tab: { [chat] in chat }, registry: { [registry] in registry })
+            let actions = AgentChatTabActions(tab: { [chat] in chat }, registry: { [registry] in registry }, splitInherits: { NewTerminalStart.inherits(.split) })
             toggles.toggle(id, cwd: id == "splitRight" ? nil : cwd, url: url, chat: chat, store: store, actions: actions)
         }
 
@@ -170,19 +171,19 @@ struct HeaderSplitOrderTests {
     @Test func terminalInheritsTheChatsFolderOnlyWhenSplitsInherit() {
         let row = Row(), toggles = AgentChatSplitToggles()
         for inherits in [true, false] {
-            var actions = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry })
+            var actions = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry }, splitInherits: { NewTerminalStart.inherits(.split) })
             actions.splitInherits = { inherits }
             toggles.open("splitRight", cwd: row.cwd, chat: row.chat, store: row.store, actions: actions)
             #expect(row.invocations["splitRight"]?["cwd"]?.stringValue == (inherits ? row.cwd : nil), "inherits \(inherits)")
         }
         // A chat of another machine keeps its folder: the key is this Mac's (NewTerminalStart).
-        var remote = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry })
+        var remote = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry }, splitInherits: { NewTerminalStart.inherits(.split) })
         remote.splitInherits = { false }
         remote.local = { false }
         toggles.open("splitRight", cwd: row.cwd, chat: row.chat, store: row.store, actions: remote)
         #expect(row.invocations["splitRight"]?["cwd"]?.stringValue == row.cwd)
         // Browser names no folder either way.
-        var actions = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry })
+        var actions = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry }, splitInherits: { NewTerminalStart.inherits(.split) })
         actions.splitInherits = { false }
         toggles.open("splitBrowserRight", cwd: row.cwd, chat: row.chat, store: row.store, actions: actions)
         #expect(row.invocations["splitBrowserRight"]?["cwd"]?.stringValue == row.cwd)

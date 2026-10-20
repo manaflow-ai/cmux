@@ -8,47 +8,43 @@ import CmuxNextDaemon
 extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String) {
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
-                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.lookup(self?.resolve(provisional) ?? provisional)?.record) }, local: { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true })
+                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.lookup(self?.resolve(provisional) ?? provisional)?.record) }, splitInherits: { NewTerminalStart.inherits(.split) }, local: { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true })
         let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest()
-        let watch = AgentChatHeaderWatch(state: { [weak self] in
+        actions.registerHeader(on: model, cwd: { [weak self] in self?.lookup($0)?.store.tab(id: $0)?.cwd }, local: { [weak self] in self?.gitLink?($0)?.isLocal == true }, state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
             let chat = resolve(provisional)
             return toggles.headerState(chat: chat, store: lookup(chat)?.store, pullRequest: gitLink?(chat)?.isLocal == true ? pullRequest : nil)
         }, push: { [weak self] state in
             guard let view = self?.existingView(provisional) else { return }
             AgentPaneHeaderState.push(state, to: view)
-        })
-        // Watching from the wiring on: a tab rekeyed after the page's first read is wired again,
-        // and its new watch must push without waiting for another read.
-        watch.read()
-        model.header = AgentPaneHeaderHooks(run: { [weak self] id, cwd in
-            let chat = self?.resolve(provisional) ?? provisional
-            toggles.open(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
-        }, toggle: { [weak self] id, cwd in
-            let chat = self?.resolve(provisional) ?? provisional
-            toggles.toggle(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
-        }, tabState: {
-            // The page reads the state when a chat opens; its changes are pushed.
-            watch.read()
-        }, openSide: { [weak self] chat, fork in // the tracker (AgentSidePanes) picks the side pane's tab or a new split; the app opens there
-            guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional), pane: { [weak self] in self?.locate(self?.resolve($0) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }) { [weak self] anchor, created, finished in
-                self?.openBeside(anchor ?? provisional, split: anchor == nil, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork) }, created: created, finished: { _ in finished() }) ?? false }
-        }, openTab: { [weak self] session in guard let self else { return false }; return openBeside(provisional, split: false) { pane, daemon in try self.open(in: pane, of: daemon, session: session) } }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
-            guard let self else { return nil }
-            let chat = resolve(provisional)
-            return toggles.sideTabs(chat: chat, store: lookup(chat)?.store, actions: actions) { [weak self] in
-                self?.openNewTabColumn(beside: provisional) ?? false
-            }
-        }, preview: { [weak self] url, toggle in
-            let chat = self?.resolve(provisional) ?? provisional
-            let store = self?.lookup(chat)?.store, id = AgentPaneModel.previewAction
-            if toggle { toggles.toggle(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
-            else { toggles.open(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
-        }, saveQuickActions: { [weak self] list in
-            await self?.customization.saveQuickActions(list) ?? false
-        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain)
-        model.chatMenuItems = actions.menuItems
-        model.onSearchWeb = actions.searchWeb
+        }) { watch in
+            AgentPaneHeaderHooks(run: { [weak self] id, cwd in
+                let chat = self?.resolve(provisional) ?? provisional
+                toggles.open(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
+            }, toggle: { [weak self] id, cwd in
+                let chat = self?.resolve(provisional) ?? provisional
+                toggles.toggle(id, cwd: cwd, chat: chat, store: self?.lookup(chat)?.store, actions: actions)
+            }, tabState: {
+                // The page reads the state when a chat opens; its changes are pushed.
+                watch.read()
+            }, openSide: { [weak self] chat, fork in // the tracker (AgentSidePanes) picks the side pane's tab or a new split; the app opens there
+                guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional), pane: { [weak self] in self?.locate(self?.resolve($0) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }) { [weak self] anchor, created, finished in
+                    self?.openBeside(anchor ?? provisional, split: anchor == nil, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork) }, created: created, finished: { _ in finished() }) ?? false }
+            }, openTab: { [weak self] session in guard let self else { return false }; return openBeside(provisional, split: false) { pane, daemon in try self.open(in: pane, of: daemon, session: session) } }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
+                guard let self else { return nil }
+                let chat = resolve(provisional)
+                return toggles.sideTabs(chat: chat, store: lookup(chat)?.store, actions: actions) { [weak self] in
+                    self?.openNewTabColumn(beside: provisional) ?? false
+                }
+            }, preview: { [weak self] url, toggle in
+                let chat = self?.resolve(provisional) ?? provisional
+                let store = self?.lookup(chat)?.store, id = AgentPaneModel.previewAction
+                if toggle { toggles.toggle(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
+                else { toggles.open(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
+            }, saveQuickActions: { [weak self] list in
+                await self?.customization.saveQuickActions(list) ?? false
+            }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain)
+        }
     }
 
     /// [+] New tab's column: a New Tab page in the chat's folder (or `cwd`, New Chat Here), moved to
@@ -57,7 +53,9 @@ extension AgentTabStore {
     private func openNewTabColumn(beside provisional: String, cwd: String? = nil, split: Bool = true) -> Bool {
         let chat = resolve(provisional)
         // The page opens on the chat's machine: that machine's folders, never this Mac's (cx-k21v).
-        guard let newTab = firstPageNewTab?(cwd ?? lookup(chat)?.store.tab(id: chat)?.cwd, chat) else { return false }
+        guard var newTab = firstPageNewTab?(cwd ?? lookup(chat)?.store.tab(id: chat)?.cwd, chat) else { return false }
+        // The chat's side column (`agentChat.sideColumn`) starts as tiles of what it can hold.
+        AgentChatPanelPlacement().configure(&newTab.page, split: split)
         return openBeside(provisional, split: split) { pane, daemon in try self.open(in: pane, of: daemon, newTab: newTab) }
     }
 

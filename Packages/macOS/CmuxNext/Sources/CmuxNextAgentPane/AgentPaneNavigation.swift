@@ -6,7 +6,7 @@ import WebKit
 /// document. A clicked http(s) link, or a cmux app link (opened in the app), opens outside the pane after a real user gesture
 /// (``openOutside(_:gestures:open:)``); a frame inside the page may show a loopback web page (a
 /// turn's preview card, `URL.isAgentPanePreview`) or the render frame (a render card,
-/// `AgentPaneRenderFrame`); every other navigation is cancelled.
+/// `AgentPaneRenderFrame`, loaded once); every other navigation is cancelled.
 final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     weak var view: AgentPaneView?
 
@@ -20,7 +20,9 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
             for: action.request.url,
             source: view.source,
             userClicked: action.navigationType == .linkActivated,
-            mainFrame: action.targetFrame?.isMainFrame ?? true
+            mainFrame: action.targetFrame?.isMainFrame ?? true,
+            targetFrameURL: action.targetFrame?.request.url,
+            sourceFrameURL: action.sourceFrame.request.url
         ) {
         case .allow:
             decisionHandler(.allow)
@@ -69,18 +71,50 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         case cancel
     }
 
-    static func decision(for url: URL?, source: AgentPaneSource, userClicked: Bool, mainFrame: Bool = true) -> Decision {
+    static func decision(for navigation: PageNavigation, source: AgentPaneSource) -> Decision {
+        decision(for: navigation.url, source: source, userClicked: navigation.userClicked,
+                 mainFrame: navigation.mainFrame, targetFrameURL: navigation.targetFrameURL,
+                 sourceFrameURL: navigation.sourceFrameURL)
+    }
+
+    static func decision(for url: URL?, source: AgentPaneSource, userClicked: Bool, mainFrame: Bool = true,
+                         targetFrameURL: URL? = nil, sourceFrameURL: URL? = nil) -> Decision {
         guard let url else { return .cancel }
+        // WKFrameInfo is a snapshot, not a stable iframe identity. Its current request is the
+        // frame's load state: initially blank, then the render document, including after
+        // document.open/write. Check the target too so a parent cannot navigate a loaded render.
+        // RenderCard uses srcdoc on the shared page host; PreviewCard always uses a loopback URL.
+        if [targetFrameURL, sourceFrameURL].contains(where: { current in
+            guard let current else { return false }
+            return isRenderFrame(current, source: source) || (current.scheme == "about" && current.path == "srcdoc")
+        }) { return .cancel }
         if mainFrame, source.isPageDocument(url) { return .allow }
         // A preview frame stays on loopback pages; a click inside it does not leave the frame. It
         // never loads the pane's own page (a dev-server pane is on loopback too), which would make
         // it same-origin with the pane.
         if !mainFrame {
-            if case .bundled = source, AgentPaneRenderFrame.isFrame(url) { return .allow }
+            if isRenderFrame(url, source: source) {
+                // An empty frame: no URL, about:blank, or (newer WebKit) an empty URL.
+                let blank = targetFrameURL.map { $0.absoluteString.isEmpty || $0.absoluteString == "about:blank" } ?? true
+                return blank ? .allow : .cancel
+            }
             return url.isAgentPanePreview && !source.isTrusted(url) ? .allow : .cancel
         }
         if userClicked, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" { return .openOutside(url) }
         if userClicked, isCmuxAppLink(url) { return .openOutside(url) }
         return .cancel
+    }
+
+    private static func isRenderFrame(_ url: URL, source: AgentPaneSource) -> Bool {
+        switch source {
+        case .bundled:
+            return AgentPaneRenderFrame.isFrame(url)
+        case .devServer(let root):
+            let alternateHost = root.host?.lowercased() == "127.0.0.1" ? "localhost" : "127.0.0.1"
+            let renderHost = url.host?.lowercased()
+            return url.scheme?.lowercased() == root.scheme?.lowercased() && url.port == root.port
+                && (renderHost == root.host?.lowercased() || renderHost == alternateHost)
+                && url.user == nil && url.password == nil && url.path == "/__cmux-render-frame"
+        }
     }
 }

@@ -128,6 +128,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case processTerminal(toolCall: String)
     /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
     case newChatHere(String)
+    /// `pane.rename {name}`: the chat's tab takes `name`, as Rename Tab with a name does (the header's
+    /// thread title, Lucas 2026-10-17).
+    case renameChat(String)
+    /// `folder.openIn {app?}`: the chat's folder in another app (Thread details' Open in): with no
+    /// `app`, the apps this Mac has; with one, the folder opens there.
+    case openFolderIn(String?)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)

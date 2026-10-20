@@ -17,12 +17,19 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
 
 /// The App's side of the reply link requests (``AgentPaneReplyRequest``): the settings, the
 /// favicon and title lookup, the outside-root confirmation sheet, and the effects. Each has a safe
-/// default, so a host that wires nothing shows globes and plain text and opens nothing outside.
+/// default, so a host that wires nothing fetches no source icons and opens
+/// nothing outside.
 @MainActor public final class AgentPaneReplyLinks {
     /// `agentPane.links.outsideRoots` and `agentPane.images.remote`, read on every request.
     public var settings: @MainActor () -> AgentPaneReplySetting = { .fallback }
     /// The site of each URL (key: the URL as the page sent it), from cmux's own caches.
     public var sites: @MainActor ([URL]) -> [URL: AgentPaneReplySite] = { _ in [:] }
+    /// A site's icon fetched from `url` (the pane module's guarded queue: no cookies, size capped),
+    /// for Thread details sources with labs `sourceIcons` on.
+    public var favicon: @MainActor (URL) async -> AgentPaneSourceIconResult = { _ in .unavailable }
+    var sourceIconsBaseline = AgentPaneTunables.sourceIcons.value
+    var sourceIconsLayout: Bool?
+    var sourceIconRequests: [UUID: (url: URL, task: Task<AgentPaneSourceIconResult, Never>)] = [:]
     /// Asks the user to open a file outside the project (the view's native sheet).
     public var confirmOutside: (@MainActor (_ path: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Shows a folder (in Finder: nothing in it runs).
@@ -72,10 +79,17 @@ extension AgentPaneModel {
             ])
         case .openPath(let path):
             return Self.replyResult(await openReplyPath(path))
+        case .readPath(let path):
+            return await readReplyPath(path)
         case .loadImage(let src):
             return await loadReplyImage(src)
         case .loadMedia(let src):
             return await loadReplyMedia(src)
+        case .favicon(let url):
+            return await replyLinks.sourceIconReply(url)
+        case .cancelFavicon(let url):
+            if let icon = replyLinks.faviconOrigin(url) { replyLinks.cancelSourceIcons(at: icon) }
+            return AgentPaneReply.success()
         case .listBrowsers:
             return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
         case .openIn(let url, let browserId):
@@ -94,6 +108,47 @@ extension AgentPaneModel {
     /// Opens a path chip (D4): the deny list first, then a gesture; inside a root it opens in
     /// cmux's file pages (a folder in Finder); outside, `agentPane.links.outsideRoots` decides.
     func openReplyPath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
+        switch await checkedReplyPath(text) {
+        case .failure(let error): return .failure(error)
+        case .success(let path): return await openResolved(path)
+        }
+    }
+
+    /// A path chip's file as text for the chat's viewer (Lucas 2026-10-19: files open beside the
+    /// chat, inside it): the same checks as ``openReplyPath(_:)``; a folder still opens in Finder.
+    func readReplyPath(_ text: String) async -> [String: Any] {
+        let path: String
+        switch await checkedReplyPath(text) {
+        case .failure(let error): return Self.replyFailure(error)
+        case .success(let checked): path = checked
+        }
+        guard let canonical = AcpmuxPathPolicy.canonical(path) else { return Self.replyFailure(.pathInvalid) }
+        let paths = replyPaths()
+        let outsideRootsAllowed = replyLinks.settings().outsideRoots != .text
+        guard !paths.isDenied(canonical) else { return Self.replyFailure(.pathDenied) }
+        guard paths.allowsRead(canonical, outsideRootsAllowed: outsideRootsAllowed) else { return Self.replyFailure(.pathOutsideRoots) }
+        if AcpmuxPathPolicy.isDirectory(canonical) {
+            replyLinks.revealFolder(URL(fileURLWithPath: canonical, isDirectory: true))
+            return AgentPaneReply.success(["kind": "folder", "path": canonical])
+        }
+        let read = await Task.detached {
+            AgentPaneReplyRequest.FileText(path: canonical, paths: paths, outsideRootsAllowed: outsideRootsAllowed)
+        }.value
+        guard let read else { return Self.replyFailure(.pathInvalid) }
+        // An image, a PDF or another binary file opens as a path chip's open does: the click's
+        // gesture is already spent, so the page could not ask again.
+        guard let content = read.text else {
+            guard let url = AgentPaneFileOpen.resolve(canonical), let onOpenFile else { return Self.replyFailure(.pathInvalid) }
+            return await onOpenFile(url, .tab) ? AgentPaneReply.success(["kind": "opened", "path": canonical]) : Self.replyFailure(.openFailed)
+        }
+        return AgentPaneReply.success([
+            "kind": "text", "path": canonical, "text": content, "bytes": read.bytes, "truncated": read.truncated,
+        ])
+    }
+
+    /// The path after every check a path chip's open makes: the deny list, the roots and
+    /// `agentPane.links.outsideRoots`, then a user gesture.
+    private func checkedReplyPath(_ text: String) async -> Result<String, AgentPaneReplyError> {
         guard let resolved = replyPaths().resolve(text) else { return .failure(.pathInvalid) }
         switch resolved.place {
         case .denied: return .failure(.pathDenied)
@@ -106,11 +161,11 @@ extension AgentPaneModel {
             case .confirm:
                 guard transport.gestures.consume() else { return .failure(.gestureRequired) }
                 guard await confirmOutside(resolved.path) else { return .failure(.notConfirmed) }
-                return await openResolved(resolved.path)
+                return .success(resolved.path)
             }
         }
         guard transport.gestures.consume() else { return .failure(.gestureRequired) }
-        return await openResolved(resolved.path)
+        return .success(resolved.path)
     }
 
     /// Opens `path` after every check: a folder in Finder, a file in the pane's file pages.
@@ -134,8 +189,10 @@ extension AgentPaneModel {
         }
     }
 
-    /// A reply image (D5): a file inside the roots, read by the host; or an https image fetched
-    /// under the network rules, after a click unless `agentPane.images.remote` is `always`.
+    /// A reply image (D5): a file inside the roots, read by the host; one outside them as
+    /// `agentPane.links.outsideRoots` says (Open: at once, Ask: after a click, Text: never), so a
+    /// screenshot the agent saved in a temporary folder shows in the chat; or an https image
+    /// fetched under the network rules, after a click unless `agentPane.images.remote` is `always`.
     func loadReplyImage(_ src: String) async -> [String: Any] {
         if let url = URL(string: src), let scheme = url.scheme?.lowercased(), scheme != "file" {
             guard scheme == "https", AgentPaneSafeFetch.isFetchable(url) else { return Self.replyFailure(.imageRefused) }
@@ -153,8 +210,17 @@ extension AgentPaneModel {
         switch resolved.place {
         case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
         case .denied: return Self.replyFailure(.pathDenied)
-        case .outside: return Self.replyFailure(.pathOutsideRoots)
         case .missing: return Self.replyFailure(.pathInvalid)
+        case .outside:
+            switch replyLinks.settings().outsideRoots {
+            case .text: return Self.replyFailure(.pathOutsideRoots)
+            case .open: break
+            case .confirm: guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
+            }
+            // The link may have changed between the check and now: check the secret names again.
+            guard let canonical = AcpmuxPathPolicy.canonical(resolved.path) else { return Self.replyFailure(.pathInvalid) }
+            guard !replyPaths().isDenied(canonical) else { return Self.replyFailure(.pathDenied) }
+            return Self.replyImage(await AgentPaneReplyImages.local(canonical))
         }
     }
 
