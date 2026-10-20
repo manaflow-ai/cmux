@@ -29,6 +29,8 @@ server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 server.bind(path)
 server.listen(8)
 lock = threading.Lock()
+with open(log, "a") as out:
+    out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE")}}) + "\n")
 def answer(connection):
     with connection:
         data = b""
@@ -43,6 +45,10 @@ def answer(connection):
             out.write(json.dumps({"method": method, "params": params}) + "\n")
         if method == "debug.layers":
             result = {"windows": [{"frame": [100, 100, 800, 600]}]}
+        elif method == "debug.fixture":
+            result = {"rows": params.get("count", 0)}
+        elif method == "debug.fixture_error":
+            result = {"error": "no Home page in the active window"}
         elif method == "debug.window_snapshot" and os.environ.get("FAKE_SNAPSHOT_ERROR"):
             result = {"error": os.environ["FAKE_SNAPSHOT_ERROR"]}
         elif method == "debug.window_snapshot":
@@ -62,7 +68,7 @@ while True:
 FAKE_CLI = r'''#!/usr/bin/env python3
 import json, sys
 if "identify" in sys.argv:
-    print(json.dumps({"app": "cmux-next", "version": "0.0.0", "build": "1"}))
+    print(json.dumps({"app": "cmux-next", "version": "0.0.0", "build": "1", "bundle_id": "dev.cmux.test"}))
 if __import__("os").environ.get("FAKE_CLI_FAIL") and any(
     word in {"unsupported", "required"} for word in sys.argv
 ):
@@ -74,16 +80,18 @@ if __import__("os").environ.get("FAKE_CLI_FAIL") and any(
 FAKE_TOOLS = {
     "stat": "#!/bin/sh\necho root\n",
     "pkill": "#!/bin/sh\nexit 1\n",
+    "osascript": "#!/bin/sh\necho \"$*\" >> \"$FAKE_LOG.osascript\"\n",
     "sips": "#!/bin/sh\n# sips -s format jpeg IN --out OUT\ncp \"$4\" \"$6\"\n",
 }
 
 
 # A screen route through a prefix, the way `launchctl asuser` runs commands:
-# osascript reports a 1600x1000 display and screencapture writes an image.
+# osascript finds the app's window as id 4242 and screencapture writes an
+# image, logging its arguments to FAKE_CAPTURES.
 FAKE_ROUTE = r'''#!/bin/sh
 case "$1" in
-  osascript) echo "[1600, 1000]" ;;
-  /usr/sbin/screencapture) for last; do :; done; printf 'SCREEN' > "$last" ;;
+  osascript) echo 4242 ;;
+  /usr/sbin/screencapture) shift; echo "$*" >> "$FAKE_CAPTURES"; for last; do :; done; printf 'SCREEN' > "$last" ;;
   *) exec "$@" ;;
 esac
 '''
@@ -166,6 +174,16 @@ class AppWindowCaptureTests(unittest.TestCase):
         # No raw window image is left behind outside the published folders.
         self.assertEqual(sorted(path.name for path in out.iterdir()), ["app.log", "frames", "manifest.json", "shots"])
 
+    def test_the_tour_never_activates_the_app(self) -> None:
+        # Tours on one Mac run side by side and drive their apps through the
+        # socket, so none takes focus or the key window from another.
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertFalse(Path(f"{self.log}.osascript").exists())
+        launches = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
+        self.assertEqual(launches, [{"no_activate": "1"}], "the app refuses activation itself")
+
     def test_a_working_window_snapshot_never_probes_the_desktop(self) -> None:
         # A desktop capture shows whatever covers the window (permission
         # prompts, other jobs' windows), so it is only the fallback.
@@ -174,7 +192,8 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertNotIn("no screen capture route", done.stdout)
 
     def test_without_a_window_snapshot_the_tour_uses_a_screen_route(self) -> None:
-        done, manifest = self.run_tour(screen_route=True, FAKE_SNAPSHOT_ERROR="unknown method")
+        done, manifest = self.run_tour(screen_route=True, FAKE_SNAPSHOT_ERROR="unknown method",
+                                       FAKE_CAPTURES=str(self.root / "captures.log"))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(manifest["capture_mode"], "direct")
         self.assertEqual(manifest["frame_interval"], 0.5)
@@ -183,8 +202,14 @@ class AppWindowCaptureTests(unittest.TestCase):
             self.assertEqual(step["status"], "ok")
             self.assertEqual((out / step["shot"]).read_bytes(), b"SCREEN")
         self.assertTrue(manifest["frames"])
-        # Cropped to the window: 1000 - (100 + 600) from the top.
-        self.assertEqual(manifest["capture_rect"], [100, 300, 800, 600])
+        # That window alone, by its window server id, never a rectangle of the
+        # display: another tour's window over it on the same Mac stays out.
+        self.assertEqual(manifest["capture_window"], 4242)
+        captures = (self.root / "captures.log").read_text(encoding="utf-8").splitlines()
+        self.assertTrue(captures)
+        for argv in captures:
+            self.assertIn("-l4242", argv.split())
+            self.assertFalse(any(word.startswith("-R") for word in argv.split()), argv)
 
     def test_a_snapshot_error_is_recorded_on_each_step(self) -> None:
         _, manifest = self.run_tour(FAKE_SNAPSHOT_ERROR="no such window")
@@ -253,6 +278,76 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
         self.assertEqual(manifest["result"], "failed")
         self.assertEqual(manifest["steps"][1]["status"], "failed")
+
+    def test_a_display_step_shoots_the_screen_so_menus_show(self) -> None:
+        # A menu is its own window, so the main window's snapshot leaves it
+        # out; a `display` step's shot comes from the screen, cropped to the window.
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 0},
+            {"title": "Profile menu", "cmux": ["action", "run", "sidebar.profileMenu"], "wait": 0,
+             "display": True},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour(screen_route=True)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["capture_mode"], "app window (debug.window_snapshot)")
+        out = self.root / "out/demo"
+        launch, menu = manifest["steps"]
+        self.assertEqual((out / launch["shot"]).read_bytes(), PNG)
+        self.assertNotIn("shot_error", menu)
+        self.assertEqual((out / menu["shot"]).read_bytes(), b"SCREEN")
+
+    def test_an_rpc_step_sends_its_request_before_the_shot(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Fixture rows", "rpc": {"method": "debug.fixture", "params": {"count": 3}}, "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "pass")
+        step = manifest["steps"][0]
+        self.assertEqual(step["status"], "ok")
+        self.assertEqual(step["rpc"], "debug.fixture")
+        self.assertIn('"rows": 3', step["output"])
+        methods = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        sent = [m for m in methods if m["method"] == "debug.fixture"]
+        self.assertEqual(sent, [{"method": "debug.fixture", "params": {"count": 3}}])
+        self.assertLess(methods.index(sent[0]),
+                        max(i for i, m in enumerate(methods) if m["method"] == "debug.window_snapshot"))
+
+    def test_an_rpc_error_fails_a_required_step_and_degrades_an_optional_one(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Required", "rpc": {"method": "debug.fixture_error"}, "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(manifest["steps"][0]["status"], "failed")
+        self.assertIn("no Home page", manifest["steps"][0]["detail"])
+
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Optional", "rpc": {"method": "debug.unknown"}, "optional": "not in this build", "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "degraded")
+        self.assertEqual(manifest["steps"][0]["status"], "unavailable")
+        self.assertIn("not in this build", manifest["steps"][0]["detail"])
+
+    def test_rpc_needs_a_method_and_object_params(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        for rpc in ({"params": {}}, {"method": "debug.x", "params": []}, {"method": "debug.x", "extra": 1}, "debug.x"):
+            with self.subTest(rpc=rpc):
+                self.tour.write_text(json.dumps({"title": "Demo", "steps": [{"title": "Bad", "rpc": rpc}]}), encoding="utf-8")
+                with self.assertRaisesRegex(tour.TourError, "`rpc` must be"):
+                    tour.load_tour(self.tour)
+
+    def test_display_must_be_true_or_false(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "display": "yes"},
+        ]}), encoding="utf-8")
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with self.assertRaisesRegex(tour.TourError, "`display` must be true or false"):
+            tour.load_tour(self.tour)
 
 
 if __name__ == "__main__":

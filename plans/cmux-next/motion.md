@@ -57,9 +57,13 @@ would do it, spring curves", "proper physics". Design:
 - Splits (only with `ui.paneAnimations` on): every pane edge and divider of a split, a close or a released
   divider springs together from rest (or from the release velocity, in
   fractions of the travel), so the change is one spring on the divider
-  fraction. A pane that changes size keeps one host frame for the motion
-  (`SplitMotion.heldFrame`) and is clipped to the presented rect: content
-  lays out once. A released divider flung onto a snap within
+  fraction. Every moving pane is laid out live at the rect its spring presents
+  on every display frame, its tab strip, terminal and page included, as a
+  live window resize is (Lawrence 2026-10-18: "content must move while it
+  animates"); nothing holds a final-size layout under a clip. A zoom or
+  unzoom does the same on the `zoom` spring: the zooming pane is the topmost
+  layer, its tab strip whole in every frame, and covers the other panes,
+  which stay opaque and still. A released divider flung onto a snap within
   `motion.divider.releaseProjection` of its velocity lands there.
 - New tab (only with `ui.animations.newTab` on; off, every entry point shows
   the tab in its final slot at once, and a closed tab's room closes at once

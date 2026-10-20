@@ -71,6 +71,19 @@ pub const SETTLE_LIMIT: Duration = crate::brain::SETTLE_BOUND;
 /// other prompt in its session is the user's (typed into its chat).
 pub const PROMPT_PREFIX: &str = "optchat-";
 
+/// acpmux errors of a session whose agent host failed to come up, which a
+/// second `session/new` usually gets past (acpmux agent_host/link.rs).
+const TRANSIENT_START_FAILURES: [&str; 3] = [
+    "agent host did not answer hello",
+    "agent host closed the connection during hello",
+    "agent host exited before it was ready",
+];
+
+/// Whether `error` (a failed `session/new`) is worth one more try.
+pub fn is_transient_start_failure(error: &str) -> bool {
+    TRANSIENT_START_FAILURES.iter().any(|t| error.contains(t))
+}
+
 /// What one spawn was given: its id and its subagents' ids.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpawnPlan {
@@ -150,6 +163,9 @@ pub struct QueuedStart {
     pub launch: Option<crate::state::QueuedLaunch>,
     /// The engine of now, for a launch that must be rebuilt.
     pub engine: Option<SpawnEngine>,
+    /// Messages the Chief told it while it was queued: they go in after
+    /// its task.
+    pub extra: Option<String>,
 }
 
 /// A queued subagent's launch.
@@ -363,7 +379,19 @@ impl Spawner {
                 s.cwd.display()
             ));
         }
-        let session = self.agents.new_session(&spec)?;
+        let session = match self.agents.new_session(&spec) {
+            // acpmux's agent host can miss its 5 s startup handshake while
+            // the machine is busy (a10, 2026-10-13: "agent host did not
+            // answer hello within 5s"; the same spawn started at once
+            // after). acpmux now replaces such a host once itself
+            // (cx-7gs9r), but not for a remote-origin chain or a host it
+            // could not end. One more try before the subagent counts as failed.
+            Err(e) if is_transient_start_failure(&e) => {
+                (self.log)(&format!("subagent {id}: {e}; starting it once more"));
+                self.agents.new_session(&spec)?
+            }
+            other => other?,
+        };
         let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
             .map_err(|reason| {
                 let _ = self.agents.end_session(&session);
@@ -392,6 +420,7 @@ impl Spawner {
             &prompt_id,
             tx,
         )?;
+        let _ = self.send(Input::SubagentPrompted { id: id.to_owned() });
         self.forward_answer(id, rx);
         self.trace.emit(
             "subagent.start",
@@ -407,17 +436,18 @@ impl Spawner {
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
         let name = crate::workspaces::name(id, task);
+        let group = crate::workspaces::topic_group(task);
         let key = key.unwrap_or_else(crate::workspaces::new_key);
-        match workspaces.open(&key, &session, &name, &s.cwd) {
+        match workspaces.open(&key, &session, &name, &group, &s.cwd) {
             Ok(key) => {
                 let place = workspaces.place();
                 self.trace.emit(
                     "subagent.workspace",
-                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "place": place}),
+                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place}),
                 );
                 // No link here: the posted reply links every mention (link_subagents), so
                 // the memory keeps the plain id, not a 70-character URL per mention.
-                let note = format!("workspace \"{name}\" in {place}");
+                let note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
                 let _ = self.send(Input::SubagentWorkspace {
                     id: id.to_owned(),
                     key,
@@ -594,7 +624,14 @@ impl Spawner {
             return fail(&e);
         }
         let view = self.chat.render_view().text;
-        match self.start_one(&w.spawn, id, &w.task, &view, w.floor.as_deref(), &w.launch) {
+        let task = match &queued.extra {
+            Some(extra) => format!(
+                "{}\n\nThe Chief sent this while you were queued:\n\n{extra}",
+                w.task
+            ),
+            None => w.task.clone(),
+        };
+        match self.start_one(&w.spawn, id, &task, &view, w.floor.as_deref(), &w.launch) {
             Ok(note) => (self.log)(&format!("subagent {id} started from the queue: {note}")),
             Err(e) => fail(&e),
         }
@@ -907,12 +944,25 @@ impl Orchestrator for Spawner {
     }
 
     fn tell(&self, id: &str, message: &str) -> Result<String, String> {
+        self.tell_keyed(id, message, None)
+    }
+
+    fn tell_keyed(&self, id: &str, message: &str, key: Option<&str>) -> Result<String, String> {
         let (reply, answer) = channel();
         self.send(Input::Tell {
             id: id.to_owned(),
             message: message.to_owned(),
+            key: key.map(str::to_owned),
             reply,
         })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn control(&self, request: crate::tools::ControlCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::Control { request, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?

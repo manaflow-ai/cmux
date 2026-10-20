@@ -46,10 +46,12 @@ extension HomeChannelsSetting {
 }
 
 extension CmuxConfigSnapshot {
-    /// The `home.*` rows: attachment location and the Channels entry; each absent is off, and a value
+    /// The `home.*` rows: attachment location, the Channels entry and the Chief pet; each absent is off, and a value
     /// that is not a bool is off plus a diagnostic.
     mutating func takeHome(_ root: JSONValue) {
         take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
         take(Self.parseLabsToggle(root, path: HomeChannelsSetting.configPath, fallback: false), \.homeChannelsEnabled)
+        take(Self.parseLabsToggle(root, path: HomeChiefPetSetting.configPath, fallback: false), \.homeChiefPetEnabled)
+        take(HomeChiefPetSetting.parseMascot(root), \.homeChiefPetMascot)
     }
 }

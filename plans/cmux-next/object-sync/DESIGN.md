@@ -294,7 +294,9 @@ spec `sync-and-transport.md` section 3. This section lists only what this design
 
 Client: `hello`, `subscribe {stream, after_seq?}`, `unsubscribe`, `op {op, params,
 idempotency_key, origin, expected_revision?}`, `snapshot.request {pending[]}`, `rpc` (at-most-once
-runtime commands such as `terminal.input`), `presence.set`, `channel.open/credit/close`.
+runtime commands such as `terminal.input`), `presence.set`, `channel.open/credit/close`, and the
+ephemeral producer frames `typing {on}`, `run.publish {run, steps}`, `live.publish {frame}`
+(section 10.1).
 Owner: `welcome`, `snapshot {stream, seq, state, decided[], rows?}`, `event {stream, seq, tx, op,
 params, actor, origin, at, effects?}`, `result`, `reject`, `request-settled {stream, sequence,
 ok}`, `owner.status {stream, status, since, cached_seq?}`, `presence`, `rpc.result`.
@@ -313,6 +315,17 @@ Per stream: `confirmed {state, seq}`, loaded rows, `pending` intents (ordered), 
   then), so the UI never flickers back to pre-op state.
 - Snapshot: replace confirmed state and rows when `snap.seq >= confirmed.seq`, drop decided keys
   from `pending` and `expired`, then replay buffered events.
+- A snapshot that does not decode: stay awaiting, keep the buffered events, and send `snapshot.request` again after a backoff (6 attempts after 250 ms, 500 ms, 1 s,
+  2 s, 4 s and 8 s; the delay is capped at 30 s). After the last attempt the connection is dropped
+  and the next one subscribes again. The failure count carries over (except when another principal
+  signs in, which resets the mirror) until a snapshot decodes or an event applies in order, so an
+  owner that keeps sending a bad snapshot is asked once per connection and the transport's
+  reconnect backoff paces it. A snapshot that decodes but that the relay cannot use counts as a
+  failed one after the failures before it; it and an event the relay cannot use give no position
+  (the buffered events they released are dropped, the next snapshot covers them), so the next
+  connection subscribes fresh. An event that does not decode asks for a snapshot at once. The
+  daemon's reconnect backoff resets only after a snapshot or event reached clients with no
+  snapshot failing, not on `welcome`.
 - Reconnect: resend every pending intent with its original key, then request a snapshot. Intents
   older than 24 h expire and are shown, never resent (owners keep decided keys 7 days).
 - Visible state = confirmed + pending intents rendered from their params (a pending bubble, a
@@ -435,6 +448,59 @@ requests routed to it through `HostDO` (`rpc`, `channel.open`) and `HandDO` (`re
 - Hands: the Chief's tools call HandDO (cloud sandboxes, VMs) or the Mac's acpmux hand. With the Mac
   off, a Mac hand answers `offline` and the Chief can choose a cloud hand.
 
+### 10.1 The Mac mini Chief on `cmux.wire/1` (live runs, run steps, typing)
+
+Today a local Chief brain (optchat-chief on a Mac mini, through the daemon proxy) can commit
+messages to a cloud conversation, but it cannot show its work. `CloudPort`
+(`Native/OptChat/optchat-chief/src/cloud/port.rs`) answers `typing_unsupported` and
+`drafts_unsupported`, and inherits `runs_unsupported` (`run_append`) and `live_unsupported`
+(`live_publish`) from the `ConversationPort` defaults. The only producer of run changes and live
+frames in the cloud is the internal Worker RPC `ConversationDO.agentFrame(entity, agent, {typing} |
+{run, steps} | {live})` (`backend/apps/api/src/conversation-do.ts`), which only `ChiefBrainDO`
+can call. Result: on the phone the cloud Chief streams its reply and shows steps; the Mac mini
+Chief is silent until its message commits.
+
+Decision: the agent's needs are frames of `cmux.wire/1` on the conversation socket. There is no
+agent-only path: the frames are the same for every producer, and the owner's authorization rule
+decides who may send them.
+
+| Need | Frame from the producer (conversation socket) | What members receive | Kept |
+| --- | --- | --- | --- |
+| typing | `typing {on}` (exists today for every participant) | `conversation-typing {conversation, participant, on}` | never; gated by `typingGate` |
+| run record and steps of the running turn | `run.publish {run, steps[]}` (`conversation-runs-v1` shapes) | `conversation-run-changed {conversation, run, steps}` | the live buffer only (as today) |
+| live frames of the running turn | `live.publish {frame}` (`chief-live-v1`: `step.delta`, `run.activity`) | the frame (`t` = `type`), and the `run.live` snapshot on join, reconnect and `run.live.get` | the live buffer only |
+| the reply draft | no separate frame: the streaming reply text is the `step.delta` live frame | as above | never |
+
+Rules:
+
+1. Ephemeral. These frames are not ops: no idempotency key, no ledger, no `seq`, never in the
+   outbox or PlanetScale. A member that misses one asks for `run.live.get` or reads the run again.
+   The committed reply is still a `message.send` op under the agent principal.
+2. Admission is the owner's existing rule, applied to the socket principal: the principal is an
+   agent participant of the conversation that has not left (the check `agentFrame` does today),
+   with a per-agent rate limit like `typingGate`. A user principal sending `run.publish` or
+   `live.publish` gets `error auth.forbidden`.
+3. One implementation. `ConversationDO.onFrame` handles `typing`, `run.publish` and
+   `live.publish` with one function; `agentFrame` becomes the in-Worker caller of that same
+   function (ChiefBrainDO keeps its RPC as a transport, not as a second rule set).
+4. The daemon relays, it does not interpret. The daemon proxy already has a per-target outbox for
+   client frames on the conversation socket (`run.live.get`). It adds three commands for trusted
+   local clients, `cloud-conversation-typing`, `cloud-conversation-run-publish` and
+   `cloud-conversation-live-publish`, that put the frame in that outbox while the stream is live
+   (refused with `cloud_unavailable` otherwise, never queued), advertised as
+   `cloud-agent-frames-v1`. The socket's principal is the lease's (an agent lease on the Mac mini
+   Chief host), so the owner's rule 2 applies with no daemon-side policy.
+5. `CloudPort` implements `typing`, `run_append`, `live_publish` and `draft` (as a `step.delta`)
+   over those commands when the daemon advertises `cloud-agent-frames-v1`, and keeps the
+   `*_unsupported` answers otherwise.
+6. The spec frame list (section 6.1 here, `sync-and-transport.md` section 3) gains `run.publish`
+   and `live.publish` as client frames; `conversation-typing`, `conversation-run-changed` and the
+   live frames are owner frames.
+
+Done when: a Mac mini Chief turn shows typing, the streaming reply and run steps on the phone and
+on the Mac exactly as a cloud Chief turn does, with the same frames, and `CloudPort` answers no
+`*_unsupported` for these four needs against a backend that has the frames.
+
 ## 11. Mapping cnx onto this design
 
 | cnx piece | Verdict | Why |
@@ -527,11 +593,114 @@ Phase 1, slice 2 (built 2026-10-19):
   the change and is green after it. A snapshot behind the position replaces it only when it
   answers a resume (an owner that lost its tail); a gap buffers at most 1024 events.
 - `cmux-mobile-ffi/src/ownership.rs`: `OwnershipMirror`, a uniffi object with a JSON-text surface
-  (frames in and out as the socket carries them, `view()` for rendering). No listener: the app
-  reads `view()` after a call that applied frames. `tests/ownership_vectors.rs` replays every
+  (frames in and out as the socket carries them, `view()` for rendering). The change listener
+  came in slice 3. `tests/ownership_vectors.rs` replays every
   vector through the exported surface.
 - Next slice: the phone's Cloud Chief uses `OwnershipMirror` (phase 2, iOS lane) instead of its
   Swift stream code.
+
+Phase 1, slice 3 (2026-10-19):
+
+- A snapshot that does not decode no longer leaves a stream stuck. `StreamMirror::receive_value`
+  handles a known frame whose fields do not decode: an event resyncs, a snapshot is asked for again
+  after `SnapshotBackoff` (`snapshot_failed`, `snapshot_retry_at`, `snapshot_retry_due`), and after
+  the last attempt it reports `SnapshotRetry::Exhausted`. The daemon proxy waits for the retry time
+  in its receive timeout (no extra timer), drops the socket on exhaustion, and keeps its reconnect
+  backoff while snapshots keep failing. Before, an undecodable snapshot was dropped and the stream
+  waited for a snapshot that never came. Daemon tests
+  `a_snapshot_that_does_not_decode_is_asked_for_again_and_the_stream_recovers` (red before, green
+  after) and `a_snapshot_that_never_decodes_is_asked_for_a_bounded_number_of_times_then_the_stream_reconnects`.
+- `OwnershipMirror::receive` takes `now_ms` and handles the same cases itself; `OwnershipStep`
+  reports `snapshot_retry_at_ms` and `reconnect`, and `snapshot_retry_due` sends the request.
+- The phone observes the mirror, it does not poll: `OwnershipMirrorListener` (uniffi foreign trait,
+  `on_change(view)`) set with `OwnershipMirror::set_listener` is told once after every call that
+  changed the view, after the lock is released, and never for a call that did not. `set_listener`
+  returns the view at that moment, so no change falls between reading and listening. The view has a
+  `generation` (one more per change; keep the highest when several threads call). `tests/ownership_vectors.rs` checks both rules on every step
+  of every vector.
+
+Phase 3, slice 1 (2026-10-19): the HostDO replica, backend side.
+
+- `GET /v1/wire/host/<host>` (scope `host`, also for wire tickets). TeamDO names the role from the
+  host record (`hostReplicaRole`): the install that enrolled the host is the publisher, the owner's
+  other sessions and installs are readers, anyone else gets 403. A chief token gets 403 too (no
+  chief needs the replica yet; the Mac mini Chief uses the conversation socket, section 10.1). An
+  install token without an expiry gets 403. Team-shared hosts come with the TeamDO reach policy
+  (section 9), not here.
+- `backend/apps/api/src/host-replica/store.ts`: per stream the last published snapshot (decided keys
+  stripped: they answer one client) and every event after it, in the host's `seq`. Events append
+  only at `head + 1`; a gap or an over-full tail asks the host for one new snapshot. The tail is
+  never trimmed by itself (a snapshot plus every later event is the only consistent answer): past
+  1,000 events or 8 MiB it asks for a snapshot, at twice that it stops appending. Snapshot 1 MiB,
+  512 streams per host, one event 256 KiB, stream names `host:<h>/...` or `doc:ws_...`, at most
+  96 printable ASCII characters.
+- `backend/apps/api/src/host-replica/wire.ts`: the publisher sends `publish {stream, snapshot |
+  event}` and answers forwarded frames with their `to`; on connect it gets `welcome {heads}` (where
+  to resume). Readers use the ordinary client frames: `subscribe {stream, after_seq?, pending?}`
+  answers `owner.status {status, since, cached_seq}` and then the events after the cursor when the
+  tail has all of them, else the snapshot and the whole tail. `op` and `snapshot.request` with
+  pending keys go to the online host with the reader's principal; offline, an op gets
+  `reject owner_unreachable` (retryable) and `request-settled ok:false` at once (U5). An op in
+  flight when the publisher closes or is replaced gets the same refusal (the replica records each
+  forwarded op until its `request-settled`; 64 per reader socket). Online means the current
+  publisher's socket is open (its id is stored; a socket that vanished without a close counts as
+  offline), and frames from a replaced publisher are ignored. A cursor ahead of the replica gets
+  `owner.status` with the lower `cached_seq` and nothing else, so a reader never goes back.
+  Presence changes go to every subscribed reader as `owner.status`. A reader subscribes at most 30
+  times in 10 s. Sockets register in the user's UserDO (instant revocation, chief archive) and close
+  at token expiry by alarm.
+- A host that leaves its owner loses its replica (slice 1b): when TeamDO commits `host.remove`,
+  `server.revoke`, or a member cleanup that orphans the member's hosts, it queues the host in its
+  own SQL (`team-host-replica-drop.ts`, backoff per host) and calls `HostDO.dropReplica`. HostDO
+  forgets every stored stream and closes every replica socket (4403). A removed or revoked host is
+  also tombstoned (later upgrades get 410; the same install enrolls again under a new id). An
+  orphaned host is not: it keeps its id, and its former owner may enroll it again after rejoining.
+  The alarm retries a failed call; a replayed op queues nothing. `hostReplicaRole` gives an orphaned
+  host, or a principal that is no longer a team member, no role. Known gap: an upgrade whose role
+  was checked just before an orphaning can still open after the drop (no tombstone to stop it); it
+  lives until its token expires or the install is revoked. A host epoch on the record would close
+  it, when a reassign op exists. Tests: `test/host-replica.test.ts` (host removed) and
+  `test/team-member-remove.test.ts` (owner left the team).
+- Test: `backend/apps/api/test/host-replica.test.ts` drives the real Worker sockets (403 for a
+  stranger; publish, live read, gap request, forwarded op and its settle, an op in flight refused
+  when the host goes away, offline status, resume from the replica with the host off, offline
+  refusal, a cursor ahead of the replica, another host's stream refused, heads on reconnect).
+- The daemon publisher (slice 2, `cmux-tui-cloud-conversations/src/host_replica.rs` and
+  `cmux-tui-core/src/server/cloud_host_replica.rs`, capability `cloud-host-replica-v1`): the
+  verified app leases its install token (`cloud-host-replica-set`); the daemon enrolls the host,
+  publishes `host:<h>/session` (the `list-workspaces` tree) and runs forwarded ops through its own
+  command path. Only `workspace.rename` with fixed fields runs (remote relay default deny), only for
+  the token's user, never for a principal with `agent`; the cloud key is namespaced per user in
+  the daemon's idempotency store. The seq never goes back in one daemon, and a stream the replica
+  does not hold starts at the wall clock (ms), so a reader's cursor from before a purge or a restart
+  is always behind. The off switch L4 is `cloud-host-replica-clear {purge: true}`: the publisher
+  sends `replica.purge`, HostDO refuses the ops in flight, forgets every stream and answers
+  `replica.purged`. A host the cloud removed (410, 4403) stays off for that install until the app
+  clears the replica; close 4000 (another socket of the install) waits for a new lease.
+  Deliberate first step: each event carries the whole tree in `effects.state` (O(tree) per
+  change, the cost section 1 names); diffs per workspace come when the tree has per-object revisions.
+- The owner's delete (slice 3): `host.replica.purge {host}` is a TeamDO op for the host's owner
+  only (no agent, not an orphaned host); it is audited and queues a drop without a tombstone, so
+  HostDO forgets the stored streams and closes every replica socket (4403) also while the Mac is
+  off. The host keeps its id. An open publisher's daemon then stays `forbidden` until the app
+  clears the replica (the off switch or sign-out); a Mac that was off publishes again at its next
+  lease while its own switch is on. Test: `test/host-replica.test.ts` (owner purge with the host
+  off, a stranger refused, the install publishes again).
+- The Swift lease caller (slice 3, `CmuxNextPhoneAccess/CloudHostReplicaFollower.swift`): L4 is
+  `phone.cloudReplica` in Settings > Accounts > Phone Access, opt-in until #13742 decides the
+  default; agents may not change it (`.privacy`). While it is on, the account is signed in, Cloud
+  is allowed and the local daemon serves `cloud-host-replica-v1`, the app leases its install token
+  (`cloud-host-replica-set`, `expires_at` from the JWT); off sends `clear {purge: true}`;
+  sign-out clears; `cloud-host-replica-needed` invalidates the install token and leases again (a
+  purge in flight leases and purges again: a lease resets a pending purge). User defaults name the
+  account whose copy may exist until the daemon that was asked to purge shows `off`, so an off
+  switch set while the app was closed, or a purge that did not finish, still purges later. A
+  daemon restart on the same connection leases again. The daemon asks again every 30 s while its
+  token is refused (a pending purge waits the same way; only a replaced socket, 4000, retries it
+  after a backoff), and paces asks of one reason to one per 30 s across leases. Cost: the old token's socket still
+  closes 4401 at its expiry after an in-place renewal, so each renewal (about every 8 minutes with
+  10-minute install tokens) costs a reconnect and one full snapshot.
+- Next slice: the phone's reader through `OwnershipMirror` (after the cnx-ios fold-in).
 
 Each phase deletes what it replaces in the same change (no twins). Each phase lands on
 `feat-cmux-next` in small slices as soon as its slice is green (Lawrence, 2026-10-18: "cut our

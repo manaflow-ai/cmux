@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
-import { rowsByKey } from "../schema";
+import { rowsByKey, type SchemaRow } from "../schema";
 import { Icon } from "../icons";
 import { locale, t } from "../strings";
 import { ActionRow } from "./ActionRow";
@@ -25,6 +25,29 @@ export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKG
 /** How long the pointer rests on a tile before the window shows it: sweeping across the grid
  * previews nothing, so it fetches no full-size art. */
 const PREVIEW_DWELL_MS = 150;
+
+/** Over a picture the window at 100% shows the work's own tint instead (the theme's opacity is
+ * only the default there), so the slider's last step fell back to it: the slider stops below. */
+const ART_MAX_OPACITY = 0.95;
+const overArtRows = new WeakMap<SchemaRow, SchemaRow>();
+function overArt(row: SchemaRow): SchemaRow {
+  const range = row.range;
+  if (!range) return row;
+  let capped = overArtRows.get(row);
+  if (!capped) {
+    capped = { ...row, range: { ...range, max: Math.min(range.max, ART_MAX_OPACITY) } };
+    overArtRows.set(row, capped);
+  }
+  return capped;
+}
+
+/** A tile's thumbnail; when the app answers none (a picture that is gone), an empty framed box
+ * in place of the webview's broken-image mark. */
+function BackdropThumb({ src }: { src: string }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  if (failed === src) return <span className="backdrop-thumb backdrop-none" data-thumb-missing="" />;
+  return <img className="backdrop-thumb" alt="" src={src} onError={() => setFailed(src)} />;
+}
 
 /** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focusing it previews
  * the saved background, so nothing changes. */
@@ -129,6 +152,14 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     choice?: { video?: boolean; pending?: boolean },
   ) => {
     const pending = choice?.pending === true;
+    // One title line under the thumbnail (macOS 15 tester, 2026-10-19: the wrapped credit lines under
+    // each art tile overlapped and overwhelmed the grid); the full credit is the tile's tooltip.
+    const credit =
+      attribution === null || attribution === "" || attribution === title
+        ? undefined
+        : attribution.startsWith(title)
+          ? attribution
+          : `${title}\n${attribution}`;
     return (
       <button
         type="button"
@@ -136,8 +167,8 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         className={pending ? "backdrop-tile backdrop-pending" : "backdrop-tile"}
         aria-pressed={current === id}
         aria-label={title}
-        /* tooltip-allow: what a click on a cloud tile does, shown nowhere else */ title={
-          pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : undefined
+        /* tooltip-allow: what a click on a cloud tile does, or the credit the one-line tile drops */ title={
+          pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : credit
         }
         ref={focus === BACKGROUND_KEY && current === id && state.readable && workspaceRead ? revealTile : undefined}
         onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
@@ -156,7 +187,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           <span className="backdrop-frame">
             {/* Encoded twice: the app decodes the URL path before splitting it on "/", then decodes
               the one segment, so a system: or file: id with slashes stays one segment. */}
-            <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
+            <BackdropThumb src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
             {pending && <Icon name="icloud.and.arrow.down" className="backdrop-download" />}
           </span>
         )}
@@ -166,7 +197,6 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           </span>
         )}
         <span className="backdrop-title">{title}</span>
-        {attribution !== null && <span className="row-help">{attribution}</span>}
       </button>
     );
   };
@@ -198,7 +228,12 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       )}
       {!own && (
         <div className="rows">
-          {opacity && <SettingRow row={opacity} focused={focus === BACKGROUND_OPACITY_KEY} />}
+          {opacity && (
+            <SettingRow
+              row={current === "none" ? opacity : overArt(opacity)}
+              focused={focus === BACKGROUND_OPACITY_KEY}
+            />
+          )}
           <WindowGlass />
         </div>
       )}

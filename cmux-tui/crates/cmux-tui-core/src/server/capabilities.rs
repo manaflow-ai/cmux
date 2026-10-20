@@ -19,6 +19,9 @@ pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhos
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push("machine-identity-v1");
+    // Receipts can outlive the acpmux configuration that prepared them.
+    #[cfg(unix)]
+    capabilities.push(agent_cli_job::CAPABILITY);
     capabilities.push(activity::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
@@ -28,7 +31,11 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_LIVE_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_TYPING_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
+    }
+    if mux.host_replica().is_some_and(|replica| replica.running()) {
+        capabilities.push(cloud_host_replica::CAPABILITY);
     }
     if mux.serves_ws_listen() {
         capabilities.push(WS_LISTEN_CAPABILITY);
@@ -52,6 +59,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
+        capabilities.push(agent_inventory::REFRESH_CAPABILITY);
         capabilities.push(agent_inventory::watch::CAPABILITY);
         capabilities.push(agent_inventory::watch::FENCED_CAPABILITY);
         capabilities.push(agent_inventory::watch::ADMISSION_CAPABILITY);
@@ -143,6 +151,7 @@ pub(super) fn advertised_capabilities(
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
         split_kind::SPLIT_CLIENT_SPLIT_ID_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
+        cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -153,6 +162,7 @@ pub(super) fn advertised_capabilities(
         EDGE_DOCKS_CAPABILITY,
         DOCK_COLUMN_ROLE_CAPABILITY,
         PERMANENT_DOCK_CAPABILITY,
+        PINNED_DOCK_CAPABILITY,
         ROWS_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
@@ -195,6 +205,7 @@ pub(super) fn advertised_capabilities(
         AGENT_PRESENCE_CAPABILITY,
         WORKSPACE_PIN_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
+        TAB_MARK_UNREAD_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,

@@ -263,6 +263,8 @@ export interface Env {
   readonly CHIEF_BRAIN_SETTLE_MS?: string
   /** The most a compaction waits for another call writing its prefix (ms; default 20000, "0": never waits). Staging A/B knob. */
   readonly CHIEF_BRAIN_PREFIX_WAIT_MS?: string
+  /** The Claude compactor's effort: "low" or "medium" (default "high"). Staging A/B knob. */
+  readonly CHIEF_BRAIN_COMPACT_EFFORT?: string
   /** Prompt cache TTL on the Claude route (default "1h"; "5m" keeps the short default). */
   readonly CHIEF_BRAIN_CACHE_TTL?: string
   /** Secret: OpenRouter key for `openrouter:<id>` Chief models; OPENROUTER_BASE_URL overrides the endpoint. */
@@ -298,6 +300,8 @@ export interface Env {
   readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
   /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */
   readonly HOME_ADDRESS_KEY?: string
+  /** Secret: the Sentry project DSN for the Cloud Home health check-ins (home-health.ts); absent = log only. */
+  readonly SENTRY_DSN?: string
   /** Private R2 bucket of Home attachments (objects `home/v1/<conversation>/<sha256>/<upload id>`); no public access. */
   readonly HOME_ATTACHMENTS?: R2Bucket
   /** Secret: HMAC key of attachment upload slots and download URLs (at least 32 characters); unset = attachments off. */

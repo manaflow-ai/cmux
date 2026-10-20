@@ -1,11 +1,11 @@
-import { useId } from "react";
+import { memo, useId } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
-import { useSettingsState, useStore } from "../context";
+import { useRowState, useStore, type RowState } from "../context";
 import { Editor } from "../editors/Editor";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import type { SchemaRow } from "../schema";
-import { managedOf, managedText, valueOf } from "../store";
+import { managedText, type SettingsStore } from "../store";
 import { t, text } from "../strings";
 import { Highlight } from "./Highlight";
 import { ResetButton } from "./ResetButton";
@@ -17,10 +17,11 @@ import { RowNotice } from "./RowNotice";
  * own rows (cx-64hi).
  */
 export function useRowMenu(key: string): ContextMenuItem[] {
-  const state = useSettingsState();
-  const store = useStore();
-  const managed = managedOf(state, key);
-  const customized = state.rows.get(key)?.customized ?? false;
+  return rowMenu(key, useRowState(key), useStore());
+}
+
+function rowMenu(key: string, state: RowState, store: SettingsStore): ContextMenuItem[] {
+  const { managed, customized } = state;
   return [
     { id: "copyKey", label: t("settingsPage.copySettingKey"), onSelect: () => void store.copy(key) },
     {
@@ -37,8 +38,9 @@ export function useRowMenu(key: string): ContextMenuItem[] {
 const TEXT_FIELDS =
   'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, [contenteditable]:not([contenteditable="false"])';
 
-/** One setting: title and its one short summary line on the left, its editor on the right. */
-export function SettingRow({
+/** One setting: title and its one short summary line on the left, its editor on the right. It
+ * renders when its props or its own key's state change, never for another key's change. */
+export const SettingRow = memo(function SettingRow({
   row,
   query = "",
   focused = false,
@@ -50,14 +52,12 @@ export function SettingRow({
   /** Outside the search filter: collapsed in place, inert and hidden from assistive technology. */
   filtered?: boolean;
 }) {
-  const state = useSettingsState();
+  const state = useRowState(row.key);
+  const store = useStore();
   const labelId = useId();
-  const managed = managedOf(state, row.key);
-  const customized = state.rows.get(row.key)?.customized ?? false;
+  const { managed, customized, diagnostics, error } = state;
   const disabled = !state.connected || !state.readable || managed !== null;
-  const diagnostics = state.diagnostics.get(row.key);
-  const error = state.errors.get(row.key);
-  const menu = useRowMenu(row.key);
+  const menu = rowMenu(row.key, state, store);
   return (
     <div
       className="row"
@@ -106,7 +106,7 @@ export function SettingRow({
         {/* The control has the row's menu too (cx-2lm4); a text field keeps its own Cut, Copy and Paste. */}
         <ContextMenu className="row-control-menu" items={menu} ignore={TEXT_FIELDS}>
           <div className="row-control">
-            <Editor row={row} value={valueOf(state, row.key)} disabled={disabled} labelId={labelId} />
+            <Editor row={row} value={state.value} disabled={disabled} labelId={labelId} />
             <ResetButton
               settingKey={row.key}
               shown={customized && !managed}
@@ -118,4 +118,4 @@ export function SettingRow({
       </div>
     </div>
   );
-}
+});
