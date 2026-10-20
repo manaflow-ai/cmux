@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextFloating
 import os
 
 /// Start Agent (`palette.quickAgentChat`, cx-hkat): one agent chat in a

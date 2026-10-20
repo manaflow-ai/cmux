@@ -4,7 +4,7 @@ import CmuxNextDaemon
 import ImageIO
 import UniformTypeIdentifiers
 
-/// What the sidebar shows, read from this Chief's files.
+/// What the Chief settings show, read from this Chief's files and its brain.
 public nonisolated struct HomeChiefSnapshot: Sendable {
     var harness: String?
     var model: String?
@@ -17,12 +17,16 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
     /// The brain's `offered` lists (empty until the brain answers).
     var models: [ChiefEngineReport.Model] = []
     var efforts: [String] = []
+    /// What the turns run on (engine.json over the brain's defaults), which
+    /// names each picker's "Default"; nil until the brain answers.
+    var effective: ChiefEngineReport.Engine?
 
-    /// This snapshot with `report`'s offered models and efforts.
+    /// This snapshot with `report`'s offered models and efforts and its effective engine.
     func offering(_ report: ChiefEngineReport) -> HomeChiefSnapshot {
         var snapshot = self
         snapshot.models = report.offered.models
         snapshot.efforts = report.offered.efforts
+        snapshot.effective = report.engine
         return snapshot
     }
 }
@@ -72,6 +76,11 @@ public nonisolated struct HomeChiefFiles: Sendable {
 
     /// The avatar value alone (text or a picture's file name).
     func avatar() -> String? { snapshot().avatar }
+
+    /// engine.json's harness, the brain's saved choice; nil when it saved none.
+    func engineHarness() -> String? {
+        (object(engineFile)["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
 
     /// Whether an avatar value names a picture rather than text: a file
     /// name (no path) with an image extension, e.g. `"avatar": "cat.png"`.

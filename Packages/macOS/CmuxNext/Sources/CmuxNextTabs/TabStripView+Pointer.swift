@@ -28,6 +28,15 @@ extension TabStripView {
         return rect.insetBy(dx: -2, dy: -2).contains(inCell)
     }
 
+    /// Whether `point` (strip coordinates) is on tab `id`'s speaker, with a
+    /// little slack around the small glyph.
+    func isInAudioButton(_ id: TabID, _ point: CGPoint) -> Bool {
+        guard let cell = cells[id], let rect = cell.audioButtonRect else { return false }
+        let local = convert(point, to: tabsClip)
+        let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
+        return rect.insetBy(dx: -3, dy: -4).contains(inCell)
+    }
+
     func isInNewTabButton(_ point: CGPoint) -> Bool {
         !newTabButton.isHidden && newTabButton.frame.contains(convert(point, to: contentView))
     }
@@ -133,13 +142,19 @@ extension TabStripView {
                 cells[id]?.isClosePressed = true
                 return
             }
-            if event.clickCount == 2, renamesOnDoubleClick {
+            // The speaker is a button: the press neither selects nor drags the
+            // tab, and the release on it mutes or unmutes (Chrome).
+            if isInAudioButton(id, point) {
+                pressedAudioID = id
+                return
+            }
+            if event.clickCount == 2, renamesOnDoubleClick, Self.selectionClick(event.modifierFlags) == .plain {
                 beginInlineRename(id)
                 return
             }
-            // Select on mouse down.
-            if model.selectedID != id { model.send(.select(id)) }
+            // Select on mouse down; Cmd and Shift add to the selection (`selectOnPress`).
             press = TabStripPress(id: id, start: point)
+            selectOnPress(id, modifiers: event.modifierFlags)
             return
         }
         // Between tabs or trailing buttons: the strip's, never the window's.
@@ -161,6 +176,7 @@ extension TabStripView {
             newTabButton.isPressed = isInNewTabButton(point)
             return
         }
+        if pressedAudioID != nil { return }
         if drag != nil {
             updateDrag(at: point, event: event)
             return
@@ -188,8 +204,14 @@ extension TabStripView {
             if isInCloseButton(id, point) || arrivingCloseTab(at: point) == id { close(id, source: .mouse, at: point) }
             return
         }
+        if let id = pressedAudioID {
+            pressedAudioID = nil
+            if isInAudioButton(id, point) { model.send(.toggleAudioMute(id)) }
+            return
+        }
         if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }
         if drag != nil { endDrag() }
+        if press?.collapsesSelection == true { model.clearMultiSelection() }
         press = nil
         if groups.drag != nil {
             endGroupDrag()
@@ -239,7 +261,7 @@ extension TabStripView {
             return nil
         }
         if let id = tabID(at: point) {
-            return contextMenuProvider?(.tab(id, selection: [id]))
+            return contextMenuProvider?(.tab(id, selection: model.contextSelection(for: id)))
         }
         return contextMenuProvider?(.emptyStrip)
     }

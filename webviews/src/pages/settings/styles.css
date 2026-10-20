@@ -435,6 +435,56 @@ mark {
   padding-right: 24px;
 }
 
+.row-control .select .ui-select-button {
+  /* One width per row style: a popup never resizes with its selected label (which ellipsizes),
+     so the controls around it stay put. */
+  width: var(--row-popup-width);
+  max-width: 100%;
+}
+
+/* An unset row's effective value: the thumb and field sit on it, dimmed, and a badge under the
+   control names where it comes from. The badge is out of flow, so setting a value moves nothing. */
+.number-editor,
+.color-editor {
+  position: relative;
+}
+
+.inherit-badge {
+  position: absolute;
+  top: calc(100% + 1px);
+  right: 0;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.field.number[data-inherited] {
+  color: var(--muted-text);
+}
+
+.number-editor[data-inherited] .slider {
+  opacity: 0.65;
+}
+
+.color-editor[data-inherited] .swatch {
+  opacity: 0;
+}
+
+.swatch-inherited {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 26px;
+  height: 22px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 5px;
+  opacity: 0.7;
+  translate: 0 -50%;
+  pointer-events: none;
+}
+
 .select .ui-select-chevron {
   position: absolute;
   right: 6px;
@@ -1077,4 +1127,45 @@ mark {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* Settings > Appearance's floating Undo, Redo and Reset: pinned to the bottom right of the content
+   while the page scrolls, on the solid popup surface so it reads over any background. */
+.appearance-bar {
+  position: sticky;
+  bottom: 16px;
+  z-index: var(--layer-sticky);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  margin: 16px 0 0 auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-drop);
+}
+
+.appearance-bar-button {
+  width: 28px;
+  height: 26px;
+}
+
+.appearance-bar-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.appearance-bar-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 6px;
+}
+
+.appearance-bar-question {
+  font-size: var(--text-detail);
+  white-space: nowrap;
 }

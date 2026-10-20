@@ -2,7 +2,8 @@
 // (Schema/SettingsSchema+NowPlaying.generated.swift); this file only parses.
 
 /// `sidebar.nowPlaying.*` in cmux.json: the Now Playing player shows in the
-/// sidebar and on the new chat page unless the user hides it.
+/// sidebar and on the new chat page only when the user turns it on (off by
+/// default; a tab playing sound shows its speaker in the tab strip).
 public nonisolated struct NowPlayingSettings: Sendable, Equatable {
     public var enabled = NowPlayingSettings.enabledDefault
 

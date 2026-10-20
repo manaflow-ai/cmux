@@ -19,6 +19,8 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
         var paused = false
         /// The session's last input: re-placed when its target's visibility changes.
         var lastEvent: AutomationInputEvent?
+        /// What the session is typing (the keystroke caption).
+        var caption = AgentKeystrokeCaption()
     }
 
     private let resolver: AgentCursorTargetResolving
@@ -33,34 +35,67 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
     }
 
     public func render(_ event: AutomationInputEvent) {
+        render(event, typing: nil)
+    }
+
+    /// One input with what it types (`typing`, type and key events): the
+    /// cursor goes to the field when the host measured it, and the
+    /// keystroke caption shows the text beside the cursor.
+    public func render(_ event: AutomationInputEvent, typing: AgentTyping?) {
         var cursor = cursors[event.sessionID] ?? Cursor()
         guard !cursor.paused else { return }
         let isClick = event.kind == .click || event.kind == .doubleClick || event.kind == .rightClick
         draw(event, cursor: &cursor, pulse: isClick)
-        cursor.lastEvent = event
+        if let text = cursor.caption.apply(kind: event.kind, typing: typing, tMs: event.tMs), !text.isEmpty {
+            // A cursor that is not drawn here (a hidden or other target, or
+            // typing before any placed input) shows no caption.
+            if cursor.point != nil {
+                host.apply(.caption(session: event.sessionID, text: text))
+            }
+        }
+        // A typed input with no measured field leaves the cursor where it was.
+        if AgentCursorGeometry.pagePoint(of: event) != nil || cursor.lastEvent == nil {
+            cursor.lastEvent = event
+        }
         cursors[event.sessionID] = cursor
     }
 
     /// Places `event`'s cursor where its target is now.
-    private func draw(_ event: AutomationInputEvent, cursor: inout Cursor, pulse: Bool) {
+    /// A drag glides to the grab, then on to the drop in one plan; `replay`
+    /// (a visibility change, not a new input) puts it at the drop at once.
+    private func draw(_ event: AutomationInputEvent, cursor: inout Cursor, pulse: Bool, replay: Bool = false) {
         let session = event.sessionID
         switch resolver.placement(forTarget: event.targetID) {
         case let .visible(content, clip, zoom, magnification):
-            guard let target = AgentCursorGeometry.overlayPoint(
+            guard var target = AgentCursorGeometry.overlayPoint(
                 of: event, content: content, clip: clip, zoom: zoom, magnification: magnification
             ) else {
                 return
             }
+            var drop = AgentCursorGeometry.dropPoint(of: event, content: content, clip: clip, zoom: zoom, magnification: magnification)
+            if replay, let end = drop {
+                target = end
+                drop = nil
+            }
             if let from = cursor.point {
+                var plan: GlidePlan?
                 if from != target {
-                    host.apply(.glide(session: session, plan: motion.plan(
-                        fromX: from.x, fromY: from.y, toX: target.x, toY: target.y, endHeading: Self.restingHeading
-                    )))
+                    plan = motion.plan(fromX: from.x, fromY: from.y, toX: target.x, toY: target.y, endHeading: Self.restingHeading)
                 }
+                if let drop, drop != target {
+                    let carry = motion.plan(fromX: target.x, fromY: target.y, toX: drop.x, toY: drop.y, endHeading: Self.restingHeading)
+                    if plan == nil { plan = carry } else { plan?.samples += carry.samples }
+                }
+                if let plan { host.apply(.glide(session: session, plan: plan)) }
             } else {
                 host.apply(.place(session: session, point: target))
+                if let drop, drop != target {
+                    host.apply(.glide(session: session, plan: motion.plan(
+                        fromX: target.x, fromY: target.y, toX: drop.x, toY: drop.y, endHeading: Self.restingHeading
+                    )))
+                }
             }
-            cursor.point = target
+            cursor.point = drop ?? target
             if pulse {
                 host.apply(.pulse(session: session))
             }
@@ -84,7 +119,7 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
         for session in cursors.keys.sorted() {
             guard var cursor = cursors[session], !cursor.paused,
                   let event = cursor.lastEvent, event.targetID == target else { continue }
-            draw(event, cursor: &cursor, pulse: false)
+            draw(event, cursor: &cursor, pulse: false, replay: true)
             cursors[session] = cursor
         }
     }

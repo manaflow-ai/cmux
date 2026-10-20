@@ -26,6 +26,14 @@
       "symbol": "terminal"
     },
     {
+      "id": "editor",
+      "title": {
+        "key": "settings.section.editor",
+        "text": "Code Editor"
+      },
+      "symbol": "chevron.left.forwardslash.chevron.right"
+    },
+    {
       "id": "browser",
       "title": {
         "key": "settings.section.browser",

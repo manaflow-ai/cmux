@@ -229,6 +229,9 @@ final class NewTabInputCoordinator {
         buffers[window.windowNumber]?.shown = true
     }
 
+    /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
+    func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
+
     /// The opening failed: its keys go on to whatever has focus.
     func cancel(in window: NSWindow?) {
         guard let window else { return }

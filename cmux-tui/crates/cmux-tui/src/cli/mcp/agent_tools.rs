@@ -7,7 +7,8 @@
 use serde_json::{Map, Value, json};
 
 use super::super::GlobalArgs;
-use super::super::agents::{self, AgentCommand, AgentFailure};
+use super::super::agent_message;
+use super::super::agents::{self, AgentCommand, AgentFailure, chat};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +21,8 @@ enum Verb {
     PaletteOpen,
     DialogList,
     DialogAnswer,
+    ChatSend,
+    ChatRead,
 }
 
 pub(super) struct AgentTool {
@@ -95,6 +98,30 @@ pub(super) const TOOLS: &[AgentTool] = &[
             question with one or more selections. Give exactly one of mode or selections. \
             Permissions can only be denied here; a person approves them in cmux.",
     },
+    AgentTool {
+        name: "agents_chat_send",
+        verb: Verb::ChatSend,
+        title: "Prompt another chat",
+        description: "Send a prompt to another agent chat of this cmux session (`cmux agents \
+            chat send`), as an agent message: the chat shows it as coming from another agent, \
+            and its agent reads it as input, not as its operator's instruction. Never the \
+            caller's own chat. Answers {action, origin, result: {chat, message_id, state}, \
+            idempotency_key}; state is delivered, queued, or held for a person's approval. \
+            Wait for the answer with agents_wait (until idle, this chat as target) and read it \
+            with agents_chat_read. When the message is stored but cannot be \
+            handed to the chat, the call is an error whose receipt says state failed.",
+    },
+    AgentTool {
+        name: "agents_chat_read",
+        verb: Verb::ChatRead,
+        title: "Read a chat",
+        description: "Read an agent chat of this cmux session (`cmux agents chat read`) as \
+            items {id, role, text}: user (with origin and from when another agent sent it), \
+            assistant, tool (a summary: kind and status only, never its title, input or \
+            output) and turn_end. Pass after = next_after to read on; an answer still being \
+            written or a tool call still running is marked partial and read again whole. \
+            Changes nothing.",
+    },
 ];
 
 pub(super) fn find(name: &str) -> Option<&'static AgentTool> {
@@ -107,13 +134,13 @@ fn id_schema(description: &str) -> Value {
 
 impl AgentTool {
     fn read_only(&self) -> bool {
-        self.verb == Verb::DialogList
+        matches!(self.verb, Verb::DialogList | Verb::ChatRead)
     }
 
     /// Daemon changes and `action.run` take a key; the app's feed replies
     /// do not.
     fn keyed(&self) -> bool {
-        !matches!(self.verb, Verb::DialogList | Verb::DialogAnswer)
+        !matches!(self.verb, Verb::DialogList | Verb::DialogAnswer | Verb::ChatRead)
     }
 
     /// Daemon requests route to a session; the app has one.
@@ -128,17 +155,29 @@ impl AgentTool {
         )
     }
 
+    /// The chat verbs answer their own receipt or page, without a snapshot.
+    fn chat(&self) -> bool {
+        matches!(self.verb, Verb::ChatSend | Verb::ChatRead)
+    }
+
     pub(super) fn descriptor_json(&self) -> Value {
-        let idempotent =
-            !matches!(self.verb, Verb::WorkspaceCreate | Verb::TerminalSplit | Verb::DialogAnswer);
+        let idempotent = !matches!(
+            self.verb,
+            Verb::WorkspaceCreate | Verb::TerminalSplit | Verb::DialogAnswer | Verb::ChatSend
+        );
+        let description = if self.chat() {
+            self.description.to_owned()
+        } else {
+            format!("{}{RECEIPT}", self.description)
+        };
         json!({
             "name": self.name,
             "title": self.title,
-            "description": format!("{}{RECEIPT}", self.description),
+            "description": description,
             "inputSchema": self.input_schema(),
             "annotations": {
                 "readOnlyHint": self.read_only(),
-                "destructiveHint": self.verb == Verb::DialogAnswer,
+                "destructiveHint": matches!(self.verb, Verb::DialogAnswer | Verb::ChatSend),
                 "idempotentHint": idempotent,
                 "openWorldHint": false,
             },
@@ -216,6 +255,39 @@ impl AgentTool {
                 );
                 required.push("request_id");
             }
+            Verb::ChatSend => {
+                properties.insert(
+                    "target".into(),
+                    id_schema("The chat: its acpmux session id, name or unique prefix."),
+                );
+                properties.insert(
+                    "text".into(),
+                    json!({
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": agent_message::MAX_BODY_BYTES,
+                        "description": "The prompt, at most 32 KiB of UTF-8.",
+                    }),
+                );
+                required.extend(["target", "text"]);
+            }
+            Verb::ChatRead => {
+                properties.insert(
+                    "target".into(),
+                    id_schema("The chat: its acpmux session id, name or unique prefix."),
+                );
+                properties.insert(
+                    "after".into(),
+                    json!({"type": "integer", "minimum": 0, "description": "Read the items \
+                        after this item id (next_after of the last read); 0 from the start."}),
+                );
+                properties.insert(
+                    "limit".into(),
+                    json!({"type": "integer", "minimum": 1, "maximum": chat::MAX_READ_LIMIT,
+                           "default": chat::DEFAULT_READ_LIMIT}),
+                );
+                required.push("target");
+            }
         }
         if self.routed() {
             properties.insert(
@@ -255,6 +327,16 @@ impl AgentTool {
             Err(message) => return not_run(message),
         };
         match agents::execute(backend, session.as_deref(), &command, key.as_deref(), "mcp") {
+            Ok(receipt) if self.chat() => {
+                let failed = chat::delivery_failed(&receipt);
+                let mut result = success(receipt, !self.read_only());
+                // Stored but not handed to the chat: an error that keeps its
+                // receipt, so a retry can name the message.
+                if failed {
+                    result["isError"] = json!(true);
+                }
+                result
+            }
             Ok(receipt) => success(fit_receipt(receipt), !self.read_only()),
             Err(AgentFailure::Usage(message)) => not_run(message),
             Err(AgentFailure::Owner(failure)) => failure_result(failure),
@@ -328,6 +410,24 @@ impl AgentTool {
                 }
                 for selection in args.words("selections")? {
                     words.extend(["--selection".into(), selection]);
+                }
+            }
+            Verb::ChatSend => {
+                words.extend(["chat".into(), "send".into(), args.word("target")?]);
+                let text =
+                    args.text("text")?.ok_or_else(|| format!("{}: text is required", self.name))?;
+                // After `--`, so text that starts with a dash stays text.
+                words.extend(["--".into(), text]);
+            }
+            Verb::ChatRead => {
+                words.extend(["chat".into(), "read".into(), args.word("target")?]);
+                for name in ["after", "limit"] {
+                    if let Some(value) = args.values.get(name) {
+                        let number = value.as_u64().ok_or_else(|| {
+                            format!("{}: {name} must be a nonnegative integer", self.name)
+                        })?;
+                        words.push(format!("--{name}={number}"));
+                    }
                 }
             }
         }
