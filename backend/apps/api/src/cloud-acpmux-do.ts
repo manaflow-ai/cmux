@@ -51,7 +51,7 @@ export interface AcpmuxHost {
   readonly team: string
   /** The machine row of this team, or undefined. */
   machine(id: string): MachineRow | undefined
-  driver(): GuardedCloudDriver | null
+  driver(row: MachineRow): GuardedCloudDriver | null | Promise<GuardedCloudDriver | null>
   /** The team's members (TeamDO, as the creator), or null when the lookup failed. */
   members(team: string, user: string): Promise<{ readonly count: number; readonly users: ReadonlyArray<string> } | null>
   audit(entry: { action: string; machine: string; who: string; at: number; outcome: string }): void
@@ -77,9 +77,9 @@ const singleOwnerRunning = async (host: AcpmuxHost, principal: Principal, machin
 }
 
 /** One guest exec; a provider failure is only a code (its cause is dropped, never logged). */
-const guestExec = (host: AcpmuxHost, row: MachineRow, command: string, timeoutMs: number, stdin: Uint8Array | null): Promise<GuestExecResult | null> => {
-  const driver = host.driver()
-  if (!driver) return Promise.resolve(null)
+const guestExec = async (host: AcpmuxHost, row: MachineRow, command: string, timeoutMs: number, stdin: Uint8Array | null): Promise<GuestExecResult | null> => {
+  const driver = await Promise.resolve().then(() => host.driver(row)).catch(() => null)
+  if (!driver) return null
   return driver.execStdin(row.provider_name, { team: host.team, machine: row.id }, command, stdin, timeoutMs).catch(() => null)
 }
 

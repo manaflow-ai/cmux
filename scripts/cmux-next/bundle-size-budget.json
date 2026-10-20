@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "about": "Size budget of the cmux NEXT nightly app, checked by scripts/cmux-next/bundle-size.py check. Caps are bytes: the measured size plus about 5% headroom. Lower a cap when a cut lands; raise one only with a reason in the commit. Baseline: nightly-next arm64 2026-10-20 (DMG 205352329, app 664782233). Plan: plans/cmux-next/bundle-size-DESIGN.md.",
+  "variants": {
+    "arm64": {
+      "dmg_max_bytes": 216000000,
+      "app_max_bytes": 700000000,
+      "components": {
+        "Contents/Frameworks/Chromium Embedded Framework.framework": 350000000,
+        "Contents/Resources/bin": 104000000,
+        "Contents/MacOS/cmux": 104000000,
+        "Contents/Resources/markdown-viewer": 24000000,
+        "Contents/Resources/Extensions": 16500000,
+        "Contents/Library/cmux Computer Use.app": 15000000,
+        "Contents/Resources/CmuxNext_CmuxNextPages.bundle": 14500000,
+        "Contents/Resources/CmuxNext_CmuxNextAgentPane.bundle": 10500000,
+        "Contents/Frameworks/Sentry.framework": 3400000
+      },
+      "forbidden": [
+        "Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/v8_context_snapshot.x86_64.bin",
+        "**/*.map",
+        "**/node_modules",
+        "**/*.dSYM",
+        "**/.DS_Store",
+        "**/*.swiftmodule"
+      ]
+    }
+  }
+}
