@@ -40,7 +40,8 @@ fn ready_updates() -> Value {
 
 fn inputs(identify: Result<Value, Value>, updates: Option<Value>, cli_path: &str) -> Inputs {
     let mut components = Map::new();
-    components.insert("acpmux".into(), json!({"commit": "f4c2e8298457235eb75783ce3f6c73f55e326d28"}));
+    components
+        .insert("acpmux".into(), json!({"commit": "f4c2e8298457235eb75783ce3f6c73f55e326d28"}));
     Inputs {
         cli: json!({"app": "cmux-tui", "version": "1.0.0", "build_commit": "c6a351b9205780cd8c27cdcb0a7876d4410a7acb"}),
         cli_path: Some(PathBuf::from(cli_path)),
@@ -78,7 +79,10 @@ fn the_report_names_the_running_app_and_its_update_state() {
     assert_eq!(updates["last_check_result"], "update_available");
     assert_eq!(updates["automatic_downloads"], true);
     assert!(updates.get("log").is_none(), "the log stays out of the report");
-    assert_eq!(report["components"]["acpmux"]["commit"], "f4c2e8298457235eb75783ce3f6c73f55e326d28");
+    assert_eq!(
+        report["components"]["acpmux"]["commit"],
+        "f4c2e8298457235eb75783ce3f6c73f55e326d28"
+    );
     assert_eq!(report["os"]["version"], "26.1");
 }
 
