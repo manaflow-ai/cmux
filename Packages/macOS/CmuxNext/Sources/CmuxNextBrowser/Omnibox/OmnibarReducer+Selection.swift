@@ -32,13 +32,15 @@ nonisolated extension OmnibarStep {
     }
 
     /// `OnMouseReleased`: select all after a focusing click that did not
-    /// drag a selection of its own; otherwise show the full URL, keeping
-    /// what the click or drag selected.
+    /// drag (Chromium `select_all_on_mouse_release_`, cleared past the drag
+    /// threshold), whatever AppKit's tracking selected; a focusing drag that
+    /// selected nothing selects all too. Otherwise show the full URL,
+    /// keeping what the click or drag selected.
     mutating func fieldMouseUp() {
         guard let mouse = state.mouse else { return }
         state.mouse = nil
         guard state.hasFocus, !state.isComposing else { return }
-        if mouse.selectAllOnRelease, state.edit.selection.length == 0 {
+        if mouse.selectAllOnRelease, !mouse.dragged || state.edit.selection.length == 0 {
             acceptShownText()
             state.edit.selection = Self.all(state.fieldText)
             return
