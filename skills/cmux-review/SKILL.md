@@ -17,8 +17,8 @@ suppress style, nits and speculative improvements unless requested.
    original discriminator after repair. A green test counts only if it exercises
    the asserted failure; prefer red-before/green-after evidence.
 3. If fixes were non-trivial, obtain a fresh subagent review of the repair delta.
-4. Merge when the checks that judge the change pass and the approval rule below
-   is met. Report findings with evidence, verification performed and coverage gaps.
+4. Merge when the review subagent passes the change and it causes no red of its
+   own (see below). Report findings with evidence, verification performed and coverage gaps.
 
 Use subagents in the current runtime, not a second model or external review
 service as a gate. Keep review read-only until an authorized repair.
@@ -28,10 +28,11 @@ Do not commit review receipts, scratch reproductions or generated logs.
 
 For implementation handoff or merge, read [dogfood and merge](references/dogfood-and-merge.md)
 for per-change verification, first-pass completion, re-dogfood and merge receipts.
-The main agent owns dogfood, approval, mergeability and every pushed fix.
-App/runtime/UI merges require the user's explicit approval after dogfood **or a
-direct merge directive** (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm`
-or `ship it`). `main` is nightly: stack fixes, do not revert.
+The main agent owns dogfood, mergeability, the merge and every pushed fix.
+A PR merges when an independent review subagent passes it and it causes no red
+of its own; base reds, flakes and pending checks don't hold it. Don't wait for a
+person. Ship risky user-visible behavior behind a setting or Debug toggle and fix
+a bad default in the next nightly. `main` is nightly: stack fixes, do not revert.
 
 ## Adversarial review
 
