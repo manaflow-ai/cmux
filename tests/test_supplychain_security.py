@@ -176,6 +176,9 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     namespace = workflow("namespace-autofix.yml")["jobs"]["autofix"]
     assert namespace.get("environment") == "ci-routing-agent"
 
+    pr_autofix = workflow("cmux-next-pr-autofix.yml")["jobs"]["push"]
+    assert pr_autofix.get("environment") == "cmux-pr-autofix"
+
     trusted_automation = (
         ("ci-failure-attribution.yml", "attribute", "ci-attribution-agent"),
         ("ci-guard-attribution.yml", "analyze", "ci-attribution-agent"),
