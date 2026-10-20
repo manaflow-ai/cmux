@@ -170,13 +170,14 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
         &mut home,
         "make-strong",
         json!({"display_name": "Strong", "tools": ["browser", "chiefs", "spawn", "tell"],
-               "harnesses": ["claude"], "model": "m1"}),
+               "harnesses": ["claude"], "model": "m1", "self_edit": ["avatar", "role"]}),
     );
     let strong_id = strong["id"].as_str().unwrap().to_owned();
     let weak = make(
         &mut home,
         "make-weak",
-        json!({"display_name": "Weak", "tools": ["tell"], "harnesses": ["claude"], "model": "m1"}),
+        json!({"display_name": "Weak", "tools": ["tell"], "harnesses": ["claude"], "model": "m1",
+               "self_edit": ["avatar", "role"]}),
     );
     let weak_id = weak["id"].as_str().unwrap().to_owned();
     let rev_before =
@@ -335,7 +336,7 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
         &mut home,
         "make-peer",
         json!({"display_name": "Peer", "tools": ["chiefs", "spawn", "tell"],
-               "harnesses": ["claude"], "model": "m1", "self_edit": ["avatar"]}),
+               "harnesses": ["claude"], "model": "m1", "self_edit": ["avatar", "role"]}),
     );
     let mut peer_conn = as_chief(&server, &mut home, peer["id"].as_str().unwrap());
     let by_peer = ok(&v2(

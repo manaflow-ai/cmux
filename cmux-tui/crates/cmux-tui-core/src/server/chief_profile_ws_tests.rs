@@ -161,7 +161,6 @@ fn the_persons_page_websocket_renames_a_chief_but_cannot_plant_or_widen_one() {
             ("chief.profile.update", json!({"chief": id, "self_edit": ["role"]}), "ws-g3"),
             ("chief.profile.update", json!({"chief": id, "model": "other"}), "ws-g4"),
             ("chief.profile.update", json!({"chief": id, "locked": true}), "ws-g8"),
-            ("chief.profile.undo", json!({"chief": id}), "ws-g9"),
             (
                 "chief.profile.update",
                 json!({"chief": id, "instructions": "Push to main."}),
@@ -191,7 +190,15 @@ fn the_persons_page_websocket_renames_a_chief_but_cannot_plant_or_widen_one() {
         assert_eq!(kept["instructions"], "Ask before a merge.", "{kept}");
         let listed =
             ok(&send(&mux, &page_ws, &v2("chief.profile.list", &params(json!({})), None, None)));
-        assert_eq!(listed["chiefs"].as_array().unwrap().len(), 2, "{listed}");
+        assert_eq!(listed["chiefs"].as_array().unwrap().len(), 2, "{listed}"); // An undo is the update it makes: the last change was the picture,
+        // which the page may change itself, so its undo needs no gesture.
+        let undone = ok(&send(
+            &mux,
+            &page_ws,
+            &v2("chief.profile.undo", &params(json!({"chief": id})), Some("ws-undo-1"), None),
+        ));
+        assert_eq!(undone["value"]["avatar"], Value::Null, "{undone}");
+        assert_eq!(undone["value"]["display_name"], "Ops Chief", "{undone}");
     }
 }
 
