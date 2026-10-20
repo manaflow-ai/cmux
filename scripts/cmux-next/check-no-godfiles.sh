@@ -373,7 +373,8 @@ while IFS=$'\t' read -r _ _ _ message; do
 done < <(grep '^WARN' <<<"$report" || true)
 if grep -q '^FAIL' <<<"$report"; then
   while IFS=$'\t' read -r _ kind key message; do
-    if [[ "$kind" == rust-file ]]; then
+    # GODFILES_NO_BLAME=1 (the post-edit hook) skips the history walk, which costs a git show per commit.
+    if [[ "$kind" == rust-file && "${GODFILES_NO_BLAME:-0}" != 1 ]]; then
       read -r allow_lines allow_fns <<<"$(allowance "$kind" "$key")"
       echo "$message [grown past it by: $(grower "$key" "$allow_lines" "$allow_fns")]"
     else

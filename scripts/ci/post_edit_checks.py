@@ -27,6 +27,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -102,16 +103,34 @@ def run_tool(argv: list[str], root: Path, budget: Budget, *, cap: float = 8.0, s
     if timeout <= 0.5:
         return None
     try:
-        return subprocess.run(argv, cwd=root, input=stdin, capture_output=True, text=True, timeout=timeout,
-                              env=env)
-    except (OSError, subprocess.SubprocessError):
+        # Its own process group, so a timeout kills every child (a pipeline the tool started too).
+        proc = subprocess.Popen(argv, cwd=root, stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                                start_new_session=True)
+    except OSError:
         return None
+    try:
+        out, err = proc.communicate(stdin, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        proc.communicate()
+        return None
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
 
 
-def head_text(root: Path, path: str, budget: Budget) -> str | None:
-    """The file at HEAD, or None when HEAD does not have it."""
-    shown = run_tool(["git", "show", f"HEAD:{path}"], root, budget, cap=5)
-    return shown.stdout if shown is not None and shown.returncode == 0 else None
+# head_text(): HEAD has no such file, or git did not answer in time.
+ABSENT, UNKNOWN = object(), object()
+
+
+def head_text(root: Path, path: str, budget: Budget):
+    """The file at HEAD, ABSENT when HEAD does not have it, or UNKNOWN when git did not answer."""
+    shown = run_tool(["git", "show", f"HEAD:{path}"], root, budget, cap=8)
+    if shown is None:
+        return UNKNOWN
+    return shown.stdout if shown.returncode == 0 else ABSENT
 
 
 def actionlint_messages(root: Path, path: str, text: str, budget: Budget) -> list[str] | None:
@@ -149,7 +168,9 @@ def check_workflow(root: Path, path: str, budget: Budget) -> list[str]:
     # Only what this change added: a local actionlint older or newer than CI's pinned one, or a
     # finding already on the base, must not warn about lines the edit never touched.
     before_text = head_text(root, path, budget)
-    before = actionlint_messages(root, path, before_text, budget) if before_text is not None else []
+    if before_text is UNKNOWN:
+        return []  # no base to compare with: every pre-existing finding would look new
+    before = actionlint_messages(root, path, before_text, budget) if before_text is not ABSENT else []
     if before is None:
         return []
     def message(line):
@@ -191,22 +212,29 @@ def check_test_registration(root: Path, path: str, budget: Budget) -> list[str]:
 def check_god_file(root: Path, path: str, budget: Budget) -> list[str]:
     if not GOD_FILE.match(path) or not (root / GOD_FILE_SCRIPT).is_file():
         return []
-    env = {**os.environ, "GODFILES_WARN_SLACK": "20"}
-    result = run_tool(["bash", GOD_FILE_SCRIPT, "--base", "HEAD", "--file", path], root, budget, env=env)
+    # Only an edit that grew the file: debt it did not add is CI's warning, not this edit's.
+    before = head_text(root, path, budget)
+    if before is UNKNOWN:
+        return []
+    lines = (root / path).read_text(encoding="utf-8", errors="replace").count("\n")
+    if before is not ABSENT and lines <= before.count("\n"):
+        return []
+    # Without --base: scoped to one file the script takes well under a second, while --base archives
+    # all of CmuxNext and cmux-tui at HEAD when anything fails. NO_BLAME skips its history walk.
+    env = {**os.environ, "GODFILES_WARN_SLACK": "20", "GODFILES_NO_BLAME": "1"}
+    result = run_tool(["bash", GOD_FILE_SCRIPT, "--file", path], root, budget, env=env)
     if result is None:
         return []
+    # This file's own findings (the script names CmuxNext files from the package root).
+    name = path.removeprefix("Packages/macOS/CmuxNext/")
     found = []
-    before = head_text(root, path, budget)
-    grew = before is None or (root / path).read_text(encoding="utf-8", errors="replace").count("\n") > \
-        before.count("\n")
     for line in (result.stdout + result.stderr).splitlines():
+        if name not in line or GOD_FILE_NOTE.search(line):
+            continue
         if line.startswith("::warning title=ratchet debt::"):
-            if not grew:
-                continue  # debt this edit did not add: CI's warning, not this edit's
-
             found.append(f"{line.split('::', 2)[2]}: CI reports this as ratchet debt and fails it past +20%; "
                          "split the file by responsibility.")
-        elif result.returncode != 0 and line.strip() and not GOD_FILE_NOTE.search(line):
+        elif result.returncode != 0:
             found.append(f"{line}: CI's god-file check fails this; split the file by responsibility.")
     return found
 
