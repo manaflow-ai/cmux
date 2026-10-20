@@ -300,20 +300,20 @@ Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, t
 
 The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
 
-## `layout.focusPaneOnScroll`
+## `layout.focusFollowsMouse`
 
-Scrolling over a pane focuses it, as a click does: a terminal, browser, Markdown viewer, agent chat or Home. The scroll still reaches the pane.
+Off by default: hovering or scrolling over a pane leaves keyboard focus where you type, and only a click or the keyboard moves it. Turn it on to have the pointer focus panes, as a click does: a terminal, browser, Markdown viewer, agent chat or Home. The scroll still reaches the pane.
 
 ```json
 {
-  "layout": { "focusPaneOnScroll": false }
+  "layout": { "focusFollowsMouse": true }
 }
 ```
 
-- `true` (default): the first scroll of a gesture, or a mouse-wheel notch, focuses the pane under the pointer.
-- `false`: only a click or the keyboard moves focus.
+- `false` (default): only a click or the keyboard moves focus.
+- `true`: the pointer entering a pane, the first scroll of a gesture, or a mouse-wheel notch focuses the pane under the pointer.
 
-Focus stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, within a second of typing, and over a window that is not active. Change it in **Settings > General > Columns** or with `cmux settings set layout.focusPaneOnScroll false`.
+With it on, focus still stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, while a mouse button is held, within a second of typing, and over a window that is not active. A pointer that stays inside one pane does not undo a keyboard move to another pane. Change it in **Settings > General > Columns**, with **Focus Follows Mouse** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.focusFollowsMouse true`. It replaces `layout.focusPaneOnScroll`, which was on by default.
 
 ## `workspaces.newPlacement`
 

@@ -67,6 +67,8 @@ import PackageDescription
 //     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
+//   CmuxNextAgentUpdates -> Actions, Daemon, DaemonService, Pages, Settings (Settings and palette agent CLI
+//     updates as owner-bound terminal jobs: intents, receipts, outcomes; the App supplies the route glue)
 //   CmuxNextFileGrid -> system frameworks only (the thumbnail grid: tiles, thumbnail cache, drag
 //     out, drop reading, Quick Look and the command menu; it reads and changes no files)
 //   CmuxNextScreenshots -> FileGrid, Files (the Screenshots pane: source detection for macOS and the
@@ -211,6 +213,7 @@ let package = Package(
                 "CmuxNextHomeEngine",
                 "CmuxNextHostedChief",
                 "CmuxNextDaemonService",
+                "CmuxNextAgentUpdates",
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
                 "CmuxNextComputerUse",
@@ -354,6 +357,11 @@ let package = Package(
         .target(
             name: "CmuxNextCodeRouter",
             dependencies: ["CmuxNextCompat", "CmuxNextCloud"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCodeRouterTests",
+            dependencies: ["CmuxNextCodeRouter"],
             swiftSettings: daemonSwiftSettings
         ),
         // The Accounts screen (Settings > Accounts, onboarding step). The App
@@ -1160,7 +1168,8 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextPaletteTests",
-            dependencies: ["CmuxNextPalette"],
+            // CmuxTheme: PaletteScopeChipContrastTests derives theme tokens.
+            dependencies: ["CmuxNextPalette", .product(name: "CmuxTheme", package: "CmuxTheme")],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1253,12 +1262,20 @@ let package = Package(
             dependencies: ["CmuxNextWakeups", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
             swiftSettings: daemonSwiftSettings
         ),
+        // Settings and palette agent CLI updates (moved out of CmuxNextApp/AgentHarnesses):
+        // the shared registry handler, owner routes, intents and terminal outcomes.
+        .target(
+            name: "CmuxNextAgentUpdates",
+            dependencies: ["CmuxNextActions", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextPages", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
                 "CmuxNextAgentCursor",
                 "CmuxNextAgentLanes",
+                "CmuxNextAgentUpdates",
                 "CmuxNextApp",
                 "CmuxNextApps",
                 "CmuxNextBrowserHistory",
@@ -1299,6 +1316,8 @@ let package = Package(
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                // UpdateLoadingIndicatorTests feeds Sparkle's update states.
+                .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 // ReduceMotionLoopTests builds the vendored Home typing indicators.
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
                 .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),

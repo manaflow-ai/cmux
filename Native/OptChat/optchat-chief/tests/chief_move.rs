@@ -753,6 +753,7 @@ fn fake_cloud() -> (String, Calls) {
         let mut done = false;
         let mut brain = false;
         let mut history = 0u64;
+        let mut sent = 0u64;
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
             let mut reader = BufReader::new(stream.try_clone().unwrap());
@@ -798,8 +799,21 @@ fn fake_cloud() -> (String, Calls) {
                     200,
                     serde_json::json!({"ok": true, "value": {"last_seq": history}}),
                 )
+            } else if path == "/v1/ops" && body["op"] == "message.send" {
+                // The hosted Chief answers at once.
+                sent += 1;
+                (200, serde_json::json!({"ok": true, "value": {}}))
             } else if path == "/v1/ops" {
                 (200, serde_json::json!({"ok": true, "value": {}}))
+            } else if path == "/v1/read" {
+                // A read answers {value} without `ok` (the real API's shape).
+                let mut messages =
+                    vec![serde_json::json!({"seq": history, "author": "user_T", "parts": []})];
+                if sent > 0 {
+                    messages.push(serde_json::json!({"seq": history + 1, "author": "user_T", "parts": [{"type": "text", "text": "q"}]}));
+                    messages.push(serde_json::json!({"seq": history + 2, "author": "agent_01TEST", "parts": [{"type": "text", "text": "MARIGOLD-77"}]}));
+                }
+                (200, serde_json::json!({"value": {"messages": messages}}))
             } else if path.contains("/brain") && method == "PUT" {
                 brain = body["enabled"] == true;
                 (200, serde_json::json!({"ok": true}))
@@ -933,6 +947,26 @@ fn a_move_to_the_cloud_copies_history_and_memory_and_turns_the_brain_on() {
         serde_json::from_str(&std::fs::read_to_string(src.join("state/moved.json")).unwrap())
             .unwrap();
     assert_eq!(moved["to"], format!("cloud:{base}/agent_01TEST"));
+    // One message to the moved Chief, and its reply.
+    let asked = Command::new(BIN)
+        .args([
+            "move",
+            "ask",
+            "--text",
+            "the code word?",
+            "--session-token-file",
+            token.to_str().unwrap(),
+            "--home",
+            src.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        asked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&asked.stderr)
+    );
+    assert!(String::from_utf8_lossy(&asked.stdout).contains("MARIGOLD-77"));
     // Rollback turns the hosted brain off and lets this copy answer again.
     let back = Command::new(BIN)
         .args([

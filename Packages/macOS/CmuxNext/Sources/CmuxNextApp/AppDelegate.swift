@@ -47,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
+        Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
@@ -337,7 +339,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugCloudMove.register(on: control.service?.router, services: services)
                 DebugTerminalLinks.register(on: control.service?.router, services: services)
                 if let router = control.service?.router {
-                    BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
+                    // The passkey hand-off: an agent's request waits for the person's banner click.
+                    let passkeys = BrowserPasskeyRequests(host: AppBrowserPasskeyHost(services: services))
+                    services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
+                    BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
+                                       agentMouse: { [weak settings] in
+                                           await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
+                                       }).install(on: router)
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
@@ -400,6 +408,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.diffPages.terminate()
         services?.viewers.markdownPages.terminate()
         services?.viewers.editorPages.terminate()
+        // Design mode's Home composer files left by cards still in a draft (BrowserDesignModeTempFiles).
+        BrowserDesignModeController.tempFiles.removeAll()
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
         cloudContext?.cancel()
