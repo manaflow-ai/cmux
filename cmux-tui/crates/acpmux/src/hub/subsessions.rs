@@ -790,7 +790,13 @@ impl Hub {
             "to": to.id,
         });
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
+        // An agent a remote device drove (its turn, or its last one, is a Web
+        // turn) prompts under the remote floor, and so does a prompt to a
+        // session whose last turn was one: a family prompt never runs, or
+        // lets the receiver run, below the floor (`remote_floor.rs`).
+        let web = Self::web_turn(from) || Self::web_turn(to);
         let opts = PromptOptions {
+            control: if web { Control::Web } else { Control::Local },
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
             on_accepted: Some(Box::new(move |v| {
                 let _ = tx.send(v);

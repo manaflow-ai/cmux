@@ -293,7 +293,14 @@ impl Hub {
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
-        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        // A family prompt (`subsessions.rs`) never clears the floor a Web
+        // turn left: only a local turn the person or a client starts does.
+        let family = run.provenance.as_ref().is_some_and(|p| {
+            p.get("kind").and_then(Value::as_str) == Some(super::subsessions::PROVENANCE_KIND)
+        });
+        if control == Control::Web || !family {
+            session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        }
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
