@@ -516,6 +516,13 @@ struct MacOsMasterWriter {
 }
 
 impl Write for MacOsMasterWriter {
+    /// Never leaves the program's input queue ending right after an ESC (#22265).
+    #[cfg(target_vendor = "apple")]
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        crate::input_queue::write(&mut self.file, buffer)
+    }
+
+    #[cfg(not(target_vendor = "apple"))]
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         self.file.write(buffer)
     }
