@@ -236,6 +236,7 @@ impl Brain {
                         .as_ref()
                         .map(|cmux_conversation::Origin::Remote { install }| install.clone());
                     let images = match self.daemon.as_mut() {
+                        _ if has_images && !by_owner => super::images::unread_images(&message),
                         Some(daemon) if has_images => {
                             super::images::read_images(daemon.as_mut(), &message)
                         }
@@ -243,6 +244,7 @@ impl Brain {
                     };
                     // The turn opens other files from this Mac; the line names where.
                     let files = match self.daemon.as_mut() {
+                        _ if has_files && !by_owner => super::files::unread_files(&message),
                         Some(daemon) if has_files => {
                             let root = self.file.attachments_dir();
                             super::files::read_files(daemon.as_mut(), &message, &root)
@@ -264,10 +266,7 @@ impl Brain {
                             seq: message.seq,
                             id: message.id.clone(),
                             remote,
-                            requires_approval: !self
-                                .settings
-                                .membership
-                                .is_owner_message(summary, &message),
+                            requires_approval: !by_owner,
                         },
                     );
                     return;
