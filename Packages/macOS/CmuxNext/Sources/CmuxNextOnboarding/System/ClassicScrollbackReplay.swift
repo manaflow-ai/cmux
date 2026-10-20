@@ -44,12 +44,12 @@ public nonisolated struct ClassicScrollbackReplay: Sendable {
     /// Printable text, `\n`, tabs and SGR sequences; `\r\n` becomes `\n`.
     /// Every other control character and escape sequence is dropped.
     private static func printable(_ scrollback: String) -> String {
-        let scalars = Array(scrollback.unicodeScalars)
+        let scalars = scrollback.unicodeScalars
         var out = String.UnicodeScalarView()
-        var index = 0
-        while index < scalars.count {
+        var index = scalars.startIndex
+        while index < scalars.endIndex {
             let scalar = scalars[index]
-            index += 1
+            scalars.formIndex(after: &index)
             switch scalar.value {
             case 0x0A, 0x09:
                 out.append(scalar)
@@ -66,35 +66,46 @@ public nonisolated struct ClassicScrollbackReplay: Sendable {
 
     /// Skips the escape sequence after an ESC at `start - 1`, keeping it in
     /// `out` only when it is SGR; returns where the text resumes.
-    private static func escape(_ scalars: [Unicode.Scalar], from start: Int, into out: inout String.UnicodeScalarView) -> Int {
-        guard start < scalars.count else { return start }
+    private static func escape(
+        _ scalars: String.UnicodeScalarView,
+        from start: String.UnicodeScalarView.Index,
+        into out: inout String.UnicodeScalarView
+    ) -> String.UnicodeScalarView.Index {
+        guard start < scalars.endIndex else { return start }
         switch scalars[start] {
         case "[":
             // CSI: parameters and intermediates, then one final byte.
-            var end = start + 1
-            while end < scalars.count, (0x20...0x3F).contains(scalars[end].value) { end += 1 }
-            guard end < scalars.count, (0x40...0x7E).contains(scalars[end].value) else { return end }
-            let parameters = scalars[(start + 1)..<end]
+            var end = scalars.index(after: start)
+            while end < scalars.endIndex, (0x20...0x3F).contains(scalars[end].value) {
+                scalars.formIndex(after: &end)
+            }
+            guard end < scalars.endIndex, (0x40...0x7E).contains(scalars[end].value) else { return end }
+            let parameters = scalars[scalars.index(after: start)..<end]
             if scalars[end] == "m", parameters.allSatisfy({ (0x30...0x3B).contains($0.value) }) {
                 out.append("\u{1b}")
                 out.append(contentsOf: scalars[start...end])
             }
-            return end + 1
+            return scalars.index(after: end)
         case "]", "P", "X", "^", "_":
             // OSC, DCS, SOS, PM, APC: a string up to BEL or ST (`ESC \`).
-            var end = start + 1
-            while end < scalars.count {
-                if scalars[end] == "\u{07}" { return end + 1 }
+            var end = scalars.index(after: start)
+            while end < scalars.endIndex {
+                if scalars[end] == "\u{07}" { return scalars.index(after: end) }
                 // ST ends it; another ESC ends it and starts its own sequence.
-                if scalars[end] == "\u{1b}" { return end + 1 < scalars.count && scalars[end + 1] == "\\" ? end + 2 : end }
-                end += 1
+                if scalars[end] == "\u{1b}" {
+                    let next = scalars.index(after: end)
+                    return next < scalars.endIndex && scalars[next] == "\\" ? scalars.index(after: next) : end
+                }
+                scalars.formIndex(after: &end)
             }
             return end
         default:
             // Intermediates, then one final character (charset, keypad, save cursor, ...).
             var end = start
-            while end < scalars.count, (0x20...0x2F).contains(scalars[end].value) { end += 1 }
-            return min(end + 1, scalars.count)
+            while end < scalars.endIndex, (0x20...0x2F).contains(scalars[end].value) {
+                scalars.formIndex(after: &end)
+            }
+            return end < scalars.endIndex ? scalars.index(after: end) : end
         }
     }
 }
