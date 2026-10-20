@@ -10,7 +10,7 @@ struct AddedServerBlock: View {
     var body: some View {
         VStack(spacing: Metrics.space2) {
             Icon(.statusSuccess, size: ServerMetrics.successIconSize).foregroundStyle(colors.ok)
-            Text(ServerStrings.added(name)).font(Font(Typography.header)).foregroundStyle(colors.primary)
+            Text(ServerStrings.added(name)).font(Font(Typography.system(size: TypeScale.title, weight: TypeScale.emphasis))).foregroundStyle(colors.primary)
             Text(ServerStrings.addedDetail).font(Font(Typography.body)).foregroundStyle(colors.secondary)
         }
         .frame(maxWidth: .infinity)

@@ -44,7 +44,8 @@ struct ServerApproverView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Metrics.space1) {
-            Text(ServerStrings.addServer).font(Font(Typography.header)).foregroundStyle(colors.primary)
+            Text(ServerStrings.addServer).font(Font(Typography.system(size: TypeScale.title, weight: TypeScale.emphasis)))
+                .foregroundStyle(colors.primary)
             Text(ServerStrings.enterServerCode).font(Font(Typography.body)).foregroundStyle(colors.secondary)
         }
     }
@@ -84,18 +85,21 @@ struct ServerApproverView: View {
                     model.approval.name = $0
                 }
                 .frame(height: ServerMetrics.rowFieldHeight).padding(.horizontal, Metrics.space3).card(radius: ServerMetrics.fieldRadius)
+                .frame(maxWidth: .infinity)
             }
             // One team needs no choice.
             if candidate.teams.count > 1 {
                 GridRow {
                     label(ServerStrings.team)
-                    TeamChips(model: model, teams: candidate.teams)
+                    TeamChips(model: model, teams: candidate.teams).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             GridRow {
                 Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
                 Toggle(ServerStrings.runChief, isOn: Binding(get: { model.approval.runChief }, set: { model.approval.runChief = $0 }))
                     .toggleStyle(.checkbox).font(Font(Typography.body)).foregroundStyle(colors.primary).tint(colors.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
