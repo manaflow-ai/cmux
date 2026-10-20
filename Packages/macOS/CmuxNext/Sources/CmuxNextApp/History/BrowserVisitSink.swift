@@ -18,6 +18,9 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
     let log: BrowserVisitLog
     private let continuation: AsyncStream<Operation>.Continuation
     private let drain: Task<Void, Never>
+    /// Once a bounded queue refused an operation, this generation is never
+    /// deleted during handoff: its durable state is no longer complete.
+    private var droppedWrite = false
 
     init(log: BrowserVisitLog) {
         self.log = log
@@ -47,29 +50,30 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
     }
 
     func didRecordVisit(url: URL, title: String?, at date: Date) {
-        continuation.yield(.visit(url.absoluteString, title, date))
+        enqueue(.visit(url.absoluteString, title, date))
     }
 
     func didUpdateTitle(_ title: String, for url: URL) {
-        continuation.yield(.title(title, url.absoluteString))
+        enqueue(.title(title, url.absoluteString))
     }
 
     func didRemoveEntry(for url: URL) {
-        continuation.yield(.remove(url.absoluteString))
+        enqueue(.remove(url.absoluteString))
     }
 
     /// Clears visits at or after `since` (nil: all), after every queued write.
     func clear(since: Date?) {
-        continuation.yield(.clear(since))
+        enqueue(.clear(since))
     }
 
     func remove(host: String) {
-        continuation.yield(.removeHost(host))
+        enqueue(.removeHost(host))
     }
 
     /// Waits until every local history write queued before this call finished.
     func flush() async -> Bool {
-        await withCheckedContinuation { barrier in
+        guard !droppedWrite else { return false }
+        return await withCheckedContinuation { barrier in
             switch continuation.yield(.barrier(barrier)) {
             case .enqueued:
                 break
@@ -82,6 +86,12 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
             @unknown default:
                 barrier.resume(returning: false)
             }
+        }
+    }
+
+    private func enqueue(_ operation: Operation) {
+        if case .dropped = continuation.yield(operation) {
+            droppedWrite = true
         }
     }
 }
