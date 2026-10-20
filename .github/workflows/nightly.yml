@@ -6352,7 +6352,7 @@ jobs:
   check-release-notes:
     needs: [decide, build-nightly-app, sign-release-notes, resolve-nightly-cmux-tui-client]
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.sign-release-notes.result == 'success'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
