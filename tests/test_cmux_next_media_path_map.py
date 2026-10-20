@@ -41,6 +41,9 @@ class TourFilePathTests(unittest.TestCase):
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceHoverCard.swift"),
             ["hover-card"])
         self.assertEqual(
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView.swift"),
+            ["chief-settings"])
+        self.assertEqual(
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift"),
             ["update-card"])
         # The popup's page is webview UI: the gallery captures it (popover-media, popover-scroll).
