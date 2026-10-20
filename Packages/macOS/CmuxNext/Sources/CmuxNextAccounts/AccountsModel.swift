@@ -16,6 +16,8 @@ public final class AccountsModel {
     /// The provider whose Connect confirmation is open (Codex: its refresh
     /// token moves to CodeRouter).
     public var confirmTarget: AIProvider?
+    /// Why the last team switch failed, until the next switch or refresh.
+    public private(set) var teamError: String?
     @ObservationIgnored public let services: any AccountsServices
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -50,6 +52,7 @@ public final class AccountsModel {
         generation += 1
         let current = generation
         refreshTask?.cancel()
+        teamError = nil
         isRefreshing = true
         apply(.detectionStarted)
         apply(.cmuxSignIn(services.isSignedInToCmux))
@@ -58,6 +61,8 @@ public final class AccountsModel {
             // Detection and the CodeRouter list run concurrently.
             let detecting = Task { await services.detect() }
             let loading = Task { await Self.loadLinked(services) }
+            // Membership re-reads on its own; the team list updates when it lands.
+            if let active = services.activeTeam { Task { await active.refresh() } }
             let found = await detecting.value, accounts = await loading.value
             guard let self, current == self.generation, !Task.isCancelled else { return }
             for detection in found { self.apply(.detected(detection), to: detection.provider) }
@@ -68,6 +73,18 @@ public final class AccountsModel {
             case nil: break
             }
             self.isRefreshing = false
+        }
+    }
+
+    /// Makes `id` the active team. The App reloads what follows the team
+    /// (this screen's CodeRouter accounts included) when the switch lands.
+    public func selectTeam(_ id: String) async {
+        teamError = nil
+        guard let active = services.activeTeam else { return }
+        do {
+            try await active.select(id)
+        } catch {
+            teamError = AccountsStrings.teamSwitchFailed
         }
     }
 
