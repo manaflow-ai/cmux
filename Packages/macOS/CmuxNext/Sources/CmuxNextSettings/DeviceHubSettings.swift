@@ -19,6 +19,16 @@ public nonisolated struct DeviceHubSettings: Sendable, Equatable {
         return url
     }
 
+    /// The hub a build uses when `url` is empty (red skeleton: none yet).
+    public static func builtInBaseURL(isDebugBuild: Bool) -> URL? {
+        nil
+    }
+
+    /// The hub this build uses (red skeleton: today's behavior, DEV builds read `url`).
+    public func resolvedBaseURL(isDebugBuild: Bool) -> URL? {
+        isDebugBuild ? baseURL : nil
+    }
+
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["deviceHub"], diagnostics: &diagnostics) else { return settings }
