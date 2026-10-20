@@ -1,95 +1,83 @@
 import CmuxHomeCore
 import Foundation
 
-/// The agent's running reply on screen: MessagesLab's own received bubble,
-/// aliased to the reply's key (`turn`), so the posted reply lands in it.
-struct ShownDraft: Equatable {
+/// The agent's running reply on screen: MessagesLab's streaming bubble (ask 11,
+/// `.streamBegin` / `.streamSet` / `.streamEnd`), keyed by the reply's turn key
+/// (its `client_msg_id`), so the posted reply takes the bubble's place in place.
+struct ShownStream: Equatable {
     var turn: IdempotencyKey
     var author: ParticipantID
-    var id: ID
     var text: String
-    /// A draft that no longer extends the shown text gets a new bubble id.
-    var generation = 0
+    /// The last `.streamSet` seq (MessagesLab ignores a seq not above it).
+    var seq = 0
 }
 
-/// What `ProjectionCore.draft` asks of the projection store.
-struct DraftStep {
-    var actions: [Action] = []
-    /// The posted reply replaces its draft's text (final Markdown) in place.
-    var rebuild = false
-    var isEmpty: Bool { actions.isEmpty && !rebuild }
-}
-
-/// HomeStore.drafts through MessagesLab's bubble path (cx-k1uj): the first
-/// text `.receive`s the agent's bubble (the typing dots turn into it), more
-/// text `.appendText`s in place, the posted reply (same key) takes the
-/// bubble's id and its final content, and a draft that ends without a reply
-/// `.delete`s its bubble. A draft of an ended turn never reaches here
-/// (HomeStore drops it), so a posted reply never gets its draft back.
+/// HomeStore's running reply (HomeStore.live, or a `conversation-draft` from an
+/// older owner) through MessagesLab's streaming bubble (cx-kmak2, pin d7b2df6):
+/// the first text begins the stream (the typing dots turn into the bubble), each
+/// change sets the whole text with the final message's parts (Markdown renders the
+/// whole text), the posted reply (same key) ends it with `replacedBy:` (MessagesLab
+/// gives it the bubble's rows and cells: nothing moves), and a reply that ends
+/// without a message ends it with `replacedBy: nil` (it leaves as the typing
+/// indicator). The author's typing dots follow HomeStore's typing (core.typing),
+/// not the stream: an extra `.typing(false)` would blink them when HomeStore still
+/// reports typing. Limits: the stream bubble has no thread root and no mentions
+/// (a Chief's top-level reply has neither), so such a reply moves once in place.
 extension ProjectionCore {
-    /// The authors whose running reply shows (their typing dots stay off,
-    /// also in the step that turns the dots into the bubble).
-    func draftAuthors(_ want: HomeTurnDraft?) -> Set<ParticipantID> {
-        guard let want, Self.visibleText(want) != nil else { return [] }
-        return [want.participant]
-    }
-
-    /// True when `draft(_:state:)` would act.
-    func draftDiffers(_ want: HomeTurnDraft?) -> Bool {
+    /// True when `stream(_:state:)` would act.
+    func streamDiffers(_ want: HomeTurnDraft?) -> Bool {
         let visible = want.flatMap { Self.visibleText($0) == nil ? nil : $0 }
-        return visible?.turn != shownDraft?.turn || visible.map(\.text) != shownDraft.map(\.text)
+        return visible?.turn != shownStream?.turn || visible.map(\.text) != shownStream.map(\.text)
     }
 
-    mutating func draft(_ want: HomeTurnDraft?, state: AppState) -> DraftStep {
-        var step = DraftStep()
-        if let live = shownDraft, want?.turn != live.turn {
-            shownDraft = nil
-            if shown.contains(where: { $0.key == live.turn }) {
-                step.rebuild = true
-            } else {
-                aliases[live.turn] = nil
-                step.actions.append(.delete(live.id))
-            }
+    /// The turn whose posted reply HomeDiff must leave to the stream's end (no `.receive`).
+    var streamingTurn: IdempotencyKey? { shownStream?.turn }
+
+    mutating func stream(_ want: HomeTurnDraft?, state: AppState) -> [Action] {
+        var actions: [Action] = []
+        if let live = shownStream, want?.turn != live.turn || shown.contains(where: { $0.key == live.turn }) {
+            shownStream = nil
+            let final = shown.first { $0.key == live.turn }.map(finalMessage)
+            // The author's typing then follows HomeStore (core.typing): a final message ends it in MessagesLab.
+            actions.append(.streamEnd(Self.streamID(live.turn), replacedBy: final))
         }
-        // A reply already posted (a page brought it first) keeps its bubble until the draft ends.
+        // A reply already posted (a page brought it first) needs no stream.
         guard let want, let text = Self.visibleText(want), !shown.contains(where: { $0.key == want.turn }) else {
-            return step
+            return actions
         }
-        if var live = shownDraft {
-            guard text != live.text else { return step }
-            if text.hasPrefix(live.text) {
-                step.actions.append(.appendText(live.id, String(text.dropFirst(live.text.count))))
-            } else {
-                step.actions.append(.delete(live.id))
-                live.generation += 1
-                live.id = Self.bubbleID(want.turn, generation: live.generation)
-                aliases[want.turn] = live.id
-                step.actions.append(.receive(bubble(want, text: text)))
-            }
+        let bubble = bubble(want, text: text)
+        if var live = shownStream {
+            guard text != live.text else { return actions }
             live.text = text
-            shownDraft = live
-            return step
+            live.seq += 1
+            actions.append(.streamSet(Self.streamID(want.turn), text: text, parts: bubble.parts, seq: live.seq))
+            shownStream = live
+            return actions
         }
-        // An older window shows: the bubble comes with the posted reply at the newest.
-        guard state.atNewest else { return step }
-        let id = Self.bubbleID(want.turn, generation: 0)
-        aliases[want.turn] = id
-        shownDraft = ShownDraft(turn: want.turn, author: want.participant, id: id, text: text)
-        step.actions.append(.receive(bubble(want, text: text)))
-        return step
+        // An older window shows: the reply comes as a message at the newest.
+        guard state.atNewest else { return actions }
+        shownStream = ShownStream(turn: want.turn, author: want.participant, text: text, seq: 1)
+        actions.append(.streamBegin(Self.streamID(want.turn), sender: want.participant.rawValue, format: bubble.format))
+        actions.append(.streamSet(Self.streamID(want.turn), text: text, parts: bubble.parts, seq: 1))
+        return actions
     }
 
-    /// The draft's text, nil while it is only whitespace.
+    /// The reply's whole text so far, nil while it is only whitespace. Always the whole reply: a send
+    /// while it streams never cuts it (the bubble stays one, below the send, in the owner's order).
     private static func visibleText(_ draft: HomeTurnDraft) -> String? {
         let text = draft.text
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
     }
 
-    private static func bubbleID(_ turn: IdempotencyKey, generation: Int) -> ID {
-        "\(HomeMapping.rowSafe(turn.rawValue))~draft\(generation)"
+    static func streamID(_ turn: IdempotencyKey) -> StreamID { turn.rawValue }
+
+    /// The posted reply as the transcript shows it (HomeMapping.id: no alias).
+    private func finalMessage(_ item: TranscriptItem) -> Message {
+        let roots = HomeMapping.roots(in: shown, aliases: aliases, summary: summary, media: media, links: links)
+        return HomeMapping.message(item, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots)
     }
 
-    /// The bubble the posted reply will be: the same mapping as a committed agent message.
+    /// The message the posted reply will be: the same mapping (parts, format) as a committed agent message.
     private func bubble(_ draft: HomeTurnDraft, text: String) -> Message {
         let item = TranscriptItem(key: draft.turn, seq: nil, author: draft.participant, parts: [.text(text)],
                                   createdAt: Date(), delivery: .committed)

@@ -28,7 +28,7 @@ env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml
 
 jobs:
-  publish:
+  sign:
     # The source run is checked again by id in the first step, for both events.
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
@@ -37,19 +37,24 @@ jobs:
        github.event.workflow_run.head_repository.full_name == github.repository &&
        github.event.workflow_run.head_branch == 'feat-cmux-next' &&
        github.event.workflow_run.path == '.github/workflows/cmux-next.yml')
-    name: Sign and publish cmux NEXT DEV
+    name: Sign cmux NEXT DEV
     # On the job, not the workflow: every cmux-next completion starts a run
     # here, and a skipped one in a workflow group would cancel a pending
     # publish.
     concurrency:
-      group: cmux-next-dev-daily
+      group: cmux-next-dev-daily-sign
       cancel-in-progress: false
+    # This job signs and runs no code from the app. verify runs the app's
+    # sidecar without secrets; publish uploads only the archive it tested.
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 30
     permissions:
       actions: read
-      contents: write
+      contents: read
+    outputs:
+      signed: ${{ steps.package.outputs.signed }}
+      source_sha: ${{ steps.package.outputs.source_sha }}
     env:
       SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.source_run_id }}
       RELEASE_TAG: cmux-next-dev
@@ -170,20 +175,12 @@ jobs:
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        # The app comes from a feat-cmux-next build. None of its code runs while
+        # this keychain exists: signing defers the sidecar handshake, and the
+        # keychain is deleted before the runtime check below.
         run: |
           set -euo pipefail
-          [[ -n "$APPLE_CERTIFICATE_BASE64" ]] || { echo "Missing APPLE_CERTIFICATE_BASE64" >&2; exit 1; }
-          [[ -n "$APPLE_CERTIFICATE_PASSWORD" ]] || { echo "Missing APPLE_CERTIFICATE_PASSWORD" >&2; exit 1; }
-          KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/cmux-next-dev-daily/cert.p12"
-          security delete-keychain cmux-next-dev-daily.keychain >/dev/null 2>&1 || true
-          security create-keychain -p "$KEYCHAIN_PASSWORD" cmux-next-dev-daily.keychain
-          security set-keychain-settings -lut 21600 cmux-next-dev-daily.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" cmux-next-dev-daily.keychain
-          security import "$RUNNER_TEMP/cmux-next-dev-daily/cert.p12" -k cmux-next-dev-daily.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          ./scripts/import-apple-developer-id-intermediates.sh cmux-next-dev-daily.keychain
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" cmux-next-dev-daily.keychain
-          security list-keychains -d user -s cmux-next-dev-daily.keychain
+          ./scripts/ci/signing-keychain.sh create --keychain cmux-next-dev-daily.keychain
           echo "CMUX_NEXT_DEV_DAILY_KEYCHAIN=cmux-next-dev-daily.keychain" >> "$GITHUB_ENV"
 
       - name: Sign and verify cmux NEXT DEV
@@ -199,20 +196,138 @@ jobs:
           ./scripts/sign-cmux-bundle.sh "$APP_PATH" cmux.next-dev.entitlements "$APPLE_SIGNING_IDENTITY"
           /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
-      - name: Publish the rolling GitHub prerelease
+      - name: Delete signing keychain after signing
+        if: always() && steps.source-artifact.outputs.archive != ''
+        run: ./scripts/ci/signing-keychain.sh delete
+
+      - name: Package the signed app
+        id: package
         if: steps.source-artifact.outputs.archive != ''
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           APP_PATH: ${{ steps.unpack.outputs.app }}
         run: |
           set -euo pipefail
+          mkdir -p signed-handoff
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "signed-handoff/$APP_ARCHIVE_NAME"
+          (cd signed-handoff && shasum -a 256 "$APP_ARCHIVE_NAME" > "$APP_ARCHIVE_NAME.sha256")
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the signed app
+        if: steps.source-artifact.outputs.archive != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-daily-signed
+          path: signed-handoff/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Cleanup signing keychain
+        if: always()
+        run: |
+          if [[ -n "${CMUX_NEXT_DEV_DAILY_KEYCHAIN:-}" ]]; then
+            ./scripts/ci/signing-keychain.sh delete --keychain "$CMUX_NEXT_DEV_DAILY_KEYCHAIN" \
+              || security delete-keychain "$CMUX_NEXT_DEV_DAILY_KEYCHAIN" >/dev/null 2>&1 || true
+          fi
+
+  verify:
+    name: Verify signed cmux NEXT DEV
+    # No environment and no secrets: this job runs the app's diff sidecar.
+    needs: sign
+    if: needs.sign.outputs.signed == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      APP_NAME: cmux NEXT DEV
+      APP_ARCHIVE_NAME: cmux-NEXT-DEV.zip
+    steps:
+      - name: Checkout trusted verification scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download the signed app
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-dev-daily-signed
+          path: signed-handoff
+
+      - name: Verify signed diff sidecar runtime contract
+        run: |
+          set -euo pipefail
+          (cd signed-handoff && shasum -a 256 -c "$APP_ARCHIVE_NAME.sha256")
+          mkdir -p signed
+          /usr/bin/ditto -x -k "signed-handoff/$APP_ARCHIVE_NAME" signed
+          APP_PATH="signed/$APP_NAME.app"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          ./scripts/verify-diff-sidecar-artifact.sh \
+            "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
+            --archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" \
+            --require-signed
+          mkdir -p tested
+          cp "signed-handoff/$APP_ARCHIVE_NAME.sha256" tested/tested.sha256
+
+      - name: Upload the tested digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-daily-tested
+          path: tested/tested.sha256
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Publish cmux NEXT DEV
+    # No signing secrets: the job token publishes the archive verify tested.
+    needs: [sign, verify]
+    if: needs.sign.outputs.signed == 'true' && needs.verify.result == 'success'
+    concurrency:
+      group: cmux-next-dev-daily
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: cmux-next-dev
+      APP_ARCHIVE_NAME: cmux-NEXT-DEV.zip
+      SOURCE_SHA: ${{ needs.sign.outputs.source_sha }}
+    steps:
+      - name: Download the signed app
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-dev-daily-signed
+          path: signed-handoff
+
+      - name: Download the tested digest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-dev-daily-tested
+          path: tested
+
+      - name: Require the archive verify tested
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sign job gave no source SHA" >&2; exit 1; }
+          actual="$(cd signed-handoff && shasum -a 256 "$APP_ARCHIVE_NAME")"
+          [ "$actual" = "$(cat tested/tested.sha256)" ] || { echo "the archive is not the one verify tested" >&2; exit 1; }
+          cp "signed-handoff/$APP_ARCHIVE_NAME" "$RUNNER_TEMP/$APP_ARCHIVE_NAME"
+          cp tested/tested.sha256 "$RUNNER_TEMP/$APP_ARCHIVE_NAME.sha256"
+
+      - name: Publish the rolling GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
           archive="$RUNNER_TEMP/$APP_ARCHIVE_NAME"
-          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "$archive"
-          (
-            cd "$(dirname "$archive")"
-            shasum -a 256 "$(basename "$archive")"
-          ) > "$archive.sha256"
           notes="$(cat <<EOF
           Rolling cmux NEXT DEV Release build from feat-cmux-next commit $SOURCE_SHA.
 
@@ -248,10 +363,3 @@ jobs:
             gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
           fi
           echo "Published $RELEASE_TAG for $SOURCE_SHA"
-
-      - name: Cleanup signing keychain
-        if: always()
-        run: |
-          if [[ -n "${CMUX_NEXT_DEV_DAILY_KEYCHAIN:-}" ]]; then
-            security delete-keychain "$CMUX_NEXT_DEV_DAILY_KEYCHAIN" >/dev/null 2>&1 || true
-          fi

@@ -23,7 +23,14 @@ public final class GeneratedCoverageTest {
 
         Map<String, Method> methods = Arrays.stream(GeneratedCmuxClient.class.getDeclaredMethods())
             .filter(method -> Modifier.isPublic(method.getModifiers()))
-            .collect(Collectors.toMap(Method::getName, method -> method));
+            .collect(Collectors.toMap(Method::getName, method -> method, (left, right) -> {
+                check(left.getName().equals("identify")
+                    && left.getParameterCount() + right.getParameterCount() == 1,
+                    "unexpected generated overload " + left.getName());
+                return left.getParameterCount() > right.getParameterCount() ? left : right;
+            }));
+        check(GeneratedCmuxClient.class.getDeclaredMethod("identify").getReturnType().equals(IdentifyResult.class),
+            "legacy no-argument identify result");
         Map<String, Class<?>> layoutCommandRequests = Map.of(
             "clear-history", ClearHistoryRequest.class,
             "new-pane-right", NewPaneRightRequest.class,

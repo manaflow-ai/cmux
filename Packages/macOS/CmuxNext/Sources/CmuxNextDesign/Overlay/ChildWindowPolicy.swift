@@ -19,7 +19,7 @@ public struct ChildWindowPolicy {
     public static var legacyPanels: Set<String> = [
         "DividerMousePanel", "PalettePanel", "PageInfoPanel",
         "TabGroupEditorPanel", "HoverCardPanel", "NSPanel", "FeedPanel",
-        "BrowserPopupPanel", "NotificationsPanel", "_NSPopoverWindow",
+        "NotificationsPanel", "_NSPopoverWindow",
     ]
 
     public private(set) static var violations: [String] = []

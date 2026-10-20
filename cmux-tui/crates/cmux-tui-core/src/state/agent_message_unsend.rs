@@ -11,13 +11,15 @@
 //! - `too_late`: its turn ended, or the delivery path cannot take a message
 //!   back (a terminal agent's hooks, Codex); nothing changes.
 //! - `failed`: acpmux refused the withdraw (`withdraw_refused`), or did not
-//!   answer for a delivery it may hold (`acpmux_unavailable`); nothing
+//!   answer for a delivery it may hold, or holds no prompt yet for a queued
+//!   one a hand-over went out for (`acpmux_unavailable`); nothing
 //!   changes, and the entry carries `error {reason, message}`. One recipient
 //!   failing never undoes the others.
 //!
 //! An acpmux recipient's outcome is acpmux's (`_acpmux/prompt_withdraw`, asked
 //! before the commit). A queued delivery is asked too: a pump hand-over that
-//! timed out may have reached acpmux (its attempt is counted). Only a queued
+//! timed out may have reached acpmux (its attempt is counted), or may still
+//! reach it, so acpmux not holding it yet is `failed`, not `unsent`. Only a queued
 //! delivery no hand-over was ever tried for is `unsent` without acpmux's
 //! answer: the daemon's pump is the one acpmux delivery path, and it waits
 //! for the unsend. A delivery already unsent or retracted answers the same
@@ -110,14 +112,37 @@ pub(crate) fn targets(
 
 /// The `error` of a `failed` outcome: acpmux did not answer for `recipient`.
 pub(crate) fn unavailable(recipient: &str) -> Value {
-    json!({"reason": "acpmux_unavailable",
-        "message": format!("acpmux did not answer for {recipient}; try again")})
+    let message = format!("acpmux did not answer for {recipient}; try again");
+    json!({"reason": "acpmux_unavailable", "message": clip(&message, MESSAGE_MAX)})
+}
+
+/// The `error` of a `failed` outcome: a hand-over to `recipient` went out
+/// and acpmux holds no such prompt yet, so it may still take it and run it.
+pub(crate) fn in_flight(recipient: &str) -> Value {
+    let message = format!(
+        "acpmux does not hold it for {recipient} yet, but a hand-over may still reach it; try again"
+    );
+    json!({"reason": "acpmux_unavailable", "message": clip(&message, MESSAGE_MAX)})
 }
 
 /// The `error` of a `failed` outcome: acpmux refused, with its `reason`.
 pub(crate) fn refused(recipient: &str, reason: &str) -> Value {
+    let message = format!("acpmux refused to withdraw it from {recipient} ({reason})");
     json!({"reason": "withdraw_refused", "acpmux_reason": reason,
-        "message": format!("acpmux refused to withdraw it from {recipient} ({reason})")})
+        "message": clip(&message, MESSAGE_MAX)})
+}
+
+/// The spec's limit on `error.message`, in UTF-8 bytes.
+const MESSAGE_MAX: usize = 1024;
+
+/// At most `max` UTF-8 bytes of `text`, cut on a character boundary (the
+/// catalog counts a string's length in bytes).
+pub(crate) fn clip(text: &str, max: usize) -> String {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_owned()
 }
 
 /// Apply the unsend to every delivery of `message_id` (or `recipient`'s)

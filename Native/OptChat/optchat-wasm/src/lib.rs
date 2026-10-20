@@ -15,7 +15,7 @@
 //! it (`Store::failed`), and the call throws the read's error to JS with the
 //! core state unchanged by it. The next `pump` reads again.
 
-use optchat_core::{self as core, CompactPrompt, Kind, Memory, NodeId, Store, Work};
+use optchat_core::{self as core, Checkpoint, CompactPrompt, Kind, Memory, NodeId, Store, Work};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -202,9 +202,90 @@ impl OptChat {
         })
     }
 
-    /// Appends one message (already stored) and returns its id.
-    pub fn append(&mut self) -> f64 {
-        self.memory.append() as f64
+    /// Picks up from `checkpoint()`'s JSON without reading the whole log (spec 3.2: the saved view is
+    /// loaded, never rebuilt): `t` messages, and the frontier as JSON `[[l, i, bytes], ...]` (every stored
+    /// node at or above the checkpoint's `low` of its level). Messages after the checkpoint are appended
+    /// as live. The result is lazy: change it with `appendIn` and `completeIn`. Undefined when the
+    /// checkpoint does not fit the store (the host then folds with `load` + `makeLazy`).
+    pub fn resume(
+        checkpoint: &str,
+        t: f64,
+        frontier_json: &str,
+        budget: u32,
+        store: &JsStore,
+    ) -> Result<Option<OptChat>, JsError> {
+        let Some(c) = decode_checkpoint(checkpoint) else {
+            return Ok(None);
+        };
+        let frontier: Vec<(u32, u64, usize)> = serde_json::from_str(frontier_json)?;
+        if let Some((l, _, _)) = frontier.iter().find(|(l, _, _)| *l >= 64) {
+            return Err(JsError::new(&format!("{l} is not a tree level")));
+        }
+        let budget = if budget == 0 {
+            core::VIEW
+        } else {
+            budget as usize
+        };
+        let host = Host::new(store);
+        let memory = Memory::resume(
+            &c,
+            id(t)?,
+            frontier.into_iter().map(|(l, i, n)| (NodeId::new(l, i), n)),
+            budget,
+            &host,
+        );
+        host.check()?;
+        Ok(memory.map(|memory| OptChat { memory }))
+    }
+
+    /// Where the memory stands, as JSON for `resume`: `{t, low, view, compact_view, merging, compact_merging}`.
+    pub fn checkpoint(&self) -> String {
+        encode_checkpoint(&self.memory.checkpoint())
+    }
+
+    /// Drops the sizes of nodes outside the views (read from the store when needed); from here on
+    /// change it with `appendIn` and `completeIn`.
+    #[wasm_bindgen(js_name = makeLazy)]
+    pub fn make_lazy(&mut self) {
+        self.memory.make_lazy();
+    }
+
+    #[wasm_bindgen(js_name = isLazy)]
+    pub fn is_lazy(&self) -> bool {
+        self.memory.is_lazy()
+    }
+
+    /// Appends one message (already stored) and returns its id. Not for a lazy memory (`appendIn`).
+    pub fn append(&mut self) -> Result<f64, JsError> {
+        if self.memory.is_lazy() {
+            return Err(JsError::new("a lazy memory appends with appendIn"));
+        }
+        Ok(self.memory.append() as f64)
+    }
+
+    /// `append` for any memory: sizes it does not hold come from `store`.
+    #[wasm_bindgen(js_name = appendIn)]
+    pub fn append_in(&mut self, store: &JsStore) -> Result<f64, JsError> {
+        let host = Host::new(store);
+        let at = self.memory.append_in(&host);
+        host.check()?;
+        Ok(at as f64)
+    }
+
+    /// `complete` for any memory: sizes it does not hold come from `store`.
+    #[wasm_bindgen(js_name = completeIn)]
+    pub fn complete_in(
+        &mut self,
+        l: u32,
+        i: f64,
+        text: &str,
+        store: &JsStore,
+    ) -> Result<(), JsError> {
+        let host = Host::new(store);
+        self.memory
+            .complete_in(NodeId::new(level(l)?, id(i)?), text, &host)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        host.check()
     }
 
     /// Work to do now, as JSON: `[{kind: "free", l, i, text} | {kind: "model", l, i}]`.
@@ -235,6 +316,9 @@ impl OptChat {
     }
 
     pub fn complete(&mut self, l: u32, i: f64, text: &str) -> Result<(), JsError> {
+        if self.memory.is_lazy() {
+            return Err(JsError::new("a lazy memory completes with completeIn"));
+        }
         self.memory
             .complete(NodeId::new(level(l)?, id(i)?), text)
             .map_err(|e| JsError::new(&e.to_string()))
@@ -280,6 +364,75 @@ impl OptChat {
             })
             .collect();
         serde_json::to_string(&parts).unwrap_or_else(|_| "[]".into())
+    }
+
+    /// The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front, unbuilt, cuts}, rerendered, view: [piece],
+    /// delta: [block]}`: the frozen view cut into its 4-line blocks (`block_pieces`), then the delta
+    /// blocks. `frozen` is the JSON this returned last turn, or "" for none; `new` is how many of the
+    /// log's last messages are this turn's new ones (never shown in a re-rendered view).
+    #[wasm_bindgen(js_name = turnInput)]
+    pub fn turn_input(&self, store: &JsStore, frozen: &str, new: f64) -> Result<String, JsError> {
+        #[derive(Serialize, serde::Deserialize)]
+        struct FrozenJson {
+            parts: Vec<(u32, u64)>,
+            front: u64,
+            #[serde(default)]
+            unbuilt: Vec<(u32, u64)>,
+            #[serde(default)]
+            cuts: Vec<u64>,
+            #[serde(default)]
+            starts: Vec<u64>,
+        }
+        #[derive(Serialize)]
+        struct Out<'a> {
+            frozen: FrozenJson,
+            rerendered: bool,
+            view: Vec<&'a str>,
+            delta: Vec<String>,
+        }
+        let prior = if frozen.is_empty() {
+            None
+        } else {
+            let f: FrozenJson = serde_json::from_str(frozen)
+                .map_err(|e| JsError::new(&format!("frozen view is not JSON: {e}")))?;
+            for (l, _) in f.parts.iter().chain(f.unbuilt.iter()) {
+                level(*l)?;
+            }
+            let ids = |v: &[(u32, u64)]| {
+                v.iter()
+                    .map(|(l, i)| core::NodeId::new(*l, *i))
+                    .collect::<Vec<_>>()
+            };
+            // A stored view that does not end at its front (a reset log) is ignored: the core renders again.
+            let parts = ids(&f.parts);
+            if parts.last().map_or(0, |p| p.end()) != f.front {
+                None
+            } else {
+                Some(core::Frozen {
+                    parts,
+                    front: f.front,
+                    unbuilt: ids(&f.unbuilt),
+                    cuts: f.cuts.clone(),
+                    starts: f.starts.clone(),
+                })
+            }
+        };
+        let host = Host::new(store);
+        let t = core::turn_input(&self.memory, &host, prior.as_ref(), new.max(0.0) as u64);
+        host.check()?;
+        let out = Out {
+            frozen: FrozenJson {
+                parts: t.frozen.parts.iter().map(|p| (p.l, p.i)).collect(),
+                front: t.frozen.front,
+                unbuilt: t.frozen.unbuilt.iter().map(|p| (p.l, p.i)).collect(),
+                cuts: t.frozen.cuts.clone(),
+                starts: t.frozen.starts.clone(),
+            },
+            rerendered: t.rerendered,
+            view: core::block_pieces(&t.view),
+            delta: t.delta.clone(),
+        };
+        Ok(serde_json::to_string(&out).unwrap_or_default())
     }
 
     /// The rendered view as JSON `{text, marks}` (marks are indices into the JS string `text`, UTF-16 code units).
@@ -435,4 +588,52 @@ mod tests {
         let ascii = "ab\ncd\n";
         assert_eq!(js_offsets(ascii, &[3]), vec![3]);
     }
+}
+
+/// The checkpoint's JSON (the same form as optchat-host's `memory/checkpoint`).
+fn encode_checkpoint(c: &Checkpoint) -> String {
+    let parts = |v: &[NodeId]| {
+        v.iter()
+            .map(|p| serde_json::json!([p.l, p.i]))
+            .collect::<Vec<serde_json::Value>>()
+    };
+    serde_json::json!({
+        "t": c.t,
+        "low": c.low,
+        "view": parts(&c.view),
+        "compact_view": parts(&c.compact_view),
+        "merging": c.merging,
+        "compact_merging": c.compact_merging,
+    })
+    .to_string()
+}
+
+fn decode_checkpoint(text: &str) -> Option<Checkpoint> {
+    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    let low = v["low"]
+        .as_array()?
+        .iter()
+        .map(serde_json::Value::as_u64)
+        .collect::<Option<Vec<u64>>>()?;
+    let parts = |v: &serde_json::Value| {
+        v.as_array()?
+            .iter()
+            .map(|p| {
+                let l = p.get(0)?.as_u64()?;
+                let i = p.get(1)?.as_u64()?;
+                (l < 64).then(|| NodeId::new(l as u32, i))
+            })
+            .collect::<Option<Vec<NodeId>>>()
+    };
+    Some(Checkpoint {
+        t: v["t"].as_u64()?,
+        low,
+        view: parts(&v["view"])?,
+        compact_view: match v.get("compact_view") {
+            Some(c) => parts(c)?,
+            None => Vec::new(),
+        },
+        merging: v["merging"].as_bool().unwrap_or(false),
+        compact_merging: v["compact_merging"].as_bool().unwrap_or(false),
+    })
 }

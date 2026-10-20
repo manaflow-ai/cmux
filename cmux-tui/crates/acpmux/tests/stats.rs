@@ -77,9 +77,30 @@ impl Log<'_> {
         self.push(at, "mux", "turn_result", json!({"status": status}));
     }
 
+    /// A turn from prompt to result, with the spend its `turn_result`
+    /// recorded (`hub/turn_usage.rs`).
+    fn turn(&mut self, start: u64, end: u64, usage: Value) {
+        self.prompt(start);
+        self.started(start);
+        self.push(end, "mux", "turn_end", json!({"stopReason": "end_turn"}));
+        let mut result = json!({"status": "completed"});
+        if let (Some(result), Value::Object(usage)) = (result.as_object_mut(), usage) {
+            result.extend(usage);
+        }
+        self.push(end, "mux", "turn_result", result);
+    }
+
     fn status(&mut self, at: u64, status: &str) {
         self.push(at, "mux", "status", json!({"status": status}));
     }
+}
+
+/// A session started on `branch` in `cwd` (`git_state.rs`).
+fn on_branch(id: &str, branch: Option<&str>, cwd: &str, updated_at: u64) -> SessionMeta {
+    let mut meta = meta(id, "claude", "ready", updated_at);
+    meta.git_branch = branch.map(str::to_owned);
+    meta.cwd = cwd.into();
+    meta
 }
 
 fn session(store: &MemoryStore, meta: SessionMeta) -> Log<'_> {
@@ -534,4 +555,167 @@ fn stats_limit_errors_count_failed_turns_and_failovers_on_a_limit() {
     let s = summarize(&store, &range, &live_ids(&[])).unwrap();
     assert_eq!(s.turns_failed, 2);
     assert_eq!(s.limit_errors, 2);
+}
+
+#[test]
+fn stats_branches_roll_up_turns_time_and_spend_in_range() {
+    let store = MemoryStore::default();
+    let updated = DAY0 + 12 * HOUR;
+    let mut a = session(&store, on_branch("a", Some("feat-x"), "/tmp/project", updated));
+    // Before the range: neither its time nor its spend counts.
+    a.turn(
+        DAY0 - 2 * HOUR,
+        DAY0 - HOUR,
+        json!({"costUsd": 100.0, "inputTokens": 9_000, "outputTokens": 900}),
+    );
+    a.turn(
+        DAY0 + HOUR,
+        DAY0 + HOUR + 30 * MIN,
+        json!({"model": "opus", "costUsd": 0.5, "inputTokens": 100, "outputTokens": 10}),
+    );
+    // Tokens without a cost.
+    let mut b = session(&store, on_branch("b", Some("feat-x"), "/tmp/project", updated));
+    b.turn(
+        DAY0 + 2 * HOUR,
+        DAY0 + 2 * HOUR + 20 * MIN,
+        json!({"inputTokens": 50, "outputTokens": 5}),
+    );
+    let mut c = session(&store, on_branch("c", Some("main"), "/tmp/project", updated));
+    c.turn(
+        DAY0 + 3 * HOUR,
+        DAY0 + 3 * HOUR + 10 * MIN,
+        json!({"costUsd": 0.25, "inputTokens": 10, "outputTokens": 1}),
+    );
+    // No branch (a detached HEAD, no repository, or an older session).
+    let mut d = session(&store, on_branch("d", None, "/tmp/project", updated));
+    d.turn(DAY0 + 4 * HOUR, DAY0 + 4 * HOUR + 40 * MIN, json!({"costUsd": 2.0}));
+    // The same branch name in another checkout is another row; a harness
+    // that reports no spend leaves the spend fields out.
+    let mut e = session(&store, on_branch("e", Some("feat-x"), "/tmp/other", updated));
+    e.turn(DAY0 + 5 * HOUR, DAY0 + 5 * HOUR + 5 * MIN, json!({"model": "gpt"}));
+
+    let s = summarize(&store, &options(DAY0 + DAY, 1), &live_ids(&[])).unwrap();
+    assert_eq!(s.working_ms, 105 * MIN);
+    let v = serde_json::to_value(&s).unwrap();
+    assert_eq!(
+        v["branches"],
+        json!([
+            {"cwd": "/tmp/project", "branch": "feat-x", "sessions": 2, "turns": 2,
+             "workingMs": 50 * MIN, "costUsd": 0.5, "inputTokens": 150, "outputTokens": 15},
+            {"cwd": "/tmp/project", "branch": "main", "sessions": 1, "turns": 1,
+             "workingMs": 10 * MIN, "costUsd": 0.25, "inputTokens": 10, "outputTokens": 1},
+            {"cwd": "/tmp/other", "branch": "feat-x", "sessions": 1, "turns": 1,
+             "workingMs": 5 * MIN},
+        ])
+    );
+}
+
+#[test]
+fn stats_branches_count_a_forks_copied_turns_once() {
+    let store = MemoryStore::default();
+    let updated = DAY0 + 12 * HOUR;
+    let spend = json!({"costUsd": 0.5, "inputTokens": 100, "outputTokens": 10});
+    let mut parent = session(&store, on_branch("parent", Some("feat-x"), "/tmp/p", updated));
+    parent.turn(DAY0 + HOUR, DAY0 + HOUR + 30 * MIN, spend.clone());
+    // A fork's log starts with copies of its parent's turns, at their times.
+    let mut fork = session(&store, on_branch("fork", Some("feat-x"), "/tmp/p", updated));
+    fork.turn(DAY0 + HOUR, DAY0 + HOUR + 30 * MIN, spend);
+    fork.push(DAY0 + 6 * HOUR, "mux", "forked", json!({"parentId": "parent", "forkSeq": 4}));
+    fork.turn(DAY0 + 6 * HOUR, DAY0 + 6 * HOUR + 15 * MIN, json!({"costUsd": 0.125}));
+    // A fork with nothing of its own is no session of the branch.
+    let mut idle = session(&store, on_branch("idle", Some("feat-x"), "/tmp/p", updated));
+    idle.turn(DAY0 + HOUR, DAY0 + HOUR + 30 * MIN, json!({"costUsd": 0.5}));
+    idle.push(DAY0 + 7 * HOUR, "mux", "forked", json!({"parentId": "parent", "forkSeq": 4}));
+
+    let s = summarize(&store, &options(DAY0 + DAY, 1), &live_ids(&[])).unwrap();
+    let v = serde_json::to_value(&s).unwrap();
+    assert_eq!(
+        v["branches"],
+        json!([{"cwd": "/tmp/p", "branch": "feat-x", "sessions": 2, "turns": 2,
+                "workingMs": 45 * MIN, "costUsd": 0.625, "inputTokens": 100, "outputTokens": 10}])
+    );
+}
+
+#[test]
+fn stats_branches_keep_the_fifty_with_the_most_working_time() {
+    let store = MemoryStore::default();
+    for n in 1..=55u64 {
+        let id = format!("s{n}");
+        let branch = format!("b{n}");
+        let mut log = session(&store, on_branch(&id, Some(&branch), "/tmp/p", DAY0 + DAY));
+        log.turn(DAY0 + HOUR, DAY0 + HOUR + n * MIN, json!({}));
+    }
+    let s = summarize(&store, &options(DAY0 + DAY, 1), &live_ids(&[])).unwrap();
+    let v = serde_json::to_value(&s).unwrap();
+    let names: Vec<&str> =
+        v["branches"].as_array().unwrap().iter().map(|b| b["branch"].as_str().unwrap()).collect();
+    assert_eq!(names.len(), 50);
+    assert_eq!((names[0], names[49]), ("b55", "b6"));
+}
+
+#[test]
+fn stats_branches_skip_a_turn_a_fork_copied_while_it_ran() {
+    let store = MemoryStore::default();
+    let updated = DAY0 + 12 * HOUR;
+    // Forked mid-turn: the copied prompt and start have no result before
+    // `forked`, and the fork's own prompt closes that copy.
+    let mut fork = session(&store, on_branch("fork", Some("feat-x"), "/tmp/p", updated));
+    fork.prompt(DAY0 + HOUR);
+    fork.started(DAY0 + HOUR);
+    fork.push(DAY0 + 2 * HOUR, "mux", "forked", json!({"parentId": "parent", "forkSeq": 2}));
+    fork.turn(DAY0 + 3 * HOUR, DAY0 + 3 * HOUR + 10 * MIN, json!({"costUsd": 0.25}));
+    let s = summarize(&store, &options(DAY0 + DAY, 1), &live_ids(&[])).unwrap();
+    let v = serde_json::to_value(&s).unwrap();
+    assert_eq!(
+        v["branches"],
+        json!([{"cwd": "/tmp/p", "branch": "feat-x", "sessions": 1, "turns": 1,
+                "workingMs": 10 * MIN, "costUsd": 0.25}])
+    );
+}
+
+#[test]
+fn stats_totals_count_a_forks_copied_turns_once() {
+    let store = MemoryStore::default();
+    let updated = DAY0 + 12 * HOUR;
+    let mut parent = session(&store, meta("parent", "claude", "ready", updated));
+    let mut fork = session(&store, meta("fork", "claude", "ready", updated));
+    // A fork's log starts with copies of its parent's prompts, tool calls
+    // and turns, at their times, then its `forked` record.
+    for log in [&mut parent, &mut fork] {
+        log.turn(DAY0 + HOUR, DAY0 + HOUR + 30 * MIN, json!({}));
+        log.push(DAY0 + HOUR + MIN, "in", "tool_call", json!({}));
+        log.turn(DAY0 + 2 * HOUR, DAY0 + 2 * HOUR + 20 * MIN, json!({}));
+    }
+    fork.push(DAY0 + 5 * HOUR, "mux", "forked", json!({"parentId": "parent", "forkSeq": 9}));
+    fork.turn(DAY0 + 6 * HOUR, DAY0 + 6 * HOUR + 15 * MIN, json!({}));
+
+    let s = summarize(&store, &options(DAY0 + DAY, 1), &live_ids(&[])).unwrap();
+    assert_eq!(s.sessions, 2);
+    assert_eq!((s.turns, s.turns_completed), (3, 3));
+    assert_eq!((s.prompts, s.steers, s.tool_calls), (3, 0, 1));
+    assert_eq!(s.working_ms, 65 * MIN);
+    assert_eq!((s.hours[1], s.hours[2], s.hours[6]), (30 * MIN, 20 * MIN, 15 * MIN));
+    assert_eq!(s.days.len(), 1);
+    assert_eq!((s.days[0].turns, s.days[0].working_ms), (3, 65 * MIN));
+    assert_eq!((s.harnesses[0].sessions, s.harnesses[0].turns), (2, 3));
+    assert_eq!(s.harnesses[0].working_ms, 65 * MIN);
+    // The copies overlap the parent's turns in time, but no agent ran them.
+    assert_eq!(s.peak_parallel, 1);
+}
+
+#[test]
+fn stats_a_forks_copies_do_not_count_once_its_parent_is_gone() {
+    let store = MemoryStore::default();
+    // The parent's log was deleted: its turn the day before is gone from the
+    // stats, the fork's copy of it included, so it lengthens no streak.
+    let mut fork = session(&store, meta("fork", "claude", "ready", DAY0 + 12 * HOUR));
+    fork.turn(DAY0 - DAY + HOUR, DAY0 - DAY + 2 * HOUR, json!({}));
+    fork.push(DAY0 + HOUR, "mux", "forked", json!({"parentId": "gone", "forkSeq": 4}));
+    fork.turn(DAY0 + 2 * HOUR, DAY0 + 2 * HOUR + 10 * MIN, json!({}));
+
+    let s = summarize(&store, &options(DAY0 + 12 * HOUR, 7), &live_ids(&[])).unwrap();
+    assert_eq!((s.sessions, s.turns, s.prompts), (1, 1, 1));
+    assert_eq!(s.working_ms, 10 * MIN);
+    assert_eq!(s.days.iter().map(|d| d.day.as_str()).collect::<Vec<_>>(), ["2026-10-12"]);
+    assert_eq!((s.streak.current, s.streak.longest), (1, 1));
 }

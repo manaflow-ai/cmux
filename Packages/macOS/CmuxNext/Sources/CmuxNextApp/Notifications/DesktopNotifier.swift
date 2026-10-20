@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextDesign
 import os
 import UserNotifications
@@ -27,12 +28,16 @@ final class DesktopNotifier: NSObject {
         var attachment: Data?
         /// The banner takes a typed reply (`notify --reply`).
         var reply = false
+        /// The banner answers an agent chat's permission prompt (Allow once, Deny).
+        var approval = false
     }
 
     /// Banner clicked: the notification id and its tab's surface handle.
     var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)?
     /// A reply banner's text sent: the notification id, its tab's surface handle and the text.
     var onReply: ((_ id: String, _ surface: UInt64?, _ text: String) -> Void)?
+    /// An approval banner's Allow once (true) or Deny (false): the notification id, its tab's surface handle.
+    var onApprove: ((_ id: String, _ surface: UInt64?, _ allow: Bool) -> Void)?
     /// The category of banners with a Reply field, and its action.
     nonisolated static let replyCategory = "cmux.notification.reply"
     nonisolated static let replyAction = "cmux.notification.reply.send"
@@ -44,7 +49,6 @@ final class DesktopNotifier: NSObject {
     /// "automation" when this launch never asks.
     private(set) var authorization = DesktopNotifier.usesSystemCenter ? "unknown" : "automation"
     private var center: UNUserNotificationCenter?
-    private var requestedAuthorization = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications")
     private static let postedLimit = 32
 
@@ -54,9 +58,10 @@ final class DesktopNotifier: NSObject {
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
     func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
-              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false) {
+              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false) {
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
-                             sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply))
+                             sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
+                             approval: approval))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
         let content = UNMutableNotificationContent()
@@ -75,6 +80,7 @@ final class DesktopNotifier: NSObject {
         content.interruptionLevel = .active
         if let workspace { content.threadIdentifier = workspace }
         if reply { content.categoryIdentifier = Self.replyCategory }
+        if approval { content.categoryIdentifier = AgentApprovalBanners.category }
         var info: [String: Any] = ["notification": id]
         if let surface { info["surface"] = NSNumber(value: surface) }
         content.userInfo = info
@@ -100,10 +106,10 @@ final class DesktopNotifier: NSObject {
         }
     }
 
-    /// Removes delivered banners whose notifications were read.
+    /// Removes banners whose notifications were read or ended, shown or still queued.
     func withdraw(_ ids: [String]) {
         guard !ids.isEmpty, let center else { return }
-        center.removeDeliveredNotifications(withIdentifiers: ids)
+        for remove in [center.removeDeliveredNotifications(withIdentifiers:), center.removePendingNotificationRequests(withIdentifiers:)] { remove(ids) }
     }
 
     /// The banner click path, also used by `debug.notifications` (click).
@@ -114,6 +120,11 @@ final class DesktopNotifier: NSObject {
     /// The Reply field's Send path, also used by `debug.notifications` (reply).
     func reply(id: String, surface: UInt64?, text: String) {
         onReply?(id, surface, text)
+    }
+
+    /// An approval banner's Allow once or Deny, also used by `debug.notifications` (allow, deny).
+    func approve(id: String, surface: UInt64?, allow: Bool) {
+        onApprove?(id, surface, allow)
     }
 
     /// CEF embeds the same executable in helper app bundles whose identifiers
@@ -135,10 +146,10 @@ final class DesktopNotifier: NSObject {
         }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        center.setNotificationCategories([Self.replyBannerCategory()])
+        center.setNotificationCategories([Self.replyBannerCategory(), AgentApprovalBanners.notificationCategory()])
         self.center = center
-        if !requestedAuthorization {
-            requestedAuthorization = true
+        // Asked once (the center is cached); a GUI job (NX_REMOTE=1, CMUX_TEST_REQUIRE_GUI=1) never asks: the banner catches its clicks.
+        if !["NX_REMOTE", "CMUX_TEST_REQUIRE_GUI"].contains(where: { ProcessInfo.processInfo.environment[$0] == "1" }) {
             center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
                 Task { @MainActor in self?.authorization = granted ? "authorized" : "denied" }
             }
@@ -174,9 +185,11 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let surface = (info["surface"] as? NSNumber)?.uint64Value
         let isDefault = response.actionIdentifier == UNNotificationDefaultActionIdentifier
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
+        let approved = AgentApprovalBanners.decision(response.actionIdentifier)
         Task { @MainActor [weak self] in
             if isDefault { self?.open(id: id, surface: surface) }
             if let replied { self?.reply(id: id, surface: surface, text: replied) }
+            if let approved { self?.approve(id: id, surface: surface, allow: approved) }
         }
         completionHandler()
     }

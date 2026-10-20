@@ -206,10 +206,13 @@ enum Springs {
     /// `.fieldShrink` fits (refit3, cx-3cb.6); after a 1-line draft, on macOS and Mac Catalyst the
     /// `.oneLineMac` fits (right, width, centerY, scale: fit7, cx-3cb bubble-refit), on iOS the `.oneLine`
     /// fits where they exist (`bubble.width`, `bubble.right`: refit4, ANIMATIONS.md section 1); else the elements above.
-    /// macOS 26: the elements above. (gpui and rawmath read the base elements for every send.)
+    /// macOS 26: the elements above. gpui and rawmath mirror this struct with the macOS 27 fits only (they have no macOS 26 path).
     struct Bubble {
-        var right, width, centerY, scale, opacity: SpringElement
-        init(fieldShrinks: Bool) {
+        /// `height`: the body's height (and the tail's place) — the variant's width element; `width` can differ
+        /// (macOS 27 field-shrink drafts of 3+ lines: `bubble.width.fieldShrinkMac<lines>`).
+        var right, width, height, centerY, scale, opacity: SpringElement
+        /// `lines`: the sent balloon's text lines (TextLayout.lines.count); 0 = not known (the scale-only callers).
+        init(fieldShrinks: Bool, lines: Int = 0) {
             func e(_ n: String, _ base: SpringElement) -> SpringElement {
                 guard !ComposeMetrics.macOS26 else { return base }
                 // macOS 27, 1-line draft: the `.oneLineMac` fit (four elements, fit7 on the four 1-line
@@ -222,6 +225,17 @@ enum Springs {
             right = e("bubble.right", Springs.bubbleRight); width = e("bubble.width", Springs.bubbleWidth)
             centerY = e("bubble.centerY", Springs.bubbleCenterY); scale = e("bubble.scale", Springs.bubbleScale)
             opacity = e("bubble.opacity", Springs.bubbleOpacity)
+            height = width
+            // macOS 27, a draft that shrinks the field with 3+ text lines: ONE width spring whose duration depends
+            // on the line count (3 / 4+: 0.213 / 0.236 s, start +50 ms, damping ratio 0.788). An empirical fit with
+            // no known physical cause (springtruth TRUTH.md section 8); the height keeps the variant's element.
+            // 1- and 2-line texts that shrink the field keep `.fieldShrink` (a 2-line rule made the gate's fitted
+            // scale of two wide takes worse than their take-to-take spread).
+            #if os(macOS) || targetEnvironment(macCatalyst)
+            if !ComposeMetrics.macOS26, fieldShrinks, lines >= 3, let w = Springs.all["bubble.width.fieldShrinkMac\(min(lines, 4))"] {
+                width = w
+            }
+            #endif
         }
     }
     static func osElement(_ name: String) -> SpringElement {

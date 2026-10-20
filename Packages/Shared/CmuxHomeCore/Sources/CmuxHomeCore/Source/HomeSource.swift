@@ -151,14 +151,28 @@ public protocol HomeSource: Sendable {
     /// Asks the owner of `conversation` for its live run snapshot (`run.live`),
     /// which arrives as a `.live(.snapshot)` event: on open and after a missed frame.
     func requestLive(of conversation: ConversationID) async
+
+    /// The talk steps of a running run as its rows hold them (id, text), for reply
+    /// segments the owner's live buffer already freed (a mid-run join). nil: no read.
+    func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]?
+
+    /// The owner's answer for a message permalink (`conversation-link-resolve`): its seq, thread root and
+    /// the path from that root down to it. nil: this owner has no resolver (the message is looked up in pages).
+    func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget?
 }
 
 extension HomeSource {
+    public func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget? { nil }
     /// Sources that keep no per-transcript state ignore it.
     public func close(_ conversation: ConversationID) {}
 
     /// Default: an owner without live frames.
     public func requestLive(of conversation: ConversationID) async {}
+
+    /// Default: an owner without run reads.
+    public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {
+        nil
+    }
 
     /// Default: no link preview parts (send plain text).
     public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool { false }

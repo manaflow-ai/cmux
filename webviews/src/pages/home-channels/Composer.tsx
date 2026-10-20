@@ -18,6 +18,7 @@ import { Toolbar, ToolbarButton, ToolbarSeparator } from "../../ui/Toolbar";
 import type { Strings } from "../shared/i18n";
 import { AttachmentTray, type PendingAttachment } from "./AttachmentViews";
 import { ComposerEdit, type ComposerEditCommand } from "./composerEdit";
+import { QUOTE_EVENT, quoteMarkdown } from "./quoteSelection";
 import { MAX_ATTACHMENTS, attachmentClass, attachmentType, refusal, type AttachmentService } from "./attachmentService";
 import { Avatar } from "./Avatar";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
@@ -226,6 +227,22 @@ export function Composer({
     setPop({ kind: "emoji", anchor });
     loadEmoji().then(setEmoji, () => setPop(undefined));
   };
+  // Quote in Reply (quoteSelection.ts): the quote goes ahead of what is typed, and typing goes on after
+  // it. A composer that cannot send (offline, a thread I cannot post in) takes none.
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
+  useEffect(() => {
+    const node = root.current;
+    if (!node) return;
+    const take = (event: Event) => {
+      const text = (event as CustomEvent<string>).detail;
+      if (!text || disabledRef.current) return;
+      setValue((current) => quoteMarkdown(text) + current);
+      editor.current?.focus();
+    };
+    node.addEventListener(QUOTE_EVENT, take);
+    return () => node.removeEventListener(QUOTE_EVENT, take);
+  }, []);
   // The field's right-click menu. Cut and Copy need a selection in the field, read as it opens.
   const edit = useContext(ComposerEdit);
   const [selected, setSelected] = useState(false);

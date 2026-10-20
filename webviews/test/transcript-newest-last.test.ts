@@ -256,3 +256,27 @@ test("a reconnect mid-stream keeps the reply last", async () => {
   daemon.push(record([["in", "agent_message_chunk", say(" whole")]], 4));
   expect(texts(rows()).at(-1)).toBe("assistant:half whole");
 });
+
+test("closing a client clears the Stop grace timer", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "first" }],
+      ["mux", "turn_started", {}],
+      ["in", "agent_message_chunk", say("working")],
+    ]),
+  );
+  const { client } = await connect(daemon);
+  const clear = globalThis.clearTimeout;
+  let clearedTimer = false;
+  globalThis.clearTimeout = ((handle: ReturnType<typeof setTimeout> | undefined) => {
+    if (handle !== undefined) clearedTimer = true;
+    clear(handle);
+  }) as typeof clearTimeout;
+  try {
+    await client.cancel();
+    client.close();
+  } finally {
+    globalThis.clearTimeout = clear;
+  }
+  expect(clearedTimer).toBe(true);
+});

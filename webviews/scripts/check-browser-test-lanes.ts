@@ -85,6 +85,8 @@ export function checkDevServerWarmSource(file: string, text: string): string[] {
   const inProcess = /\bawait\s+vite\.listen\(\)/.test(text);
   const spawned = text.includes("node_modules/.bin/vp") && /\[\s*"dev",/.test(text);
   if (!inProcess && !spawned) return [];
+  // A server no browser loads (dev-server-stop: starting and stopping it) has nothing to warm.
+  if (!/from "playwright"/.test(text)) return [];
   if (/\bwarm(?:Vite|Dev)Server\(/.test(text)) return [];
   return [
     `${path.relative(root, file)}: starts a Vite dev server without warming it; call ${inProcess ? "warmViteServer(vite, page)" : "warmDevServer(base, page)"} from ./support/warmDevServer once it listens`,

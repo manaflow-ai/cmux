@@ -17,27 +17,66 @@ extension CEFTab: BrowserEmulating {
     /// a fit's layout size). One worker sends the newest state only.
     func applyDeviceEmulation() {
         guard browserID != nil, !isClosed else { return }
+        // DevTools device mode owns the page's emulation until it ends (devToolsDeviceModeEnded).
+        guard !devToolsController.deviceModeOn else { return }
         guard deviceEmulation != nil || deviceEmulationApplied else { return }
         deviceEmulationDirty = true
         guard deviceEmulationTask == nil else { return }
         let runtime = runtime
         deviceEmulationTask = Task { [weak self] in
             while let self, self.deviceEmulationDirty, !self.isClosed, let browserID = self.browserID {
+                // Device mode started while this worker ran: stop; its end applies the newest state.
+                guard !self.devToolsController.deviceModeOn else { self.deviceEmulationNeedsReset = true; break }
                 self.deviceEmulationDirty = false
                 let emulation = self.deviceEmulation
                 let viewport = emulation.flatMap { $0.viewport(in: $0.layoutArea(in: self.container.pageViewportFrame).size) }
                 self.deviceEmulationViewport = viewport
                 self.deviceEmulationApplied = emulation != nil
-                for (method, params) in CEFDeviceEmulation.calls(emulation, viewport: viewport) {
+                // The scale Chromium applies once the calls went through (the metrics call
+                // failed: none); rounded, so a pane drag does not re-announce every frame.
+                var inputScale = (Double(viewport?.scale ?? 1) * 10_000).rounded() / 10_000
+                // After DevTools device mode the frame widget has no emulation, but this session's
+                // handler still holds its last metrics and skips equal ones: clear them first.
+                let reset = self.deviceEmulationNeedsReset && emulation != nil ? CEFDeviceEmulation.reset : []
+                self.deviceEmulationNeedsReset = false
+                var touch = false
+                for (method, params) in reset + CEFDeviceEmulation.calls(emulation, viewport: viewport) {
+                    let metrics = method.hasSuffix("DeviceMetricsOverride")
                     do {
                         _ = try await runtime.devTools(browserID, method: method, params: params)
+                        if method == "Emulation.setTouchEmulationEnabled" { touch = params["enabled"] as? Bool ?? false }
                     } catch {
+                        if metrics { inputScale = 1 }
                         runtime.logger.error("device emulation \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                     }
+                    // As soon as the metrics call answered (set or cleared), not after the other calls.
+                    if metrics, self.emulationInputScale != inputScale { self.emulationInputScale = inputScale }
                 }
+                if self.emulationInputScale != inputScale { self.emulationInputScale = inputScale }
+                if self.emulationTouch != touch { self.emulationTouch = touch }
             }
             self?.deviceEmulationTask = nil
         }
+    }
+
+    /// DevTools device mode started: the page's scale and frame are the
+    /// frontend's now, so agent input and the presented frame drop the fit's.
+    func devToolsDeviceModeStarted() {
+        deviceEmulationNeedsReset = true
+        deviceEmulationViewport = nil
+        if emulationInputScale != 1 { emulationInputScale = 1 }
+        if emulationTouch { emulationTouch = false }
+        container.needsLayout = true
+    }
+
+    /// DevTools device mode ended (turned off, or its DevTools closed): the
+    /// frontend's session dropped its emulation, so the tab's own (a device
+    /// or a fit) goes to the page again.
+    func devToolsDeviceModeEnded() {
+        deviceEmulationNeedsReset = true
+        deviceEmulationViewport = nil
+        container.needsLayout = true
+        applyDeviceEmulation()
     }
 
     /// The page area changed size: refit a device that no longer fits (or

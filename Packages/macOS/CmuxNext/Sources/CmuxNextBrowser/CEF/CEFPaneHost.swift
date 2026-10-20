@@ -10,7 +10,8 @@ import os
 /// fork's tracker follows the reparent and clips the page to the visible
 /// part of the view.
 final class CEFPaneHost {
-    let key: CEFPaneKey
+    /// Changes only when a pane takes the spare window (`rekey`, CEFSpareWindow).
+    var key: CEFPaneKey
     let hostView = CEFHostView()
     unowned let runtime: CEFRuntime
 
@@ -204,11 +205,11 @@ final class CEFPaneHost {
             // The first frame takes this pane's theme scope (room,
             // workspace), which may differ from the app theme.
             shim.setBackgroundColor(PageBackground.themeARGB(in: hostView))
-            let started = shim.createWindow(
-                request, Unmanaged.passUnretained(hostView).toOpaque(),
-                max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32,
-                tab.takeInitialURLString(), contextKey
-            )
+            let initialURL = tab.takeInitialURLString()
+            let started = CEFStartSteps.shared.createWindow {
+                shim.createWindow(request, Unmanaged.passUnretained(hostView).toOpaque(),
+                                  max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32, initialURL, contextKey)
+            }
             if started != 1 {
                 runtime.pendingWindows[request] = nil
                 window = .none
@@ -236,9 +237,11 @@ final class CEFPaneHost {
         } else if tab.browserID == nil {
             runtime.register(tab, browser: browser)
         }
+        closeSparePlaceholder(joined: tab)
     }
 
     func windowCreated(browser: Int32, request: Int32) {
+        CEFStartSteps.shared.firstWindowEnded()
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
         let windowID = runtime.shim?.tabWindowID(browser) ?? 0
         window = .live(window: windowID)
@@ -270,6 +273,8 @@ final class CEFPaneHost {
     /// A `.popup` becomes a floating panel page with its own window
     /// (`adoptPopup`); `bounds` are its window features.
     func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab, bounds: CGRect? = nil) {
+        // The spare window has no pane to announce it to: the tab that takes it adopts it.
+        if isSpare { return CEFSpareWindow.shared.park(browser, disposition: disposition, bounds: bounds) }
         let opener = visibleTab ?? tabs.last
         if disposition == .popup { return adoptPopup(browser: browser, bounds: bounds, opener: opener) }
         let tab = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
@@ -291,6 +296,8 @@ final class CEFPaneHost {
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }
         if placeholder === tab { placeholder = nil }
+        // A taken spare whose tab closed before it joined: the spare again.
+        if !isPopupHost, tabs.count == 1, placeholder != nil { CEFSpareWindow.shared.giveBack(self, runtime: runtime) }
         if tabs.isEmpty {
             window = .none
             hostView.removeFromSuperview()
