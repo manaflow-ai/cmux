@@ -17,6 +17,7 @@ import Observation
 /// (`TabModel.id`): the page views, a new chat's seed, the new tab page, link and turn requests.
 /// One acpmux host is shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
+    let replyServices: AgentPaneReplyServices?
     let host: any AgentPaneHostProviding
     /// The page every agent tab loads: the bundled file, or in Debug builds
     /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
@@ -179,8 +180,9 @@ final class AgentTabStore {
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil) {
+         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil, replyServices: AgentPaneReplyServices? = nil) {
         actionRegistry = registry
+        self.replyServices = replyServices
         self.linkScheme = linkScheme
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
         host = resolvedHost
@@ -433,6 +435,7 @@ final class AgentTabStore {
 
     /// A pane view on this store's page and host, with the shared pushes.
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
+        replyServices?.wire(model.replyLinks)
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value) else { return nil }

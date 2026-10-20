@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import Testing
@@ -63,7 +64,7 @@ struct HeaderSideTabsTests {
 
         /// One click on [+]; what the button reads after it.
         func click(_ toggles: AgentChatSplitToggles) -> String? {
-            let actions = AgentChatTabActions(tab: { [chat] in chat }, registry: { [registry] in registry })
+            let actions = AgentChatTabActions(tab: { [chat] in chat }, registry: { [registry] in registry }, splitInherits: { NewTerminalStart.inherits(.split) })
             return toggles.sideTabs(chat: chat, store: store, actions: actions, openColumn: openColumn)
                 .map { $0 ? "Hide tabs" : "New tab" }
         }

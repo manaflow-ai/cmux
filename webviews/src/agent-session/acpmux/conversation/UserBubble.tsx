@@ -15,6 +15,8 @@ import { copyText } from "./clipboard";
 import { ChevronLeft, ChevronRight, Copy, Pencil } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
+import { useLab } from "../labs";
+import { PromptBubble } from "./PromptBubble";
 import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { usePromptRowMark } from "../threadMinimap/promptMarks";
 
@@ -27,6 +29,8 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
   const copies = experimentArm(hoverActions) === "all";
+  const collapse = useLab("promptCollapse");
+  const times = useLab("messageTimes");
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
@@ -46,7 +50,11 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      <div className="cv-user__bubble selectable">{text}</div>
+      {collapse || times ? (
+        <PromptBubble row={row} text={text} collapse={collapse} times={times} />
+      ) : (
+        <div className="cv-user__bubble selectable">{text}</div>
+      )}
       {text && !row.failed && !row.queued && (copies || branch || through !== undefined || mark.can) && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (

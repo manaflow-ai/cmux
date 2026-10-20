@@ -11,6 +11,7 @@ import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { flushSync } from "react-dom";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
+import { acpmuxPerf } from "../perf";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { usePromptMarks } from "./promptMarks";
 import { useHoverIntent } from "../../../ui/hoverIntent";
@@ -79,7 +80,8 @@ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElemen
 export function ThreadMinimap({
   rows,
   sessionId,
-  layout,
+  layout: providedLayout,
+  getLayout,
   scroller,
   scrollTop,
   viewportHeight,
@@ -88,7 +90,9 @@ export function ThreadMinimap({
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
-  layout: ConversationLayout;
+  layout?: ConversationLayout;
+  /// Reads the current layout without handing large typed buffers through React props.
+  getLayout?: () => ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
@@ -97,6 +101,7 @@ export function ThreadMinimap({
   /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
   placed?: React.MutableRefObject<(() => void) | undefined>;
 }) {
+  const layout = getLayout ? getLayout() : providedLayout!;
   const t = useT();
   const marks = usePromptMarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
@@ -652,6 +657,7 @@ const Tick = memo(function Tick({
   label: string;
   actions: TickActions;
 }) {
+  acpmuxPerf.span("minimap.tick.renders", 1);
   const length = tickLength(progress);
   return (
     <MinimapTick

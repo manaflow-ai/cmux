@@ -2,15 +2,19 @@
 // (artifactPreview.ts) drawn as it renders, with its source on the Code tab. HTML and SVG draw in the
 // render frame (RenderCard.tsx), an origin of its own that allows no connection, so a document cannot
 // reach the pane, its bridge, acpmux or the network; Markdown draws as the transcript draws it. The
-// pane on a dev server has no render frame, so there HTML and SVG show their source only.
-import { useEffect, useState } from "react";
+// pane on a dev server shows source only unless liveRender supplies its srcdoc frame.
+import { useContext, useEffect, useState } from "react";
+import { ChatSessionContext, useRenderAttachment } from "./viewIdentity";
+import { renderExecutionKey } from "./renderExecution";
 import { useT } from "../i18n";
+import { useLab } from "../labs";
+import { isReactRender, REACT_MARKER } from "./renderFrameDoc";
 import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
-import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
+import { canRender, ranRenders, RenderCard, renderTitle, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
 
 export { OpenPreview } from "./OpenPreview";
 
@@ -38,6 +42,7 @@ export function ArtifactPanel({
   onSave?: SaveDocument;
 }) {
   const t = useT();
+  const live = useLab("liveRender");
   // The shown version by its text, not its place: a reply that finishes or a reload moves the list.
   const [shown, setShown] = useState(opened.code);
   // A shown version that left the list falls back to the opened one's place, then to it alone.
@@ -46,7 +51,7 @@ export function ArtifactPanel({
   const list = found >= 0 ? versions : [opened];
   const index = Math.max(0, found);
   const artifact = list[index]!;
-  const previews = artifact.kind === "markdown" || canRender();
+  const previews = artifact.kind === "markdown" || canRender() || live;
   const [tab, setTab] = useState<"preview" | "code">(previews ? "preview" : "code");
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -71,8 +76,11 @@ export function ArtifactPanel({
     };
   }, []);
   // The document's own name (its heading or <title>), else its language.
-  const language = languageLabel(artifact.lang, t);
-  const title = documentName(artifact) || language;
+  const language = live && artifact.kind === "react" ? t("render.untitled") : languageLabel(artifact.lang, t);
+  const title =
+    (live && artifact.kind === "react"
+      ? renderTitle(isReactRender(artifact.code) ? artifact.code : REACT_MARKER + "\n" + artifact.code)
+      : documentName(artifact)) || language;
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the panel from its tabs, buttons or a focused frame's edge.
     <aside
@@ -176,11 +184,27 @@ export function ArtifactPanel({
       </div>
       <div className="acpmux-artifact-body">
         {tab === "code" ? (
-          <CodeBlock code={artifact.code} lang={artifact.lang} />
+          <CodeBlock
+            code={artifact.code}
+            lang={artifact.lang}
+            label={live && artifact.kind === "react" ? t("artifact.code") : undefined}
+          />
         ) : artifact.kind === "markdown" ? (
           <div className="acpmux-artifact-doc">
             <Markdown>{artifact.code}</Markdown>
           </div>
+        ) : live ? (
+          <RenderCard
+            key={artifact.code}
+            panel
+            call={{
+              html:
+                artifact.kind === "react" && !artifact.code.trimStart().startsWith(REACT_MARKER)
+                  ? REACT_MARKER + "\n" + artifact.code
+                  : previewHtml(artifact),
+              title,
+            }}
+          />
         ) : (
           // Each version is its own frame: a frame draws the first document it is sent, and a
           // version with script waits for Run again.
@@ -197,7 +221,11 @@ const runsScript = (code: string) => /<script\b|\son[a-z]+\s*=|javascript:/i.tes
 
 function ArtifactFrame({ html, title }: { html: string; title: string }) {
   const t = useT();
-  const [running, setRunning] = useState(() => ranRenders.has(html) || !runsScript(html));
+  const session = useContext(ChatSessionContext);
+  const attachment = useRenderAttachment();
+  const key = renderExecutionKey(session, ["artifact", html], attachment);
+  const [granted, setGranted] = useState<string>();
+  const running = granted === key || ranRenders.has(key) || !runsScript(html);
   if (!running)
     return (
       <div className="acpmux-artifact-run">
@@ -205,8 +233,8 @@ function ArtifactFrame({ html, title }: { html: string; title: string }) {
           type="button"
           className="acpmux-review-changes"
           onClick={() => {
-            ranRenders.add(html);
-            setRunning(true);
+            ranRenders.add(key);
+            setGranted(key);
           }}
         >
           {t("render.run")}
@@ -217,13 +245,22 @@ function ArtifactFrame({ html, title }: { html: string; title: string }) {
 }
 
 function RunningFrame({ html, title }: { html: string; title: string }) {
-  const { frame } = useRenderFrame(html);
+  const { frame, stopped, error } = useRenderFrame(html);
+  const t = useT();
+  if (stopped)
+    return (
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the same note as the render card's.
+      <div className="acpmux-render-note" role="status">
+        {t("render.error")} {error}
+      </div>
+    );
   return (
+    // oxlint-disable-next-line jsx-a11y/iframe-has-title -- aria-label names it; a title would float as a tooltip.
     <iframe
       ref={frame}
       className="acpmux-artifact-frame"
       src={RENDER_FRAME_URL}
-      title={title}
+      aria-label={title}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
     />
