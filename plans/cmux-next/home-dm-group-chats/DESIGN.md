@@ -31,7 +31,7 @@ Everything else (ids, ledger, idempotency, events, history, typing, invites, req
 |---|---|---|---|
 | `ConversationDO` (the chat) | conversation id | head (bounded), member rows, grant rows, the ordered log, read cursors, typing (memory) | 1 message row, head, 1 event, 1 heads item (large tier), k mention bumps |
 | `UserDO` (the person) | user id | inbox entries (pointers + own state: pin, mute, archive, read seq), push queue, blocks | 0 for large chats unless mentioned |
-| `ChatHeadsDO` (new, 1024 shards) | `heads:<sha256(conv) mod 1024>` | per chat `{kind, title, last_seq, last_at, preview, rev}` | ≤ 1 coalesced write per chat per second |
+| `ChatHeadsDO` (Stage B, 1024 shards) | `heads:<sha256(conv) mod 1024>` | per chat `{kind, title, last_seq, last_at, preview, rev}` | ≤ 1 coalesced write per chat per second |
 | `TeamDO` (space) | team id | members, roles, policy (retention, external, default visibility), parent team | 0 |
 | `AddressDO` | address hmac | email/phone owner link, invite ledger, suppression | 0 |
 | R2 `home-archive` (later) | `conv/<id>/seg/<from>-<to>` | sealed log segments past the hot window | 0 |
@@ -103,8 +103,8 @@ subject = user:<id>      a member (sealed: only that principal can use it)
 
 | Right | owner | admin | member | guest | read_only |
 |---|---|---|---|---|---|
-| read, react | ✓ | ✓ | ✓ | ✓ | ✓ |
-| post, reply, edit/retract own | ✓ | ✓ | ✓ | ✓ | |
+| read, own read cursor, leave | ✓ | ✓ | ✓ | ✓ | ✓ |
+| post, reply, react, edit/retract own | ✓ | ✓ | ✓ | ✓ | |
 | invite (mint ≤ own role, add people they reach) | ✓ | ✓ | ✓ (policy) | | |
 | rename, topic | ✓ | ✓ | ✓ (policy) | | |
 | remove members, ban | ✓ | ✓ (not owners/admins) | | | |
@@ -183,6 +183,37 @@ Assumptions: DO SQLite ~1 ms per small transaction, single-threaded per object; 
 | Hot-spot / DoS on one chat | Per-chat and per-member rate gates; large tier makes a post O(1); socket broadcast only to subscribed sockets; heads coalesced. |
 
 ## 6. Stages
+
+### 6.0 As built in Stage A (2026-10-19)
+
+Choices made while building, where they differ from the sections above:
+
+- **Tier line at 64, not 256.** `INLINE_MAX = 64` (the old hard cap), so every existing group stays
+  exactly as it was; the 65th member promotes the group (`home-core conversation/large.ts`).
+  Cloud groups now hold up to `MAX_GROUP_MEMBERS = 1,000,000`; local (daemon) heads keep 64.
+- **One `member` table** holds each record and its cursor (`{participant, cursor}`, n = join
+  order), not separate `mem` and `cur` tables. Departed records stay (a rejoin keeps its name).
+- **Roster:** the owner, every current agent, and the earliest 16 current humans; refilled from
+  the rows by a bounded scan when a seat frees. Clients get `member_count` in the summary and page
+  the rest with `conversation.members {after, limit ≤ 1000}`.
+- **View head.** Each op runs the unchanged reducer on the roster plus the rows the op names
+  (actor, target, invite address, mentions, last author); `settle` writes back what changed and
+  trims the head. A snapshot for a member adds its own record and cursor.
+- **No `ChatHeadsDO` yet: pull from the chat.** A large group bumps only the actor, the person
+  added or removed, and the people a message mentions; the promoting commit bumps everyone once
+  with `large: true`. `inbox.list` pulls the rows of up to 50 large entries per page from their
+  ConversationDOs (`inboxView`, one RPC each, in parallel): exact unread and mentions (recount
+  from the cursor, at most 1,000 messages read). Known limit: a large group's row does not move
+  live in the inbox stream or reorder by its newest message until the next list; Stage B's heads
+  shards fix both.
+- **Roles as built:** owner, admin, member, read_only (`participants.set_role`,
+  `ownership.transfer`, `participants.remove {ban}`, `participants.unban`, `participants.add
+  {role}`). Grants are attenuated: at most your own role, admin only from the owner; you change or
+  remove only people strictly below you. A read-only member reads, moves its cursor and leaves.
+  Bans are private `ban` rows; a banned person cannot be added or accept an invite.
+- **Not built in Stage A:** bearer link grants (`grant.*`; a111's per-address invite links remain
+  the way in), guest role, policy flags (`members_can_invite`, `members_can_rename`), admin
+  retract of others' messages, per-chat message rate gate, `@everyone`. They stay in Stage B.
 
 - **Stage A (this branch, shipped to staging then production):** roles (owner, admin, member,
   read_only; guest = member without invite on the chat), the rights matrix in home-core,

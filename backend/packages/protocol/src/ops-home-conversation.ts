@@ -7,9 +7,11 @@ import {
   conversationErrors,
   ConversationSettings,
   ConversationSummary,
+  GrantableRole,
   InviteId,
   Message,
   MessageId,
+  Participant,
   ParticipantId,
   ParticipantInput,
   PartIndex,
@@ -211,10 +213,10 @@ export const ParticipantsAdd = def({
   risk: "mutate-shared",
   target: "conversation",
   principals: ["session", "install"],
-  params: Schema.Struct({ ...conv, participant: ParticipantInput }),
+  params: Schema.Struct({ ...conv, participant: ParticipantInput, role: Schema.optionalKey(GrantableRole) }),
   result: commit,
-  errors: [...conversationErrors, "duplicate_participant", "invalid_participant", "not_reachable", "home.rate_limited", "home.user_not_ready"],
-  docs: "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.",
+  errors: [...conversationErrors, "duplicate_participant", "invalid_participant", "not_reachable", "read_only", "banned", "invalid_role", "home.rate_limited", "home.user_not_ready"],
+  docs: "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows. role (default member) is at most your own; only the owner adds an admin. A group past 64 members becomes a large group (member rows, a roster in the head). A banned person needs participants.unban first. Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.",
   cli: cli("add"),
   mcp: { expose: "opt_in", group: "home" }
 })
@@ -226,12 +228,57 @@ export const ParticipantsRemove = def({
   risk: "destructive",
   target: "conversation",
   principals: ["session", "install"],
-  params: Schema.Struct({ ...conv, participant: ParticipantId }),
+  params: Schema.Struct({ ...conv, participant: ParticipantId, ban: Schema.optionalKey(Schema.Boolean) }),
   result: commit,
   errors: [...conversationErrors, "unknown_participant"],
-  docs: "Leave (yourself), or remove a participant (conversation owner; a chief's owner for that chief). Removing the last human archives the conversation.",
+  docs: "Leave (yourself), or remove someone below you (an admin or the owner; a chief's owner for that chief). ban: true (admins and the owner) keeps them out of adds and invites until participants.unban. A removed person's sockets close at once. Removing the last human archives the conversation.",
   cli: cli("remove"),
   mcp: { expose: "never", group: "home" }
+})
+
+export const ParticipantsSetRole = def({
+  name: "participants.set_role",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({ ...conv, participant: ParticipantId, role: GrantableRole }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_participant", "invalid_participant", "invalid_role", "read_only"],
+  docs: "Set a group member's role: admin (the owner only), member or read_only. You change only people below you; an admin never changes another admin. A read_only member reads, moves its read cursor and leaves, and never writes.",
+  cli: cli("role"),
+  mcp: { expose: "opt_in", group: "home" }
+})
+
+export const OwnershipTransfer = def({
+  name: "ownership.transfer",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "destructive",
+  target: "conversation",
+  principals: ["session"],
+  params: Schema.Struct({ ...conv, participant: ParticipantId }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_participant", "invalid_participant"],
+  docs: "Hand a group to another current person (the owner only). You stay as an admin.",
+  cli: cli("transfer"),
+  mcp: { expose: "never", group: "home" }
+})
+
+export const ParticipantsUnban = def({
+  name: "participants.unban",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({ ...conv, participant: ParticipantId }),
+  result: commit,
+  errors: [...conversationErrors],
+  docs: "Lift a ban (admins and the owner), so the person may be added or invited again.",
+  cli: cli("unban"),
+  mcp: { expose: "opt_in", group: "home" }
 })
 
 export const InviteCreate = def({
@@ -416,6 +463,25 @@ export const ConversationHistory = def({
   mcp: { expose: "default", group: "home" }
 })
 
+export const ConversationMembers = def({
+  name: "conversation.members",
+  owner: "cloud:ConversationDO",
+  class: "read",
+  risk: "read",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    ...conv,
+    after: Schema.optionalKey(Seq),
+    limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(1000)))
+  }),
+  result: Schema.Struct({ members: Schema.Array(Participant), member_count: Seq, next: Schema.optionalKey(Seq) }),
+  errors: [...conversationErrors],
+  docs: "Page the current members in join order (default 200, at most 1000); pass next as after for the next page. Works for every conversation; a large group's head carries only a roster.",
+  cli: cli("members"),
+  mcp: { expose: "default", group: "home" }
+})
+
 export const ConversationThread = def({
   name: "conversation.thread",
   owner: "cloud:ConversationDO",
@@ -491,6 +557,9 @@ export const homeConversationOps = [
   ThreadUpdate,
   ParticipantsAdd,
   ParticipantsRemove,
+  ParticipantsSetRole,
+  OwnershipTransfer,
+  ParticipantsUnban,
   InviteCreate,
   InviteRevoke,
   InviteAccept,
@@ -501,5 +570,6 @@ export const homeConversationOps = [
   ConversationSettingsSet,
   ConversationSnapshot,
   ConversationHistory,
+  ConversationMembers,
   ConversationThread
 ] as const

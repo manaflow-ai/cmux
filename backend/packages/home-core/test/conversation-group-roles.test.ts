@@ -36,7 +36,7 @@ describe("group roles", () => {
     expect(group.code(ANN, "participants.set_role", { participant: CAT, role: "admin" })).toBe("ok")
     expect(group.code(BEN, "participants.set_role", { participant: CAT, role: "member" })).toBe("forbidden")
     expect(group.code(BEN, "participants.set_role", { participant: DEE, role: "read_only" })).toBe("ok")
-    expect(group.code(DEE, "participants.set_role", { participant: DEE, role: "member" })).toBe("forbidden")
+    expect(group.code(DEE, "participants.set_role", { participant: DEE, role: "member" })).toBe("read_only")
     // Nobody is made owner by set_role: that is ownership.transfer.
     expect(group.code(ANN, "participants.set_role", { participant: BEN, role: "owner" })).toBe("invalid_role")
   })

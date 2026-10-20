@@ -41,8 +41,10 @@ describe("Home group roles and a revoked member, end to end", { timeout: 60_000 
     expect((await op(cat.token, "message.send", { conversation: group, client_msg_id: "late", parts: [text("still here?")] }, "late")).error?.code).toBe("not_participant")
     expect((await op(cat.token, "read_cursor.set", { conversation: group, seq: 1 })).error?.code).toBe("not_participant")
     expect((await op(cat.token, "title.set", { conversation: group, title: "mine" })).error?.code).toBe("not_participant")
-    expect((await read(cat.token, "conversation.history", { conversation: group, limit: 10 })).error).toBeDefined()
-    expect((await read(cat.token, "conversation.snapshot", { conversation: group, tail: 5 })).error).toBeDefined()
+    // A refused read answers { code } and no messages.
+    expect((await read(cat.token, "conversation.history", { conversation: group, limit: 10 })).code).toBe("auth.forbidden")
+    expect((await read(cat.token, "conversation.snapshot", { conversation: group, tail: 5 })).code).toBe("auth.forbidden")
+    expect((await read(cat.token, "conversation.members", { conversation: group })).code).toBe("auth.forbidden")
     const reopened = await fetchSocketStatus(group, cat.token)
     expect(reopened).not.toBe(101)
 
