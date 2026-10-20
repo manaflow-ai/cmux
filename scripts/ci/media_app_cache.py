@@ -184,9 +184,8 @@ def fetch(*, repo: str, tag: str, sha: str, xcode: str, recipe: str, dest: Path,
     dest.mkdir(parents=True, exist_ok=True)
     deadline = clock() + DOWNLOAD_SECONDS
     for art in candidates[:TRIES]:
-        left = int(deadline - clock())
-        if left < MIN_DOWNLOAD_SECONDS:
-            print(f"app cache: {left}s of the {DOWNLOAD_SECONDS}s download budget left; building instead")
+        if int(deadline - clock()) < MIN_DOWNLOAD_SECONDS:
+            print(f"app cache: under {MIN_DOWNLOAD_SECONDS}s of the {DOWNLOAD_SECONDS}s download budget left; building instead")
             break
         scratch = Path(tempfile.mkdtemp(prefix=".media-app-", dir=dest))
         try:
@@ -195,6 +194,10 @@ def fetch(*, repo: str, tag: str, sha: str, xcode: str, recipe: str, dest: Path,
                 print(f"app cache: artifact {art.get('id')} refused: {why}", file=sys.stderr)
                 continue
             zipped = scratch / "app.zip"
+            left = int(deadline - clock())
+            if left < MIN_DOWNLOAD_SECONDS:
+                print(f"app cache: {left}s of the {DOWNLOAD_SECONDS}s download budget left; building instead")
+                break
             api.download(art["archive_download_url"], zipped, left)
             digest = str(art.get("digest") or "")
             hasher = hashlib.sha256()
