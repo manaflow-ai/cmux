@@ -25,14 +25,11 @@ on:
         required: false
         default: both
         type: string
-    secrets:
-      GLAEDA_ROUTE_APP_KEY:
-        required: true
-
 permissions: {}
 
 jobs:
   probe:
+    environment: ci-routing-agent
     permissions:
       contents: write
     runs-on: ubuntu-24.04
