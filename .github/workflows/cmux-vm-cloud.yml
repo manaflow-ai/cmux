@@ -73,6 +73,9 @@ jobs:
       - name: Membership roles, row migration and revocation
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/team-roles.test.ts test/team-roles-review.test.ts test/team-members-rows.test.ts test/team-authority-leftovers.test.ts
+      - name: Role changes retire idle team sockets
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/team-role-sockets.test.ts
       - name: Cloud tenant and adapter behavior
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/team-vm-api test/cloud-vm-api
