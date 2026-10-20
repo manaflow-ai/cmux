@@ -14,7 +14,7 @@ public struct InstallHTTPTransport: InstallAuthTransport {
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.timeoutIntervalForRequest = 15
-        session = URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
+        session = URLSession(configuration: configuration, delegate: InstallAuthRedirectRefusal(), delegateQueue: nil)
     }
 
     public func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
@@ -26,14 +26,5 @@ public struct InstallHTTPTransport: InstallAuthTransport {
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         let (data, response) = try await session.data(for: request)
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
-    }
-}
-
-/// Answers every redirect with "do not follow" (the completion-handler form:
-/// the async delegate form crashes swift 6.4 SILGen in this module).
-private final class RefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        completionHandler(nil)
     }
 }
