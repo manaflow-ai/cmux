@@ -306,11 +306,7 @@ impl TerminalNotification {
 }
 
 fn shown_text(bytes: &[u8], limit: usize) -> String {
-    String::from_utf8_lossy(bytes)
-        .chars()
-        .filter(|character| !character.is_control())
-        .take(limit)
-        .collect()
+    crate::program_status::shown_text(&String::from_utf8_lossy(bytes), limit)
 }
 
 /// Kitty OSC 99 text accumulated across `d=0` chunks.
