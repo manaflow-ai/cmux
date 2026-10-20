@@ -189,7 +189,7 @@ Audit (2026-10-14, 103 lines in 36 files):
 
 | Site | What it does | Plan |
 | --- | --- | --- |
-| acpmux `adopt_live.rs` | `ps -axww` + `lsof cwd` to find a harness outside acpmux by argv | remove: recent transcript write + hook registry only (cx-t2sqm.2) |
+| acpmux `adopt_live.rs` | `ps -axww` to find an OpenCode outside acpmux by argv (Claude Code and Codex now use their own holder records: the session registry by pid and start time, the thread writer lock) | remove: OpenCode holder record (cx-t2sqm.2) |
 | acpmux `agent_host/tree.rs` | `ps` descendants to end setsid escapees | remove: holder-owned group; Linux cgroup/pidfd; Windows job (cx-t2sqm.3) |
 | acpmux `hub/pool/reaper.rs` | `ps -A` tree RSS for the pool cap | remove: holder-reported rusage of its group, or drop the cap (cx-t2sqm.3) |
 | terminal host `session_cleanup.rs`, `host_scope.rs` | `/proc` walk + `ps -axo` for session members, cgroup reads | remove: signal the session/group the holder owns (cx-t2sqm.4) |

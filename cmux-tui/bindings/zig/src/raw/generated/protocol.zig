@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b";
+pub const ir_sha256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6021,9 +6021,11 @@ pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeI
 
 pub const IdentifyRequest = struct {
     machine_metadata: ?bool = null,
+    revisions: ?bool = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "machine_metadata",
+        "revisions",
     };
 };
 
@@ -6037,6 +6039,7 @@ pub fn identify(client: anytype, request: IdentifyRequest) !wire.Decoded(Identif
             .capability = null,
             .fields = &.{
                 .{ .name = "machine_metadata", .since = 12, .capability = "machine-identity-v1" },
+                .{ .name = "revisions", .since = 12, .capability = null },
             },
         },
         request,

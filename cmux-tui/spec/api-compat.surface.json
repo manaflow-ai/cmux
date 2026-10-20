@@ -8974,6 +8974,9 @@
     "request:identify": {
       "/machine_metadata": {
         "ty": "boolean"
+      },
+      "/revisions": {
+        "ty": "boolean"
       }
     },
     "request:ids": {
