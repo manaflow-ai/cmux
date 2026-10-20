@@ -16,7 +16,7 @@ import Testing
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         let registry = ActionRegistry.standard()
-        HomeChiefPetSetting().bind(into: registry, settings: { settings }, unavailable: "not ready", hideTitle: "Hide Chief Pet")
+        HomeChiefPetSetting().bind(into: registry, settings: { settings }, unavailable: "not ready")
         return (registry, settings, home)
     }
 
