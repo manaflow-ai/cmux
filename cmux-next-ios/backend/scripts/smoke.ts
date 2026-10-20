@@ -142,9 +142,12 @@ const off = await p.wait((f) => f.type === "presence" && f.mac?.deviceId === mac
 check("presence offline", !!off, off?.mac?.lastSeenAt ? "lastSeenAt set" : "")
 
 // 6. 0.7.0: device list, push registration, notify, device removal (also cleans up the smoke devices)
-const topic = process.env.CMUX_MOBILE_PUSH_TOPIC ?? "dev.cmux.mobile.prod"
+// The APNs key is production-only and scoped to the TestFlight app, so the fake token goes there:
+// APNs answers BadDeviceToken and the Worker drops it (a sandbox token fails at the key instead).
+const topic = process.env.CMUX_MOBILE_PUSH_TOPIC ?? "dev.cmux.app.internal"
+const pushEnvironment = process.env.CMUX_MOBILE_PUSH_ENVIRONMENT ?? "production"
 const fakeToken = "00".repeat(32)
-const reg = await api("PUT", `/v1/devices/${phoneId}/push`, { token: fakeToken, environment: "sandbox", topic, kinds: ["question"] })
+const reg = await api("PUT", `/v1/devices/${phoneId}/push`, { token: fakeToken, environment: pushEnvironment, topic, kinds: ["question"] })
 check("push register", reg.status === 200 && reg.json?.push?.kinds?.[0] === "question", `${reg.status}`)
 const listed = await api("GET", "/v1/me/devices")
 const lp = listed.json?.devices?.find((d: any) => d.deviceId === phoneId)
