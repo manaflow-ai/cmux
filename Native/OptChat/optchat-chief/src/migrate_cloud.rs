@@ -130,7 +130,8 @@ impl Api {
             "/v1/read",
             Some(&json!({"op": name, "params": params})),
         )?;
-        if value["ok"] == true {
+        // A read answers `{value}` (no `ok` field); an error has `ok: false`.
+        if (200..300).contains(&status) && value["ok"] != false && !value["value"].is_null() {
             return Ok(value["value"].clone());
         }
         Err(format!("{name}: HTTP {status} {}", error_text(&value)))

@@ -689,6 +689,19 @@ export class MonacoView implements CodeView {
     if (action?.isSupported()) await action.run();
   }
 
+  /** The selection's text and lines (viewer comments, viewer-comments-DESIGN.md), null with nothing
+   * selected. A selection that ends at the start of a line does not count that line. */
+  selectionQuote(): { text: string; startLine: number; endLine: number } | null {
+    const selection = this.editor.getSelection();
+    const model = this.editor.getModel();
+    if (!selection || !model || selection.isEmpty()) return null;
+    const text = model.getValueInRange(selection);
+    if (!text.trim()) return null;
+    let endLine = selection.endLineNumber;
+    if (selection.endColumn === 1 && endLine > selection.startLineNumber) endLine--;
+    return { text, startLine: selection.startLineNumber, endLine };
+  }
+
   focus(): void {
     this.editor.focus();
   }

@@ -1,10 +1,10 @@
 import CmuxNextSidebar
 import Testing
 
-/// The sidebar document nests groups (remote-groups-DESIGN.md R1, host > project > branch), but the
-/// sidebar list draws one level of groups until slice 2. Until then a nested tree draws as its
-/// top-level group with every member of the tree, in document order: no workspace is dropped and
-/// no nested group shows as a loose sibling group.
+/// The sidebar document nests groups (remote-groups-DESIGN.md R1, host > project > branch). The
+/// projection lists each group of a tree as its own group node, in document order (a group before
+/// its subgroups), with its parent and its depth (0 at the top level), and each group holds only
+/// its own members. No workspace is dropped.
 struct SidebarDocNestedGroupProjectionTests {
     private let session = "mini"
     private var section: String { "sec_m_\(session)" }
@@ -36,14 +36,16 @@ struct SidebarDocNestedGroupProjectionTests {
         return SidebarDocProjection(rows: rows, records: records, revision: 1)
     }
 
-    @Test func aNestedTreeDrawsAsItsTopGroupWithEveryMember() throws {
+    @Test func eachNestedGroupListsWithItsParentDepthAndOwnMembers() throws {
         let nodes = try #require(projection().machines[session])
         let groups = nodes.compactMap { node -> SidebarDocProjection.Group? in
             if case let .group(group) = node { return group }
             return nil
         }
-        #expect(groups.map(\.id) == ["g_project"], "nested groups are not loose siblings")
-        #expect(groups.first?.members == [ref("a1"), ref("a2")], "the leaf's and the project's workspaces both show")
+        #expect(groups.map(\.id) == ["g_project", "g_branch", "g_leaf"], "a group before its subgroups")
+        #expect(groups.map(\.parent) == [nil, "g_project", "g_branch"])
+        #expect(groups.map(\.depth) == [0, 1, 2])
+        #expect(groups.map(\.members) == [[ref("a2")], [], [ref("a1")]], "each group holds only its own members")
         let loose = nodes.compactMap { node -> SidebarDocWorkspaceRef? in
             if case let .workspace(ref, _) = node { return ref }
             return nil

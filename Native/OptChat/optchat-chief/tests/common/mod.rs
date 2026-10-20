@@ -543,6 +543,10 @@ pub struct Agents {
     pub session_errors: BTreeMap<String, String>,
     /// The next `new_session` calls fail with these texts, one each, in order.
     pub session_errors_once: std::collections::VecDeque<String>,
+    /// The next `start_prompt` calls fail with these texts, one each, in
+    /// order (acpmux refused the prompt: the harness died, the socket
+    /// dropped).
+    pub prompt_errors_once: std::collections::VecDeque<String>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -755,6 +759,9 @@ impl AgentPort for FakeAgents {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String> {
+        if let Some(e) = self.inner.lock().unwrap().prompt_errors_once.pop_front() {
+            return Err(e);
+        }
         let turn = {
             let mut inner = self.inner.lock().unwrap();
             inner.prompts.push(blocks.clone());

@@ -272,6 +272,8 @@ final class AppServices {
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
+    /// Which agent chat opened each file, for viewer quotes (viewer-comments-DESIGN.md).
+    private(set) lazy var chatQuoteOpeners = ChatQuoteOpeners()
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
     /// Relays the Chats index and editor sources into the daemon's project list.
@@ -319,6 +321,7 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)
+        DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         _ = cloud  // built here, as before
@@ -328,6 +331,7 @@ final class AppServices {
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
         _ = cache  // built here, as before
+        DebugTimings.markLaunch("services.cache")
         _ = themes  // built here, as before
         _ = terminalColors
         let runtime = GhosttyRuntime.shared
@@ -410,6 +414,9 @@ final class AppServices {
             if self.sleepyMode.consumesKeyDown() { return true }
             return self.keyRouter.interceptKeyDown(event, in: window)
         }
+        (NSApp as? CmuxApplication)?.actionTargetOverride = { [weak self] action, found in
+            self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)
+        }
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
         cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
@@ -420,6 +427,7 @@ final class AppServices {
         }
         _ = resources  // built here, as before
         _ = windows  // built here, as before
+        DebugTimings.markLaunch("services.windows")
         windows.incognitoHistoryReset = { [weak cache, weak self] in
             cache?.resetIncognitoHistory()
             self?.locationTrail.forgetIncognito()
@@ -444,6 +452,7 @@ final class AppServices {
         }
         observePaletteForFocus()
         input.start(services: self)
+        DebugTimings.markLaunch("services.palette_updater")
         _ = chromiumWarmup  // built here, as before
         browserHost = AppBrowserHost(services: self)
         browserHost?.start()

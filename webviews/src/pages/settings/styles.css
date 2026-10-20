@@ -863,10 +863,6 @@ mark {
   margin-bottom: 8px;
 }
 
-.accounts-sign-in {
-  margin-right: auto;
-}
-
 /* Part of its row (indented under the title), not a second outlined card inside the row's card. */
 .accounts-form {
   display: flex;
@@ -906,6 +902,17 @@ mark {
 
 .accounts-status[data-status="quiet"] .accounts-dot {
   opacity: 0.4;
+}
+
+/* A sign-in in progress: the dot pulses until it ends (Reduce Motion stops it, layout.css). */
+@keyframes accounts-busy {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.accounts-status[data-busy] .accounts-dot {
+  animation: accounts-busy calc(var(--motion-in) * 8) var(--motion-ease) infinite;
 }
 
 .accounts-body {

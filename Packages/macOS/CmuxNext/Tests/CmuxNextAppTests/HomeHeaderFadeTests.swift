@@ -13,7 +13,7 @@ import Testing
         for shown in [true, false] {
             let seconds = HomeNativeTranscriptView.headerFadeDuration(shown: shown)
             #expect(seconds > 0, "shown: \(shown)")
-            #expect(seconds <= Motion.duration(.crossfade))
+            #expect(seconds <= Motion.home.duration(.crossfade))
         }
     }
 }

@@ -225,6 +225,72 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-new-workspace-animations"
             ),
             ActionDescriptor(
+                id: "appearance.animations.toggle",
+                title: String(localized: "action.appearance.animations.toggle", defaultValue: "Toggle All Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "no animations", "disable", "reduce motion", "instant"], category: .settings,
+                symbol: "sparkles", surfaces: [.palette], cliName: "settings toggle-all-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.sidebar.toggle",
+                title: String(localized: "action.appearance.animations.sidebar.toggle", defaultValue: "Toggle Sidebar Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "sidebar", "row", "group", "reorder"], category: .settings,
+                symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-sidebar-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.tabs.toggle",
+                title: String(localized: "action.appearance.animations.tabs.toggle", defaultValue: "Toggle Tab Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "tab", "tab bar"], category: .settings,
+                symbol: "rectangle.split.3x1", surfaces: [.palette], cliName: "settings toggle-tab-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.panes.toggle",
+                title: String(localized: "action.appearance.animations.panes.toggle", defaultValue: "Toggle Pane and Window Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "pane", "split", "zoom", "window"], category: .settings,
+                symbol: "rectangle.split.2x1", surfaces: [.palette], cliName: "settings toggle-pane-and-window-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.overlays.toggle",
+                title: String(localized: "action.appearance.animations.overlays.toggle", defaultValue: "Toggle Menu and Card Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "menu", "popover", "palette", "toast", "card"], category: .settings,
+                symbol: "menubar.rectangle", surfaces: [.palette], cliName: "settings toggle-menu-and-card-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.hoverCards.toggle",
+                title: String(localized: "action.appearance.animations.hoverCards.toggle", defaultValue: "Toggle Hover Card Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "hover card", "tooltip"], category: .settings,
+                symbol: "rectangle.on.rectangle", surfaces: [.palette], cliName: "settings toggle-hover-card-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.home.toggle",
+                title: String(localized: "action.appearance.animations.home.toggle", defaultValue: "Toggle Home and Chat Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "home", "chief", "chat", "bubble"], category: .settings,
+                symbol: "bubble.left.and.bubble.right", surfaces: [.palette], cliName: "settings toggle-home-and-chat-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.cursor.toggle",
+                title: String(localized: "action.appearance.animations.cursor.toggle", defaultValue: "Toggle Agent Cursor Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "cursor", "agent", "ripple"], category: .settings,
+                symbol: "cursorarrow.motionlines", surfaces: [.palette], cliName: "settings toggle-agent-cursor-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.indicators.toggle",
+                title: String(localized: "action.appearance.animations.indicators.toggle", defaultValue: "Toggle Spinner and Progress Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "spinner", "progress", "pulse", "loading"], category: .settings,
+                symbol: "progress.indicator", surfaces: [.palette], cliName: "settings toggle-spinner-and-progress-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.feedback.toggle",
+                title: String(localized: "action.appearance.animations.feedback.toggle", defaultValue: "Toggle Highlight and Color Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "hover", "highlight", "color", "theme"], category: .settings,
+                symbol: "hand.point.up.left", surfaces: [.palette], cliName: "settings toggle-highlight-and-color-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.web.toggle",
+                title: String(localized: "action.appearance.animations.web.toggle", defaultValue: "Toggle Web Page Animations", bundle: .module),
+                keywords: ["animation", "motion", "appearance", "web", "page", "css"], category: .settings,
+                symbol: "globe", surfaces: [.palette], cliName: "settings toggle-web-page-animations"
+            ),
+            ActionDescriptor(
                 id: "appearance.animations.bounce.subtle",
                 title: String(localized: "action.appearance.animations.bounce.subtle", defaultValue: "Use Bouncy Animations", bundle: .module),
                 keywords: ["animation", "motion", "spring", "bounce", "bouncy", "appearance"], category: .settings,

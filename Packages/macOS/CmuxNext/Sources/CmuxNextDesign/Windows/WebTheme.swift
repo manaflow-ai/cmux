@@ -34,6 +34,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `always`, `hover` or `never`: `data-picture-motion` on `<html>`, which a page's animated
     /// Chief pictures follow (``ChiefPictureMotion/effective``: `never` under Reduce Motion).
     public let pictureMotion: String
+    /// `off`, `reduced` or `full` (``motionValue(_:)``): `data-cmux-motion` on `<html>`. Under
+    /// `off` the bootstrap stylesheet makes every CSS transition and animation instant
+    /// (`ui.animations.web` or the master switch `ui.animations.enabled` off).
+    public let motion: String
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -79,6 +83,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         let windowTint = WindowBackdrop.currentTint(tokens)
         let page = surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens, windowTint: windowTint) }
             ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
+        let cardMaterial = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value,
+                                        minimumOpacity: ChromeTunables.cardOpacity.value)
         variables = [
             "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),
@@ -94,6 +100,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The tooltip's frosted tint (`TooltipSurface`, the native tooltip's): the popup
             // surface at the least alpha that keeps the text 4.5:1 over any backdrop.
             "--cmux-tooltip-tint": Self.css(TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint),
+            // Floating cards' material (`CardMaterial`, the native `makeOverlayPanel` cards and the
+            // find pill): the popup surface, mostly opaque, at the least alpha that keeps primary
+            // and secondary text 4.5:1 over any backdrop, and its rim.
+            "--cmux-card-tint": Self.css(cardMaterial.tint),
+            "--cmux-card-rim": Borders.drawsLines ? Self.css(cardMaterial.rim) : "transparent",
             "--cmux-text": Self.css(tokens.textPrimary),
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
             "--cmux-text-tertiary": Self.css(tokens.textTertiary),
@@ -117,11 +128,20 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
         self.scrollers = scrollers ?? SystemScrollers.pageValue
         terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
-        statusIndicators = Motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
+        statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
         pictureMotion = ChiefPictureMotion.effective.rawValue
+        motion = Self.motionValue(Motion.web.policy)
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators}`
+    /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
+    /// is off (the bootstrap stylesheet then ends every transition and animation at once),
+    /// `reduced` under Reduce Motion, else `full`.
+    public static func motionValue(_ policy: MotionPolicy) -> String {
+        guard policy.categoryAnimates else { return "off" }
+        return policy.reduceMotion ? "reduced" : "full"
+    }
+
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, pictureMotion, motion}`
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
@@ -130,7 +150,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var payloadJSON: String {
         let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
-                                     "pictureMotion": pictureMotion]
+                                     "pictureMotion": pictureMotion, "motion": motion]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -149,8 +169,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         if (style || !document.documentElement) return;
         style = document.createElement('style');
         style.id = 'cmux-theme';
+        // ui.animations.web off (or the master switch off): every CSS transition and animation of
+        // the page ends at once, so a page needs no code of its own to work with no motion.
+        var still = 'html[data-cmux-motion="off"]';
         style.textContent = 'html{background:var(--cmux-surface-background) !important}' +
-          'body{background:transparent !important}';
+          'body{background:transparent !important}' +
+          still + ' *,' + still + ' *::before,' + still + ' *::after,' + still +
+          '{transition-duration:0s !important;transition-delay:0s !important;animation-duration:0s !important;' +
+          'animation-delay:0s !important;animation-iteration-count:1 !important;scroll-behavior:auto !important}';
         (document.head || document.documentElement).appendChild(style);
       }
       // appearance.colorTransition: every color variable is a registered <color>, so a theme or
@@ -236,12 +262,45 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.scrollers) root.setAttribute('data-scrollers', payload.scrollers);
           if (payload.statusIndicators) root.setAttribute('data-status-indicators', payload.statusIndicators);
           if (payload.pictureMotion) root.setAttribute('data-picture-motion', payload.pictureMotion);
+          if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
           if (!first) settled(payload);
         }
       };
       ensureStyle();
+      // ui.animations.web off: script animations (Element.animate) and smooth scrolls end at once
+      // too, which the stylesheet above cannot reach. One wrapper per prototype, read on each call,
+      // so turning the switch back on restores them with no reload.
+      function still() { return document.documentElement && document.documentElement.getAttribute('data-cmux-motion') === 'off'; }
+      if (window.Element && Element.prototype.animate && !Element.prototype.animate.cmuxMotion) {
+        var animate = Element.prototype.animate;
+        var gated = function (keyframes, options) {
+          if (!still()) return animate.call(this, keyframes, options);
+          var timing = typeof options === 'number' || options == null ? {} : Object.assign({}, options);
+          timing.duration = 0;
+          timing.delay = 0;
+          timing.endDelay = 0;
+          timing.iterations = 1;
+          return animate.call(this, keyframes, timing);
+        };
+        gated.cmuxMotion = true;
+        Element.prototype.animate = gated;
+      }
+      function instant(original) {
+        var gatedScroll = function (a, b) {
+          if (still() && a && typeof a === 'object' && a.behavior) a = Object.assign({}, a, { behavior: 'instant' });
+          return arguments.length > 1 ? original.call(this, a, b) : original.call(this, a);
+        };
+        gatedScroll.cmuxMotion = true;
+        return gatedScroll;
+      }
+      ['scrollTo', 'scrollBy', 'scrollIntoView'].forEach(function (name) {
+        if (window.Element && Element.prototype[name] && !Element.prototype[name].cmuxMotion) Element.prototype[name] = instant(Element.prototype[name]);
+      });
+      ['scrollTo', 'scrollBy'].forEach(function (name) {
+        if (window[name] && !window[name].cmuxMotion) window[name] = instant(window[name]);
+      });
     })();
     """
 

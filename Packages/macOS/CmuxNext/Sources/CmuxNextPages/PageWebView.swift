@@ -324,6 +324,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             NotificationCenter.default.addObserver(forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
             },
+            // The master motion switch, a category switch or the speed: `data-cmux-motion` follows.
+            NotificationCenter.default.addObserver(forName: Motion.speedDidChange, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            },
         ]
     }
 

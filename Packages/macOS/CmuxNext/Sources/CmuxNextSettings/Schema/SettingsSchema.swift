@@ -255,8 +255,8 @@ public nonisolated enum SettingsSchema {
     // MARK: Appearance
 
     static var appearance: [SettingDescriptor] {
-        AppearanceSettingsSchema.descriptors + BackdropPlaybackSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors
-            + StatusIndicatorSettingsSchema.descriptors
+        AppearanceSettingsSchema.descriptors + BackdropPlaybackSettingsSchema.descriptors + MotionSettingsSchema.descriptors
+            + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
             + DiffViewerSettingsSchema.descriptors + MarkdownViewerSettingsSchema.descriptors + AgentPaneDisplaySettingsSchema.descriptors
     }
 

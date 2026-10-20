@@ -146,8 +146,9 @@ import Testing
         defer { h.close() }
         let url = try #require(h.video.url)
         let player = try #require(h.video.playerLayer.player as? AVQueuePlayer)
-        // AVPlayerLooper inserts its items once the asset's duration loads, on its own schedule.
-        #expect(try await eventually { !player.items().isEmpty } && h.video.isPlaying)
+        // AVPlayerLooper queues its items once the asset has loaded, on AVFoundation's schedule.
+        #expect(try await eventually { !player.items().isEmpty }, "the looper never queued the video")
+        #expect(h.video.isPlaying)
         h.video.lowPowerOverride = true
         #expect(!h.video.isPlaying && h.video.canBeSeen)
         players.releaseIfUnseen(url)

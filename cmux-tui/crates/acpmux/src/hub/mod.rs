@@ -56,6 +56,7 @@ mod secrets;
 mod seen;
 mod session;
 pub(crate) mod session_pages;
+mod settings_watch;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
@@ -315,6 +316,8 @@ pub struct Hub {
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
+    /// The settings file watched for start-mode changes (`settings_watch.rs`).
+    pub(super) settings_watch: settings_watch::SettingsWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
@@ -399,6 +402,7 @@ impl Hub {
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
+            settings_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),

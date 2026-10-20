@@ -69,6 +69,23 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
         }
     }
+    /// `ui.animations.enabled`, the master motion switch: false makes every
+    /// animation in the app instant, whatever the category switches say
+    /// (``MotionGate``). Posts `Motion.speedDidChange` like the speed.
+    public var animationsEnabled = true {
+        didSet {
+            guard animationsEnabled != oldValue else { return }
+            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+        }
+    }
+    /// The categories whose `ui.animations.<category>` is false: their
+    /// animations are instant (``MotionCategory``). Posts `Motion.speedDidChange`.
+    public var disabledAnimationCategories: Set<MotionCategory> = [] {
+        didSet {
+            guard disabledAnimationCategories != oldValue else { return }
+            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+        }
+    }
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
     /// read it resolved through `ColorTransition.current`). Web pages take a new value with their
     /// next theme payload.
@@ -121,6 +138,9 @@ public final class DesignSettings {
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
     /// `sidebar.hoverCards.layout`, `.sections.*` and `.maxRows`: what a workspace card shows (u3320).
     public var workspaceHoverCard = WorkspaceHoverCardOptions()
+    /// `sidebar.hoverCards.groups.*`: whether group headers and tab group chips open a card, after
+    /// how long, and what it shows (Lawrence 2026-10-20).
+    public var groupHoverCard = GroupHoverCardOptions()
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
@@ -140,6 +160,9 @@ public final class DesignSettings {
     public var layoutRows = true
     /// `layout.focusFollowsMouse`: hovering or scrolling an unfocused pane focuses it (default off).
     public var focusFollowsMouse = false
+    /// `layout.scrollAreas`: a split that cannot fit scrolls instead of squashing its panes
+    /// (plans/cmux-next/scroll-areas-DESIGN.md). Off by default.
+    public var layoutScrollAreas = false
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)

@@ -201,6 +201,11 @@ pub struct Section {
     pub order: String,
     #[serde(default)]
     pub keeps_closed: bool,
+    /// A machine section made a remote group (remote-groups-DESIGN.md slice
+    /// 4): it draws its header, the host's name and status, even when the
+    /// sidebar is one list. Only a machine section can be one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub host_group: bool,
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
 }
@@ -237,6 +242,8 @@ struct SectionWire {
     #[serde(default)]
     keeps_closed: bool,
     #[serde(default)]
+    host_group: bool,
+    #[serde(default)]
     extra: Map<String, Value>,
 }
 
@@ -259,6 +266,7 @@ impl From<SectionWire> for Section {
             room: wire.room,
             order: wire.order,
             keeps_closed: wire.keeps_closed,
+            host_group: wire.host_group,
             extra: wire.extra,
         }
     }
@@ -287,6 +295,7 @@ impl Section {
             room: None,
             order: String::new(),
             keeps_closed,
+            host_group: false,
             extra: Map::new(),
         }
     }
@@ -561,6 +570,8 @@ pub struct SectionPatch {
     pub keeps_closed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scroll: Option<Scroll>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_group: Option<bool>,
 }
 
 /// An item's own fields; a group's fields go through `group.update`.

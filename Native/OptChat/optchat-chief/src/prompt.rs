@@ -397,11 +397,17 @@ while you work.";
 /// spawn: section 9), and that the user may join its chat.
 fn subagent_instructions(tools: &Tools) -> String {
     let memory = match tools {
-        Tools::Mcp => {
-            "The tools `zoom` and `date` (MCP server `optchat`) read Chief's memory.".to_owned()
-        }
+        Tools::Mcp => "The tools `zoom` and `date` (MCP server `optchat`) read Chief's memory.
+  `peers` lists the other subagents and `tell(id, message)` sends one a
+  message that says it is from you: use them when your work touches
+  another's, instead of asking Chief to pass it on."
+            .to_owned(),
         Tools::Cli(chief) => format!(
-            "Chief's memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is\n  `{chief} date ID`, run from your shell."
+            "Chief's memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
+  `{chief} date ID`, run from your shell. `{chief} peers` lists the other
+  subagents and `{chief} tell ID \"message\"` sends one a message that says
+  it is from you: use them when your work touches another's, instead of
+  asking Chief to pass it on."
         ),
     };
     let links = LINK_RULE;
@@ -466,7 +472,13 @@ report.
   push, never force; no pull requests unless the user asks. Work is landed
   only when its commits are on that branch's remote: a scratch, work or red
   branch is not landed. Your report gives the sha range you landed on it
-  (`OLD..NEW`), or says that nothing landed and why."
+  (`OLD..NEW`), or says that nothing landed and why. Never push with
+  `--no-verify`, unless the hook fails only on files you did not touch;
+  then say so in your report.
+- Decisions: pick the sensible default yourself, act on it and name it in
+  your report (\"Default picked: ...\"); never stop to ask which one. Ask
+  only before money, legal, destructive (deleting data, force pushes) or
+  credential steps, and finish everything else first."
     )
 }
 
@@ -499,8 +511,14 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
-pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat, its sidebar group and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name) and optionally `Group: <sidebar group>`; without them both come from the task. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting.";
+pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat, its sidebar group and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name) and optionally `Group: <sidebar group>`; without them both come from the task. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
+/// A subagent's `peers` tool (acp-chief-issues.md #11).
+pub const PEERS_DESCRIPTION: &str =
+    "List the other subagents of Chief: id, title, state and workspace. Tell one with `tell`.";
+/// A subagent's `tell`: to another subagent, never to Chief (its report is
+/// what Chief reads).
+pub const PEER_TELL_DESCRIPTION: &str = "Send a message to another subagent (an id from `peers`); it reads it between its tool calls (or after its current turn: a peer never interrupts it), and the message says it is from you. For Chief, write it in your report instead.";
 pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it.";
 
 /// The subagent's `escalate_auth` tool's description.

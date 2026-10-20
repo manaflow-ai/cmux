@@ -14,7 +14,7 @@ struct FeedApproveControls: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if prompt.scopes.count > 1 && density != .menubar {
+            if prompt.scopes.count > 1 {
                 Menu {
                     ForEach(prompt.scopes, id: \.self) { option in
                         Button(FeedStrings.scope(option)) { model.drafts.scopes[item.id] = option }
@@ -35,9 +35,9 @@ struct FeedApproveControls: View {
                 .padding(.trailing, 4)
             }
             Button(FeedStrings.deny) { model.answer(item.id, .approve(.init(.deny))) }
-                .buttonStyle(FeedButtonStyle(role: .plain, compact: density == .menubar))
+                .buttonStyle(FeedButtonStyle(role: .plain))
             Button(FeedStrings.allow) { model.answer(item.id, .approve(.init(.allow, scope: scope))) }
-                .buttonStyle(FeedButtonStyle(role: .primary, compact: density == .menubar))
+                .buttonStyle(FeedButtonStyle(role: .primary))
         }
     }
 }
@@ -58,12 +58,10 @@ struct FeedReviewControls: View {
                 FeedTextField(placeholder: FeedStrings.reply, text: comment)
             }
             HStack(spacing: 6) {
-                if density != .menubar {
-                    Button(FeedStrings.requestChanges) { send(.requestChanges) }
-                        .buttonStyle(FeedButtonStyle(role: .plain))
-                }
+                Button(FeedStrings.requestChanges) { send(.requestChanges) }
+                    .buttonStyle(FeedButtonStyle(role: .plain))
                 Button(FeedStrings.approve) { send(.approve) }
-                    .buttonStyle(FeedButtonStyle(role: .primary, compact: density == .menubar))
+                    .buttonStyle(FeedButtonStyle(role: .primary))
             }
         }
     }

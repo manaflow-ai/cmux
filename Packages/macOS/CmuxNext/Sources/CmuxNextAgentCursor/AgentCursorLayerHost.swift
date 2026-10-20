@@ -1,5 +1,5 @@
 public import CmuxAgentCursor
-import CmuxNextDesign
+public import CmuxNextDesign
 public import QuartzCore
 
 /// Draws agent cursors as CALayers inside one host layer: the window's
@@ -25,14 +25,18 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
     private let glassLayer: CALayer?
     private let color: Coloring
     private let label: Labeling
+    /// Reduce Transparency: the tags draw opaque while it is on.
+    private let reduceTransparency: ReduceTransparency
     private var cursors: [String: AgentCursorLayer] = [:]
     /// A cursor came, went, showed or hid: the window's tag links may have
     /// changed (`WindowOverlayHost.agentCursorTagsDidChange`).
     public var onTagsChange: (() -> Void)?
 
     public init(hostLayer: CALayer, glassLayer: CALayer? = nil, color: @escaping Coloring,
-                label: @escaping Labeling = { AgentCursorSessionLabel(sessionID: $0).text }) {
+                label: @escaping Labeling = { AgentCursorSessionLabel(sessionID: $0).text },
+                reduceTransparency: ReduceTransparency = .shared) {
         self.hostLayer = hostLayer
+        self.reduceTransparency = reduceTransparency
         self.glassLayer = glassLayer
         self.color = color
         self.label = label
@@ -52,6 +56,8 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        // Reduce Transparency may have changed since the last action; a no-op when it did not.
+        for cursor in cursors.values { cursor.reducesTransparency = reduceTransparency.isEnabled }
         switch command {
         case let .place(session, point):
             let cursor = cursor(for: session)
@@ -71,7 +77,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             // The cmux-cua path, played short (user, 2026-10-20: "quick:
             // short, snappy motion"), through the Motion gate: at once under
             // Reduce Motion or with animations off.
-            let played = Motion.agentCursorGlideDuration(plan.duration) ?? 0
+            let played = Motion.cursor.agentCursorGlideDuration(plan.duration) ?? 0
             cursor.lastGlideDuration = played
             if played > 0 {
                 let position = plan.positionAnimation()
@@ -152,6 +158,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             return existing
         }
         let cursor = AgentCursorLayer(color: color(session), name: label(session), scale: max(hostLayer.contentsScale, 2))
+        cursor.reducesTransparency = reduceTransparency.isEnabled
         hostLayer.addSublayer(cursor.root)
         glassLayer?.addSublayer(cursor.glassRoot)
         cursors[session] = cursor
