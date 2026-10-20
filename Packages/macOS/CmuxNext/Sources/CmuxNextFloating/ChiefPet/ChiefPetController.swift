@@ -35,6 +35,8 @@ public final class ChiefPetController {
     private(set) var mascot = ChiefPetMascot.initial
     /// The notices unfolded into a column (the rail's chevron); folded, a deck.
     private(set) var expanded = false
+    /// Message the Chief ran while the pet was off: the reply box opens once the setting shows it.
+    private(set) var summoned = false
 
     public init(makePanel: @escaping () -> ChiefPetPanel,
          actions: ChiefPetActions,
@@ -73,7 +75,12 @@ public final class ChiefPetController {
         if on {
             panelOnce().present()
             render(animated: false)
+            if summoned {
+                summoned = false
+                openReply()
+            }
         } else {
+            summoned = false
             // Turned off, it forgets what it showed: a later show starts from new arrivals.
             closeReply()
             feed.clear()
@@ -82,6 +89,17 @@ public final class ChiefPetController {
             render(animated: false)
             panel?.dismiss()
         }
+    }
+
+    /// Message the Chief (`home.messageChiefPet`): the pet with its reply box open, now while it shows,
+    /// else as soon as `home.chiefPetEnabled` turns it on (the action writes that first). An open box
+    /// stays open.
+    public func summon() {
+        guard isOn, isShown else {
+            summoned = true
+            return
+        }
+        openReply()
     }
 
     /// An agent event that alerts here (the notification service's arrival).

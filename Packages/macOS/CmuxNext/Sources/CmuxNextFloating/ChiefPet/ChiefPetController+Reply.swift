@@ -6,7 +6,13 @@ import AppKit
 extension ChiefPetController {
     func toggleReply() {
         if let replyPanel, replyPanel.isVisible { return closeReply() }
+        openReply()
+    }
+
+    /// Opens the reply box over the pet (a click on the pet, or Message the Chief); an open one keeps its text and place.
+    func openReply() {
         guard let panel else { return }
+        if let replyPanel, replyPanel.isVisible { return replyPanel.present() }
         let reply = replyPanelOnce()
         reply.show(targets: ChiefPetReply.targets(feed))
         if let visible = panel.screen?.visibleFrame ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame {

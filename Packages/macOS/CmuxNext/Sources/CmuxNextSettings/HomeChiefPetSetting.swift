@@ -67,6 +67,32 @@ extension HomeChiefPetSetting {
     }
 }
 
+extension HomeChiefPetSetting {
+    /// Message the Chief (`home.messageChiefPet`; the palette, and a shortcut a person can bind): the
+    /// pet with its reply box open. Off, it turns `home.chiefPetEnabled` on as the person first, then
+    /// `summon` runs once the write has landed; on, `summon` runs at once. Person-only, like the
+    /// toggle: an agent can neither turn the pet on nor put a box that takes the keys over every app.
+    public static let messageAction: ActionID = "home.messageChiefPet"
+
+    @MainActor public func bindMessage(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
+                                       unavailable: String, summon: @escaping @MainActor () -> Void) {
+        registry.bind(Self.messageAction, invoke: { invocation in
+            // The control socket refuses a person-only action first; an in-app run from elsewhere stops here.
+            guard invocation.origin == .user, let settings = settings() else { return registry.refuse(unavailable) }
+            guard !settings.snapshot.homeChiefPetEnabled else { return summon() }
+            // task-owner: one write; ends with the reload, then the summon
+            let work = ActionWork { @MainActor in
+                do { try await settings.setSetting(at: Self.configPath, to: .bool(true), by: .user) } catch {
+                    return ActionWorkFailure(refusal: .unavailable, reason: String(describing: error))
+                }
+                summon()
+                return nil
+            }
+            registry.track(work)
+        })
+    }
+}
+
 /// The toggle's runs in flight: the value the newest one writes and its work, so the next run
 /// flips that value and waits for it.
 @MainActor final class ChiefPetToggles {
@@ -79,9 +105,11 @@ extension HomeChiefPetSetting {
 public nonisolated struct HomeSettingActions {
     public nonisolated init() {}
 
+    /// `summonChiefPet`: the pet with its reply box open (Message the Chief), the App's `ChiefPetController.summon`.
     @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
-                                unavailable: String) {
+                                unavailable: String, summonChiefPet: @escaping @MainActor () -> Void = {}) {
         HomeChannelsSetting().bind(into: registry, settings: settings, unavailable: unavailable)
         HomeChiefPetSetting().bind(into: registry, settings: settings, unavailable: unavailable)
+        HomeChiefPetSetting().bindMessage(into: registry, settings: settings, unavailable: unavailable, summon: summonChiefPet)
     }
 }
