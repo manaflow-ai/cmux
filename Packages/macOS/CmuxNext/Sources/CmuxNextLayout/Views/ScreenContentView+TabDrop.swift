@@ -24,6 +24,9 @@ extension ScreenContentView {
         guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
                                                 headers: headers, footers: footers, style: context.style,
                                                 previous: previous) else { return nil }
+        // A pinned dock that takes no other tab (the Home Chief pane) takes no drop at all: a join
+        // or a split there would only be refused (`dock-column-pinned`), so nothing promises one.
+        if case let .pane(pane, _) = hit, layout.column(containing: pane)?.dock?.takesTabs == false { return nil }
         let target: DropTarget
         if !edgesArmed, case let .pane(pane, zone) = hit, zone != .center {
             target = .pane(pane, .center)
@@ -109,7 +112,9 @@ extension ScreenContentView {
 
     /// Where splitting `pane` along `axis` goes on this screen right now.
     func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID?) -> SplitPlacement {
-        SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
+        // A canvas places a split's new pane beside the old one at its size: there is always room.
+        if isCanvas { return .split }
+        return SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
     }
 
     /// An edge drop that cannot split for lack of room becomes a new column

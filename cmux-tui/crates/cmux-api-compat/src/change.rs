@@ -206,9 +206,24 @@ impl Op {
                 [path.clone(), path]
             }
             Self::Convert { path, .. } => [path.clone(), path.clone()],
-            // A move creates the missing parents of its destination, so it
-            // touches the destination's parent, not only the destination.
-            Self::Move { lca, from, to } => [join(lca, from), join(lca, &to[..to.len() - 1])],
+            Self::Move { lca, from, to } => [join(lca, from), join(lca, to)],
+        }
+    }
+
+    /// The parent path a move creates when it is missing.
+    fn created_parent(&self) -> Option<Vec<String>> {
+        match self {
+            Self::Move { lca, to, .. } => Some([lca.as_slice(), &to[..to.len() - 1]].concat()),
+            _ => None,
+        }
+    }
+
+    /// The path that must exist for this op to act (it does nothing otherwise).
+    fn needs_existing(&self) -> Option<&[String]> {
+        match self {
+            Self::Insert { parent, .. } => Some(parent),
+            Self::Convert { path, .. } => Some(path),
+            _ => None,
         }
     }
 
@@ -219,6 +234,16 @@ impl Op {
         let overlaps = |a: &[String], b: &[String]| {
             a.iter().zip(b).all(|(x, y)| x == y || x == WILDCARD || y == WILDCARD)
         };
+        // A move can create a parent that an insert or a retype needs.
+        let creates_for = |a: &Op, b: &Op| match (a.created_parent(), b.needs_existing()) {
+            (Some(created), Some(needed)) => {
+                needed.len() <= created.len() && overlaps(needed, &created)
+            }
+            _ => false,
+        };
+        if creates_for(self, other) || creates_for(other, self) {
+            return false;
+        }
         let theirs = other.touched();
         !self.touched().iter().any(|p| theirs.iter().any(|q| overlaps(p, q)))
     }

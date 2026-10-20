@@ -60,8 +60,13 @@ extension DaemonStore {
                     if applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) == .resync { followup = .resync }
                 } else if let transaction = envelope.event.clientTransactionID {
                     // Superseded by the snapshot (which holds its result),
-                    // but its echo still settles the patch and the intent.
+                    // but its echo still settles the patch and the intent,
+                    // and names a create's tab in the snapshot's records: a
+                    // creation the person closed first keeps hiding (and then
+                    // closes) that tab instead of leaving the log with it
+                    // shown (tab-spam-race: a resync during Cmd-T/Cmd-W spam).
                     confirm(transaction)
+                    ProvisionalTab.echoed(envelope.event, transaction: transaction, in: self)
                     settleIntentOnEcho(transaction, needsResync: false, sequence: envelope.sequence)
                 }
             }

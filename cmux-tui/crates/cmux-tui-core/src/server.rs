@@ -274,6 +274,7 @@ pub use socket_path::{
 pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
+mod chief_engine_mirror;
 mod chief_inspect;
 mod chief_manage;
 mod chief_registry_resource;

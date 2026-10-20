@@ -84,6 +84,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
     let devToolsSetFocus: @convention(c) (Int32, Int32) -> Void
+    /// Opens DevTools on one frontend panel (`network`, `timeline`); 0 when gone or invalid.
+    let devToolsShowPanel: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
 
     let extActions: @convention(c) (Int32, Int32) -> UnsafeMutablePointer<CChar>?
     let extActionRun: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
@@ -285,6 +287,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsCommand = try r("cmux_shim_devtools_command")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
         devToolsSetFocus = try r("cmux_shim_devtools_set_focus")
+        devToolsShowPanel = try r("cmux_shim_devtools_show_panel")
         extActions = try r("cmux_shim_ext_actions")
         extActionRun = try r("cmux_shim_ext_action_run")
         extActionHidePopup = try r("cmux_shim_ext_action_hide_popup")

@@ -37,6 +37,8 @@ extension BrowserChromeView {
         case .didBeginEditing:
             break
         case .didEndEditing(.commit(let url)):
+            // Only the upgraded load just noted may fall back.
+            if httpsFallback.pending != url { httpsFallback.cancel() }
             if loadOverride?(url) == true { return }
             onTypedCommit?()
             tab.load(url)
