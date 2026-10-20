@@ -81,6 +81,36 @@ fn receiver_owner_agent_socket_installs_pinned_policy_and_verifies_real_signatur
 }
 
 #[test]
+fn receiver_owner_prepared_socket_read_cannot_reopen_after_cancellation_before_io_starts() {
+    for cancelled in [true, false] {
+        let (binding, keys, mut reply) = public_fixture();
+        reply.push(b'\n');
+        let receiver = AgentReceiver::new(binding.clone(), keys).unwrap();
+        let prepared = receiver.prepare_refresh().unwrap();
+        if cancelled {
+            receiver.invalidate();
+        }
+        let (_dir, path, task) = server(reply);
+        let result = receiver.refresh_at_prepared(
+            &path,
+            test_uid(),
+            false,
+            Duration::from_secs(2),
+            prepared,
+        );
+        task.join().unwrap();
+        assert_eq!(result.is_ok(), !cancelled);
+        let expected = Expected {
+            host: &binding.host,
+            epoch: binding.epoch,
+            service: Service::Daemon,
+            peer_key: &[b'a'; 32],
+        };
+        assert_eq!(receiver.verifier().verify(&development_token(), &expected).is_ok(), !cancelled);
+    }
+}
+
+#[test]
 fn receiver_owner_agent_socket_checks_kernel_peer_uid() {
     let (a, b) = UnixStream::pair().unwrap();
     assert!(check_peer(&a, test_uid()).is_ok());

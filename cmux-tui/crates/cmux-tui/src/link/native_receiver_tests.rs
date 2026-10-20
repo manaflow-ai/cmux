@@ -1,7 +1,5 @@
 //! Exercise the VM receiver through real encrypted meshes and a real service
 //! socket. The signing seed below is published test-vector material only.
-use std::time::{Duration, Instant};
-
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use cmux_host::cloud::wire::Env;
 use cmux_link::keyset::Keyset;
@@ -60,6 +58,10 @@ fn binding() -> ReceiverBinding {
 }
 
 fn publish(owner: &Owner, serial: u64) -> NativePolicy {
+    publish_for(owner, serial, 30_000)
+}
+
+fn publish_for(owner: &Owner, serial: u64, lifetime: u64) -> NativePolicy {
     let f = fixture();
     let mut network = f["claims"]["network"].clone();
     network["wg_public_key"] = STANDARD.encode(public(CLIENT)).into();
@@ -71,7 +73,7 @@ fn publish(owner: &Owner, serial: u64) -> NativePolicy {
         team: f["claims"]["team"].as_str().unwrap().into(),
         authority_version: "c".repeat(64),
         checked_at_ms: NOW + serial,
-        expires_at_ms: NOW + serial + 30_000,
+        expires_at_ms: NOW + serial + lifetime,
         request_started: refresh.started(),
         peers: vec![NativePeer {
             install: f["claims"]["sub"].as_str().unwrap().into(),
@@ -289,5 +291,32 @@ async fn native_receiver_runtime_wireguard_refuses_a_source_host_address_instead
     );
     let (_policies, updates) = mpsc::channel(1);
     within(receiver.serve(updates, async {})).await.unwrap();
+    client.shutdown().await;
+}
+
+#[tokio::test]
+async fn native_receiver_runtime_expiry_closes_a_real_backend_without_a_policy_update() {
+    let sshd = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (mut receiver, client, owner, _) = setup(sshd.local_addr().unwrap(), false).await;
+    let (_stream, mut backend) = active(&mut receiver, &client, &sshd).await;
+    let short = publish_for(&owner, 10_000, 500);
+    receiver.reconcile(Some(&short)).await.unwrap();
+    let (_policies, updates) = mpsc::channel(1);
+    let (stop, stopped) = oneshot::channel();
+    let serve = receiver.serve(updates, async {
+        let _ = stopped.await;
+    });
+    let check = async {
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), backend.read(&mut [0]))
+                .await
+                .expect("expired encrypted service remained open")
+                .unwrap(),
+            0
+        );
+        let _ = stop.send(());
+    };
+    let (result, ()) = within(async { tokio::join!(serve, check) }).await;
+    result.unwrap();
     client.shutdown().await;
 }

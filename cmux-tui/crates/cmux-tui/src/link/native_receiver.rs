@@ -6,6 +6,7 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -43,6 +44,7 @@ pub(super) struct NativeReceiver {
     services: HashMap<u64, Service>,
     inflight: FuturesUnordered<ServiceTask>,
     serial: u64,
+    expires: Option<Instant>,
 }
 
 impl NativeReceiver {
@@ -54,18 +56,35 @@ impl NativeReceiver {
         sshd: SocketAddr,
         verifier: Arc<NativeTokenVerifier>,
     ) -> anyhow::Result<Self> {
-        // The existing link has no VM receiving runtime attached yet.
-        // Retain a typed, closed entry while its encrypted behavior is tested.
-        let _config = WgMeshConfig {
-            private_key: private,
-            addresses: vec![InterfaceAddress {
-                address: IpAddr::V6(overlay_address(&binding.host)),
-                prefix: 128,
-            }],
-            mtu: super::state::LINK_MTU,
-        };
-        let _ = (socket, session, sshd, verifier);
-        bail!("cloud.receiver.runtime_unavailable");
+        let public = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(*private));
+        if STANDARD.encode(public.as_bytes()) != binding.wg_public_key {
+            bail!("cloud.receiver.self_key_refused");
+        }
+        let mesh = WgMesh::start(
+            WgMeshConfig {
+                private_key: private,
+                addresses: vec![InterfaceAddress {
+                    address: IpAddr::V6(overlay_address(&binding.host)),
+                    prefix: 128,
+                }],
+                mtu: super::state::LINK_MTU,
+            },
+            socket,
+        )?;
+        let listener = mesh.listen(cmux_link::LINK_PORT).await?;
+        Ok(Self {
+            binding,
+            session,
+            sshd,
+            verifier,
+            mesh,
+            listener,
+            peers: BTreeMap::new(),
+            services: HashMap::new(),
+            inflight: FuturesUnordered::new(),
+            serial: 0,
+            expires: None,
+        })
     }
 
     /// `None` retires the current policy. Closing the source or stopping the
@@ -77,6 +96,7 @@ impl NativeReceiver {
     ) -> anyhow::Result<()> {
         tokio::pin!(stop);
         let result = loop {
+            let expires = self.expires;
             tokio::select! {
                 biased;
                 () = &mut stop => break Ok(()),
@@ -85,6 +105,12 @@ impl NativeReceiver {
                     if let Err(error) = self.reconcile(policy.as_ref()).await {
                         break Err(error);
                     }
+                }
+                () = expired(expires) => {
+                    // This timer belongs to the installed topology. A newer
+                    // source snapshot may already be queued, so it must not
+                    // invalidate the source owner's newer publication.
+                    if let Err(error) = self.reconcile(None).await { break Err(error); }
                 }
                 completed = self.inflight.next(), if !self.inflight.is_empty() => {
                     if let Some(id) = completed { self.services.remove(&id); }
@@ -131,6 +157,7 @@ impl NativeReceiver {
     async fn reconcile(&mut self, policy: Option<&NativePolicy>) -> anyhow::Result<()> {
         let mut desired = BTreeMap::new();
         let mut addresses = BTreeSet::new();
+        let mut expires = None;
         if let Some(policy) = policy {
             if policy.host != self.binding.host
                 || policy.epoch != self.binding.epoch
@@ -139,7 +166,17 @@ impl NativeReceiver {
             {
                 bail!("cloud.receiver.self_policy_refused");
             }
-            for peer in &policy.peers {
+            let lifetime = policy
+                .expires_at_ms
+                .checked_sub(policy.checked_at_ms)
+                .filter(|duration| *duration > 0 && *duration <= 30_000)
+                .ok_or_else(|| anyhow!("cloud.receiver.policy_lease_refused"))?;
+            let deadline = policy
+                .request_started
+                .checked_add(Duration::from_millis(lifetime))
+                .ok_or_else(|| anyhow!("cloud.receiver.policy_lease_refused"))?;
+            expires = (deadline > Instant::now()).then_some(deadline);
+            for peer in policy.peers.iter().filter(|_| expires.is_some()) {
                 let key: [u8; 32] = STANDARD
                     .decode(&peer.binding.wg_public_key)?
                     .try_into()
@@ -180,6 +217,7 @@ impl NativeReceiver {
                 .await?;
         }
         self.peers = desired;
+        self.expires = expires;
         Ok(())
     }
 
@@ -198,6 +236,13 @@ impl NativeReceiver {
             self.services.remove(&id);
             pending.remove(&id);
         }
+    }
+}
+
+async fn expired(deadline: Option<Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,
+        None => std::future::pending().await,
     }
 }
 

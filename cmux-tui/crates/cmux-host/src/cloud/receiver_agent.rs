@@ -11,7 +11,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cmux_link::keyset::Keyset;
-use cmux_link::native_token::{NativeTokenVerifier, receiver::Owner};
+use cmux_link::native_token::{
+    NativeTokenVerifier,
+    receiver::{Owner, Refresh},
+};
 
 use super::receiver::{REQUEST_BUDGET, ReceiverBinding, ReceiverSnapshot};
 use super::wire::AGENT_SOCKET;
@@ -37,6 +40,18 @@ impl AgentReceiver {
         self.owner.invalidate();
     }
 
+    /// Reserve intent before scheduling blocking I/O. Cancellation must
+    /// invalidate the source before dropping a queued read's async waiter.
+    pub fn prepare_refresh(&self) -> Result<Refresh, String> {
+        self.owner.begin().map_err(|_| UNAVAILABLE.into())
+    }
+
+    /// Complete only this prepared intent; never issue another intent when
+    /// a blocking executor eventually starts a previously queued read.
+    pub fn refresh_prepared(&self, refresh: Refresh) -> Result<ReceiverSnapshot, String> {
+        self.refresh_at_prepared(Path::new(AGENT_SOCKET), 0, true, REQUEST_BUDGET, refresh)
+    }
+
     /// One bounded read, with the original public self pin. The refresh guard
     /// closes current authority on every failed or abandoned read; stale reads
     /// and stale failures cannot publish over a newer intent.
@@ -51,7 +66,18 @@ impl AgentReceiver {
         system: bool,
         budget: Duration,
     ) -> Result<ReceiverSnapshot, String> {
-        let refresh = self.owner.begin().map_err(|_| UNAVAILABLE)?;
+        let refresh = self.prepare_refresh()?;
+        self.refresh_at_prepared(path, uid, system, budget, refresh)
+    }
+
+    fn refresh_at_prepared(
+        &self,
+        path: &Path,
+        uid: u32,
+        system: bool,
+        budget: Duration,
+        refresh: Refresh,
+    ) -> Result<ReceiverSnapshot, String> {
         let started = refresh.started();
         let deadline = started + budget.min(REQUEST_BUDGET);
         check_path(path, uid, system).map_err(|_| UNAVAILABLE)?;
