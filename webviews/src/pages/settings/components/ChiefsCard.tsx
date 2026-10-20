@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChiefPage } from "../../home-channels/ChiefPage";
 import { ChiefHost, HostChiefEditor } from "../../home-channels/chiefEditing";
-import type { HomeChief } from "../../home-channels/types";
+import { chiefBackendLabel, type HomeChief } from "../../home-channels/types";
 import { formatString, type Strings } from "../../shared/i18n";
 import { useStore } from "../context";
 import { locale, t } from "../strings";
@@ -16,6 +16,14 @@ type Open = { kind: "new" } | { kind: "edit"; id: string } | null;
 /** The Settings table as the editor's strings (the editor's keys come from the Home catalog). */
 function settingsStrings(): Strings {
   return { language: locale(), t: (key) => t(key), format: (key, ...args) => formatString(t(key), args) };
+}
+
+/** A row's backend: the engine's name as Home and the editor show it (an absent or "default"
+ * harness is the default engine), then its model and effort; nothing set reads "Default". */
+function backendLine(chief: HomeChief): string {
+  const engine = chief.engine;
+  if (!engine?.harness && !engine?.model && !engine?.effort) return t("chief.backend.default");
+  return [chiefBackendLabel(t, engine.harness), engine.model, engine.effort].filter(Boolean).join(" · ");
 }
 
 export function ChiefsCard() {
@@ -126,9 +134,7 @@ export function ChiefsCard() {
                 </span>
               </span>
               <span className="row-help chiefs-backend">
-                {chief.engine?.harness
-                  ? [chief.engine.harness, chief.engine.model, chief.engine.effort].filter(Boolean).join(" · ")
-                  : t("chief.backend.default")}
+                {backendLine(chief)}
               </span>
               {chief.locked && <span className="badge">{t("chief.settings.locked")}</span>}
             </button>
