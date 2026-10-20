@@ -275,6 +275,17 @@ impl Translator {
                     Outbound::Lines(vec![
                         json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}),
                     ])
+                } else if m == method::MUX_STEER_NOW {
+                    // A steer still unread: stop the running tool so Claude Code reads the
+                    // waiting lines now. The turn goes on with them (`inbound.rs` keeps it open
+                    // while a steer is unread) and is not marked cancelled.
+                    if !self.in_turn.load(Ordering::SeqCst) || self.steers.lock().await.is_empty() {
+                        return Outbound::Lines(vec![]);
+                    }
+                    let n = self.next_control.fetch_add(1, Ordering::SeqCst);
+                    Outbound::Lines(vec![
+                        json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}),
+                    ])
                 } else {
                     Outbound::Lines(vec![])
                 }

@@ -57,6 +57,9 @@ pub(super) async fn agent_prompt(
     }
 }
 
+/// The default `steerReadDeadlineMs`.
+const STEER_READ_DEADLINE_MS: u64 = 500;
+
 impl Hub {
     /// Sends a prompt into the running turn `turn_id` of an agent that steers. The turn may end
     /// between the check and the agent: without `steer_only` the prompt then becomes the next one.
@@ -89,7 +92,37 @@ impl Hub {
         let wire_blocks = super::turns::acp_prompt_blocks(session, &blocks)?;
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
         params["_meta"] = json!({"steer": true});
-        let mut r = match agent_prompt(session, &child, params, turn_id, true).await {
+        // The steer's answer comes when the agent read it. Claude Code reads one only at its
+        // next tool boundary, so one still unread at the deadline stops the running tool
+        // (`MUX_STEER_NOW`): a tell never waits for a long tool (user 2026-10-20).
+        let deadline = {
+            let cfg = self.config.read().await;
+            // Only Claude Code's stream-json reads a steer late; Codex and ACP agents take it
+            // at once and never get the notification.
+            let claude = cfg
+                .harnesses
+                .get(&session.meta().harness)
+                .is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio);
+            if claude { cfg.steer_read_deadline_ms.unwrap_or(STEER_READ_DEADLINE_MS) } else { 0 }
+        };
+        let read = agent_prompt(session, &child, params, turn_id, true);
+        tokio::pin!(read);
+        let answer = if deadline == 0 {
+            read.await
+        } else {
+            tokio::select! {
+                answer = &mut read => answer,
+                // A bounded deadline that is the intended behavior, not a poll.
+                () = tokio::time::sleep(std::time::Duration::from_millis(deadline)) => {
+                    if session.turn().is_some_and(|t| t.turn_id == turn_id) {
+                        let _ = child.notify(method::MUX_STEER_NOW, json!({"sessionId": agent_sid})).await;
+                        self.append(session, "mux", "steer_now", json!({"promptId": prompt_id, "turnId": turn_id, "afterMs": deadline}));
+                    }
+                    read.await
+                }
+            }
+        };
+        let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else { return Err(e) };
                 // A send-now (`interrupt`) still goes next.

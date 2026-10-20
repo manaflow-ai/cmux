@@ -627,6 +627,12 @@ pub struct Config {
     /// stops and the prompt runs next. `queue`: it waits for the turn to end.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub busy_prompt: Option<BusyPrompt>,
+    /// `steerReadDeadlineMs`: how long a message sent into a running turn (a steer, the
+    /// Chief's `tell`) may wait unread before acpmux stops the agent's running tool so it
+    /// reads it (Claude Code reads a steer only at its next tool boundary). Default 500;
+    /// 0 waits for the tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steer_read_deadline_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4

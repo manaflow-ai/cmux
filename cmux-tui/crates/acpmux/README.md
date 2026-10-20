@@ -190,7 +190,10 @@ Code, Codex and ACP agents alike); `acpmux send --queue`, `_meta.acpmux.queue: t
 instead (`queue: false` on a prompt wins over the setting). Interrupts sent one after
 another run in the order they were sent; one overtaken before its own turn starts goes to
 the agent at the head of the next, so no message is lost or reordered. `--steer` sends a
-message into the running turn of an agent that steers.
+message into the running turn of an agent that steers. Claude Code reads a steered message
+only at its next tool boundary, so one it has not read within `steerReadDeadlineMs` (default
+500; 0 waits) stops its running tool: the turn goes on and it reads every waiting message, in
+order. Codex and ACP agents take a steer at once.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
