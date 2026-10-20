@@ -49,7 +49,7 @@ settle go into that same call. A pending approval is denied by a newer
 human message, so the turn reaches its next tool boundary. Subagent reports
 follow the same rule. Only chief.stop stops a turn: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
-ends, and the end posts what the turn said and "(turn stopped)".
+ends, and the end posts nothing to the chat or any bridge.
 
 ## Several Chiefs and channels
 
@@ -218,6 +218,31 @@ spawn's subagents start at once: Claude Code marks its two system blocks and
 the last two messages of every later request in a session, the API takes at
 most 4 marks, and a subagent's long tool loop needs Claude Code's own rolling
 marks (decision 2026-10-08; see Cache marks and TTL).
+
+### Subagent control (2026-10-19)
+
+- `tell(id, message, key?)` never fails for a known subagent. One with no
+  session yet, whose task is not sent yet, or that is paused keeps the
+  message in its saved inbox (`SubRecord.inbox`, host.json), delivered in
+  order after its task; a queued one gets it appended to its task. The
+  answer says `outcome: queued` or `outcome: done`, and a note tells the
+  Chief when the inbox is delivered. A repeat of `key` is `outcome: noop`.
+- `control(action, id?, message?, option?, n?)` (`chief control ...`), every
+  answer `outcome: done|queued|noop|refused`, a repeat a noop:
+  `status [id]` (queued, starting, running, waiting-on-permission, stuck,
+  idle, stopped, failed, paused, cancelled; elapsed, last output, prompt,
+  inbox), `interrupt id [message]` (`session/cancel`; the cut run reports
+  nothing when a message follows, the message is its next prompt),
+  `answer id OPTION|deny` (its pending prompt; acpmux takes an allow only
+  from the person's app, so a refusal says to deny, steer or ask the user),
+  `pause id` / `resume id [message]` (no auto-resume while paused),
+  `cancel id`, `restart id [message]` (same session), `priority id`,
+  `cap n` (the live cap now, 0 none; saved as `live_cap`).
+- Pushed to the Chief: a prompt with its option ids and the approve policy
+  (safe steps: reads, edits and tests in its worktree; the user for money,
+  legal, destructive or credential steps), and one `looks stuck` note per run
+  after 15 minutes without a session change (checked each minute).
+- Tests: `tests/subagent_control.rs`.
 
 ## Engine: harness, model and effort per turn
 

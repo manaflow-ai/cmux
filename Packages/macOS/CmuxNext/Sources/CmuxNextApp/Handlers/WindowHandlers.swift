@@ -48,6 +48,8 @@ enum WindowHandlers {
         registry.bind("selectNextWindow", run: { _ in selectWindow(offset: 1, context) })
         registry.bind("selectPreviousWindow", run: { _ in selectWindow(offset: -1, context) })
         registry.bind("keepMacAwake", run: { _ in KeepAwakeService.shared.toggleManual() })
+        // Sleepy Mode: palette, Window menu, `cmux app sleepy-mode` and MCP all toggle the one controller.
+        registry.bind("palette.sleepyMode", run: { _ in context.services.sleepyMode.toggle() })
         registry.bind("commandPaletteNext", run: { _ in context.services.palette.model.handle(.moveDown) })
         // The palette's own keys as actions (PaletteKeyActionCatalog): the open palette runs the command.
         for id in PaletteKeyMap.paletteKeyActions {
@@ -59,7 +61,6 @@ enum WindowHandlers {
         let unbuilt: [(ActionID, String)] = [
             ("palette.openTaskManager", "task-manager"),
             ("taskManager.killProcess", "task-manager"),
-            ("palette.sleepyMode", "sleepy-mode"),
         ]
         for (id, feature) in unbuilt {
             registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))

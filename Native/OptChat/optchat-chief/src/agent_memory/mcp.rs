@@ -60,6 +60,11 @@ pub trait Owner {
     fn call(&mut self, message: &Value) -> Result<Value, String>;
     /// How to name it in a fallback note.
     fn name(&self) -> String;
+    /// Whether the last failed call may have reached the owner's server
+    /// (so a note may be saved there).
+    fn may_have_run(&self) -> bool {
+        false
+    }
 }
 
 impl Owner for Relay {
@@ -69,6 +74,10 @@ impl Owner for Relay {
 
     fn name(&self) -> String {
         self.route.clone()
+    }
+
+    fn may_have_run(&self) -> bool {
+        Relay::may_have_run(self)
     }
 }
 
@@ -138,6 +147,13 @@ impl Server {
         }
         match owner.call(&relayed) {
             Ok(answer) => answer,
+            Err(why) if name == "memory_remember" && owner.may_have_run() => reply(
+                format!(
+                    "the memory owner ({}) stopped answering after it got the note, so it may have been saved: {why}. Check with memory_search before saving it again (the same text is kept once).",
+                    owner.name()
+                ),
+                true,
+            ),
             Err(why) if name == "memory_remember" => reply(
                 format!(
                     "the memory owner ({}) did not answer, so nothing was saved: {why}",

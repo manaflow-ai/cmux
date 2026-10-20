@@ -185,13 +185,16 @@ pub fn run(args: &[String]) -> Result<String, String> {
             tool_text(&mut server, tool, arguments)
         }
         Some("sync") => index.refresh(force),
-        Some("sources") => Ok(index
-            .sources
-            .entries()
-            .iter()
-            .map(|e| e.source.clone())
-            .collect::<Vec<_>>()
-            .join("\n")),
+        Some("sources") => {
+            let (entries, skipped) = index.sources.scan();
+            let mut lines: Vec<String> = entries.into_iter().map(|e| e.source).collect();
+            lines.extend(
+                skipped
+                    .into_iter()
+                    .map(|s| format!("{s} (skipped: looks like a credential)")),
+            );
+            Ok(lines.join("\n"))
+        }
         Some("config") => config(words.first().copied()),
         _ => Err(USAGE.to_owned()),
     }

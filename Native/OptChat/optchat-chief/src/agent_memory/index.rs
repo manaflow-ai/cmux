@@ -13,6 +13,10 @@
 //! changed after the build started reading (an edit during a rebuild
 //! counts), when the notes log changed outside `remember`, or when the list
 //! of sources changed (a deleted file changes no mtime that survives).
+//!
+//! The swap replaces only a folder that is an index (it holds the
+//! manifest) or is empty: `CMUX_AGENT_MEMORY_HOME` pointed at a folder with
+//! other files is refused, never deleted, and so is a notes log inside it.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -189,6 +193,7 @@ impl Index {
 
     /// Rebuilds when stale; a no-op when current. Returns what it did.
     pub fn refresh(&self, force: bool) -> Result<String, String> {
+        self.check_layout()?;
         if !force && !self.stale() {
             return Ok("index already current".into());
         }
@@ -197,20 +202,48 @@ impl Index {
         if !force && !self.stale() {
             return Ok("index already current".into());
         }
-        let n = self.rebuild()?;
-        Ok(format!(
-            "indexed {n} memory entries into {}",
-            self.root.display()
-        ))
+        let (n, skipped) = self.rebuild()?;
+        let mut said = format!("indexed {n} memory entries into {}", self.root.display());
+        if !skipped.is_empty() {
+            said += &format!(
+                "; skipped {} that look like credentials (remove the secret to index them): {}",
+                skipped.len(),
+                skipped.join(", ")
+            );
+        }
+        Ok(said)
     }
 
-    /// Writes every entry into a fresh sibling and swaps it in (lock held).
-    fn rebuild(&self) -> Result<usize, String> {
+    /// Refuses a layout a rebuild would damage: a root that holds other
+    /// files, or a notes log inside the root (the swap would delete it).
+    fn check_layout(&self) -> Result<(), String> {
+        if self.sources.notes.starts_with(&self.root) {
+            return Err(format!(
+                "the notes log {} is inside the index folder {}; every rebuild would delete it (set CMUX_AGENT_MEMORY_NOTES outside it)",
+                self.sources.notes.display(),
+                self.root.display()
+            ));
+        }
+        if !replaceable(&self.root) {
+            return Err(format!(
+                "{} is not an agent memory index (it holds other files and no {MANIFEST}), so it is never replaced; point CMUX_AGENT_MEMORY_HOME at a new or empty folder",
+                self.root.display()
+            ));
+        }
+        Ok(())
+    }
+
+    /// Writes every entry into a fresh sibling and swaps it in (lock
+    /// held). The entry count and the sources skipped as credentials.
+    fn rebuild(&self) -> Result<(usize, Vec<String>), String> {
+        self.check_layout()?;
         // Taken before reading: a source edited while this build reads it
         // is newer than `read_at`, so the next search rebuilds again.
         let read_at = nanos(SystemTime::now());
         let notes_at = mtime_ns(&self.sources.notes);
-        let entries = self.sources.entries();
+        let (entries, skipped) = self.sources.scan();
+        // Any other build's copy is an orphan: a live build holds the lock.
+        self.clear_orphans();
         // A short sibling keeps the chat lock's socket path under SUN_LEN.
         let fresh = sibling(&self.root, &format!(".new-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&fresh);
@@ -224,7 +257,15 @@ impl Index {
             };
             Self::write_manifest(&fresh, &manifest)?;
             let old = sibling(&self.root, ".old");
-            let _ = std::fs::remove_dir_all(&old);
+            if old.exists() {
+                if !replaceable(&old) {
+                    return Err(format!(
+                        "{} holds files that are not an agent memory index; move it away",
+                        old.display()
+                    ));
+                }
+                let _ = std::fs::remove_dir_all(&old);
+            }
             if self.root.exists() {
                 std::fs::rename(&self.root, &old)
                     .map_err(|e| format!("{}: {e}", self.root.display()))?;
@@ -235,7 +276,29 @@ impl Index {
             Ok(entries.len())
         })();
         let _ = std::fs::remove_dir_all(&fresh);
-        result
+        result.map(|n| (n, skipped))
+    }
+
+    /// Removes `NAME.new-PID` copies a killed rebuild left (lock held).
+    fn clear_orphans(&self) {
+        let (Some(parent), Some(name)) = (self.root.parent(), self.root.file_name()) else {
+            return;
+        };
+        let prefix = format!("{}.new-", name.to_string_lossy());
+        let Ok(dir) = std::fs::read_dir(parent) else {
+            return;
+        };
+        for entry in dir.flatten() {
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            if let Some(pid) = file_name.strip_prefix(&prefix)
+                && !pid.is_empty()
+                && pid.bytes().all(|b| b.is_ascii_digit())
+                && entry.file_type().is_ok_and(|t| t.is_dir())
+            {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
     }
 
     /// Full-text search: entries holding every word, best first.
@@ -293,13 +356,19 @@ impl Index {
     }
 
     /// Saves a note and indexes it: one appended entry when the index was
-    /// current, else a rebuild. The note is durable once this returns Ok,
-    /// even when indexing failed (the next search catches up).
+    /// current, else nothing until the next search rebuilds (a rebuild here
+    /// could outlast the caller's tool timeout). The note is durable once
+    /// this returns Ok, even when indexing failed. A note whose text is
+    /// already in the log is not saved again.
     pub fn remember(&self, text: &str, from: &Provenance) -> Result<String, String> {
+        self.check_layout()?;
         let _lock = self.lock(false)?;
         let was_current = !self.stale();
-        let (i, note) = notes::append(&self.sources.notes, text, from)?;
+        let (i, note, added) = notes::append(&self.sources.notes, text, from)?;
         let entry = note_entry(i, &note);
+        if !added {
+            return Ok(format!("already saved as {}", entry.source));
+        }
         let indexed = if was_current {
             let mut manifest = self.manifest().unwrap_or_default();
             import(&self.root, std::slice::from_ref(&entry)).and_then(|ids| {
@@ -311,7 +380,7 @@ impl Index {
                 Ok(format!("saved {} as entry #{}", entry.source, ids[0]))
             })
         } else {
-            self.rebuild().map(|_| format!("saved {}", entry.source))
+            Err("the index was out of date".into())
         };
         Ok(indexed.unwrap_or_else(|e| {
             format!(
@@ -319,6 +388,15 @@ impl Index {
                 entry.source
             )
         }))
+    }
+}
+
+/// Whether a swap may move `dir` away: missing, empty, or an index (it
+/// holds the manifest, in any version).
+fn replaceable(dir: &Path) -> bool {
+    match std::fs::read_dir(dir) {
+        Ok(mut entries) => dir.join(MANIFEST).is_file() || entries.next().is_none(),
+        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
     }
 }
 

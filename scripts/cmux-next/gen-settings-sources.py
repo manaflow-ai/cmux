@@ -130,6 +130,13 @@ SECTIONS = [
         "enums": {"tasks.layout": "TasksLayoutPreference"},
     },
     {
+        "source": "schemas/settings/source/screenshots.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Screenshots.generated.swift",
+        "type": "ScreenshotsSettingsSchema",
+        "lists": {"screenshots": ("descriptors", "ScreenshotsSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/hover-cards.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+HoverCards.generated.swift",
         "type": "HoverCardSettingsSchema",
@@ -158,6 +165,13 @@ SECTIONS = [
         "type": "SessionSettingsSchema",
         "lists": {"sessions": ("descriptors", "SessionSettings"), "phone": ("phoneDescriptors", "SessionSettings")},
         "enums": {"sessions.keepAwake": "SessionKeepAwakeSetting", "phone.keepAwake": "PhoneKeepAwakeSetting"},
+    },
+    {
+        "source": "schemas/settings/source/subsessions.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
+        "type": "SubsessionSettingsSchema",
+        "lists": {"subsessions": ("descriptors", "SubsessionSettings")},
+        "enums": {},
     },
     {
         "source": "schemas/settings/source/feed.json",

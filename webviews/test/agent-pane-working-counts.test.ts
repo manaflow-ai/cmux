@@ -262,7 +262,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
 
   test("the agent count opens the list of the chat's agents", async () => {
     const page = await open(BUSY);
-    await page.getByRole("button", { name: "2 agents" }).click();
+    // The agents pill above the composer says "2 agents" too; this is the working line's count.
+    await line(page).getByRole("button", { name: "2 agents" }).click();
     const list = page.getByRole("region", { name: "Subagents" });
     await list.waitFor({ timeout: 5_000 });
     expect(await list.getByText("Reviewer").isVisible()).toBe(true);

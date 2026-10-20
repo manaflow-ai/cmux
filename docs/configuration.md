@@ -187,12 +187,13 @@ The layout of the New Tab page. The dots at the bottom of the page switch it in 
 }
 ```
 
+- `cards` (the default): one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
 - `default`: one field with agent rows, recent chats as cards, and Tools.
 - `composer`: one large prompt field, with nothing else.
 - `threads`: the field and the recent chats as a list.
 - `console`: a monospace field with a `>` prompt and the recent chats as lines.
 - `classic`: the Terminal, Browser and Agent switch.
-- `terminal`: the `default` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
+- `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
 Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
 
@@ -287,6 +288,21 @@ Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, t
 - `tileBrowsers` (default `false`): with `split`, new browsers also get their own pane instead of a tab.
 
 The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
+
+## `layout.focusPaneOnScroll`
+
+Scrolling over a pane focuses it, as a click does: a terminal, browser, Markdown viewer, agent chat or Home. The scroll still reaches the pane.
+
+```json
+{
+  "layout": { "focusPaneOnScroll": false }
+}
+```
+
+- `true` (default): the first scroll of a gesture, or a mouse-wheel notch, focuses the pane under the pointer.
+- `false`: only a click or the keyboard moves focus.
+
+Focus stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, within a second of typing, and over a window that is not active. Change it in **Settings > General > Columns** or with `cmux settings set layout.focusPaneOnScroll false`.
 
 ## `workspaces.newPlacement`
 

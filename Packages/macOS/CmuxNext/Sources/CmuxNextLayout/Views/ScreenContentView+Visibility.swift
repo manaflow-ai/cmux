@@ -72,9 +72,9 @@ extension ScreenContentView {
         return geometry.panes.first { geometry.scrolls(pane: $0.key) && $0.value.contains(content) }?.key
     }
 
-    /// Displayed frame of `pane` in local coordinates.
+    /// Displayed frame of `pane` in local coordinates: its host's frame (on the pixel grid, `applyPresentation`).
     func displayedFrame(of pane: PaneID) -> CGRect? {
-        paneFrames[pane].map { displayedRect($0.rect, pane: pane) }
+        paneFrames[pane].map { displayedRect($0.rect.pixelEdges(scale), pane: pane) }
     }
 
     // MARK: Motion trace

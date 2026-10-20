@@ -1,11 +1,21 @@
 // Mermaid and Vega(-Lite) blocks, rendered from the classic viewer's bundled libraries
-// (Resources/markdown-viewer/mermaid.min.js, vega.min.js + vega-lite.min.js), which the host serves
-// as same-origin scripts (`<libBase>mermaid.js`, `<libBase>vega.js`). The page runs under the
-// strict PageCSP (no 'unsafe-eval'): Vega's expression compiler uses Function, so Vega runs with
-// the AST interpreter (vega-interpreter); Mermaid runs with securityLevel "strict".
+// (Resources/markdown-viewer/ondine.min.js, mermaid.min.js, vega.min.js + vega-lite.min.js), which the
+// host serves as same-origin scripts (`<libBase>ondine.js`, `<libBase>mermaid.js`, `<libBase>vega.js`).
+// The page runs under the strict PageCSP plus 'wasm-unsafe-eval' (no 'unsafe-eval'): Vega's
+// expression compiler uses Function, so Vega runs with the AST interpreter (vega-interpreter).
+//
+// Mermaid source draws with Ondine (github.com/wevm/ondine, evaluation in
+// plans/cmux-next/mermaid-ondine-EVAL.md): a Rust compiler in WebAssembly with no imports, so it
+// cannot touch the page; it returns SVG text. A source Ondine refuses falls back to Mermaid 11
+// (securityLevel "strict"), and the "mermaid" renderer flag uses Mermaid only. Either SVG is parsed
+// as HTML (Mermaid writes HTML labels), cleaned of script, handlers and script URLs, then inserted.
 type MermaidAPI = {
   initialize(config: Record<string, unknown>): void;
   render(id: string, source: string): Promise<{ svg: string }>;
+};
+type OndineAPI = {
+  wasm: string;
+  create(options: { modules: Record<string, string> }): { render(source: string): { svg: string } };
 };
 type VegaAPI = {
   parse(spec: unknown, config?: unknown, options?: { ast?: boolean }): unknown;
@@ -19,7 +29,16 @@ type VegaAPI = {
 };
 type VegaLiteAPI = { compile(spec: unknown, options?: { config?: unknown }): { spec: unknown } };
 
-export type DiagramLibrary = "mermaid" | "vega";
+export type DiagramLibrary = "ondine" | "mermaid" | "vega";
+
+/** Which renderer draws Mermaid source: Ondine with Mermaid as fallback, or Mermaid only. */
+export type MermaidRenderer = "ondine" | "mermaid";
+
+/** The default Mermaid renderer; the page config's `mermaidRenderer` overrides it. */
+export const DEFAULT_MERMAID_RENDERER: MermaidRenderer = "ondine";
+
+/** The global each library script defines. */
+const LIBRARY_GLOBALS: Record<DiagramLibrary, string> = { ondine: "ondine", mermaid: "mermaid", vega: "vega" };
 
 /** Loads one host library script once; resolves when its globals exist. */
 export class DiagramLibraries {
@@ -29,6 +48,10 @@ export class DiagramLibraries {
 
   load(name: DiagramLibrary): Promise<void> {
     let promise = this.loads.get(name);
+    if (!promise && (globalThis as Record<string, unknown>)[LIBRARY_GLOBALS[name]] !== undefined) {
+      promise = Promise.resolve();
+      this.loads.set(name, promise);
+    }
     if (!promise) {
       promise = new Promise<void>((resolve, reject) => {
         const url = this.libURL(name);
@@ -52,8 +75,19 @@ let mermaidScheme: string | null = null;
 
 const darkScheme = () => globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches === true;
 
-/** Renders a mermaid diagram as SVG into `target`. */
-export async function renderMermaid(libraries: DiagramLibraries, source: string, target: HTMLElement): Promise<void> {
+let ondineRenderer: ReturnType<OndineAPI["create"]> | null = null;
+
+/** Renders Mermaid `source` with Ondine; throws Ondine's diagnostic for a source it refuses. */
+async function renderOndine(libraries: DiagramLibraries, source: string): Promise<string> {
+  await libraries.load("ondine");
+  const ondine = (globalThis as { ondine?: OndineAPI }).ondine;
+  if (!ondine) throw new Error("ondine did not load");
+  ondineRenderer ??= ondine.create({ modules: { all: ondine.wasm } });
+  return ondineRenderer.render(source).svg;
+}
+
+/** Renders Mermaid `source` with Mermaid 11. */
+async function renderMermaidJS(libraries: DiagramLibraries, source: string): Promise<string> {
   await libraries.load("mermaid");
   const mermaid = (globalThis as { mermaid?: MermaidAPI }).mermaid;
   if (!mermaid) throw new Error("mermaid did not load");
@@ -62,10 +96,67 @@ export async function renderMermaid(libraries: DiagramLibraries, source: string,
     mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: scheme, fontFamily: "inherit" });
     mermaidScheme = scheme;
   }
-  const { svg } = await mermaid.render(`cmux-mermaid-${++mermaidCount}`, source);
-  const parsed = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
-  if (parsed.nodeName !== "svg") throw new Error("mermaid produced no svg");
-  target.replaceChildren(document.importNode(parsed, true));
+  return (await mermaid.render(`cmux-mermaid-${++mermaidCount}`, source)).svg;
+}
+
+/**
+ * Renders a mermaid diagram as SVG into `target`: with Ondine, falling back to Mermaid for a source
+ * Ondine refuses (Ondine's reason is the error when both refuse), or with Mermaid only.
+ */
+export async function renderMermaid(
+  libraries: DiagramLibraries,
+  source: string,
+  target: HTMLElement,
+  renderer: MermaidRenderer = DEFAULT_MERMAID_RENDERER,
+): Promise<void> {
+  let svg: string;
+  if (renderer === "mermaid") {
+    svg = await renderMermaidJS(libraries, source);
+  } else {
+    try {
+      svg = await renderOndine(libraries, source);
+    } catch (ondineError) {
+      try {
+        svg = await renderMermaidJS(libraries, source);
+      } catch {
+        throw ondineError;
+      }
+    }
+  }
+  target.replaceChildren(document.importNode(cleanSVG(svg), true));
+}
+
+const SCRIPT_URL = /^(javascript|data|vbscript):/i;
+/** `text` without ASCII whitespace and control characters, which browsers drop before a URL scheme. */
+const withoutControls = (text: string) =>
+  Array.from(text)
+    .filter((char) => char.charCodeAt(0) > 32)
+    .join("");
+const BLOCKED_ELEMENTS = new Set(["script", "iframe", "object", "embed", "link", "meta", "base", "form"]);
+
+/**
+ * Parses renderer output as HTML (Mermaid writes HTML labels in `<foreignObject>`, such as an unclosed
+ * `<br>`, which XML parsing stops at) and removes what could run script or leave the page: script-like
+ * elements, `on*` handlers, and `javascript:`/`data:`/`vbscript:` links and sources.
+ */
+export function cleanSVG(text: string): SVGSVGElement {
+  const svg = new DOMParser().parseFromString(text, "text/html").body.querySelector("svg");
+  if (!svg) throw new Error("mermaid produced no svg");
+  for (const element of [svg, ...svg.querySelectorAll("*")]) {
+    if (BLOCKED_ELEMENTS.has(element.localName.toLowerCase())) {
+      element.remove();
+      continue;
+    }
+    // A copy: removing an attribute changes the live NamedNodeMap.
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      const url = name === "href" || name.endsWith(":href") || name === "src" || name === "action";
+      if (name.startsWith("on") || (url && SCRIPT_URL.test(withoutControls(attribute.value)))) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  }
+  return svg as unknown as SVGSVGElement;
 }
 
 const views = new WeakMap<HTMLElement, { finalize(): void }>();
@@ -117,6 +208,7 @@ export function renderDiagram(
   source: string,
   target: HTMLElement,
   errorText: string,
+  mermaidRenderer: MermaidRenderer = DEFAULT_MERMAID_RENDERER,
 ): void {
   target.dataset.state = "rendering";
   const done = (promise: Promise<void>) =>
@@ -132,6 +224,6 @@ export function renderDiagram(
         target.replaceChildren(message);
       },
     );
-  if (language === "mermaid") void done(renderMermaid(libraries, source, target));
+  if (language === "mermaid") void done(renderMermaid(libraries, source, target, mermaidRenderer));
   else void done(renderVega(libraries, language === "vega" ? "vega" : "vega-lite", source, target));
 }

@@ -54,9 +54,13 @@ optchat-chief agent-memory search some distinctive words
 A hit list is the owner's. A first line saying the owner "did not answer" means the
 route failed, and this machine's own index answered. The line carries the ssh or
 cmux error. After a failure, calls skip the owner for a minute and answer locally at
-once. A dead route gives up after 30 seconds; pass a longer `--connect-timeout-seconds`
-in `ownerArgs` for a slow first install. Notes are never saved locally when the owner
-is down. The agent gets an error instead, so notes do not split across machines.
+once. A relayed call gives up after 40 seconds in all (Codex stops waiting for a tool
+after 60, and cmux cannot raise that for the sessions it starts); a dead route gives up
+after 15. Pass a longer `--connect-timeout-seconds` in `ownerArgs` for a slow first
+install. Notes are never saved locally when the owner is down. The agent gets an error
+instead, so notes do not split across machines. When the owner stopped answering after
+it got the note, the error says the note may have been saved: search for it first.
+Saving the same text again keeps one copy.
 `search --json` prints the same warning on stderr and keeps stdout JSON.
 
 ## A machine without the cmux NEXT app
@@ -96,8 +100,14 @@ written, so `remember never pass --no-verify` saves all of it; `--` ends options
 
 A note is refused, never redacted, when it is over 4000 characters, holds control
 characters, or looks like a credential. The credential check is a backstop for common
-token shapes, not a scanner, and source files are indexed as they are. Each note records its date, host, agent session
-and directory.
+token shapes, not a scanner. A memory file or note that matches it is left out of the
+index; `agent-memory sync` and `agent-memory sources` name it so the secret can be
+removed. Each note records its date, host, agent session and directory.
+
+The index folder (`CMUX_AGENT_MEMORY_HOME`, default `~/.cmux/agent-memory`) is replaced
+on each rebuild, so it must be new, empty, or an index already. A folder holding other
+files is refused, never deleted, and so is a notes log (`CMUX_AGENT_MEMORY_NOTES`) inside
+it.
 
 ## Migrating from `leo-workspace/tools/agent-memory`
 

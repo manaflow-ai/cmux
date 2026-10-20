@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextWorkspaceRepair
 import Observation
 
 /// The content area of one window for one workspace: a `LayoutRootView`
@@ -36,15 +37,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
     private(set) var isApplying = false
     private var appliedTree = LayoutAppliedTree()
-    /// Daemon `transaction` for each layout gesture (undo coalescing).
-    var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
-    /// A divider or column drag's daemon commands, one in flight per gesture (only the newest value waits).
-    lazy var gestureCommands = GestureCommandCoalescer { [daemon] label, body in await daemon.run(label, body) }
     /// Kept mounted off screen by its window (a workspace it showed): its panes report hidden, so
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.

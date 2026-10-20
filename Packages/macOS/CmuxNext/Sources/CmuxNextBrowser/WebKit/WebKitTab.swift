@@ -88,6 +88,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
         WebKitContextHit.install(self, into: controller)
         WebKitMediaHandler.install(on: self, into: controller)
+        WebKitVerificationHandler.install(on: self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
         WebKitNotificationBridge.install(on: self, into: controller)
         observeWebView()

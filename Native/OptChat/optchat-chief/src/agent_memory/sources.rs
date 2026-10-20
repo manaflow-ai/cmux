@@ -49,8 +49,23 @@ impl Sources {
         }
     }
 
-    /// Every entry now.
+    /// Every entry now, without the ones that look like credentials.
     pub fn entries(&self) -> Vec<Entry> {
+        self.scan().0
+    }
+
+    /// Every entry now, and the sources left out because their text looks
+    /// like a credential: memory files are written by hand and by agents,
+    /// and the index serves them to every session (and machine).
+    pub fn scan(&self) -> (Vec<Entry>, Vec<String>) {
+        let (kept, skipped): (Vec<Entry>, Vec<Entry>) = self
+            .all_entries()
+            .into_iter()
+            .partition(|e| !notes::looks_secret(&e.text));
+        (kept, skipped.into_iter().map(|e| e.source).collect())
+    }
+
+    fn all_entries(&self) -> Vec<Entry> {
         let mut out = Vec::new();
         for path in self.claude_files() {
             self.push_file(&mut out, &path);

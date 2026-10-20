@@ -292,7 +292,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.toggleTabUnread",
-                title: String(localized: "action.palette.toggleTabUnread", defaultValue: "Mark Tab as Unread", bundle: .module),
+                title: String(localized: "action.palette.toggleTabUnread", defaultValue: "Mark Tab Unread", bundle: .module),
                 keywords: ["tab", "unread"], category: .tab, symbol: "circle.fill", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab mark-as-unread"
             ),
@@ -319,6 +319,24 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.toggleTabAudioMute", defaultValue: "Mute/Unmute Tab", bundle: .module),
                 keywords: ["tab", "audio", "sound"], category: .tab, symbol: "speaker.slash", surfaces: [.contextMenu],
                 targets: [.tab], cliName: "tab mute-unmute"
+            ),
+            ActionDescriptor(
+                id: "tab.muteAudio",
+                title: String(localized: "action.tab.muteAudio", defaultValue: "Mute Tab", bundle: .module),
+                keywords: ["tab", "audio", "sound", "silence"], category: .tab, symbol: "speaker.slash",
+                surfaces: [.palette], targets: [.tab], cliName: "tab mute"
+            ),
+            ActionDescriptor(
+                id: "tab.unmuteAudio",
+                title: String(localized: "action.tab.unmuteAudio", defaultValue: "Unmute Tab", bundle: .module),
+                keywords: ["tab", "audio", "sound"], category: .tab, symbol: "speaker.wave.2",
+                surfaces: [.palette], targets: [.tab], cliName: "tab unmute"
+            ),
+            ActionDescriptor(
+                id: "tab.muteOtherAudio",
+                title: String(localized: "action.tab.muteOtherAudio", defaultValue: "Mute Other Tabs", bundle: .module),
+                keywords: ["tab", "audio", "sound", "silence", "others"], category: .tab, symbol: "speaker.slash",
+                surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab mute-others"
             ),
             ActionDescriptor(
                 id: "disconnectRemoteTab",

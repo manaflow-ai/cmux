@@ -154,6 +154,7 @@ BUNDLE_INPUTS = (
     # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
+    "schemas/sync-motion/*",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
@@ -203,6 +204,8 @@ class Route:
     full: bool = False
     native: bool = False
     swift_canary: bool = False
+    # Any .swift file under the CmuxNext package (Sources or Tests): the PR runs the Release compile.
+    cmuxnext_swift: bool = False
     webview: bool = False
     scheme: bool = False
     generated: bool = False
@@ -271,6 +274,11 @@ def owning_target(graph: dict, path: str) -> str | None:
 
 def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -> Route:
     result = Route()
+    # Release-only optimizer crashes (cx-ebm.59.5) are invisible to the Debug tiers, so a PR that
+    # changes any CmuxNext package Swift file runs the Release compile, whatever else it changes.
+    result.cmuxnext_swift = any(path.startswith(PACKAGE) and path.endswith(".swift") for path in changed or [])
+    if result.cmuxnext_swift and event == "pull_request":
+        result.reasons.append("a CmuxNext package Swift file changed: the Release compile runs")
     if event != "pull_request":
         result.everything(f"{event}: base coverage runs every tier")
         return result
@@ -379,7 +387,7 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         result.swift_canary = bool(result.swift_canary_targets)
         if result.swift_canary:
             result.reasons.append(
-                "small CmuxNext Swift-only diff: the canary gates this pull request; Release remains advisory"
+                "small CmuxNext Swift-only diff: the canary gates this pull request"
             )
     if result.webview:
         result.scheme = True
@@ -425,6 +433,7 @@ def outputs(result: Route) -> dict[str, str]:
     return {
         "native": flag(result.native),
         "swift_canary": flag(result.swift_canary),
+        "cmuxnext_swift": flag(result.cmuxnext_swift),
         "macos": flag(macos),
         "scheme": flag(result.scheme or result.webview or result.full),
         "generated": flag(result.generated),
@@ -462,7 +471,7 @@ def main(argv: list[str]) -> int:
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("### cmux-next tiers\n\n| tier | runs |\n| --- | --- |\n")
-            for key in ("generated", "native", "swift_canary", "scheme", "swift", "daemon", "full"):
+            for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "scheme", "swift", "daemon", "full"):
                 stream.write(f"| {key} | {values[key]} |\n")
             stream.write(f"\nSwift test targets: {values['swift_targets'] or 'none'}\n\n")
             stream.write(f"Swift canary targets: {values['swift_canary_targets'] or 'none'}\n\n")
