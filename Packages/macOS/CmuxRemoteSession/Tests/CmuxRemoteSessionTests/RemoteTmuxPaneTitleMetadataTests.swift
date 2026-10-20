@@ -86,9 +86,30 @@ struct RemoteTmuxPaneTitleMetadataTests {
         ))
     }
 
+    @Test func rejectsExtraRawSeparatorsInPaneRectMetadata() {
+        let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: "headercmux_title_metadata_v1\u{1f}build\u{1f}unexpected\u{1f}host.example\u{1f}host"
+        )
+        #expect(parsed == nil)
+    }
+
+    @Test func parsesTmuxQuotedUnicodeAndMarkerText() {
+        // Captured from a tmux 3.8 UTF-8 control client using the production format.
+        let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: "HDR café \\\\ cmux_title_metadata_v1 \"quoted\"cmux_title_metadata_v1\u{1f}"
+                + #"café\ \\\\\ cmux_title_metadata_v1\ \"quoted\""#
+                + "\u{1f}Carls-Mac-mini.local\u{1f}Carls-Mac-mini"
+        )
+        #expect(parsed?.header == "HDR café \\\\ cmux_title_metadata_v1 \"quoted\"")
+        #expect(parsed?.metadata == RemoteTmuxPaneTitleMetadata(
+            title: "café \\\\ cmux_title_metadata_v1 \"quoted\"",
+            host: "Carls-Mac-mini.local", hostShort: "Carls-Mac-mini"
+        ))
+    }
+
     @Test func parsesPaneRectLabelMetadataWithoutConfusingTitleMarkerText() {
         let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
-            from: "0 \"suffix cmux_title_metadata_v1\\037\"cmux_title_metadata_v1\\037build\\037host.example\\037host"
+            from: "0 \"suffix cmux_title_metadata_v1\\037\"cmux_title_metadata_v1\u{1f}build\u{1f}host.example\u{1f}host"
         )
 
         #expect(parsed?.header == "0 \"suffix cmux_title_metadata_v1\\037\"")
