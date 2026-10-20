@@ -85,6 +85,10 @@ pub trait Backend {
     fn grant(&self) -> crate::chief_profile::Grant {
         crate::chief_profile::Grant::all()
     }
+    /// The `version` tool's answer (stub).
+    fn version(&self) -> Result<String, String> {
+        Err("not implemented".to_owned())
+    }
 }
 
 /// The host socket; `subagent` marks a subagent's server (no spawn, tell).
