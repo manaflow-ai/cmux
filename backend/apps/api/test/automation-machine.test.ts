@@ -69,6 +69,8 @@ describe("deterministic commands", () => {
   it("an agent prompt and step input go on stdin, never into the command line", () => {
     const c = machineStepCommand(agent, { run: RUN, index: 1 })
     expect(c).toContain("acpmux run -m codex")
+    // acpmux lives in the work user's ~/.local/bin, which a login shell does not always put on PATH.
+    expect(c).toContain('PATH="$HOME/.local/bin:$PATH"')
     expect(c).not.toContain("Summarize")
     expect(c).not.toContain("rm -rf")
     expect(text(machineStepStdin(agent, null))).toBe(agent.prompt)
