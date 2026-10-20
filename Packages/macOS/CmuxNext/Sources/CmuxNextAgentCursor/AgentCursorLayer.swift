@@ -8,13 +8,16 @@ public import QuartzCore
 /// never run app code.
 public final class AgentCursorLayer {
     /// Pointer outline with the tip at the origin (y-down points): the
-    /// minimal triangle (a dart with a shallow notch) with every corner
-    /// rounded (cursor gallery T1, user 2026-10-20: "I like the minimal
-    /// triangle. It just needs to be more friendly").
+    /// system pointer's posture (a vertical left edge, the body leaning 22°
+    /// right, a 44° tip) without its stick tail, every corner rounded and a
+    /// shallow notch for a back (shape gallery S1, user 2026-10-20: "Think
+    /// from first principles about how to make the cursor shape even more
+    /// friendly and perfect"). Vertices sit on the 0.25 pt grid; the
+    /// rounding trims the acute corners, so it draws about 11.5 × 15.3 pt.
     static let arrowPath: CGPath = {
         let corners: [(CGPoint, CGFloat)] = [
-            (CGPoint(x: 0, y: 0), 2.2), (CGPoint(x: 16, y: 7), 2.6),
-            (CGPoint(x: 10.5, y: 10.5), 3), (CGPoint(x: 7, y: 16), 2.6),
+            (CGPoint(x: 0, y: 0), 1.3), (CGPoint(x: 14.5, y: 15), 1.6),
+            (CGPoint(x: 4.5, y: 11.25), 2), (CGPoint(x: 0, y: 21), 1.6),
         ]
         let path = roundedPolygon(corners)
         let box = path.boundingBoxOfPath
@@ -229,9 +232,10 @@ public final class AgentCursorLayer {
 
     static let tagFontSize: CGFloat = 11
     static let tagHeight: CGFloat = 22
-    /// The name tag's top-left corner from the arrow tip: right of the
-    /// arrow's tail, never over the point the agent acts on.
-    static let tagOffset = CGPoint(x: 11, y: 13)
+    /// The name tag's top-left corner from the arrow tip: in the hollow
+    /// behind the notch, below the right wing and right of the lower one, so
+    /// it never covers the tip or the body.
+    static let tagOffset = CGPoint(x: 7, y: 14)
 
     static let captionFontSize: CGFloat = 12
     static let captionHeight: CGFloat = 22
@@ -242,7 +246,7 @@ public final class AgentCursorLayer {
     }
     /// Where the caption's top-left corner sits from the arrow tip: right of
     /// the arrow's tail, so it never covers the point the agent acts on.
-    static let captionOffset = CGPoint(x: 16, y: 20)
+    static let captionOffset = tagOffset
 
     /// Where the caption goes: under the name tag when there is one.
     var captionOrigin: CGPoint {
@@ -276,7 +280,7 @@ public final class AgentCursorLayer {
         for layer in [caption, glassCaption] {
             layer.opacity = 1
             layer.removeAnimation(forKey: Self.captionHideKey)
-            layer.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: Self.captionHideDelay, on: layer),
+            layer.add(Motion.cursor.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: Self.captionHideDelay, on: layer),
                       forKey: Self.captionHideKey)
         }
     }
@@ -326,7 +330,7 @@ public final class AgentCursorLayer {
     /// it again, which shows the cursor at once. No timer.
     func armIdleHide(after delay: CFTimeInterval) {
         for layer in roots {
-            layer.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: delay, on: layer), forKey: Self.idleHideKey)
+            layer.add(Motion.cursor.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: delay, on: layer), forKey: Self.idleHideKey)
         }
     }
 
@@ -336,13 +340,13 @@ public final class AgentCursorLayer {
     /// 0.25 s at the fast speed, cmux-cua timing). Reduce Motion keeps only
     /// the fade, at the ring's full size; speed "off" shows no ripple.
     func pulse() {
-        if Motion.set(ripple, "transform.scale", to: 1.6, movementFade: .clickPulse, from: 0.4) == nil {
+        if Motion.cursor.set(ripple, "transform.scale", to: 1.6, movementFade: .clickPulse, from: 0.4) == nil {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             ripple.transform = CATransform3DMakeScale(1.6, 1.6, 1)
             CATransaction.commit()
         }
-        Motion.set(ripple, "opacity", to: 0, fade: .clickPulse, from: 0.9)
+        Motion.cursor.set(ripple, "opacity", to: 0, fade: .clickPulse, from: 0.9)
     }
 }
 
