@@ -325,6 +325,27 @@ public final class MessagesLabHomeView: NSView {
         set { projection.onRefusal = newValue }
     }
 
+    /// Forward… in a bubble's context menu: the host routes the bubble's text to another chat
+    /// (cmux-next's `home.sendSelectionTo`); nil leaves Forward… out of the menu.
+    public var onForward: ((String) -> Void)? {
+        get { projection.onForward }
+        set { projection.onForward = newValue }
+    }
+
+    /// Automation and tests: chooses `title` in the context menu of the shown bubble whose text
+    /// is `text`, built and chosen by the right-click's path. False when no such bubble or row shows.
+    public func debugChooseMenuItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text), let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return false }
+        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
+        guard let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized title of a bubble's Forward… row.
+    public static var forwardMenuTitle: String { CmuxStrings.forward }
+
     // MARK: Attachments (lane 16)
 
     /// The "+" button (the host's file picker).

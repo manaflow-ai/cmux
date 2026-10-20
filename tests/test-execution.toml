@@ -977,6 +977,10 @@ path = "tests/test_app_store_rules.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cnx_ios_test_notes_retry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_bead_autoclose.py"
 lane = "linux-guard"
 

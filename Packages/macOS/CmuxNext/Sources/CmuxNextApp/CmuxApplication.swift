@@ -68,7 +68,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         defer { handlingSendEvent = previous }
         if event.type == .keyDown {
             // Router-consumed keys never reach AppKit local event monitors.
-            (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown()
+            (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown(event)
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
