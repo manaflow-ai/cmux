@@ -58,6 +58,7 @@ class FakeGitHub:
         self.budgets: list[int] = []
         self.clock = 0.0
         self.download_takes = 0.0
+        self.run_takes = 0.0
 
     def add(self, name: str, tar_path: Path, expired: bool = False, created: str = "2026-10-19T20:00:00Z",
             fork: bool = False, workflow: str = ".github/workflows/cmux-next-media.yml",
@@ -78,6 +79,7 @@ class FakeGitHub:
 
     def run(self, repo: str, run_id: int) -> dict:
         self.requests.append(f"run {repo} {run_id}")
+        self.clock += self.run_takes
         return self.runs[run_id]
 
     def list_artifacts(self, repo: str, name: str) -> list[dict]:
@@ -203,6 +205,14 @@ class DownloadBudgetTest(CacheCase):
         self.gh.download_takes = 200
         self.assertIsNotNone(self.fetch(self.tmp / "products"))
         self.assertEqual(self.gh.budgets, [media_app_cache.DOWNLOAD_SECONDS, media_app_cache.DOWNLOAD_SECONDS - 200])
+
+    def test_the_provenance_check_counts_against_the_budget(self) -> None:
+        # The run lookup before a download can take up to its 30 s timeout;
+        # curl gets only what is left after it.
+        self.gh.add(self.name(), self.pack())
+        self.gh.run_takes = 25
+        self.assertIsNotNone(self.fetch(self.tmp / "products"))
+        self.assertEqual(self.gh.budgets, [media_app_cache.DOWNLOAD_SECONDS - 25])
 
     def test_no_download_starts_once_the_budget_is_nearly_spent(self) -> None:
         name = self.name()
