@@ -22,6 +22,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     let placement: ChiefPetPlacement
     let pet: ChiefPetView
     private var expandTool: ChiefPetTool?
+    /// The visible frame of the screen the pet is on (its menu bar and Dock left out); tests give their own.
+    var visibleFrame: () -> CGRect? = { nil }
 
     public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard) {
         placement = ChiefPetPlacement(defaults: defaults)
@@ -55,6 +57,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         pet.onDragEnded = { [weak self] in self?.saveOrigin() }
         contentView = pet
         delegate = self
+        visibleFrame = { [weak self] in self?.screen?.visibleFrame }
     }
 
     /// The chevron points down while the notices are unfolded.
@@ -81,16 +84,16 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
 
     /// A screen change (resolution, a display unplugged) keeps it on its screen.
     public func windowDidChangeScreen(_ notification: Notification) {
-        guard let visible = screen?.visibleFrame else { return }
+        guard let visible = visibleFrame() else { return }
         setFrameOrigin(ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible))
     }
 
     /// Keeps the spot the pet was dragged to, pulled fully back on its screen.
     func saveOrigin() {
-        guard let screen else { return }
-        let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: screen.visibleFrame)
+        guard let visible = visibleFrame() else { return }
+        let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible)
         if origin != frame.origin { setFrameOrigin(origin) }
-        placement.save(origin, onDisplay: ChiefPetPlacement.display(screen))
+        if let screen { placement.save(origin, onDisplay: ChiefPetPlacement.display(screen)) }
     }
 
     static func screenUnderPointer() -> NSScreen? {
