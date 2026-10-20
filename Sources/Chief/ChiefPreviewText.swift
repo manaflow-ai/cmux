@@ -7,12 +7,12 @@ import MessagesLabHome
 /// what the transcript shows, and a waiting approval said in plain words
 /// ("Needs your approval: Start Codex in “Scratch”", ``ChiefListPreview``; "Waiting
 /// for you" until that line is read) instead of the card's raw prompt ("Run `…`?").
-enum ChiefPreviewText {
+struct ChiefPreviewText {
     /// `markdown` without its markers: inline code and fences, bold, italic and
     /// strike markers, links and images (their text kept), heading hashes,
     /// quote markers and bullets; lines joined with spaces, runs of white space
     /// collapsed. Pure: no catalog, no store.
-    static func plain(_ markdown: String) -> String {
+    func plain(_ markdown: String) -> String {
         var lines: [String] = []
         for raw in markdown.components(separatedBy: .newlines) {
             var line = raw.trimmingCharacters(in: .whitespaces)
@@ -42,12 +42,12 @@ enum ChiefPreviewText {
 
     /// The preview while an approval card waits: "Waiting for you", the transcript's own status
     /// line (the card says what it asks), never the typing dots.
-    static var waitingForYou: String {
+    var waitingForYou: String {
         String(localized: "chief.preview.waitingForYou", defaultValue: "Waiting for you")
     }
 
     /// The newest message's waiting approval prompt, nil when it has none.
-    static func pendingApprovalPrompt(_ message: Message?) -> String? {
+    func pendingApprovalPrompt(_ message: Message?) -> String? {
         guard let message, !message.isRetracted else { return nil }
         for case .approval(let ref) in message.parts where ref.decided == nil { return ref.prompt }
         return nil

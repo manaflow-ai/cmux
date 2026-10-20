@@ -218,7 +218,7 @@ extension ChiefService {
         case .needsApproval(let text), .needsAnswer(let text), .running(let text), .card(let text):
             return text
         case .message(let message):
-            return ChiefPreviewText.plain(message.parts.map(\.plainText).joined(separator: "\n"))
+            return ChiefPreviewText().plain(message.parts.map(\.plainText).joined(separator: "\n"))
         }
     }
 

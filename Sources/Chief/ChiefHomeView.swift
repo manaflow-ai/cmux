@@ -250,19 +250,20 @@ final class ChiefHomeView: NSView {
     /// waiting card or a running tool says so, the newest bubble shows as its text, and a system
     /// row or finished tool call is never the preview. A pending send of mine wins over it.
     static func listPreview(_ row: InboxRow, line: ChiefListPreview.Line? = nil, waiting: Bool = false) -> String {
-        let waits = !row.isSending && (waiting || ChiefPreviewText.pendingApprovalPrompt(row.summary.lastMessage) != nil)
+        let previewText = ChiefPreviewText()
+        let waits = !row.isSending && (waiting || previewText.pendingApprovalPrompt(row.summary.lastMessage) != nil)
         if !row.isSending, let line {
             switch line {
             case .needsApproval(let text), .needsAnswer(let text): return text.replacingOccurrences(of: "\n", with: " ")
             case .running, .card, .message:
                 // A card waits that the line has not read yet: say so, never the older line.
-                if waits { return ChiefPreviewText.waitingForYou }
+                if waits { return previewText.waitingForYou }
                 if let text = line.text { return text.replacingOccurrences(of: "\n", with: " ") }
                 if case .message(let message) = line { return messagePreview(message, in: row.summary) }
             }
         }
         // A waiting approval no line names yet: "Waiting for you", not its raw prompt.
-        if waits { return ChiefPreviewText.waitingForYou }
+        if waits { return previewText.waitingForYou }
         // InboxRow.preview is intentionally a cheap mirror projection. For Chief it can contain
         // a tool prompt or a question's option list while the richer tail read is still landing.
         // Never leak that implementation text into the sidebar. A pending send is the one case
