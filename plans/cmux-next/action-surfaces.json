@@ -305,6 +305,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "window screenshot",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.screenshot",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Screenshot Window",
+      "title_key" : "action.window.screenshot",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "app toggle-full-screen",
       "context_menu" : "noObject",
@@ -5683,6 +5711,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "pane screenshot",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "pane.screenshot",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Screenshot Pane",
+      "title_key" : "action.pane.screenshot",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "pane new-column",
       "context_menu" : "offered",
       "context_menus" : [
@@ -8828,6 +8884,34 @@
       "palette_suggested" : null,
       "title" : "Copy Identifiers",
       "title_key" : "action.palette.copyIdentifiers",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab screenshot",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.screenshot",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Screenshot Tab",
+      "title_key" : "action.tab.screenshot",
       "title_table" : "ActionCatalog"
     },
     {
@@ -28918,7 +29002,7 @@
       "default_shortcut" : null,
       "id" : "server.addServer",
       "main_menu" : "server",
-      "mcp" : "credentials",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.settings",
@@ -32949,6 +33033,19 @@
 
                     ]
                   }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "pane.screenshot",
+                  "kind" : "action",
+                  "order" : 2,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
                 }
               ],
               "folder" : "copy",
@@ -36341,6 +36438,19 @@
                   "id" : "agentChat.copyIdentifier",
                   "kind" : "action",
                   "order" : 5,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tab.screenshot",
+                  "kind" : "action",
+                  "order" : 6,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,

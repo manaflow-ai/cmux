@@ -23,7 +23,7 @@ final class SidebarNoticeCardView: NSView {
     private let shortcutLabel = ChromeLabel(labelWithString: "")
     /// List lines under the detail (a changelog), one label each.
     private var lineLabels: [ChromeLabel] = []
-    private let icon = NSImageView()
+    private let icon = DecorativeImageView() // the card's title says what it is
     private let spinner = StatusIndicatorView.spinner()
     private let track = CALayer()
     private let bar = CALayer()
@@ -73,6 +73,8 @@ final class SidebarNoticeCardView: NSView {
         closeButton.onPress = { [weak self] in self?.closePressed() }
         dismissButton.onPress = { [weak self] in if let id = self?.notice?.id { self?.onDismiss?(id) } }
         [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton, dismissButton].forEach(content.addSubview)
+        closeButton.setAccessibilityIdentifier("cmux.sidebar.notice.close")
+        dismissButton.setAccessibilityIdentifier("cmux.sidebar.notice.dismiss")
         setAccessibilityElement(false)
         isHidden = true
     }
@@ -207,6 +209,7 @@ final class SidebarNoticeCardView: NSView {
             let button = SidebarUpdateButton()
             button.isQuiet = !action.prominent
             button.fixedStyle = .inverted
+            button.setAccessibilityIdentifier("cmux.sidebar.notice.action.\(action.id)")
             button.onPress = { [weak self] in
                 guard let id = self?.notice?.id else { return }
                 self?.onAction?(id, action.id)

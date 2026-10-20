@@ -119,6 +119,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var expanded = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
     public var detailedStatus = false
+    /// Rows show when they last changed (`sidebar.showTimestamps`): an expanded row's age and a
+    /// compact row's dim time on the name's line. Off by default (Lawrence 2026-10-19): no row
+    /// draws a time unless the user picks the Last Activity element.
+    public var showsTimestamps = false
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
@@ -143,6 +147,7 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
+        if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
         return content
     }
 
