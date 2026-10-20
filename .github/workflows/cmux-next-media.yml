@@ -387,8 +387,9 @@ jobs:
           base="${RUNNER_TEMP:?}/cmux-next-base"
           [ -d "$base" ] || { echo "the base app was reused; no base tree needed"; exit 0; }
           pin=scripts/cmux-next/pin-cmux-tui.sh
-          base_key="$(cd "$base" && "./$pin" key)"
-          head_key="$("./$pin" key)"
+          # --rev: plain key prints CMUX_TUI_TREE_KEY when the job has one.
+          base_key="$(cd "$base" && "./$pin" key --rev HEAD)"
+          head_key="$("./$pin" key --rev HEAD)"
           if [ "$head_key" != "$base_key" ]; then
             echo "the head changes cmux-tui ($head_key, base $base_key): both apps use their own trees"
             exit 0
