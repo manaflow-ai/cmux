@@ -132,8 +132,9 @@ enum WorkspaceGroupHandlers {
 
         // A pinned (saved) group stays when its workspaces close.
         registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
-            let group = try context.group(invocation)
-            try context.sidebar().handle(.setGroupPinned(sidebarID(group, context), !isPinned(group, context)))
+            // On the sidebar document a pinned group is one in Pinned, as shown (pending changes included).
+            let group = try context.group(invocation), id = sidebarID(group, context)
+            try context.sidebar().handle(.setGroupPinned(id, !(SidebarDocStore.current?.showsPinned(group: id.rawValue) ?? isPinned(group, context))))
         })
         // The group icon: the shared icon string, same rule as workspace and tab icons.
         registry.bind("workspaceGroup.setIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
