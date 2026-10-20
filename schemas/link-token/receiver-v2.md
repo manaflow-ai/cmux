@@ -60,6 +60,12 @@ version includes the generation. A receiving process rejects a fresh policy
 whose generation is absent or differs from its immutable pin; existing streams
 lose authority as well.
 
+A valid, current original-policy read that reports a closed or changed generation
+permanently retires that process's authority owner. The child drains and exits;
+root retires its attempt and supplies a fresh private generation to its replacement.
+A late or superseded read cannot retire newer authority. Ordinary source failures
+invalidate policy while retaining the existing bounded retry behavior.
+
 The frame and public policy contain no original VM grant ID, install private key
 or account credential. The original keys remain unchanged across attempts.
 Suspend, clone and provider-instance fencing require their own verification;

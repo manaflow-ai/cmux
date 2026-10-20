@@ -136,6 +136,9 @@ async fn renew(
                     .map_err(|_| anyhow!("cloud.receiver.stopped"))?;
             }
             Err(_) => {
+                if source.is_retired() {
+                    return Err(anyhow!("cloud.receiver.generation_retired"));
+                }
                 source.invalidate();
                 send.send(None).await.map_err(|_| anyhow!("cloud.receiver.stopped"))?;
                 next = Instant::now() + retry;

@@ -2,13 +2,16 @@
 //! as the original-credential HTTP read. Socket authentication happens first.
 use std::time::{Duration, Instant};
 
-use cmux_cloud_wire::{BoolLit, CloudVmNetworkPolicyView};
+use cmux_cloud_wire::BoolLit;
 use cmux_link::keyset::read_keyset;
 use cmux_link::native_token::receiver::{Owner, Refresh};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{Bound, Env, ReceiverSnapshot, SAFE, UNAVAILABLE, UniqueJson, install_point, validate};
+use super::{
+    Bound, Env, ReceiverSnapshot, RequiredPolicy, SAFE, UNAVAILABLE, UniqueJson, install_point,
+    validate,
+};
 
 /// Public self identity from the original protected bootstrap. No bearer,
 /// original grant id, private install key or private WG key is retained here.
@@ -52,7 +55,7 @@ struct Reply {
 }
 #[derive(Deserialize)]
 struct PublicValue {
-    policy: CloudVmNetworkPolicyView,
+    policy: RequiredPolicy,
     keyset: Value,
     issuer: String,
     issuer_time_ms: u64,
@@ -74,7 +77,13 @@ impl ReceiverSnapshot {
         let _: UniqueJson = serde_json::from_slice(bytes).map_err(|_| UNAVAILABLE)?;
         let reply: Reply = serde_json::from_slice(bytes).map_err(|_| UNAVAILABLE)?;
         let _ = reply.ok;
-        let PublicValue { policy, keyset, issuer, issuer_time_ms, remaining_ms } = reply.value;
+        let PublicValue {
+            policy: RequiredPolicy(policy),
+            keyset,
+            issuer,
+            issuer_time_ms,
+            remaining_ms,
+        } = reply.value;
         validate(&policy, binding)?;
         if issuer != format!("cmux:cloud:{}", binding.env.auth_environment())
             || issuer_time_ms > SAFE as u64

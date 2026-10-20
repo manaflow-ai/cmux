@@ -54,6 +54,10 @@ impl AgentReceiver {
     pub fn invalidate(&self) {
         self.owner.invalidate();
     }
+    /// A terminal generation change requires replacement under a fresh root frame.
+    pub fn is_retired(&self) -> bool {
+        self.owner.is_retired()
+    }
 
     /// Reserve intent before scheduling blocking I/O. Cancellation must
     /// invalidate the source before dropping a queued read's async waiter.
@@ -101,12 +105,13 @@ impl AgentReceiver {
         let bytes = exchange(&mut stream, deadline).map_err(|_| UNAVAILABLE)?;
         let snapshot =
             ReceiverSnapshot::from_public_reply(&bytes, &self.binding, started, Instant::now())?;
+        if Instant::now() >= deadline {
+            return Err(UNAVAILABLE.into());
+        }
         if self.generation.as_ref().is_some_and(|generation| {
             snapshot.policy().receiver_generation.as_ref() != Some(generation)
         }) {
-            return Err(UNAVAILABLE.into());
-        }
-        if Instant::now() >= deadline {
+            self.owner.retire(refresh);
             return Err(UNAVAILABLE.into());
         }
         snapshot.install(&self.owner, refresh, Instant::now())?;

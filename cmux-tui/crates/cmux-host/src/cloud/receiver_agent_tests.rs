@@ -89,6 +89,8 @@ fn receiver_owner_agent_generation_is_pinned_and_changed_policy_drains_streams()
     task.join().unwrap();
     assert!(lease.deadline().is_none(), "changed generation retained an admitted stream");
     assert!(verifier.verify(&token, &expected).is_err());
+    assert!(receiver.is_retired());
+    assert!(receiver.prepare_refresh().is_err(), "old generation retried after retirement");
 }
 
 #[test]
@@ -105,7 +107,41 @@ fn receiver_owner_agent_generation_refuses_closed_or_missing_policy_generation()
             server([serde_json::to_vec(&body).unwrap(), b"\n".to_vec()].concat());
         assert!(receiver.refresh_at(&path, test_uid(), false, Duration::from_secs(2)).is_err());
         task.join().unwrap();
+        assert_eq!(receiver.is_retired(), !missing, "only a valid closed policy retires a pin");
     }
+}
+
+#[test]
+fn receiver_owner_agent_stale_generation_mismatch_cannot_retire_newer_authority() {
+    let (binding, keys, bytes) = public_fixture();
+    let generation = "a".repeat(64);
+    let receiver = AgentReceiver::for_receiver(binding.clone(), keys, generation.clone()).unwrap();
+    let older = receiver.prepare_refresh().unwrap();
+    let newer = receiver.prepare_refresh().unwrap();
+    let (_dir, path, task) = server([bytes.clone(), b"\n".to_vec()].concat());
+    receiver.refresh_at_prepared(&path, test_uid(), false, Duration::from_secs(2), newer).unwrap();
+    task.join().unwrap();
+    let mut changed: Value = serde_json::from_slice(&bytes).unwrap();
+    changed["value"]["policy"]["receiver_generation"] = "b".repeat(64).into();
+    let (_dir, path, task) =
+        server([serde_json::to_vec(&changed).unwrap(), b"\n".to_vec()].concat());
+    assert!(
+        receiver
+            .refresh_at_prepared(&path, test_uid(), false, Duration::from_secs(2), older)
+            .is_err()
+    );
+    task.join().unwrap();
+    assert!(!receiver.is_retired(), "stale response retired a newer read");
+    let expected = Expected {
+        host: &binding.host,
+        epoch: binding.epoch,
+        service: Service::Daemon,
+        peer_key: &[b'a'; 32],
+    };
+    assert!(
+        receiver.verifier().verify(&development_token_for(Some(&generation)), &expected).is_ok()
+    );
+    assert!(receiver.prepare_refresh().is_ok());
 }
 
 #[test]

@@ -16,6 +16,7 @@ use cmux_cloud_wire::{
 use cmux_link::dial::Service;
 use cmux_link::keyset::{Keyset, read_answer};
 use cmux_link::native_token::{NativeBinding, NativePeer, NativePolicy, ReceiverTime};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::client::{CloudClient, Http};
@@ -29,6 +30,19 @@ pub const POLICY_OP: &str = CloudVmNetworkPolicyOp::NAME;
 pub const REQUEST_BUDGET: Duration = Duration::from_secs(20);
 const SAFE: i64 = 9_007_199_254_740_991;
 const UNAVAILABLE: &str = "VM receiving authority unavailable";
+
+// A required nullable wire field must distinguish an explicit closed generation
+// from a malformed reply. Serde's generated Option alone accepts missing fields.
+struct RequiredPolicy(CloudVmNetworkPolicyView);
+impl<'de> Deserialize<'de> for RequiredPolicy {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(d)?;
+        if value.get("receiver_generation").is_none() {
+            return Err(serde::de::Error::missing_field("receiver_generation"));
+        }
+        CloudVmNetworkPolicyView::deserialize(value).map(Self).map_err(serde::de::Error::custom)
+    }
+}
 
 /// An in-process snapshot retains its original monotonic request start.
 /// Never cache this in place of rechecking the private files on the next read.
@@ -151,7 +165,7 @@ impl<H: Http> CloudClient<H> {
             self.clear_token();
             return Err(UNAVAILABLE.into());
         }
-        let read: ReadResponse<CloudVmNetworkPolicyView> =
+        let read: ReadResponse<RequiredPolicy> =
             serde_json::from_slice(&bytes).map_err(|_| UNAVAILABLE)?;
         if read.op != POLICY_OP
             || read.stream != format!("cloud:{}", self.bound().team)
@@ -163,14 +177,14 @@ impl<H: Http> CloudClient<H> {
         }
         let binding =
             ReceiverBinding::from_original(self.bound(), wg_public, &self.install_public_jwk())?;
-        validate(&read.value, &binding)?;
+        validate(&read.value.0, &binding)?;
         let (status, bytes) = self.request_until("/v1/cloud/keyset", None, None, deadline)?;
         // Reject duplicate JSON object keys, including duplicate key ids, before
         // the shared keyset parser can normalize them into a map.
         let _: UniqueJson = serde_json::from_slice(&bytes).map_err(|_| UNAVAILABLE)?;
         let keys = read_answer(status, &[], &bytes).map_err(|_| UNAVAILABLE)?;
         let snapshot = ReceiverSnapshot {
-            policy: read.value,
+            policy: read.value.0,
             keys,
             started,
             issuer: format!("cmux:cloud:{}", self.bound().env.auth_environment()),

@@ -286,6 +286,9 @@ refuses!(vm_receiver_client_read_refuses_wrong_operation, |p, _| p["op"] =
 refuses!(vm_receiver_client_read_refuses_long_lease, |p, _| p["value"]["expires_at"] =
     (NOW + 30_001).into());
 refuses!(vm_receiver_client_read_refuses_empty_lease, |p, _| p["value"]["expires_at"] = NOW.into());
+refuses!(vm_receiver_client_read_refuses_missing_generation, |p, _| {
+    p["value"].as_object_mut().unwrap().remove("receiver_generation");
+});
 refuses!(vm_receiver_client_read_refuses_unsafe_number, |p, _| p["value"]["acl_version"] =
     9_007_199_254_740_992i64.into());
 refuses!(
