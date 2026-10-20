@@ -172,6 +172,10 @@ struct PinDragMotionTests {
         let drawn = Dictionary(uniqueKeysWithValues: f.rows.compactMap { l in l.conversationID.map { ($0, top(l) + l.transform.m42) } })
         f.controller.endPinDrag()
         #expect(f.pinned == ["chief", "c1"])
+        let all = (f.controller.document.layer?.sublayers ?? []).compactMap { $0 as? SidebarRowLayer }
+        print("PINDRAG drop rows \(f.rows.map { $0.conversationID ?? "-" }) drawn \(drawn.keys.sorted()) "
+              + "layers \(all.map { "\($0.conversationID ?? "-")\($0.isHidden ? "h" : "")@\(Int($0.frame.minY))" }) "
+              + "clip \(f.controller.scrollView.contentView.bounds)")
         var checked = 0
         for l in f.rows {
             guard let id = l.conversationID, let was = drawn[id] else { continue }
