@@ -6,7 +6,7 @@ import Testing
 /// the built-ins in `appearance.density` (plans/cmux-next/density-DESIGN.md; Lawrence
 /// 2026-10-20: "make sure people can create their own custom densities").
 struct CustomDensitySettingTests {
-    private static let valid = SettingsApplier.validDensities
+    private static let valid = Set(DensityPreset.allCases.map(\.rawValue))
 
     private static func parse(_ appearance: [String: JSONValue]) -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(.object(["appearance": .object(appearance)]), validDensities: valid, validMetrics: [])
