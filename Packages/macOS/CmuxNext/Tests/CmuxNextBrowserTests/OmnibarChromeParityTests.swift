@@ -130,6 +130,25 @@ struct OmnibarChromeParityTests {
         panel.dismiss()
     }
 
+    /// Chrome keeps a failed address in the omnibox with its error page;
+    /// WebKit moves its URL back to the previous page, which made the bar
+    /// say `example.com` over "Can't open this page" for `devbox:8080`.
+    @Test func aFailedLoadKeepsItsAddressInTheBar() throws {
+        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
+        let failing = try #require(URL(string: "http://devbox:8080"))
+        let id = tab.makeNavigationID()
+        tab.simulate(.started(id, url: failing))
+        #expect(BrowserChromeView.omnibarURL(for: tab.state) == failing, "the pending typed address shows while it loads")
+        // WebKit's URL KVO moves back to the committed page, then the failure arrives.
+        tab.simulate(.urlChanged(URL(string: "https://example.com/")))
+        tab.simulate(.failed(id, BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost,
+                                                  message: "A server with the specified hostname could not be found.", failingURL: failing)))
+        #expect(BrowserChromeView.omnibarURL(for: tab.state) == failing)
+        // The next successful load shows its own address.
+        tab.load(URL(string: "https://example.org/")!)
+        #expect(BrowserChromeView.omnibarURL(for: tab.state)?.absoluteString == "https://example.org/")
+    }
+
     // MARK: Ctrl-Enter
 
     /// Chrome: Control-Enter adds `www.` and `.com` to a bare word
