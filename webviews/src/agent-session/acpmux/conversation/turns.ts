@@ -445,7 +445,7 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveR
 }
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): a run that text
-/// followed settles into its summary line, as in an open "Worked for"; the run in flight
+/// followed settles into its summary line (`foldRun`, toolRunSummary.ts `foldsRun`); the run in flight
 /// (`inFlight`) shows only its newest call, so its line replaces itself instead of growing into a
 /// list. Each derived row's version moves with its drawn state.
 function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
@@ -453,7 +453,7 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
     if (row.kind !== "activity" || isEdit(row)) return row;
     return index === rows.length - 1
       ? { ...row, inFlight: true, version: row.version * 4 + 1 }
-      : { ...row, settled: true, version: row.version * 4 + 2 };
+      : { ...row, foldRun: true, version: row.version * 4 + 2 };
   });
 }
 

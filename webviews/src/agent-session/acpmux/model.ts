@@ -96,9 +96,12 @@ export type AcpmuxRow = {
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
-  /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
-  /// folds under one summary line (conversation/toolRunSummary.ts).
+  /// Work shown inside an open "Worked for": its turn has ended. Each step shows on its own line,
+  /// unless a Debug toggle folds each run there (conversation/toolRunSummary.ts `foldsRun`).
   settled?: boolean;
+  /// A running turn's run that a later row followed, drawn as one summary line (Codex-style runs,
+  /// conversation/turns.ts `codexRuns`).
+  foldRun?: boolean;
   /// A running turn's run of tool calls still in flight, drawn as its newest call alone (Debug toggle,
   /// conversation/turns.ts `codexRuns`).
   inFlight?: boolean;
@@ -135,6 +138,8 @@ export type AcpmuxActivity = {
   tool?: {
     id: string;
     title: string;
+    /// The harness's own name for the tool (Claude Code's `_meta.claude.tool`: `Task`, `Bash`).
+    name?: string;
     kind?: string;
     status: string;
     inputSummary?: string;
@@ -487,8 +492,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
       const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
       return 14 + editedCardHeight(files, plainEditLabels(edits).length);
     }
-    // In an open "Worked for", a run of two or more calls draws one summary line until opened.
-    if (row.settled && row.items && isFoldedRun(row.items)) return 36;
+    // A folded run of two or more calls draws one summary line until opened.
+    if (row.items && foldsRun(row)) return 36;
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
@@ -797,7 +802,7 @@ export function scrollLeadRanges(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
-import { isFoldedRun } from "./conversation/toolRunSummary";
+import { foldsRun } from "./conversation/toolRunSummary";
 import { PREVIEW_FRAME_HEIGHT, previewFrameHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import { DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";

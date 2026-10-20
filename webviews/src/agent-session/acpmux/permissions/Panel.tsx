@@ -4,6 +4,7 @@ import { EditDiff } from "../conversation/EditDiff";
 import { ChevronRight } from "../conversation/icons";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/ToolRow";
+import { kindGlyph } from "../conversation/toolKinds";
 import { toolFiles } from "../diff";
 import { toolDiffs } from "../direct";
 import { useT, type StringKey } from "../i18n";
@@ -117,7 +118,7 @@ function AskRow({
         >
           <ChevronRight size={12} strokeWidth={1.4} className={`acpmux-ask-chevron${open ? " is-open" : ""}`} />
           <span className="acpmux-ask-icon" aria-hidden="true">
-            {toolIcon(ask.kind)}
+            {toolIcon(kindGlyph(ask.kind))}
           </span>
           {ask.verb && <span className="acpmux-ask-verb">{t(ask.verb)}</span>}
           <span className={`acpmux-ask-subject${ask.code ? " is-code" : ""}`}>{ask.subject}</span>

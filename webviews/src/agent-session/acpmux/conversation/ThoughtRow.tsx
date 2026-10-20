@@ -5,10 +5,11 @@ import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
 import { formatDuration } from "./turns";
 
-/// With the live viewport off, a done thought folds once it is taller than the transcript's
-/// viewport, and never under this (20 of the tool rows' 20px lines), so a small pane does not fold
-/// every thought. With the live viewport on, or the Debug choice "codex", it folds once taller
-/// than THOUGHT_LIVE_PX.
+/// By default every done thought folds to its "Thought for 12s" line (the Debug choice "every").
+/// With the Debug choice "viewport" and the live viewport off, a done thought folds once it is
+/// taller than the transcript's viewport, and never under this (20 of the tool rows' 20px lines),
+/// so a small pane does not fold every thought. With the live viewport on, or the Debug choice
+/// "codex", it folds once taller than THOUGHT_LIVE_PX.
 export const THOUGHT_FOLD_MIN_PX = 400;
 /// A long thought still streaming holds a viewport this tall: seven of its 20px lines, the 8.75rem
 /// Codex gives a live reasoning trace. conversation.css caps `.is-live` at the same.
@@ -21,14 +22,15 @@ export const thoughtLayout = {
   /// The Debug toggle `agentPane.debug.foldLongThoughts` (on by default in the app), which the app
   /// sets on `<html>` as `data-fold-long-thoughts="on"` before the page loads.
   enabled: () => typeof document !== "undefined" && document.documentElement.dataset.foldLongThoughts === "on",
-  /// The Debug choice `agentPane.debug.thoughtFoldThreshold`, which counts only while the live
-  /// viewport is off: a done thought folds once taller than the transcript's viewport (never under
-  /// THOUGHT_FOLD_MIN_PX), or with `data-thought-fold-threshold="codex"`, once taller than Codex's
-  /// seven lines (THOUGHT_LIVE_PX).
-  threshold: (): ThoughtFoldThreshold =>
-    typeof document !== "undefined" && document.documentElement.dataset.thoughtFoldThreshold === "codex"
-      ? "codex"
-      : "viewport",
+  /// The Debug choice `agentPane.debug.thoughtFoldThreshold`. Unset (the default, "every"), every
+  /// done thought folds, as Codex and Claude desktop draw one. With `data-thought-fold-threshold`
+  /// "viewport" or "codex", only a long one does: while the live viewport is off, one taller than
+  /// the transcript's viewport (never under THOUGHT_FOLD_MIN_PX), or with "codex", one taller than
+  /// Codex's seven lines (THOUGHT_LIVE_PX); while it is on, one it clipped.
+  threshold: (): ThoughtFoldThreshold => {
+    const value = typeof document !== "undefined" ? document.documentElement.dataset.thoughtFoldThreshold : undefined;
+    return value === "viewport" || value === "codex" ? value : "every";
+  },
   /// The Debug choice `agentPane.debug.thoughtHeader`: a folded thought reads "Thought for 12s"
   /// unless the app sets `data-thought-header="preview"`, "Thought" and its first line (#20948).
   header: (): ThoughtHeader =>
@@ -48,13 +50,16 @@ export const thoughtLayout = {
 };
 
 export type ThoughtHeader = "duration" | "preview";
-export type ThoughtFoldThreshold = "viewport" | "codex";
+export type ThoughtFoldThreshold = "every" | "viewport" | "codex";
 
 /// How long the agent thought, from the thought's first chunk to its latest (direct.ts
-/// appendThought), never negative: events out of order can date the latest before the first.
-export function thoughtDuration(item: AcpmuxActivity): number | undefined {
+/// appendThought), or to `until`, when the step after it started, if that is later: a thought sent
+/// as one chunk lasted until the agent moved on. Never negative: events out of order can date the
+/// latest before the first.
+export function thoughtDuration(item: AcpmuxActivity, until?: number): number | undefined {
   if (item.startedAt === undefined || item.endedAt === undefined) return undefined;
-  return Math.max(0, item.endedAt - item.startedAt);
+  const end = until !== undefined && until > item.endedAt ? until : item.endedAt;
+  return Math.max(0, end - item.startedAt);
 }
 
 /// The reader's open or closed, by thought, so a row the transcript unmounts and mounts again keeps it.
@@ -68,23 +73,28 @@ export function thoughtPreview(text: string): string {
     .trim();
 }
 
-/// A thought (the agent's reasoning) on its row: a muted "Thought", then the text wrapped on the tool
-/// rows' rhythm (Leo 2026-10-13). With the Debug toggle on, a long one folds to one line once done,
-/// as Codex folds work when its next output starts. While it streams, one taller than
-/// THOUGHT_LIVE_PX reads "Thinking" and holds a fixed viewport that keeps its newest line in view,
-/// as Codex's reasoning trace does (Debug toggle `liveThoughtViewport`; off, it shows in full). The
-/// folded line reads "Thought for 12s" (an undated thought, or one under a second, reads
-/// "Thought"), or with the Debug choice "preview", "Thought" and its first line. The reader's
-/// toggle always wins over the fold (`choice ?? !folds`). The fold snaps; the reader's toggle
-/// animates the height, except under Reduce Motion.
+/// A thought (the agent's reasoning) on its row. With the fold on (Debug toggle, on in the app) a
+/// done thought is one muted "Thought for 12s" line that opens to its text, as Codex and Claude
+/// desktop draw one; by default every thought folds, and the Debug choice "viewport" or "codex"
+/// folds only long ones, the rest staying in full after a muted "Thought" (Leo 2026-10-13). While
+/// it streams, the thought reads "Thinking" (with the Debug choice "viewport" or "codex", only
+/// once it is taller than THOUGHT_LIVE_PX) and a long one holds a fixed viewport that keeps its
+/// newest line in view, as Codex's reasoning trace does (Debug toggle `liveThoughtViewport`; off,
+/// it shows in full). The folded line reads "Thought for 12s" (an undated thought, or one under a
+/// second, reads "Thought"), or with the Debug choice "preview", "Thought" and its first line.
+/// `until` is when the step after the thought started (thoughtDuration). The reader's toggle
+/// always wins over the fold (`choice ?? !folds`). The fold snaps; the reader's toggle animates
+/// the height, except under Reduce Motion.
 export function ThoughtRow({
   item,
   id,
   streaming = false,
+  until,
 }: {
   item: AcpmuxActivity;
   id?: string;
   streaming?: boolean;
+  until?: number;
 }) {
   const t = useT();
   const text = item.text.trim();
@@ -96,10 +106,13 @@ export function ThoughtRow({
   const body = useRef<HTMLDivElement>(null);
   const toggled = useRef(false);
   const bodyId = useId();
-  const folds = enabled && long && !streaming;
+  const every = thoughtLayout.threshold() === "every";
+  const folds = enabled && (every || long) && !streaming;
   const liveViewport = enabled && streaming && thoughtLayout.liveViewport();
   const [tall, setTall] = useState(false);
   const clipped = liveViewport && tall;
+  // Folding every thought, the one still streaming says so at once, not only once it grows tall.
+  const thinking = clipped || (enabled && streaming && every);
   const open = choice ?? !folds;
   const choose = (next: boolean) => {
     setChoice(next);
@@ -147,8 +160,8 @@ export function ThoughtRow({
   if (!folds)
     return (
       <div className={clipped ? "cv-tool cv-thought is-live" : "cv-tool cv-thought"}>
-        <span className={clipped ? "cv-thought__label cv-thinking" : "cv-thought__label"} data-find-skip>
-          {clipped ? t("thinking") : t("tools.thought")}
+        <span className={thinking ? "cv-thought__label cv-thinking" : "cv-thought__label"} data-find-skip>
+          {thinking ? t("thinking") : t("tools.thought")}
         </span>
         <span ref={full} className="cv-thought__text selectable" dir="auto">
           {text}
@@ -156,7 +169,7 @@ export function ThoughtRow({
       </div>
     );
   const header = thoughtLayout.header();
-  const ms = header === "duration" ? thoughtDuration(item) : undefined;
+  const ms = header === "duration" ? thoughtDuration(item, until) : undefined;
   const label =
     ms !== undefined && ms >= 1000 ? t("tools.thoughtFor", { time: formatDuration(ms) }) : t("tools.thought");
   const toggle = () => {

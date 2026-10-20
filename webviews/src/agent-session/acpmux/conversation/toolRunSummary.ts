@@ -1,7 +1,7 @@
 // A run of tool calls between two pieces of text, summarized once it settles:
 // "Edited a file, read files, ran commands", opened to list the calls.
 import type { Translate } from "../i18n";
-import type { AcpmuxActivity } from "../model";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
 
 /// What a call did, in the order a run's summary names them.
 export type ToolRunCategory = "used" | "edited" | "read" | "searched" | "web" | "ran";
@@ -29,11 +29,23 @@ export function toolRunCategory(kind?: string): ToolRunCategory {
   }
 }
 
-/// A run in an ended turn (inside an open "Worked for") folds under one summary line once it
-/// holds two or more calls. A live turn lists every call, so its height and the user's place
-/// don't change as each call starts and ends.
+/// A run folds under one summary line once it holds two or more calls.
 export function isFoldedRun(items: readonly AcpmuxActivity[]): boolean {
   return items.filter((item) => item.tool).length >= 2;
+}
+
+/// The Debug toggle `agentPane.debug.workedForFoldsRuns` (off by default), which the app sets on
+/// `<html>` as `data-worked-for-runs="fold"`: an open "Worked for" folds each run again, as Codex does.
+export const workedForRuns = {
+  fold: () => typeof document !== "undefined" && document.documentElement.dataset.workedForRuns === "fold",
+};
+
+/// Whether a row's run draws as its summary line: a live turn's run that a later row followed, under
+/// the Codex-style runs (turns.ts `codexRuns` marks it `foldRun`), or with the Debug toggle on, a run
+/// in an ended turn's open "Worked for" (`settled`). Otherwise an open "Worked for" lists every
+/// step, so the run's height and the reader's place don't change under it.
+export function foldsRun(row: AcpmuxRow, items: readonly AcpmuxActivity[] = row.items ?? []): boolean {
+  return (row.foldRun === true || (row.settled === true && workedForRuns.fold())) && isFoldedRun(items);
 }
 
 /// The categories a run's calls fall in, in summary order. Searches count as reads when the

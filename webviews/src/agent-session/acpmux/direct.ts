@@ -369,15 +369,17 @@ export function mergeToolItem(
   at?: number,
 ): AcpmuxActivity {
   const before = previous?.tool;
+  // No title yet is no title: a call is never labeled by its id ("toolu_01Kjhq…").
   const title = update.title ?? update.name;
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
   return {
     kind: "tool",
-    text: String(title ?? previous?.text ?? callId),
+    text: String(title ?? previous?.text ?? ""),
     tool: {
       id: callId,
-      title: String(update.title ?? before?.title ?? callId),
+      title: String(update.title ?? before?.title ?? ""),
+      name: update._meta?.claude?.tool ?? before?.name,
       kind: update.kind ?? before?.kind,
       status,
       inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,

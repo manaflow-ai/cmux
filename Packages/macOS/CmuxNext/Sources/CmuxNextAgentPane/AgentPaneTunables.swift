@@ -41,9 +41,12 @@ public nonisolated enum AgentPaneThoughtHeader: String, Sendable, CaseIterable, 
     }
 }
 
-/// How tall a done thought must be to fold (webviews conversation/ThoughtRow.tsx):
-/// `agentPane.debug.thoughtFoldThreshold`. `viewport` sets nothing on the page.
+/// Which done thoughts fold (webviews conversation/ThoughtRow.tsx):
+/// `agentPane.debug.thoughtFoldThreshold`. `every` sets nothing on the page.
 public nonisolated enum AgentPaneThoughtFoldThreshold: String, Sendable, CaseIterable, TunableChoice {
+    /// Every thought, however short: one "Thought for 4s" line, as Codex and Claude desktop
+    /// draw one (#20456).
+    case every
     /// Taller than the transcript's view, never under 400px (#20948).
     case viewport
     /// Taller than seven 20px lines, the 140px Codex gives a reasoning trace (#20963).
@@ -51,7 +54,8 @@ public nonisolated enum AgentPaneThoughtFoldThreshold: String, Sendable, CaseIte
 
     public var tunableTitle: String {
         switch self {
-        case .viewport: "Taller than the transcript (default)"
+        case .every: "Every thought (default)"
+        case .viewport: "Taller than the transcript"
         case .codex: "Taller than seven lines (Codex)"
         }
     }
@@ -179,21 +183,23 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's /btw opens a read-only side session beside the chat.",
         default: false, code: "AgentPaneTunables.sideSessions")
 
-    /// Long thoughts fold once done (webviews conversation/ThoughtRow.tsx): a thought taller than
-    /// ``thoughtFoldThreshold`` folds to one line that opens to its text. On by default (Leo
-    /// 2026-10-18, #20963); off keeps every thought in full, as #20330 drew it. New agent tabs read it.
+    /// Thoughts fold once done (webviews conversation/ThoughtRow.tsx): a thought past
+    /// ``thoughtFoldThreshold`` (by default every one) folds to one line that opens to its text. On
+    /// by default (Leo 2026-10-18, #20963); off keeps every thought in full, as #20330 drew it. New
+    /// agent tabs read it.
     public static let foldLongThoughts = Tunable<Bool>.toggle(
-        "agentPane.debug.foldLongThoughts", PageTunables.section, "Fold long thoughts in the agent pane",
-        help: "A finished long thought folds to one line that opens to its text. New agent tabs.",
+        "agentPane.debug.foldLongThoughts", PageTunables.section, "Fold thoughts in the agent pane",
+        help: "A finished thought folds to one line that opens to its text. Which ones: Thought fold threshold. New agent tabs.",
         default: true, code: "AgentPaneTunables.foldLongThoughts")
 
-    /// How tall a thought must be to fold (``foldLongThoughts``) while ``liveThoughtViewport`` is
-    /// off. With the live viewport on, a thought it clipped always folds once done (140px), so
+    /// Which done thoughts fold (``foldLongThoughts``): every one by default, so a thought reads as
+    /// one "Thought for 4s" line (#20456). The other choices fold only long ones: while
+    /// ``liveThoughtViewport`` is off, by height; with it on, a thought it clipped (140px), so
     /// nothing grows after it streams. New agent tabs read it.
     public static let thoughtFoldThreshold = Tunable<AgentPaneThoughtFoldThreshold>.choice(
-        "agentPane.debug.thoughtFoldThreshold", PageTunables.section, "Long thought fold threshold",
-        help: "With Live thought viewport off: fold a finished thought taller than the transcript (never under 400px), or taller than Codex's seven lines (140px). With it on, thoughts fold past 140px. New agent tabs.",
-        default: .viewport, code: "AgentPaneTunables.thoughtFoldThreshold")
+        "agentPane.debug.thoughtFoldThreshold", PageTunables.section, "Thought fold threshold",
+        help: "Fold every finished thought, or only long ones: with Live thought viewport off, one taller than the transcript (never under 400px) or than Codex's seven lines (140px); with it on, one past 140px. New agent tabs.",
+        default: .every, code: "AgentPaneTunables.thoughtFoldThreshold")
 
     /// What a folded long thought's line reads: how long the agent thought, or its first line.
     /// Only a folded thought shows it (``foldLongThoughts``). New agent tabs read it.
@@ -209,6 +215,15 @@ public nonisolated struct AgentPaneTunables {
         "agentPane.debug.liveThoughtViewport", PageTunables.section, "Live thought viewport",
         help: "While a long thought streams, it holds seven lines with its newest in view, then folds. Needs Fold long thoughts. New agent tabs.",
         default: true, code: "AgentPaneTunables.liveThoughtViewport")
+
+    /// An open "Worked for" folds each run of two or more calls under one summary line ("Read files,
+    /// ran commands"), as Codex does (webviews conversation/toolRunSummary.ts `foldsRun`). Off by
+    /// default: an open "Worked for" lists every step, thoughts and messages included (#20456). New
+    /// agent tabs read it.
+    public static let workedForFoldsRuns = Tunable<Bool>.toggle(
+        "agentPane.debug.workedForFoldsRuns", PageTunables.section, "Fold tool runs in an open Worked for",
+        help: "An open Worked for folds each run of tool calls under one summary line instead of listing every step. New agent tabs.",
+        default: false, code: "AgentPaneTunables.workedForFoldsRuns")
 
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
@@ -262,16 +277,18 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
-                   thoughtFoldThreshold: thoughtFoldThreshold.value)
+                   thoughtFoldThreshold: thoughtFoldThreshold.value, workedForFoldsRuns: workedForFoldsRuns.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            liveThoughtViewport: Bool = true,
-                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport) -> [String: String] {
+                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .every,
+                           workedForFoldsRuns: Bool = false) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
-        if thoughtFoldThreshold != .viewport { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
+        if thoughtFoldThreshold != .every { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
+        if workedForFoldsRuns { attributes["worked-for-runs"] = "fold" }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
@@ -350,6 +367,7 @@ public nonisolated struct AgentPaneTunables {
             thoughtHeader.descriptor,
             topStripStyle.descriptor,
             turnActionsPlacement.descriptor,
+            workedForFoldsRuns.descriptor,
         ]
     }
 }

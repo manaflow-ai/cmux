@@ -15,7 +15,13 @@ const MCP_NAME = /^mcp__(.+?)__(.+)$/;
 export function toolGlyph(tool: Tool): ToolGlyph {
   if (isAgentCall(tool)) return "agent";
   if (MCP_NAME.test(tool.name ?? tool.title) || /\(MCP\)\s*$/.test(tool.title)) return "mcp";
-  switch (tool.kind) {
+  if (tool.kind === "execute" && !tool.command) return "other";
+  return kindGlyph(tool.kind);
+}
+
+/// An ACP tool kind's glyph (`ToolKind`), for a call known only by its kind (a permission ask).
+export function kindGlyph(kind?: string): ToolGlyph {
+  switch (kind) {
     case "read":
       return "read";
     case "edit":
@@ -26,7 +32,7 @@ export function toolGlyph(tool: Tool): ToolGlyph {
     case "search":
       return "search";
     case "execute":
-      return tool.command ? "shell" : "other";
+      return "shell";
     case "fetch":
       return "web";
     default:

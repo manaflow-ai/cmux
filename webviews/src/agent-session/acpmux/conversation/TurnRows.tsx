@@ -11,7 +11,7 @@ import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
 import { toolGroups, type ToolGroup } from "./toolGroups";
-import { isFoldedRun } from "./toolRunSummary";
+import { foldsRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
 import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
@@ -52,9 +52,23 @@ export function WorkedFor({
   );
 }
 
+/// When an entry began: its first call's start, or a thought's first chunk.
+function groupStart(group: ToolGroup | undefined): number | undefined {
+  if (!group) return undefined;
+  const item = group.type === "group" ? group.items[0] : group.item;
+  return item?.tool?.startedAt ?? item?.startedAt;
+}
+
 /// One entry of a run: a group, a message card, a lone call or a thought. `live`: the entry is the
-/// last of the live turn's latest row, so a thought there may still stream.
-function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean): ReactNode {
+/// last of the live turn's latest row, so a thought there may still stream. `next` is the entry
+/// after it, whose start ends a thought ("Thought for 4s").
+function groupNode(
+  group: ToolGroup,
+  index: number,
+  rowId: string,
+  live: boolean,
+  next: ToolGroup | undefined,
+): ReactNode {
   switch (group.type) {
     case "group":
       return (
@@ -71,15 +85,17 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
-        <ThoughtRow key={index} id={`${rowId}:${index}`} item={group.item} streaming={live} />
+        <ThoughtRow key={index} id={`${rowId}:${index}`} item={group.item} streaming={live} until={groupStart(next)} />
       );
   }
 }
 
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). In an
-/// ended turn's open "Worked for", a run of two or more entries folds under one summary line
-/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each,
-/// unless the Codex-style runs (Debug toggle) settle it (`settled`) or show its newest entry (`inFlight`).
+/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). An ended
+/// turn's open "Worked for" lists every entry on its own line, so its thoughts, messages and last
+/// steps all show (Leo 2026-10-13); the Debug toggle `agentPane.debug.workedForFoldsRuns` folds a
+/// run of two or more entries there under one summary line instead (toolRunSummary.ts), as Codex
+/// does. A live turn lists each, unless the Codex-style runs (Debug toggle, on in the app) settle
+/// it into that line (`foldRun`) or show its newest entry (`inFlight`).
 export function shouldFoldToolRun(
   row: AcpmuxRow,
   groups: readonly ToolGroup[],
@@ -87,9 +103,7 @@ export function shouldFoldToolRun(
 ): boolean {
   // Coordination cards stay visible beside tool calls so a settled run never hides the
   // agent-to-agent receipt inside the generic tool summary.
-  return (
-    row.settled === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
-  );
+  return foldsRun(row, items) && groups.length > 1 && !groups.some((group) => group.type === "message");
 }
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
   const items = row.items;
@@ -98,7 +112,15 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   const first = row.inFlight ? Math.max(0, groups.length - 1) : 0;
   const nodes = groups
     .slice(first)
-    .map((group, at) => groupNode(group, first + at, row.id, row.live === true && first + at === groups.length - 1));
+    .map((group, at) =>
+      groupNode(
+        group,
+        first + at,
+        row.id,
+        row.live === true && first + at === groups.length - 1,
+        groups[first + at + 1],
+      ),
+    );
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
   return (
