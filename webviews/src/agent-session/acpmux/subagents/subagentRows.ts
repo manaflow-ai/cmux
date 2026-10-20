@@ -35,7 +35,7 @@ export function childView(
   const agents = subagentsIn(rows, views);
   const agent = agents.get(id);
   if (!agent) return undefined;
-  const parent = agent.parent === null ? chat : (agents.get(agent.parent)?.name ?? chat);
+  const parent = agent.parent === null ? chat : agents.get(agent.parent)?.name || chat;
   const pill: AcpmuxRow = {
     id: `${id}:of`,
     version: 1,

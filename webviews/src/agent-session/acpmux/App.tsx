@@ -55,7 +55,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
-import { isAgentHome, projectLabel } from "./sessionList";
+import { isAgentHome, projectLabel, sessionTitle } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
@@ -3101,7 +3101,9 @@ function AcpmuxPane() {
   /// A fresh chat shows its empty state until something is in it: a prompt, or a command it ran.
   const freshView = freshChat && chatShellRuns.length === 0;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
-  const chatName = snapshot.summary?.title || snapshot.summary?.name || "";
+  // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
+  // name (`claude-2`), and "New chat" before it has a title, never nothing.
+  const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
   const childRows = useMemo(
     () =>
       subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
