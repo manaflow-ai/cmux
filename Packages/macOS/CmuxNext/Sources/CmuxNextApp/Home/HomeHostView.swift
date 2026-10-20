@@ -82,8 +82,18 @@ final class HomeHostView: NSView {
                 self?.settingsView.setHost(place: host.place, switchTo: host.switchTo)
             }
         }
-        settingsView.onShowMemory = { [weak services] in
-            _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
+        // Show Memory: this conversation's Chief (a named local Chief, or a
+        // cloud Chief's paired server), not only the default one.
+        settingsView.onShowMemory = { [weak self, weak services] in
+            var invocation = ActionInvocation(origin: .user)
+            if let control = self?.control {
+                if let machine = control.server?.machineID {
+                    invocation.arguments["server"] = .string(machine)
+                } else if let chief = control.named {
+                    invocation.arguments["chief"] = .string(chief)
+                }
+            }
+            _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: invocation)
         }
         settingsView.onRename = { [weak service] name in
             guard let connection = service?.connection else { return }
