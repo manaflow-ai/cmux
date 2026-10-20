@@ -37,12 +37,10 @@ final class AgentActivityPageService {
         return page
     }
 
-    /// The lanes view (cx-v9k2f): every acpmux session with its lane while Labs preview features
-    /// are on, and a row click opens that chat.
+    /// The lanes view (cx-v9k2f): every acpmux session with its lane, and a row click opens that chat.
     private func followLanes(_ page: AgentActivityPageTab) {
         page.model.onJump = { [weak self] lane in self?.jump(to: lane) }
-        guard let settings = services.settings else { return }
-        page.lanesFeed = page.model.follow(.shared) { settings.snapshot.previewFeatures }
+        page.lanesFeed = page.model.follow(AgentLaneStore.shared)
     }
 
     /// Reveals the tab that shows a lane's chat, else opens it in the focused pane (the
