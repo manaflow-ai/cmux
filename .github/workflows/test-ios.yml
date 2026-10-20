@@ -31,6 +31,13 @@ on:
       - "scripts/ci/select_ios_simulator.py"
       - ".github/workflows/test-ios.yml"
   merge_group:
+  # Every push to feat-cmux-next (the cmux-next "main") builds the iOS app and
+  # runs its unit tests, whatever the push touched: a Mac-side change to a
+  # shared package can break the iPhone app too. Pushes land ~30 times an
+  # hour, so the concurrency group below keeps one run going and one waiting
+  # (the newest push); superseded waiting pushes drop out.
+  push:
+    branches: [feat-cmux-next]
   workflow_dispatch:
     inputs:
       ref:
@@ -109,9 +116,12 @@ env:
 
 
 # A newer push to the same pull request replaces its run; dispatches never
-# cancel each other.
+# cancel each other. feat-cmux-next pushes share one group without
+# cancel-in-progress: a running push build always finishes (cancelling it
+# would leave the branch with no iOS result at 30 pushes an hour), and GitHub
+# replaces the one waiting run with the newest push.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('test-ios-pr-{0}', github.event.pull_request.number) || format('test-ios-{0}', github.run_id) }}
+  group: ${{ github.event_name == 'pull_request' && format('test-ios-pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('test-ios-push-{0}', github.ref_name) || format('test-ios-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   runner:
@@ -134,7 +144,7 @@ jobs:
     # owned Mac leaves queued or refuses is re-run by ci-owned-pool-rescue.yml
     # (its sweeper), and every re-run attempt takes retry_runs_on (Blacksmith).
     # scripts/ci/ios_runner_pool.py has the rules.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
     # (see ios_runner_pool.py for the API budget).
@@ -205,13 +215,16 @@ jobs:
           GH_REPO: ${{ github.repository }}
           # Empty unless the step above minted it: idle owned runners, live.
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
-          REQUESTED_RUNNER: ${{ inputs.runner }}
+          # cmux-next lanes (feat-cmux-next pushes and same-repository pull
+          # requests into it) always take the owned minis, never Blacksmith.
+          REQUESTED_RUNNER: ${{ inputs.runner || ((github.event_name == 'push' || (github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository)) && 'owned' || '') }}
+          NEXT_LANE: ${{ (github.event_name == 'push' || (github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository)) && inputs.runner == '' && '1' || '' }}
           FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
           POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
@@ -239,6 +252,23 @@ jobs:
             --seed-cache "$SEED_CACHE")"
           echo "$route" >> "$GITHUB_OUTPUT"
           echo "$route"
+          # The picker's re-run label is a Blacksmith pool; a cmux-next lane
+          # re-runs on the same owned pool instead (the later output wins).
+          if [ -n "$NEXT_LANE" ]; then
+            label="$(printf '%s\n' "$route" | sed -n 's/^label=//p' | tail -n1)"
+            case "$label" in
+              glaeda-*)
+                {
+                  echo "retry_label=$label"
+                  printf 'retry_runs_on=["%s","glaeda-ios-sim"]\n' "$label"
+                } | tee -a "$GITHUB_OUTPUT"
+                ;;
+              *)
+                echo "::error::cmux-next iOS lane must run on the owned minis, got '$label'"
+                exit 1
+                ;;
+            esac
+          fi
 
       # ci-owned-pool-rescue.yml watches a run with this marker and re-runs a
       # job an owned Mac leaves queued or refuses. Fail-safe: without it the
@@ -285,7 +315,7 @@ jobs:
           retention-days: 1
 
   detect-ios-changes:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
@@ -400,7 +430,7 @@ jobs:
   package-conventions-lint:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_lint == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -447,7 +477,7 @@ jobs:
       # compile admission does; a re-run on Blacksmith keeps it, so a product built
       # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
       # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
       FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
       # A hung test otherwise runs to the job ceiling, which GitHub reports as
@@ -642,7 +672,7 @@ jobs:
       # compile admission does; a re-run on Blacksmith keeps it, so a product built
       # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
       # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     outputs:
       compile_seconds: ${{ steps.compile-product.outputs.seconds }}
     steps:
@@ -930,6 +960,50 @@ jobs:
           FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
         run: python3 scripts/ci/owned_build_state.py keep "$IOS_OWNED_STORE" "$IOS_DERIVED_DATA" "$FINGERPRINT"
 
+      # The rewritten app's own unit tests (ios/CmuxiOS Tests/: Home UI model,
+      # terminal input). They import UIKit, so they run on the simulator, not
+      # under `swift test` like mobile-core-package's suites. An owned Mac
+      # keeps this DerivedData per runner, so a push rebuilds only what changed.
+      - name: Run CmuxiOS unit tests on the simulator
+        if: ${{ steps.compile-product.outcome == 'success' && inputs.test_filter == '' }}
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          runner_slug="$(printf '%s' "${RUNNER_NAME:-local}" | tr -c 'A-Za-z0-9._-' '_')"
+          if [ "${RUNNER_ENVIRONMENT:-}" = "self-hosted" ]; then
+            pkg_dd="$HOME/Library/Caches/cmux-ci/cmuxios-unit-tests/$runner_slug"
+          else
+            pkg_dd="${RUNNER_TEMP:-$PWD/.tmp}/cmuxios-unit-tests"
+          fi
+          mkdir -p "$pkg_dd" "$IOS_DERIVED_DATA/logs"
+          cd ios/CmuxiOS
+          scheme="$(xcodebuild -list -json 2>/dev/null | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          schemes = (data.get("workspace") or data.get("project") or {}).get("schemes", [])
+          pick = [s for s in schemes if s.endswith("-Package")] or [s for s in schemes if s == "CmuxiOS"] or schemes
+          print(pick[0] if pick else "")
+          ')"
+          if [ -z "$scheme" ]; then
+            echo "::error::No test scheme found in ios/CmuxiOS"
+            exit 1
+          fi
+          echo "Testing scheme $scheme on simulator $SIMULATOR_ID"
+          log_path="$IOS_DERIVED_DATA/logs/cmuxios-unit-tests.log"
+          python3 "$GITHUB_WORKSPACE/scripts/ci/hung_test_watchdog.py" --silence-seconds 300 \
+            --label CmuxiOS --log "$log_path" -- \
+            xcodebuild test \
+              -scheme "$scheme" \
+              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+              -derivedDataPath "$pkg_dd" \
+              -clonedSourcePackagesDirPath "$IOS_SPM_CACHE" \
+              -skipMacroValidation \
+              -skipPackagePluginValidation
+          grep -Eq '(Executed [1-9][0-9]* tests?|Test run with [1-9][0-9]* tests?)' "$log_path" || {
+            echo "::error::CmuxiOS unit tests ran no tests"
+            exit 1
+          }
+
       - name: Seed iOS caches from main
         if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' }}
         env:
@@ -990,7 +1064,7 @@ jobs:
     # Preserve the aggregate verdict after a failed suite, but do not allocate
     # a Blacksmith runner after the workflow has been cancelled.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check iOS test routing

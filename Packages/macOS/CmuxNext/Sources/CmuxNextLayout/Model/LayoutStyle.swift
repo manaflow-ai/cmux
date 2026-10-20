@@ -73,11 +73,12 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// Fraction of a pane's extent that counts as an edge drop zone
     /// (DESIGN.md (c)2: a quarter, half of the half a split gives).
     public var dropEdgeFraction: CGFloat = 0.25
-    /// Floor and cap of the edge band: 40 pt is an easy pointer target on a
-    /// small pane; past 120 pt a bigger band no longer makes the edge faster
-    /// to hit, it only takes the center away. `band(for:)` also keeps it at
-    /// most a third of the extent.
-    public var dropEdgeRange: ClosedRange<CGFloat> = 40...120
+    /// Floor and cap of the edge band (drop-zones DESIGN.md): 48 pt keeps an
+    /// edge easy to hit on a small pane, and there is no cap, so the outer
+    /// quarter of a big pane splits as in classic cmux (a 120 pt cap made the
+    /// right quarter of a 1200 pt pane join it). `band(for:)` also keeps it
+    /// at most a third of the extent, so a center always remains.
+    public var dropEdgeRange: ClosedRange<CGFloat> = 48...CGFloat.greatestFiniteMagnitude
     /// How far past a zone line the pointer goes before the drop preview
     /// leaves the zone it shows (`DropZoneGeometry.zone`).
     public var dropZoneHysteresis: CGFloat = 12

@@ -206,7 +206,9 @@ impl Op {
                 [path.clone(), path]
             }
             Self::Convert { path, .. } => [path.clone(), path.clone()],
-            Self::Move { lca, from, to } => [join(lca, from), join(lca, to)],
+            // A move creates the missing parents of its destination, so it
+            // touches the destination's parent, not only the destination.
+            Self::Move { lca, from, to } => [join(lca, from), join(lca, &to[..to.len() - 1])],
         }
     }
 

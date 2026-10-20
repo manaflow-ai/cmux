@@ -15,9 +15,14 @@ import CmuxNextDesign
 ///   in their standard place (`BrowserNativeWidgetMac` uses
 ///   `Titled|Closable|Miniaturizable|Resizable`;
 ///   `BrowserFrameViewMac::GetCaptionButtonBounds` is empty for popups).
-/// - A toolbar that is only a read-only location bar
+/// - A toolbar that is only the location bar
 ///   (`ToolbarView::DisplayMode::kLocation`, `kLocationBarHeight` 34 pt),
-///   then a 1 pt separator and the page.
+///   then a 1 pt separator and the page. The location bar is the browser
+///   tab's omnibar (`OmnibarToolbarView`/`AddressBarView`, the same view,
+///   chip, URL styling, selection, suggestions and keys; user, 2026-10-19:
+///   "omnibar for popover web windows need to reuse the same omnibar code").
+///   A page popup's address is editable like a tab's; a system sign-in
+///   window's is read-only (`readOnlyAddress`).
 /// - Fullscreen hides the location bar (`PopupBrowserSupportsWindowFeature`).
 /// - Escape stops a load and never closes the window
 ///   (`IDC_CLOSE_FIND_OR_STOP`); Cmd-W and `window.close()` close it.
@@ -43,15 +48,34 @@ public final class BrowserPopupWindow: NSWindow {
     /// Escape cancels like the system sheet's Cancel button; a page's popup
     /// leaves it nil and follows Chrome.
     public var onEscape: (() -> Void)?
-    public let locationBar: PopupLocationBarView
+    /// The toolbar row: the browser tab's omnibar.
+    public let locationBar: OmnibarToolbarView
+    /// The omnibar of the row.
+    public var addressBar: AddressBarView { locationBar.addressBar }
+    /// Connects the omnibar to the page (URL, security, page info, loads).
+    public let omnibar: OmnibarTabBinding
     private var observation: Task<Void, Never>?
     private let separator = NSBox()
     private var toolbarHeightConstraint: NSLayoutConstraint?
     private var fullscreenObservers: [any NSObjectProtocol] = []
 
-    public init(page: any BrowserTab, frame: CGRect) {
+    /// A popup window showing `page`.
+    ///
+    /// - Parameters:
+    ///   - page: The popup's page.
+    ///   - frame: The window frame.
+    ///   - suggestionEngine: The omnibar's suggestions (the opener profile's
+    ///     engine; a fresh one in tests).
+    ///   - readOnlyAddress: True for a system sign-in window, whose address
+    ///     can be selected and copied but not edited (navigating away would
+    ///     lose the sign-in).
+    public init(page: any BrowserTab, frame: CGRect, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(),
+                readOnlyAddress: Bool = false) {
         self.page = page
-        locationBar = PopupLocationBarView(tab: page)
+        locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine)
+        locationBar.addressBar.isReadOnly = readOnlyAddress
+        locationBar.addressBar.setAccessibilityIdentifier(Self.omnibarIdentifier)
+        omnibar = OmnibarTabBinding(addressBar: locationBar.addressBar, tab: page)
         super.init(contentRect: frame, styleMask: Self.styles, backing: .buffered, defer: false)
         setFrame(frame, display: false)
         isReleasedWhenClosed = false
@@ -84,6 +108,9 @@ public final class BrowserPopupWindow: NSWindow {
     /// macOS, `WindowMetadataController::GetWindowTitleFromWebContents`),
     /// else the address as the location bar shows it
     /// (`NavigationEntryImpl::GetTitleForDisplay`), else "Untitled".
+    /// The popup omnibar's accessibility identifier (UI tests, `debug.popups`).
+    public static let omnibarIdentifier = "cmux.browserPopup.omnibar"
+
     public static func title(for state: BrowserTabState) -> String {
         if let title = state.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { return title }
         let address = BrowserURLDisplay.displayText(for: state.url)
@@ -102,9 +129,9 @@ public final class BrowserPopupWindow: NSWindow {
         root.addSubview(locationBar)
         root.addSubview(separator)
         root.addSubview(pageView)
-        let height = locationBar.heightAnchor.constraint(equalToConstant: Self.toolbarHeight - Self.separatorHeight)
+        let height = locationBar.heightAnchor.constraint(equalToConstant: Self.locationRowHeight)
         toolbarHeightConstraint = height
-        let top = locationBar.topAnchor.constraint(equalTo: root.topAnchor, constant: Self.titlebarHeight)
+        let top = locationBar.topAnchor.constraint(equalTo: root.topAnchor, constant: Self.titlebarHeight + Self.omnibarTopGap)
         topInset = top
         NSLayoutConstraint.activate([
             // The content reaches the window top so the backdrop paints
@@ -125,6 +152,13 @@ public final class BrowserPopupWindow: NSWindow {
         return root
     }
 
+    /// Space above the omnibar pill inside the 34 pt toolbar: the pill (28 pt,
+    /// the tab omnibar's height) sits centered between the title bar and the
+    /// separator.
+    static let omnibarTopGap: CGFloat = 3
+    /// The omnibar row under `omnibarTopGap`, down to the separator.
+    static var locationRowHeight: CGFloat { toolbarHeight - separatorHeight - omnibarTopGap }
+
     /// The location bar's distance from the window top (the title bar; 0 in
     /// fullscreen, where the title bar slides away).
     private var topInset: NSLayoutConstraint?
@@ -135,7 +169,6 @@ public final class BrowserPopupWindow: NSWindow {
         root.performWithTheme {
             separator.fillColor = Palette.separator
         }
-        locationBar.applyTheme()
     }
 
     /// Fullscreen shows only the page (Chrome hides a popup's location bar there).
@@ -153,8 +186,8 @@ public final class BrowserPopupWindow: NSWindow {
     public func showToolbar(_ shown: Bool) {
         locationBar.isHidden = !shown
         separator.isHidden = !shown
-        toolbarHeightConstraint?.constant = shown ? Self.toolbarHeight - Self.separatorHeight : 0
-        topInset?.constant = shown ? Self.titlebarHeight : 0
+        toolbarHeightConstraint?.constant = shown ? Self.locationRowHeight : 0
+        topInset?.constant = shown ? Self.titlebarHeight + Self.omnibarTopGap : 0
     }
 
     public var isToolbarShown: Bool { !locationBar.isHidden }
@@ -173,7 +206,7 @@ public final class BrowserPopupWindow: NSWindow {
         observation = nil
         for observer in fullscreenObservers { NotificationCenter.default.removeObserver(observer) }
         fullscreenObservers = []
-        locationBar.stop()
+        omnibar.stop()
         let closed = onClose
         onClose = nil
         super.close()

@@ -139,6 +139,7 @@ on:
       - schemas/build-identity/vectors.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
+      - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -338,6 +339,7 @@ on:
       - schemas/build-identity/vectors.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
+      - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -1071,6 +1073,11 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"
 
+      - name: One omnibar (popups, New Tab and tabs share AddressBarView)
+        id: single-omnibar
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
+
       - name: No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
         id: no-process-scan
         continue-on-error: true
@@ -1208,6 +1215,8 @@ jobs:
             python3 tests/test_ci_launch_budget_gate.py
             python3 tests/test_strings_output_encoding.py
             bash tests/test_strip_release_bundle.sh
+            # The pre-push gate refuses a push that adds a violation and names the commit in CI.
+            python3 tests/test_cmux_next_prepush_gate.py
             python3 tests/test_app_symbol_map.py
             bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
             bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
@@ -1252,6 +1261,7 @@ jobs:
             bash scripts/cmux-next/tests/fast-tier.test.sh
             bash scripts/cmux-next/tests/check-scrollbars.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
+          bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
             bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
             bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
@@ -1433,6 +1443,27 @@ jobs:
         id: capability-text
         continue-on-error: true
         run: bash scripts/cmux-next/tests/capability-text.test.sh
+      # The pre-push gate again (scripts/cmux-next/prepush-gate.py, same pinned tools): on a push,
+      # each pushed commit against its parent, so a commit pushed with --no-verify that adds a
+      # violation is named; on a pull request, what the PR adds over its base (HEAD^1).
+      - name: Pushed commits add no violations
+        id: pushed-commits
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$EVENT_NAME" != push ]]; then
+            python3 -I scripts/cmux-next/prepush-gate.py --base HEAD^1 --head HEAD
+            exit
+          fi
+          range="HEAD^1..HEAD"
+          if [[ -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+            git fetch --no-tags --quiet --depth=200 origin "$GITHUB_SHA" "$BEFORE" || true
+            if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="$BEFORE..HEAD"; fi
+          fi
+          python3 -I scripts/cmux-next/prepush-gate.py --commits "$range" | tee -a "$GITHUB_STEP_SUMMARY"
+
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       # STYLE_CHECKS are the structural, style, size and drift guards: while
       # CMUX_NEXT_STYLE_GUARDS is `warn` (workflow env) a red one is a warning
@@ -1463,6 +1494,7 @@ jobs:
             ${{ steps.app-size.outcome }}|CmuxNextApp size cap
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
+            ${{ steps.single-omnibar.outcome }}|One omnibar (popups, New Tab and tabs share AddressBarView)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
             ${{ steps.dialog-key-hints.outcome }}|Dialog buttons show their keys (u2647)
@@ -1494,6 +1526,7 @@ jobs:
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
             ${{ steps.app-capability-references.outcome }}|App capability references are listed
+            ${{ steps.pushed-commits.outcome }}|Pushed commits add no violations
         run: |
           failed=()
           warned=()

@@ -33,7 +33,7 @@ struct HomeChiefControl {
 
     /// The paired server that runs this cloud Chief's brain (`brain_place`).
     var server: ServerMachineSession? {
-        guard isCloud, let host = services.home.cloudChief?.brainPlace?.host else { return nil }
+        guard isCloud, let host = services.home.cloudChiefs.chief(for: conversation.rawValue)?.brainPlace?.host else { return nil }
         return services.machines.servers.first { $0.reach.hostID == host }
     }
 
@@ -66,7 +66,7 @@ struct HomeChiefControl {
         let muxHome = muxHome
         return HomeChiefRemoteEngine(
             connection: { HomeChiefControl(services: services, conversation: conversation, muxHome: muxHome).connection },
-            place: server?.name ?? services.home.cloudChief?.brainPlace?.host,
+            place: server?.name ?? services.home.cloudChiefs.chief(for: conversation.rawValue)?.brainPlace?.host,
             files: files)
     }
 
