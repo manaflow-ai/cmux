@@ -485,6 +485,36 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.close();
     });
 
+    test("a key that types nothing between the presses puts Stop back too", async () => {
+      const page = await openChat();
+      await arm(page);
+      await page.keyboard.press("ArrowLeft");
+      await stopButton(page).waitFor({ timeout: 500 });
+      expect(cancels.length).toBe(0);
+      await page.close();
+    });
+
+    test("an Esc on another control (a header button) neither arms nor stops", async () => {
+      // Rows, tooltips and the minimap act on Esc without claiming it: only the composer, a
+      // question card and a page with nothing focused count it as a press.
+      const page = await openChat();
+      const focused = await page.evaluate(() => {
+        const control = [...document.querySelectorAll<HTMLElement>("button")].find(
+          (each) => !each.closest(".acpmux-composer") && each.offsetParent !== null,
+        );
+        control?.focus();
+        return document.activeElement === control && control !== undefined;
+      });
+      expect(focused).toBe(true);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+      expect(await escHint(page).count()).toBe(0);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      expect(cancels.length).toBe(0);
+      await page.close();
+    });
+
     test("a click between the presses puts Stop back", async () => {
       const page = await openChat();
       await arm(page);
