@@ -12,6 +12,7 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
         case remove(String)
         case clear(Date?)
         case removeHost(String)
+        case barrier(CheckedContinuation<Void, Never>)
     }
 
     let log: BrowserVisitLog
@@ -31,6 +32,7 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
                 case .remove(let url): await log.remove(url: url)
                 case .clear(let since): await log.removeVisits(since: since)
                 case .removeHost(let host): await log.remove(host: host)
+                case .barrier(let barrier): barrier.resume()
                 }
             }
         }
@@ -63,5 +65,14 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
 
     func remove(host: String) {
         continuation.yield(.removeHost(host))
+    }
+
+    /// Waits until every local history write queued before this call finished.
+    func flush() async {
+        await withCheckedContinuation { barrier in
+            if case .terminated = continuation.yield(.barrier(barrier)) {
+                barrier.resume()
+            }
+        }
     }
 }

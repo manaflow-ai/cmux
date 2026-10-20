@@ -76,6 +76,29 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: moved.appending(path: "History.sqlite").path))
     }
 
+    @Test func aChangedWALKeepsTheWholeCapturedGeneration() throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let support = root.appending(path: "support", directoryHint: .isDirectory)
+        let profile = support.appending(path: "BrowserProfiles/default", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        let history = profile.appending(path: "History.sqlite")
+        let wal = URL(fileURLWithPath: history.path + "-wal")
+        let shm = URL(fileURLWithPath: history.path + "-shm")
+        try Data("database".utf8).write(to: history)
+        try Data("wal-before".utf8).write(to: wal)
+        let trackedHistory = try #require(LegacyHistoryFile(url: history, supportDirectory: support))
+        let trackedWAL = try #require(LegacyHistoryFile(url: wal, supportDirectory: support))
+        try Data("wal-after".utf8).write(to: wal)
+
+        #expect(!LegacyHistoryFile.removeGenerationIfUnchanged(
+            [trackedWAL, trackedHistory],
+            missing: [shm]
+        ))
+        #expect(FileManager.default.fileExists(atPath: history.path))
+        #expect(FileManager.default.fileExists(atPath: wal.path))
+    }
+
     private func temporaryRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appending(
             path: "cmux-legacy-history-\(UUID().uuidString)",

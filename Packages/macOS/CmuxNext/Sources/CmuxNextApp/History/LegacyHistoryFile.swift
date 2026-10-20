@@ -55,21 +55,74 @@ final class LegacyHistoryFile: @unchecked Sendable, Equatable {
         lhs.url == rhs.url && lhs.parentIdentity == rhs.parentIdentity && lhs.identity == rhs.identity
     }
 
-    /// Atomically moves the captured directory entry aside, verifies the
-    /// moved object, and only then unlinks it. A replacement is restored or
-    /// retained under the quarantine name, never deleted.
-    func removeIfUnchanged() {
-        guard Self.directoryIdentity(at: parentURL) == parentIdentity,
-              Self.identity(at: parentDescriptor, name: name) == identity else { return }
-        let quarantine = ".cmux-history-cleanup-\(UUID().uuidString.lowercased())"
-        guard renameat(parentDescriptor, name, parentDescriptor, quarantine) == 0 else { return }
-        guard Self.identity(at: parentDescriptor, name: quarantine) == identity else {
-            if Self.identity(at: parentDescriptor, name: name) == nil {
-                _ = renameat(parentDescriptor, quarantine, parentDescriptor, name)
+    /// Stable, non-secret identity used in the import idempotency key.
+    var fingerprint: String {
+        "\(identity.device):\(identity.inode):\(identity.size):\(identity.modifiedSeconds):\(identity.modifiedNanoseconds):\(identity.changedSeconds):\(identity.changedNanoseconds)"
+    }
+
+    var isUnchanged: Bool {
+        Self.directoryIdentity(at: parentURL) == parentIdentity
+            && Self.identity(at: parentDescriptor, name: name) == identity
+    }
+
+    static func pathEntryExists(_ url: URL) -> Bool {
+        identity(at: url.standardizedFileURL) != nil
+    }
+
+    /// Removes a captured SQLite generation only when every present member is
+    /// unchanged and every absent member is still absent. `files` is ordered
+    /// sidecars first and the main database last.
+    @discardableResult
+    static func removeGenerationIfUnchanged(
+        _ files: [LegacyHistoryFile],
+        missing: [URL]
+    ) -> Bool {
+        guard !files.isEmpty, files.allSatisfy(\.isUnchanged),
+              missing.allSatisfy({ !pathEntryExists($0) }) else { return false }
+        var quarantined: [(LegacyHistoryFile, String)] = []
+        for file in files {
+            guard let name = file.quarantineIfUnchanged() else {
+                for (moved, quarantine) in quarantined.reversed() { moved.restore(quarantine) }
+                return false
             }
-            return
+            quarantined.append((file, name))
         }
-        _ = unlinkat(parentDescriptor, quarantine, 0)
+        guard quarantined.allSatisfy({ $0.0.quarantinedIsUnchanged($0.1) }) else {
+            for (file, quarantine) in quarantined.reversed() { file.restore(quarantine) }
+            return false
+        }
+        var removed = true
+        for (file, quarantine) in quarantined {
+            if unlinkat(file.parentDescriptor, quarantine, 0) != 0 { removed = false }
+        }
+        return removed
+    }
+
+    @discardableResult
+    func removeIfUnchanged() -> Bool {
+        Self.removeGenerationIfUnchanged([self], missing: [])
+    }
+
+    private func quarantineIfUnchanged() -> String? {
+        guard Self.directoryIdentity(at: parentURL) == parentIdentity,
+              Self.identity(at: parentDescriptor, name: name) == identity else { return nil }
+        let quarantine = ".cmux-history-cleanup-\(UUID().uuidString.lowercased())"
+        guard renameat(parentDescriptor, name, parentDescriptor, quarantine) == 0 else { return nil }
+        guard Self.identity(at: parentDescriptor, name: quarantine) == identity else {
+            restore(quarantine)
+            return nil
+        }
+        return quarantine
+    }
+
+    private func quarantinedIsUnchanged(_ quarantine: String) -> Bool {
+        Self.identity(at: parentDescriptor, name: quarantine) == identity
+    }
+
+    private func restore(_ quarantine: String) {
+        if Self.identity(at: parentDescriptor, name: name) == nil {
+            _ = renameat(parentDescriptor, quarantine, parentDescriptor, name)
+        }
     }
 
     private struct Identity: Equatable, Sendable {

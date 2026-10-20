@@ -86,7 +86,9 @@ extension HistoryService {
         let legacy = supportDirectory.map { BrowserVisitLog.fileURL(profile: wireID, supportDirectory: $0) }
         let supportDirectory = supportDirectory
         // task-owner: one-shot import and read of the profile's visit summaries
-        Task { [weak history] in
+        Task { [weak self, weak history] in
+            guard let self else { return }
+            await self.flushLocalHistory(profile: profile)
             if let legacy, let supportDirectory {
                 await Self.handOver(legacy, supportDirectory: supportDirectory, profile: wireID, to: daemon)
             }
@@ -107,18 +109,31 @@ extension HistoryService {
     /// same file replay, and the daemon also records each imported file, so no session imports it
     /// twice.
     static func handOver(_ log: URL, supportDirectory: URL, profile: String, to daemon: DaemonHistoryClient) async {
-        let files = FileManager.default
-        guard let source = LegacyHistoryFile(url: log, supportDirectory: supportDirectory),
-              let attributes = try? files.attributesOfItem(atPath: source.url.path) else { return }
-        let cleanup = [source] + ["-wal", "-shm"].compactMap {
-            LegacyHistoryFile(url: URL(fileURLWithPath: source.url.path + $0), supportDirectory: supportDirectory)
+        guard let source = LegacyHistoryFile(url: log, supportDirectory: supportDirectory) else { return }
+        let sidecarURLs = ["-wal", "-shm"].map {
+            URL(fileURLWithPath: source.url.path + $0)
         }
-        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-        let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-        let digest = SHA256.hash(data: Data(source.url.path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
-        let key = "cmux-next-history-import-\(digest)-\(size)-\(Int64(modified * 1_000))"
+        var sidecars: [LegacyHistoryFile] = []
+        var missing: [URL] = []
+        for url in sidecarURLs {
+            if LegacyHistoryFile.pathEntryExists(url) {
+                guard let file = LegacyHistoryFile(url: url, supportDirectory: supportDirectory) else { return }
+                sidecars.append(file)
+            } else {
+                missing.append(url)
+            }
+        }
+        let captured = [source] + sidecars
+        let identity = captured.map { "\($0.url.path)|\($0.fingerprint)" }
+            + missing.map { "\($0.path)|missing" }
+        let digest = SHA256.hash(data: Data(identity.joined(separator: "\n").utf8))
+            .prefix(8).map { String(format: "%02x", $0) }.joined()
+        let key = "cmux-next-history-import-\(digest)"
         guard (try? await daemon.importVisits(profile: profile, path: source.url.path, key: key)) != nil else { return }
-        for file in cleanup { file.removeIfUnchanged() }
+        _ = LegacyHistoryFile.removeGenerationIfUnchanged(
+            Array(sidecars.reversed()) + [source],
+            missing: missing
+        )
     }
 }
 

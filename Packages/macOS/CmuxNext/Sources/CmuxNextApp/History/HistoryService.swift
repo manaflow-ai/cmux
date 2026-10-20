@@ -89,6 +89,11 @@ final class HistoryService {
         return sink
     }
 
+    /// Drains writes routed to the app-local log before daemon handoff.
+    func flushLocalHistory(profile: BrowserProfileID) async {
+        await sinks[profile]?.flush()
+    }
+
     /// Every profile's log: the default one first.
     private var profileLogs: [(profile: String, log: BrowserVisitLog)] {
         var profiles: [BrowserProfileID] = [.default]
