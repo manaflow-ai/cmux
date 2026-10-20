@@ -30,6 +30,15 @@ def check(ok, message):
         failures.append(message)
 
 
+source_workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+check("request-cmux-next-dev-publish:" in source_workflow,
+      "the successful DEV source must hand off to the publisher directly")
+check("gh workflow run cmux-next-dev-daily.yml" in source_workflow,
+      "the source handoff must dispatch the publisher workflow")
+check("name: cmux-next-dev-handoff-${{ inputs.dev_daily_sha }}" in source_workflow,
+      "the source handoff must retain an exact-SHA receipt artifact")
+check('"queue_ms"' in source_workflow and '"runner_labels"' in source_workflow,
+      "the handoff receipt must include queue and runner evidence")
 text = WORKFLOW.read_text()
 schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
 check(schedule == ["7,22,37,52 * * * *"],
