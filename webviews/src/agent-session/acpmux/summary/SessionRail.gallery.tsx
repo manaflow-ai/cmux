@@ -59,6 +59,28 @@ const statuses: NonNullable<Props["statuses"]> = {
   "https://github.com/manaflow-ai/cmux/pull/22231": { checks: "failing" },
 };
 
+/// Background processes as acpmux's registry lists them: two running, three finished.
+const started = Date.now();
+const processes: NonNullable<Props["processes"]> = [
+  { id: "s/1", command: "bun test --watch", startedAt: started - 3_740_000, state: "running" },
+  {
+    id: "s/2",
+    command: "cargo build --release",
+    startedAt: started - 900_000,
+    endedAt: started - 600_000,
+    state: "exited",
+  },
+  { id: "s/3", command: "npm run lint", startedAt: started - 800_000, endedAt: started - 790_000, state: "failed" },
+  { id: "s/4", command: "bun run dev --port 5173", startedAt: started - 76_000, state: "running" },
+  {
+    id: "s/5",
+    command: "tail -f logs/server.log",
+    startedAt: started - 60_000,
+    endedAt: started - 30_000,
+    state: "killed",
+  },
+];
+
 export default componentEntry<Props>({
   id: "agent-pane.session-rail",
   title: "Session side rail",
@@ -67,7 +89,11 @@ export default componentEntry<Props>({
   experimental: true,
   height: 560,
   widths: { narrow: 300, normal: 360 },
-  covers: ["agent-session/acpmux/summary/SessionRail.tsx"],
+  covers: [
+    "agent-session/acpmux/summary/SessionRail.tsx",
+    "agent-session/acpmux/summary/RailChanges.tsx",
+    "agent-session/acpmux/summary/RailTasks.tsx",
+  ],
   load: async () => GallerySessionRail,
   variants: {
     "local-usage-outputs": {
@@ -107,6 +133,16 @@ export default componentEntry<Props>({
         outputs: sessionSummary(local.rows).outputs,
         pullRequests,
         statuses,
+      },
+    },
+    tasks: {
+      note: "A chat running two background commands, newest first with how long each has run and Stop; three finished.",
+      props: {
+        summary: { ...local.summary!, usage: { used: 94_000, size: 200_000 }, branch: "feat/rail-tasks" },
+        machineName: "Studio",
+        outputs: sessionSummary(local.rows).outputs,
+        processes,
+        onStopProcess: async () => undefined,
       },
     },
     "cloud-empty": {

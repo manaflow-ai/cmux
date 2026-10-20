@@ -110,6 +110,7 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { useSessionRail } from "./summary/SessionRail";
+import type { ProcessSource } from "./summary/sessionProcesses";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
@@ -3143,7 +3144,26 @@ function AcpmuxPane() {
     [snapshot.rows, openDiff],
   );
   // The session side rail (Debug Settings `agent.sessionRail`): its button in the header, the rail beside the chat.
-  const sessionRail = useSessionRail({ snapshot, machineName, onOpenOutput: openOutput });
+  // The rail's Background tasks read acpmux's process registry through the pane's client.
+  const processSource = useMemo<ProcessSource>(
+    () => ({
+      listProcesses: (sessionId) => directClient.current?.listProcesses(sessionId) ?? Promise.reject(new Error()),
+      watchProcesses: (listener) => directClient.current?.watchProcesses(listener) ?? (() => undefined),
+    }),
+    [],
+  );
+  const stopProcess = useCallback(
+    (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
+    [],
+  );
+  const sessionRail = useSessionRail({
+    snapshot,
+    machineName,
+    onOpenOutput: openOutput,
+    processSource,
+    sessionId: shownSessionId,
+    onStopProcess: stopProcess,
+  });
   // The palette's Commit and Push reach the open changes view, or open it on the newest turn of
   // the selected chat. A chat with no turn yet has no changes view to open.
   const gitIntents = useRef(0);

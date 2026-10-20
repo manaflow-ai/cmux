@@ -2,7 +2,8 @@
 // beside the chat with where the session runs and its folders (Environment), how much of the
 // context window it used (Context), the MCP servers its harness reported (Connectors, cx-ncc.105)
 // the files it created or changed (Outputs), each opening its diff, and the pull requests it opened
-// (Changes), each opening on GitHub. A header button shows and
+// (Changes), each opening on GitHub, and the commands it runs in the background (Background tasks),
+// each with a Stop. A header button shows and
 // hides it. It reads only acpmux's common snapshot (the summary and the rows), never one harness's
 // fields. With the flag off the pane has neither the button nor the rail. Remote Control is
 // Claude-only and stays out (Leo, 2026-10-14).
@@ -17,16 +18,25 @@ import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSnapshot } from "../model";
 import { homePath, projectLabel } from "../sessionList";
 import { RailChanges, headerStatus } from "./RailChanges";
+import { RailTasks, isRunning } from "./RailTasks";
+import { useSessionProcesses, type ProcessSource, type RailProcess } from "./sessionProcesses";
 import { sessionSummary, type SummaryPullRequest } from "./sessionSummary";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
-type CardId = "environment" | "context" | "connectors" | "outputs" | "changes";
+type CardId = "environment" | "context" | "connectors" | "outputs" | "changes" | "tasks";
 type Cards = Record<CardId, boolean>;
 
 const ROW_ICON = rowIconSize(12);
-/// Environment, Outputs and Changes start open, Context and Connectors folded to their counts (as in
-/// Claude Code desktop).
-const DEFAULT_CARDS: Cards = { environment: true, context: false, connectors: false, outputs: true, changes: true };
+/// Environment, Outputs, Changes and Background tasks start open, Context and Connectors folded to
+/// their counts (as in Claude Code desktop).
+const DEFAULT_CARDS: Cards = {
+  environment: true,
+  context: false,
+  connectors: false,
+  outputs: true,
+  changes: true,
+  tasks: true,
+};
 /// The last open or closed, a per-viewer convenience: each pane keeps its own in state.
 const OPEN_KEY = "cmux.agentPane.sessionRail.open";
 /// Where the rail stops sitting beside the chat and covers it (summary.css `.acpmux-rail` overlay).
@@ -56,12 +66,20 @@ export function useSessionRail({
   snapshot,
   machineName,
   onOpenOutput,
+  processSource,
+  sessionId,
+  onStopProcess,
 }: {
   snapshot: AcpmuxSnapshot;
   /// This Mac's name from the handshake, for a local session.
   machineName?: string;
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
   onOpenOutput?: (path: string) => void;
+  /// acpmux's background-process registry for the chat, from the pane's client.
+  processSource?: ProcessSource;
+  sessionId?: string;
+  /// `_acpmux/process/kill`.
+  onStopProcess?: (id: string) => Promise<unknown>;
 }): { button?: ReactNode; rail?: ReactNode } {
   const t = useT();
   const { sessionRail: enabled, pullRequest } = useHeaderState();
@@ -71,6 +89,7 @@ export function useSessionRail({
   const rows = snapshot.rows;
   const made = useMemo(() => (shown ? sessionSummary(rows) : undefined), [shown, rows]);
   const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
+  const processes = useSessionProcesses(processSource, sessionId, shown);
   // An output's diff opens beside the chat. When that split leaves the pane too narrow for the
   // rail beside the chat, the rail would cover the chat, so it closes for now (not remembered).
   const openedOutputAt = useRef(0);
@@ -114,6 +133,8 @@ export function useSessionRail({
         outputs={made?.outputs ?? []}
         pullRequests={made?.pullRequests ?? []}
         statuses={statuses}
+        processes={processes}
+        onStopProcess={onStopProcess}
         cards={cards}
         onCard={(id, next) => setCards((current) => ({ ...current, [id]: next }))}
         onOpenOutput={openOutput}
@@ -122,13 +143,16 @@ export function useSessionRail({
   };
 }
 
-/// The rail's cards for one session: Environment, Context, Connectors, Outputs and Changes.
+/// The rail's cards for one session: Environment, Context, Connectors, Outputs, Changes and
+/// Background tasks.
 export function SessionRail({
   summary,
   machineName,
   outputs,
   pullRequests = [],
   statuses = {},
+  processes = [],
+  onStopProcess,
   cards = DEFAULT_CARDS,
   onCard,
   onOpenOutput,
@@ -140,6 +164,9 @@ export function SessionRail({
   pullRequests?: readonly SummaryPullRequest[];
   /// What the App read of them, by URL.
   statuses?: Parameters<typeof RailChanges>[0]["statuses"];
+  /// The chat's background processes, in the order they started; the card shows once there is one.
+  processes?: readonly RailProcess[];
+  onStopProcess?: (id: string) => Promise<unknown>;
   /// Which cards are open; uncontrolled without `onCard`.
   cards?: Cards;
   onCard?: (id: CardId, open: boolean) => void;
@@ -215,6 +242,22 @@ export function SessionRail({
       {pullRequests.length > 0 && (
         <RailCard title={t("header.changes")} open={state.changes} onOpenChange={fold("changes")}>
           <RailChanges pullRequests={pullRequests} statuses={statuses} />
+        </RailCard>
+      )}
+      {processes.length > 0 && (
+        <RailCard
+          title={t("summary.backgroundTasks")}
+          open={state.tasks}
+          onOpenChange={fold("tasks")}
+          meta={
+            processes.some(isRunning) ? (
+              <span className="acpmux-rail-card__value">
+                {t("rail.running", { count: processes.filter(isRunning).length })}
+              </span>
+            ) : undefined
+          }
+        >
+          <RailTasks processes={processes} onStop={onStopProcess} />
         </RailCard>
       )}
     </aside>

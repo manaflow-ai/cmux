@@ -65,7 +65,11 @@ const wire = (task: string, command: string, state: string, startedAt: number, e
   outputBytes: null,
 });
 
-async function render(container: HTMLElement, processes: readonly RailProcess[], onStop?: (id: string) => Promise<unknown>) {
+async function render(
+  container: HTMLElement,
+  processes: readonly RailProcess[],
+  onStop?: (id: string) => Promise<unknown>,
+) {
   await act(async () => {
     root ??= createRoot(container);
     root.render(<SessionRail outputs={[]} processes={processes} onStopProcess={onStop} />);

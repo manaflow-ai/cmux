@@ -820,6 +820,8 @@ export class AcpmuxDirectClient {
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
   onHarnessesChanged?: () => void;
+  /// `_acpmux/process_update` listeners (summary/sessionProcesses.ts).
+  private readonly processListeners = new Set<(process: unknown) => void>();
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
 
@@ -1161,6 +1163,8 @@ export class AcpmuxDirectClient {
     else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
+    else if (notification.method === "_acpmux/process_update")
+      for (const listener of this.processListeners) listener(notification.params?.process);
     // A new chat's start mode may have changed (a pick in any pane, a config reload): pending
     // chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
@@ -1332,6 +1336,23 @@ export class AcpmuxDirectClient {
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
   /// sends Claude's stop_task and answers with Claude's answer, and the subagent ends as cancelled
   /// when Claude stops it. A Claude that never answers fails it after 10 s.
+  /// Chat `sessionId`'s background processes (acpmux docs/background-processes.md).
+  listProcesses(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/process/list", { sessionId });
+  }
+
+  /// Each `_acpmux/process_update` for the attached chat; returns the listener's removal.
+  watchProcesses(listener: (process: unknown) => void): () => void {
+    this.processListeners.add(listener);
+    return () => void this.processListeners.delete(listener);
+  }
+
+  /// Stops background process `processId` (Claude's stop_task, Codex's terminate). A harness
+  /// that never answers fails it after 10 s.
+  killProcess(processId: string): Promise<unknown> {
+    return this.request("_acpmux/process/kill", { processId }, 10_000);
+  }
+
   stopSubagent(subagentSessionId: string): Promise<unknown> {
     if (!this.selectedSessionId) return Promise.reject(new Error());
     return this.request("_acpmux/subagent_stop", { sessionId: this.selectedSessionId, subagentSessionId }, 10_000);

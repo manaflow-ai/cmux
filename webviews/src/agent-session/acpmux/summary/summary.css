@@ -208,6 +208,17 @@
 .acpmux-rail-pr__checks[data-checks="failing"]{color:var(--agent-danger)}
 .acpmux-rail-pr__checks[data-checks="passing"],.acpmux-rail-pr__checks[data-checks="pending"]{width:7px;height:7px;margin-right:2px;border-radius:50%;background:var(--agent-success,var(--acpmux-add))}
 .acpmux-rail-pr__checks[data-checks="pending"]{background:var(--agent-warning,var(--agent-muted))}
+/* Background tasks: a running command, how long it has run, and Stop. */
+.acpmux-rail-task{display:flex;align-items:center;gap:8px;min-height:26px;padding:2px 4px 2px 8px}
+.acpmux-rail-task>svg{flex:none;color:var(--agent-muted)}
+.acpmux-rail-task__command{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:var(--font-mono);font-size:var(--text-detail)}
+.acpmux-rail-task__time{flex:none;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
+.acpmux-rail-task__stop{flex:none;display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:5px;background:none;color:var(--agent-muted);cursor:default}
+.acpmux-rail-task__stop:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
+.acpmux-rail-task__stop:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-rail-task__stop:disabled{opacity:.4}
+.acpmux-rail-task__stop[data-state="failed"]{color:var(--agent-danger)}
+.acpmux-rail-tasks__finished{margin:4px 8px 2px;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-rail-more{display:block;height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-rail-more:hover{color:var(--agent-text)}
 .acpmux-rail-more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
