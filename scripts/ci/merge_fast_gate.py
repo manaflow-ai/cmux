@@ -129,7 +129,7 @@ def gh_json(*args: str) -> dict:
         if _rate.is_rate_limited(out.stderr):
             # Every later poll would fail the same way: refuse now and say when the quota resets.
             raise RateLimited(f"GitHub rate-limited the pull request read ({out.stderr.strip()[:200]}); "
-                              + _rate.describe(read_limits()))
+                              + _rate.describe(read_limits(), after_limit=True))
         raise Refused(f"cannot read the pull request ({out.stderr.strip()[:200]})")
     return json.loads(out.stdout)
 

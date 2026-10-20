@@ -85,7 +85,7 @@ class GitHub:
                 if rate.is_rate_limited(message):
                     # Every later read would fail the same way: stop now and say when it resets.
                     raise RateLimited(f"GitHub rate-limited `gh {args[0]}` ({message.strip()[:200]}); "
-                                      + rate.describe(rate.read_limits()))
+                                      + rate.describe(rate.read_limits(), after_limit=True))
                 raise Refused("GitHub evidence request failed: " + message)
             return output.read().decode(errors="replace")
 

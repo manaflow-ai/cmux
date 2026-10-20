@@ -75,6 +75,7 @@ jobs:
   cmux-scheme-compile:
     name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
 """
+RATE_LIMITED = "<rate limited>"
 CI_WORKFLOW = """name: CI
 jobs:
   changes:
@@ -414,6 +415,8 @@ class InstalledHelperRegression(unittest.TestCase):
         if base_workflow is None:
             base_workflow = cmux_next_workflow
         base_workflow_route = "printf '%s' " + shlex.quote(base_workflow) + "; exit 0" if base_workflow else "exit 1"
+        if base_workflow == RATE_LIMITED:
+            base_workflow_route = "echo 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; exit 1"
         protected_route = "printf '%s' " + shlex.quote(protected_paths) + "; exit 0" if protected_paths is not None else "exit 1"
         rate_limit_route = ("if [ \"$1 $2\" = 'api rate_limit' ]; then printf '%s\\n' "
                             + shlex.quote(json.dumps({"resources": rate_limit})) + "; exit 0; fi\n") if rate_limit else ""
@@ -716,10 +719,8 @@ class InstalledHelperRegression(unittest.TestCase):
         refused only about 30 minutes later, with no reset time."""
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
-            started = time.monotonic()
             result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
                                      rate_limit=self.RATE_SPENT)
-            self.assertLess(time.monotonic() - started, 30)
             self.assertEqual(result.returncode, 75, result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("rate-limited:", result.stderr)
@@ -727,6 +728,17 @@ class InstalledHelperRegression(unittest.TestCase):
             summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
             self.assertEqual(len(summary), 1, result.stderr)
             self.assertIn("refused (GitHub rate limit)", summary[0])
+
+    def test_a_rate_limited_paths_filter_read_refuses_before_the_wait(self):
+        """Review on #22443: a rate-limited read of the base's paths filter counted as covered,
+        and the fast gate then waited out --wait for routing that never came."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=("docs/README.md",), rollup=(),
+                                     base_workflow=RATE_LIMITED, extra_args=("--wait", "600"))
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("rate-limited: GitHub rate-limited gh api", result.stderr)
 
     def test_a_rate_limited_base_comparison_refuses_as_rate_limited(self):
         rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]

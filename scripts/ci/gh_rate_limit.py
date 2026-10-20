@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Say when GitHub's API quota resets, so gh-merge-green refuses a rate-limited merge at once.
 
-    gh_rate_limit.py                 one line: each pool's remaining calls and reset time
+    gh_rate_limit.py [--after-limit] one line: each pool's remaining calls and reset time
+                                     (--after-limit: a read was just refused, so a pool with
+                                     calls left means GitHub's secondary limit)
     gh_rate_limit.py --exhausted P   print `spent` when pool P (core, graphql) has no calls left
 
 `gh api rate_limit` costs no quota, so it still answers when both pools are spent.
@@ -58,7 +60,7 @@ def exhausted(limits: dict, pool: str, now: float | None = None) -> bool:
     return remaining <= 0 and reset > (time.time() if now is None else now)
 
 
-def describe(limits: dict, now: float | None = None) -> str:
+def describe(limits: dict, now: float | None = None, after_limit: bool = False) -> str:
     """`graphql 0 of 5000 left, resets 09:12:00Z (in 14m); core ...`; a secondary limit has no reset time."""
     now = time.time() if now is None else now
     parts = []
@@ -73,7 +75,7 @@ def describe(limits: dict, now: float | None = None) -> str:
     if not parts:
         return "the reset time is unknown (gh api rate_limit could not be read)"
     text = "; ".join(parts)
-    if not any(exhausted(limits, pool, now) for pool in POOLS):
+    if after_limit and not any(exhausted(limits, pool, now) for pool in POOLS):
         text += ("; neither pool is spent, so this is GitHub's secondary (abuse) limit, which gives no reset "
                  "time: retry in a few minutes")
     return text
@@ -82,6 +84,7 @@ def describe(limits: dict, now: float | None = None) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--exhausted", choices=POOLS, help="print `spent` when this pool has no calls left")
+    parser.add_argument("--after-limit", action="store_true", help="a GitHub read was just rate-limited")
     args = parser.parse_args(argv)
     limits = read_limits()
     if args.exhausted:
@@ -89,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         if exhausted(limits, args.exhausted):
             print("spent")
         return 0
-    print(describe(limits))
+    print(describe(limits, after_limit=args.after_limit))
     return 0
 
 

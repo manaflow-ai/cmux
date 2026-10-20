@@ -41,8 +41,17 @@ install_error_trap() {
 refuse() {
   refusal_reported=1
   printf '%s\n' "$1" >&2
+  rate_limit_caused
   print_repair "$2"
   exit 1
+}
+
+# A refusal after a read GitHub rate-limited (gh() below noted it, even where the caller
+# discarded its stderr) is the rate limit's: say so, with the reset time, and exit 75.
+rate_limit_caused() {
+  if [ -n "${rate_limit_seen:-}" ] && [ -s "$rate_limit_seen" ]; then
+    refuse_rate_limited "GitHub rate-limited $(sort -u "$rate_limit_seen" | paste -sd ';' - | sed 's/;/, /g'), so the refusal above may be the rate limit's"
+  fi
 }
 
 # Details first, then the one-line reason, so `| tail -5` still shows the reason.
@@ -50,6 +59,7 @@ refuse_with_details() {
   refusal_reported=1
   [ -n "$2" ] && printf '%s\n' "$2" | sed 's/^/  /' >&2
   printf '%s\n' "$1" >&2
+  rate_limit_caused
   print_repair "$3"
   exit 1
 }
@@ -173,6 +183,27 @@ print_summary() {
     "${gate_checked:-nothing reported}" $((waited_seconds / 60)) $((waited_seconds % 60)) "$took" >&2
 }
 trap print_summary EXIT
+
+# Every gh call notes a rate-limited response in $rate_limit_seen, even one whose caller
+# discards stderr and takes a fallback: a spent REST pool otherwise reads as "the base's
+# paths filter is unreadable", and the fast gate then waited out --wait for routing that
+# never comes (2026-10-20: GraphQL and REST both spent, refused about 30 minutes later).
+rate_limit_seen=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-rate.XXXXXX")
+tmp_files+=("$rate_limit_seen")
+# By path: bash 3.2 runs the ERR trap for a failing `command gh` even under `||`.
+gh_bin=$(type -P gh || true)
+gh_bin=${gh_bin:-/nonexistent/gh}
+gh() {
+  local errors status=0
+  errors=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-gh.XXXXXX")
+  "$gh_bin" "$@" 2>"$errors" || status=$?
+  if [ "$status" -ne 0 ] && graphql_quota_error "$errors"; then
+    printf 'gh %s %s\n' "${1:-}" "${2:-}" >>"$rate_limit_seen"
+  fi
+  cat "$errors" >&2
+  rm -f "$errors"
+  return "$status"
+}
 trap 'outcome="stopped by SIGINT (check the PR)"; exit 130' INT
 trap 'outcome="stopped by SIGTERM (check the PR)"; exit 143' TERM
 
@@ -308,7 +339,7 @@ graphql_quota_error() {
 # and its REST fallback were both spent and the refusal came about 30 minutes later).
 refuse_rate_limited() {
   local limits
-  limits=$(python3 "$script_dir/ci/gh_rate_limit.py" 2>/dev/null) || limits='the reset time is unknown'
+  limits=$(python3 "$script_dir/ci/gh_rate_limit.py" --after-limit 2>/dev/null) || limits='the reset time is unknown'
   outcome='refused (GitHub rate limit)'
   refusal_reported=1
   printf 'rate-limited: %s; %s\n' "$1" "$limits" >&2
@@ -343,6 +374,8 @@ if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,la
   fi
 fi
 rm -f "$graphql_error_file"
+# A rate-limited metadata read was handled above (its REST fallback answered).
+: >"$rate_limit_seen"
 if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
   refuse \
     "not green: GitHub returned invalid metadata for $ref" \
@@ -1017,6 +1050,11 @@ fast_gate() {
   files_list=$(mktemp)
   tmp_files+=("$files_list")
   printf '%s\n' "$files" >"$files_list"
+  # A read above was rate-limited and fell back: the wait would poll a spent quota, or wait
+  # for routing a misread paths filter promised. Refuse now with the reset time.
+  if [ -s "$rate_limit_seen" ]; then
+    refuse_rate_limited "GitHub rate-limited $(sort -u "$rate_limit_seen" | paste -sd ';' - | sed 's/;/, /g') before the fast gate's wait"
+  fi
   gate_waiting_since=$(date +%s)
   local gate_status=0 still_waiting
   gate_out=$(python3 "$script_dir/ci/merge_fast_gate.py" "$repo" "$num" "$sha" --base "$base" \
