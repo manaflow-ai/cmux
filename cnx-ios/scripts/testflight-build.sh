@@ -362,8 +362,8 @@ fi
 check_app() {  # <CnxApp.app>
   local app=$1 info="$1/Info.plist" bad=()
   bash "$script_dir/check-production-binary.sh" "$app" "$bundle_id" "$binary_mode"
-  # Apple rejects device names in App Intents text after the upload (90626).
-  python3 -I "$script_dir/check-app-intents-text.py" "$app" || die "$app has App Intents text App Store Connect rejects"
+  # What App Store Connect rejects only after the upload (ITMS-90626, 90683, ...).
+  python3 -I "$repo/scripts/cmux-next/check-app-store-rules.py" --app "$app" || die "$app breaks an App Store review rule"
   [[ "$(plutil -extract CNXStackEnvironment raw "$info" 2>/dev/null)" == "$stack_env" ]] || bad+=("CNXStackEnvironment (want '$stack_env')")
   [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || bad+=("CFBundleShortVersionString")
   [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || bad+=("CFBundleVersion")
