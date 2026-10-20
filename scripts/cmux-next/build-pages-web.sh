@@ -41,7 +41,7 @@ cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
 # The strings tables are build output (#21946), made from the commit's catalogs; a missing
-# translation fails.
+# translation fails, unless CMUX_STRINGS_BEST_EFFORT=1 (the autofix export jobs only).
 bun scripts/pages/gen-strings.mjs
 
 # No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a

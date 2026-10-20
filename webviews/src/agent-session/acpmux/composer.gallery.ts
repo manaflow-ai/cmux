@@ -1253,7 +1253,7 @@ export default agentPaneEntry({
       }),
     },
     "model-menu-starred": {
-      note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
+      note: "Play: in a new chat, open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness. A started chat's harness is fixed, so its menu has no rail (#22226).",
       checks: {
         layoutShiftMax: {
           value: 0.055,
@@ -1261,7 +1261,10 @@ export default agentPaneEntry({
             "Filtering the model catalog reflows rows inside the fixed-height popup; the transcript and composer anchors must remain fixed.",
         },
       },
-      snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
       play: async (ctx) => {
         const { translate } = await import("./i18n");
         const starred = { role: "option", name: translate("picker.starred") };

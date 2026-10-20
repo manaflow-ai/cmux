@@ -12,6 +12,11 @@
 //   node scripts/pages/gen-strings.mjs --if-stale     # only pages whose inputs are newer (test preload)
 //   node scripts/pages/gen-strings.mjs --check        # fail when a written table differs
 //   node scripts/pages/gen-strings.mjs settings       # only the named pages
+// CMUX_STRINGS_BEST_EFFORT=1 makes a write --best-effort, whoever calls the generator: the export
+// jobs set it (cmux-next-base-autofix.yml, cmux-next-pr-autofix.yml), whose bundles only build the
+// Swift test host that regenerates settings-schema.json. Strict there kept a stale schema stale: a
+// renamed setting's old keys were missing, the build stopped before the export (10-20, 63 strings).
+// Shipped and published bundles never set it, and --check stays strict.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -463,12 +468,14 @@ export function writeStrings({
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const bestEffort = process.argv.includes("--best-effort");
+  const bestEffort = process.argv.includes("--best-effort") || process.env.CMUX_STRINGS_BEST_EFFORT === "1";
+  const check = process.argv.includes("--check");
   const failed = writeStrings({
-    check: process.argv.includes("--check"),
+    check,
     bestEffort,
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),
   });
-  process.exit(failed && !bestEffort ? 1 : 0);
+  // Best effort only lets a write through; a check of the tables always fails on a difference.
+  process.exit(failed && (check || !bestEffort) ? 1 : 0);
 }
