@@ -58,13 +58,10 @@ nonisolated enum HomeMessageActionCatalog: ActionCatalogGroup {
         ]
     }
 
-    /// The Home conversations a message can go to (the App lists them, Chiefs first).
-    static let recipientsSource = "homeRecipients"
-
     /// Who the message goes to: a conversation id, `chief`, a person's or agent's name, a group's name.
     private static var recipient: ActionArgument {
         ActionArgument(name: "to", title: t("argument.home.messageTo.to", "To"), kind: .string,
-                       suggestions: ActionSuggestions(source: recipientsSource, pinned: []))
+                       suggestions: ActionSuggestions(source: ActionSuggestions.homeRecipients, pinned: []))
     }
 
     /// The selected text; a terminal's menu leaves it out and the App reads the selection.

@@ -89,7 +89,10 @@ extension HomeService {
     /// rows, Send to Chief, Forward…, `cmux chat send`, MCP): AppActions+HomeMessaging.
     var messageRouting: HomeMessageRouting {
         HomeMessageRouting(store: homeStore, actions: groupActions,
-                           chief: { [weak self] in self.flatMap { TopHomePageView.chief($0) }.map(ConversationID.init) })
+                           chief: { [weak self] in
+            guard let self, let chief = TopHomePageView.chief(self) else { return nil }
+            return ConversationID(chief)
+        })
     }
 
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):

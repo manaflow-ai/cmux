@@ -59,6 +59,6 @@ struct HomeSendMessageMenuTests {
         #expect(descriptor.surfacePlan.mcp?.isOffered == true)
         #expect(descriptor.cliName == "chat send")
         #expect(descriptor.arguments.map(\.name) == ["to", "text"])
-        #expect(descriptor.arguments.first { $0.name == "to" }?.suggestions?.source == HomeMessageActionCatalog.recipientsSource)
+        #expect(descriptor.arguments.first { $0.name == "to" }?.suggestions?.source == ActionSuggestions.homeRecipients)
     }
 }

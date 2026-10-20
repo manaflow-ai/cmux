@@ -16,7 +16,7 @@ extension AppActions {
         let registry = services.registry
         let suggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { [weak services] source in
-            guard source == HomeMessageActionCatalog.recipientsSource else { return suggestions?(source) ?? [] }
+            guard source == ActionSuggestions.homeRecipients else { return suggestions?(source) ?? [] }
             return services?.home.messageRouting.recipients().map { ActionEnumCase(value: $0.value, title: $0.title) } ?? []
         }
         registry.bind("home.messageTo", invoke: { invocation in
