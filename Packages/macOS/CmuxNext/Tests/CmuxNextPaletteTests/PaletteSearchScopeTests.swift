@@ -138,6 +138,7 @@ struct PaletteSearchScopeTests {
         let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let window = NSWindow(contentRect: NSRect(x: visible.minX + 40, y: visible.minY + 40, width: 1100, height: 760),
                               styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false // ARC owns it; close() would release it once more
         defer { window.close() }
         let button = NSView(frame: NSRect(x: 12, y: 8, width: 28, height: 28))
         window.contentView?.addSubview(button)
