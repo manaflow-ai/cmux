@@ -40,6 +40,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
         self.coordinator = coordinator
+        #if DEBUG
+        HoverCardGallery.register("sidebar") { WorkspaceHoverCardGallery.cards() }
+        #endif
     }
 
     static func targetID(_ id: WorkspaceID) -> HoverTargetID { HoverTargetID("ws:\(id.rawValue)") }

@@ -3,14 +3,15 @@
   "settings": {"appearance": {"theme": "Soft Blue"}},
   "steps": [
     {"title": "Launch", "wait": 3},
-    {"title": "Session cards, dark", "debug": {"method": "debug.hover_card_gallery", "params": {"set": "sidebar"}}, "wait": 2},
+    {"title": "Session cards, dark", "debug": {"method": "debug.hover_cards", "params": {"gallery": "sidebar"}}, "wait": 2},
     {"title": "Session cards, light", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 2},
     {"title": "Session cards, light over art", "cmux": ["settings", "set", "appearance.background", "hokusai-great-wave"], "wait": 3},
     {"title": "Session cards, dark over art", "cmux": ["settings", "set", "appearance.theme", "Soft Blue"], "wait": 2},
-    {"title": "Tab cards, dark over art", "debug": {"method": "debug.hover_card_gallery", "params": {"set": "tabs"}}, "wait": 2},
+    {"title": "Tab cards, dark over art", "debug": {"method": "debug.hover_cards", "params": {"gallery": "tabs"}}, "wait": 2},
     {"title": "Tab cards, light over art", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 2},
     {"title": "Tab cards, light", "cmux": ["settings", "unset", "appearance.background"], "wait": 3},
     {"title": "Tab cards, dark", "cmux": ["settings", "set", "appearance.theme", "Soft Blue"], "wait": 2},
+    {"title": "Close the gallery", "debug": {"method": "debug.hover_cards", "params": {"gallery": "none"}}, "wait": 1},
     {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Make the hover cards look like Codex's"], "wait": 2},
     {"title": "A real workspace card, dark", "cmux": ["action", "run", "workspace.showResources"], "wait": 3}
   ]

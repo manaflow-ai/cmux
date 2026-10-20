@@ -148,7 +148,8 @@ final class AppControl {
             .mainActor("debug.hover_cards") { [weak services] call in
                 guard let services else { return .value(.null) }
                 if call.params["dismiss"]?.boolValue == true { services.hoverCards.dismiss(.action) }
-                return .value(.object(services.hoverCards.report.mapValues(JSONValue.string)))
+                // `gallery: sidebar|tabs|none` shows the card kinds over fixture data (HoverCardGallery).
+                return .value(.object((HoverCardGallery.show(call.params["gallery"]?.stringValue) ?? services.hoverCards.report).mapValues(JSONValue.string)))
             },
             // Pane chrome alignment: tab pill gaps, border, first terminal cell.
             .mainActor("debug.pane_chrome") { [weak services] _ in
@@ -260,12 +261,6 @@ final class AppControl {
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
-            },
-            // `debug.hover_card_gallery {set: sidebar|tabs}`: the hover cards in each kind over
-            // fixture data, on the overlay glass, as a page tab (the macOS tour's hover-card shots).
-            .mainActor("debug.hover_card_gallery") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugHoverCardGallery.open(call.params, services: services))
             },
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
