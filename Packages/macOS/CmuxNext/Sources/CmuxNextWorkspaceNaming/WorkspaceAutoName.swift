@@ -37,7 +37,8 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// `title`) whose front tab is `front`; nil keeps the workspace's own
     /// name. Both variants show it.
     ///
-    /// `anchor` is the workspace's own work tab (an agent chat, else a
+    /// `anchor` is the work tab the row was named for before a page opened
+    /// beside it (`SidebarMapping.workTab`: the last focused chat or
     /// terminal) when it has one. A browser page opened beside it (an agent
     /// showing its PR in a split) never renames the workspace: the anchor
     /// keeps naming it, so the row does not flip to whatever page is focused.
