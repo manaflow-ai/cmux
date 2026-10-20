@@ -110,7 +110,9 @@ extension HomeSidebarItem {
     init(row: InboxRow, pinned: Bool, markedUnread: Bool = false, me: ParticipantID?, now: Date, calendar: Calendar,
          locale: Locale) {
         let others = row.summary.participants.filter { $0.id != me }
-        let preview = row.homePreview(me: me)
+        // The sender's DM with someone not on it yet says who it waits for (DESIGN 2.5).
+        let waiting = row.kind == .direct ? row.summary.homeInviteWaiting(me: me) : nil
+        let preview = waiting.map { HomeRowPreview(text: $0, isReply: false) } ?? row.homePreview(me: me)
         let time = row.timestamp.homeListTime(now: now, calendar: calendar, locale: locale)
         let title = row.title.isEmpty ? HomeConversationStrings.untitled : row.title
         let unread = max(row.unread, markedUnread ? 1 : 0)

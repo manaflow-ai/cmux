@@ -6,7 +6,7 @@ import type { SubmitResult } from "./owner-do.ts"
 import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
 export { avatarGetRoute, avatarSetRoute } from "./home-avatar-routes.ts"
 import { HOME_RATE_LIMITED, HOME_USER_NOT_READY, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
-import { acceptRequest, dismissRequest, linkedUserOf, listRequests } from "./home-requests.ts"
+import { acceptRequest, dismissRequest, linkedUserOf, listRequests, withSameDomainReach } from "./home-requests.ts"
 
 /**
  * Worker side of the Home ops (home-messaging.md section 4.1). Clients name a conversation in
@@ -260,7 +260,8 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
         const existing = reach.dms.get(linked)
         if (existing) return conversationStub(env, existing).submit(existing, principal, dmReopenFrame(frame, existing))
         const created = dmCreateFrame(principal, frame, linked)
-        const direct = await conversationStub(env, created.id).submit(created.id, reach.principal, created.frame)
+        const trusted = await withSameDomainReach(env, reach.principal, linked)
+        const direct = await conversationStub(env, created.id).submit(created.id, trusted, created.frame)
         if (resultOf(direct)?.t === "result") return direct
       }
       const id = homeConversation.dmConversationId(me, resolved.id)

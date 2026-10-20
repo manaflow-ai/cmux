@@ -22438,6 +22438,24 @@
     "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
+  "cloud-requests-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "request": {
+      "kind": "object",
+      "fields": {},
+      "additional_properties": false
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    },
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
+    ]
+  },
   "cloud-conversation-snapshot": {
    "authority": "local-admin",
    "since": 12,

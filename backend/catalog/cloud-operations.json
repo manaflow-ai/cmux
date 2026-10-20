@@ -36728,6 +36728,13 @@
               "name": "boolean"
             }
           },
+          "trust_same_domain": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -36777,6 +36784,13 @@
                   "kind": "primitive",
                   "name": "boolean"
                 }
+              },
+              "trust_same_domain": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
               }
             }
           }
@@ -36811,7 +36825,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email.",
+      "docs": "Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), whether a message request also sends an email, and whether people with your company email domain reach you directly (trust_same_domain, default on).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -36831,6 +36845,9 @@
             ]
           },
           "email_requests": {
+            "type": "boolean"
+          },
+          "trust_same_domain": {
             "type": "boolean"
           }
         },
@@ -36856,13 +36873,17 @@
           },
           "email_requests": {
             "type": "boolean"
+          },
+          "trust_same_domain": {
+            "type": "boolean"
           }
         },
         "required": [
           "discoverable_by_email",
           "discoverable_by_phone",
           "allow_requests_from",
-          "email_requests"
+          "email_requests",
+          "trust_same_domain"
         ],
         "additionalProperties": true,
         "$defs": {}
