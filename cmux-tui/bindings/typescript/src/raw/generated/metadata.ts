@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06. */
+/* cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06" as const;
+export const SDK_IR_SHA256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1438,6 +1438,10 @@ export const COMMAND_METADATA = {
       "machine_metadata": {
         "since": 12,
         "capability": "machine-identity-v1"
+      },
+      "revisions": {
+        "since": 12,
+        "capability": null
       }
     },
     "stream": null,
@@ -2657,9 +2661,17 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "shared-sizing-v1"
       },
+      "install": {
+        "since": 12,
+        "capability": null
+      },
       "user_id": {
         "since": 12,
         "capability": "shared-sizing-v1"
+      },
+      "version": {
+        "since": 12,
+        "capability": null
       }
     },
     "stream": null,
@@ -7142,7 +7154,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "fields": {
       "api_revision": {
         "constraints": [
-          "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions."
+          "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions. Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -7199,6 +7211,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "crate_version": {
+        "constraints": [
+          "The cmux-tui crate version; `version` is the npm/PyPI release (equal in app and local builds). Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "daemon_handoff": {
         "nullable": false,
         "presence": "required",
@@ -7218,6 +7241,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "ghostty_commit": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "install": {
+        "constraints": [
+          "How this daemon's binary was installed: npm, pypi, app or other. Only with identify {revisions: true}."
+        ],
         "nullable": true,
         "presence": "optional",
         "type": {
@@ -7287,7 +7321,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "min_api_revision": {
         "constraints": [
-          "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info."
+          "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info. Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -7345,6 +7379,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      },
+      "update_command": {
+        "constraints": [
+          "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal. Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "version": {
@@ -19346,6 +19391,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "boolean"
           }
+        },
+        "revisions": {
+          "constraints": [
+            "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -24215,6 +24272,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "install": {
+          "constraints": [
+            "How the client was installed (npm, pypi, app, other), so a refusal names its exact update command."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "kind": {
           "constraints": [
             "Control characters become spaces; at most 64 Unicode characters are retained."
@@ -24243,6 +24313,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "capability": "shared-sizing-v1",
           "constraints": [
             "Shared sizing identity asserted by the client; not verified."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "version": {
+          "constraints": [
+            "The client's release (`cmux --version`), named in refusals and logs."
           ],
           "default": null,
           "nullable": true,

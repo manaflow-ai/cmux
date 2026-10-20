@@ -159,6 +159,38 @@
   overflow: auto;
 }
 
+/* A prompt the Chief sent a subagent: a quiet "From the Chief" line above it, and a long task
+   collapsed to its first lines with Show all under it (ChiefPromptBubble.tsx). */
+.cv-user__from {
+  margin-bottom: 2px;
+  padding-right: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+}
+.cv-user__bubble--collapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+  overflow: hidden;
+}
+.cv-user__expand {
+  margin-top: 2px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+  cursor: pointer;
+}
+.cv-user__expand:hover {
+  color: var(--agent-text);
+}
+
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
 .cv-user__status {
   display: flex;
