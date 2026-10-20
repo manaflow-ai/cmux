@@ -956,7 +956,9 @@ jobs:
     # red shows on that push, and a pull request's red has a base run to be compared with.
     if: ${{ inputs.dev_daily != true && (inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Blacksmith runners are free here; 16 vCPU runs the script tests 32 at once
+    # (scripts/ci/run-checks-concurrently.sh) and the god-file scans faster.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     # Pull requests into feat-cmux-next run the cheap static checks, and so does
     # every feat-cmux-next push: gh-merge-green excuses a PR's red lint only when
