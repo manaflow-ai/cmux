@@ -587,10 +587,15 @@ struct CmuxVaultAgentRegistry: Sendable {
         ]
         var hideClaudeSDKSessions = false
         var sessionExclusions: [CmuxVaultSessionExclusion] = []
-        for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
+        let paths = configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager)
+        for (index, path) in paths.enumerated() {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
             guard let vault = config.vault else { continue }
             registrations.append(contentsOf: vault.agents)
+            // A project's filters apply only to a caller scoped to that
+            // folder. Without one, the local config is the launch folder's
+            // (`PWD`), and global listings use the global filters only.
+            guard index == 0 || hasExplicitWorkingDirectory(workingDirectory) else { continue }
             hideClaudeSDKSessions = hideClaudeSDKSessions || vault.hideClaudeSDKSessions
             sessionExclusions.append(contentsOf: vault.exclude)
         }
@@ -599,6 +604,11 @@ struct CmuxVaultAgentRegistry: Sendable {
             hideClaudeSDKSessions: hideClaudeSDKSessions,
             sessionExclusions: sessionExclusions
         )
+    }
+
+    private static func hasExplicitWorkingDirectory(_ workingDirectory: String?) -> Bool {
+        guard let workingDirectory else { return false }
+        return !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func configPaths(
