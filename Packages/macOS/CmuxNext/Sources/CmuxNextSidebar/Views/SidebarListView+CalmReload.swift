@@ -17,12 +17,13 @@ extension SidebarListView {
     /// Returns false when the change waits for the pointer to leave.
     @discardableResult
     func showModelChange(animates: Bool) -> Bool {
-        let byUser = model.followsUserIntent
+        let byUser = model.structureFollowsUserIntent
         if !byUser, holdsModelChangeNow {
             holdsModelChange = true
             return false
         }
-        reload(animated: animates && byUser, fromModel: true)
+        // A held change shows with this one, in one step: the user's create or close must not slide the rows it held.
+        reload(animated: animates && byUser && !holdsModelChange, fromModel: true)
         return true
     }
 

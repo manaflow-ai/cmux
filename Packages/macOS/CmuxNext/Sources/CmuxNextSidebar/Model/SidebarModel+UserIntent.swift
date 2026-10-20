@@ -17,4 +17,8 @@ public extension SidebarModel {
         guard let userIntentAt else { return false }
         return userIntentClock() - userIntentAt <= Self.userIntentWindow
     }
+
+    /// Whether the structural change shown now may move rows: it follows a user's request, and it is not a quiet
+    /// attention re-sort that landed inside that request's window.
+    var structureFollowsUserIntent: Bool { followsUserIntent && quietRevision != sectionsRevision }
 }

@@ -34,6 +34,10 @@ final class SidebarRows {
     /// The rows of creates the daemon has not reported yet, at their slots
     /// over the edits (`PendingWorkspaceRows`), and the home workspace.
     private var creating: (rows: [PendingWorkspaceRows.Row], home: String?) = ([], nil)
+    /// The rows `show` last set, before the attention sort (`SidebarPriority`), and the order it drew them in: a row's
+    /// attention change re-sorts in the turn it arrives (`patch`), so a later create or close moves only its own row.
+    private var unsorted: [SidebarRowSection] = []
+    private var shownOrder: [SidebarWorkspaceID] = []
 
     init(model: SidebarModel) {
         self.model = model
@@ -46,7 +50,8 @@ final class SidebarRows {
 
     /// Shows `live` (when given) with the pending edits applied, then the
     /// rows of the creates in flight (`creating`, when given).
-    func show(_ live: [SidebarRowSection]? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil) {
+    /// `quietly`: an attention re-sort nobody asked for, which never moves rows on a spring.
+    func show(_ live: [SidebarRowSection]? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil, quietly: Bool = false) {
         if let live { self.live = live }
         if let creating { self.creating = creating }
         var sections = PendingWorkspaceRows.adding(self.creating.rows, to: pending.apply(to: self.live), home: self.creating.home)
@@ -59,13 +64,21 @@ final class SidebarRows {
             shown.isCollapsed = fold.collapsed
             sections[s].nodes[n] = .group(shown)
         }
-        model.setSections(model.priorityOrdering ? SidebarPriority().reordered(sections) : sections)
+        unsorted = sections
+        let shown = model.priorityOrdering ? SidebarPriority().reordered(sections) : sections
+        shownOrder = shown.flatMap(\.workspaces).map(\.id)
+        model.setSections(shown, quiet: quietly)
     }
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.
+    /// A change of a row's attention (unread, waiting, working, done) that moves it re-sorts now, quietly. Left to the
+    /// next rebuild, it moved with the user's next create or close: every row whose attention changed since slid then.
     func patch(_ changed: [SidebarWorkspace]) {
         live = SidebarSection.patching(changed, in: live)
-        if !model.patchWorkspaces(changed) { show() }
+        guard model.patchWorkspaces(changed) else { return show() }
+        guard model.priorityOrdering else { return }
+        unsorted = SidebarSection.patching(changed, in: unsorted)
+        if SidebarPriority().reordered(unsorted).flatMap(\.workspaces).map(\.id) != shownOrder { show(quietly: true) }
     }
 
     /// Folds or opens `group` at once and keeps that look until `body`
