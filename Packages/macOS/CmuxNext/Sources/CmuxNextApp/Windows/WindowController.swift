@@ -327,13 +327,31 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// An incognito window closes its workspaces: it asks first while one
     /// of its terminals runs a program (`IncognitoCloseConfirmation`).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard !closeConfirmed, services.windows.isIncognito(window: state.id) else { return true }
+        guard !closeConfirmed, services.windows.isIncognito(window: state.id) else { return !fadeOutThenClose(sender) }
         IncognitoCloseConfirmation.confirm(windows: [state.id], sheetOn: sender, services) { [weak self, weak sender] ok in
-            guard ok, let self else { return }
+            guard ok, let self, let sender else { return }
             closeConfirmed = true
-            sender?.close()
+            if !fadeOutThenClose(sender) { sender.close() }
         }
         return false
+    }
+
+    /// The window fading out before it closes (`WindowCloseMotion`), from the person's close.
+    private var closeMotion: WindowCloseMotion?
+
+    /// Starts the person's close as a fade of the whole window; false when it closes now (Reduce
+    /// Motion, not on screen, or a second close while it fades).
+    private func fadeOutThenClose(_ window: NSWindow) -> Bool {
+        if let closeMotion {
+            closeMotion.finish()
+            return true
+        }
+        guard WindowCloseMotion.fades(window) else { return false }
+        let motion = WindowCloseMotion(window: window) { [weak window] in window?.close() }
+        closeMotion = motion
+        let next = NSApp.orderedWindows.first { $0 !== window && $0 is ShellWindow && $0.isVisible && !$0.isMiniaturized }
+        motion.start(handingKeysTo: next)
+        return true
     }
 
     func windowWillClose(_ notification: Notification) {

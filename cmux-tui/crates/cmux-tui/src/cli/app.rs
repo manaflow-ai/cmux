@@ -35,6 +35,7 @@ mod events;
 mod keybinding;
 mod open;
 mod page;
+mod right;
 mod run;
 mod settings;
 mod skew;
@@ -124,6 +125,12 @@ pub(super) enum AppCommand {
     },
     /// `settings list|schema|validate` (app/settings.rs).
     Settings(settings::Command),
+    /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
+    /// tab right of the Home chat, then `then` runs on it.
+    Right {
+        params: Value,
+        then: Box<AppCommand>,
+    },
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -142,6 +149,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         && (target == "page" || target.starts_with("tab_"))
     {
         return parse_page(target, &args[2..]).map(Some);
+    }
+    if scope == "browser" && args.get(1).is_some_and(|target| target == "right") {
+        return right::parse(&args[2..]).map(Some);
     }
     if let Some(command) = agent_open::parse(args)? {
         return Ok(Some(command));
@@ -501,6 +511,19 @@ pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
     }
 }
 
+/// `cmux <noun> move-to-window --new [flags]` is the spelling of
+/// `cmux <noun> move-to-new-window [flags]`: the action name and flags to run.
+/// `None` for every other command.
+pub(super) fn new_window_spelling(name: &str, args: &[String]) -> Option<(String, Vec<String>)> {
+    let noun = name.strip_suffix(" move-to-window")?;
+    let is_new = |arg: &String| matches!(arg.as_str(), "--new" | "--new=true");
+    if !args.iter().any(is_new) {
+        return None;
+    }
+    let rest = args.iter().filter(|arg| !is_new(arg)).cloned().collect();
+    Some((format!("{noun} move-to-new-window"), rest))
+}
+
 /// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name.
 /// `None` when no app answers or the app has no CLI action by that name, so
 /// the caller reports its own usage error. One connection, one `action.run`.
@@ -625,6 +648,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             return Ran::Done(call::run(global, stream, &method, params));
         }
         AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
+        AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {

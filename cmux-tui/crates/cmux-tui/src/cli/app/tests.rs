@@ -15,6 +15,7 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
+        | AppCommand::Right { .. }
         | AppCommand::Settings(_) => {
             panic!("expected a call")
         }
@@ -755,6 +756,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
+        | AppCommand::Right { .. }
         | AppCommand::Settings(_) => {
             panic!("expected a call")
         }
@@ -1203,3 +1205,31 @@ fn settings_validate_reports_what_the_owner_would() {
         local(parse(&args(&["settings", "validate", missing.as_str()])).unwrap().unwrap());
     assert_eq!(missing.unwrap_err()["code"], "settings.unreadable");
 }
+
+/// Lawrence 2026-10-19: `cmux <noun> move-to-window --new` moves the object
+/// to a new window, as `cmux <noun> move-to-new-window` does, for every noun.
+#[test]
+fn move_to_window_new_is_move_to_new_window() {
+    for noun in
+        ["tab", "tab-group", "pane", "workspace", "workspace-group", "screen", "screen-group"]
+    {
+        let name = format!("{noun} move-to-window");
+        assert_eq!(
+            new_window_spelling(&name, &args(&["--new", "--target", "x1"])),
+            Some((format!("{noun} move-to-new-window"), args(&["--target", "x1"]))),
+            "{noun}"
+        );
+        assert_eq!(
+            new_window_spelling(&name, &args(&["--target", "x1", "--new=true"])),
+            Some((format!("{noun} move-to-new-window"), args(&["--target", "x1"]))),
+            "{noun} --new=true"
+        );
+    }
+    // Without --new it names a window: the action keeps its own name.
+    assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--window", "w1"])), None);
+    assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--new=false"])), None);
+    assert_eq!(new_window_spelling("workspace rename", &args(&["--new"])), None);
+}
+
+#[path = "right_tests.rs"]
+mod right;
