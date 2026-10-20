@@ -418,7 +418,7 @@ test("transcript Changes preserves Thread details when the diff closes", async (
 });
 
 for (const operation of ["file.list", "file.search"]) {
-  test(`a ${operation} reply cannot update Files after a newer file open starts`, async () => {
+  test(`a ${operation} reply cannot update Files after a newer file opens`, async () => {
     const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
     const old = deferred<unknown>();
     const file = deferred<unknown>();
@@ -435,15 +435,58 @@ for (const operation of ["file.list", "file.search"]) {
         });
       }
       await view.click("link");
+      await act(async () => file.resolve(textReply("new")));
       await act(async () =>
         old.resolve({ entries: [{ name: "stale.txt", kind: "file" }], results: [{ path: "stale.txt" }] }),
       );
       expect(host.querySelector(".acpmux-files-list")?.textContent ?? "").not.toContain("stale.txt");
-      await act(async () => file.resolve(textReply("new")));
     } finally {
       setChipHost(undefined);
     }
   });
+}
+
+for (const operation of ["file.list", "file.search"]) {
+  for (const outcome of ["failed", "folder", "opened"]) {
+    test(`a pending ${operation} still populates Files after a ${outcome} file read`, async () => {
+      const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+      const pending = deferred<unknown>();
+      setChipHost(async () => {
+        if (outcome === "failed") throw new Error("pathInvalid");
+        return { kind: outcome, path: "/chat/elsewhere" };
+      });
+      try {
+        const view = await viewerHarness(async (method) => (method === operation ? pending.promise : { entries: [] }));
+        await view.click("files");
+        if (operation === "file.search") {
+          const input = host.querySelector<HTMLInputElement>("input")!;
+          await act(async () => {
+            Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, "note");
+            input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+          });
+        }
+        await act(async () => {
+          try {
+            await view.viewer.viewFile("/chat/elsewhere");
+          } catch (error) {
+            expect(outcome).toBe("failed");
+            expect((error as Error).message).toBe("pathInvalid");
+          }
+        });
+        await act(async () =>
+          pending.resolve({
+            entries: [{ name: "note.txt", kind: "file" }],
+            results: [{ path: "note.txt" }],
+          }),
+        );
+        expect(host.querySelector(".acpmux-files-list")?.textContent).toBe("note.txt");
+        expect(view.viewer.filesOpen).toBe(true);
+        expect(view.viewer.fileOpen).toBe(false);
+      } finally {
+        setChipHost(undefined);
+      }
+    });
+  }
 }
 
 async function changesHarness(chatViewer: boolean, ran = true, failFileOpen = false) {
