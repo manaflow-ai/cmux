@@ -28,6 +28,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The command typed after `!` so far, whole each time, while the
     /// terminal that replaces the page is being made (`tab.typeAhead`).
     case typeAhead(String)
+    /// Opens a redeemed durable Run attempt's terminal on its enrolled worker (`run.attach`).
+    case runAttach(AgentPaneRunAttach)
+    /// `run.attach` whose params break its contract or whose endpoint expired; nothing opens.
+    case invalidRunAttach
     /// Shell mode (`!` first in the composer or the new tab field): run
     /// `command` in `cwd` (``AgentPaneShell``); answers `{id}`. Only with a
     /// real gesture in the pane.

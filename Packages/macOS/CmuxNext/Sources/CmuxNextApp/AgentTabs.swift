@@ -127,6 +127,8 @@ final class AgentTabStore {
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
+    /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
+    var runAttach: (@MainActor (_ key: String, _ request: AgentPaneRunAttach) async throws -> Void)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
     /// `(cwd, beside)`: `beside` is the tab whose machine the page opens on (nil: this Mac).
     var firstPageNewTab: ((String?, String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
@@ -370,6 +372,10 @@ final class AgentTabStore {
             guard let self else { return }
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
+        }
+        model.onRunAttach = { [weak self] request in
+            guard let self, let runAttach else { throw AgentPaneHostError.daemonStopped }
+            try await runAttach(resolve(provisional), request)
         }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }

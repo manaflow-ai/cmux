@@ -18,6 +18,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .renderRate: "renderRate"
         case .openTab: "openTab"
         case .typeAhead: "typeAhead"
+        case .runAttach: "runAttach"
+        case .invalidRunAttach: "invalidRunAttach"
         case .shellRun: "shellRun"
         case .harnessUpdate: "harnessUpdate"
         case .harnessRestart: "harnessRestart"

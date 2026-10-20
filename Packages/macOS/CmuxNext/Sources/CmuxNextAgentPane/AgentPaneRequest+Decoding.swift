@@ -96,6 +96,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "run.attach":
+            self = AgentPaneRunAttach(params: params ?? [:]).map(AgentPaneRequest.runAttach) ?? .invalidRunAttach
         case "tab.typeAhead":
             if let text = params?["text"] as? String {
                 self = .typeAhead(String(text.prefix(Self.maximumOpenTabText)))

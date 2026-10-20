@@ -158,6 +158,25 @@ extension AgentTabStore {
             guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
         }
+        // A redeemed Run attempt's terminal opens only on a remote worker daemon this Mac already
+        // has connected, whose session is the one the ticket names; the tab's own daemon stores the
+        // remote-terminal reference (RemoteTerminalService.openTerminal does the same).
+        tabs.runAttach = { [weak services] key, request in
+            guard let services, let (_, pane) = services.locateTab(key) else { throw DaemonError.notConnected }
+            let home = services.machines.daemon(forPane: pane)
+            guard let homeConnection = home.connection,
+                  let worker = services.machines.daemon(machine: request.providerVMID), !worker.isLocal,
+                  worker.connection != nil, let identity = worker.identity, let sessionID = identity.sessionID,
+                  identity.session == request.session else {
+                throw DaemonError.notConnected
+            }
+            guard home.supports(DaemonCapabilities.shared.remoteTerminalTabs) else {
+                throw DaemonError.missingCapabilities([DaemonCapabilities.shared.remoteTerminalTabs])
+            }
+            let name = services.machines.machineName(request.providerVMID) ?? request.providerVMID
+            let ref = RemoteTerminalRef(sessionID: sessionID, terminalID: TerminalID(rawValue: request.providerTerminalID), sessionName: name)
+            _ = try await homeConnection.newRemoteTerminalTab(ref, in: pane.handle, title: RemoteStrings.terminalOn(name))
+        }
         // A tab's git reads (Changes, file search) go to the machine whose acpmux runs its session
         // (AgentPaneHostKind): a Cloud or SSH machine's session reads its folder there (cx-d0tq).
         tabs.gitLink = { [weak services, weak tabs] key in
