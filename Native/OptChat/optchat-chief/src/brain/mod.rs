@@ -232,6 +232,27 @@ pub enum Input {
         request: crate::tools::AuthEscalation,
         reply: Sender<Result<String, String>>,
     },
+    /// `peers` from subagent `caller` (acp-chief-issues.md #11).
+    PeerList {
+        caller: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `tell` from subagent `from` to subagent `id`.
+    PeerTell {
+        from: String,
+        id: String,
+        message: String,
+        key: Option<String>,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A tell to a running subagent that neither its steer nor the prompt
+    /// after it delivered (acp-chief-issues.md #10): it goes back into the
+    /// subagent's inbox, first, for its next prompt.
+    TellUndelivered {
+        id: String,
+        message: String,
+        error: String,
+    },
     /// `control(action, ...)` (control.rs).
     Control {
         request: crate::tools::ControlCall,
@@ -1084,6 +1105,21 @@ impl Brain {
                 reply,
             } => {
                 let _ = reply.send(self.escalate_auth(&agent, &request));
+            }
+            Input::PeerList { caller, reply } => {
+                let _ = reply.send(Ok(self.agents_list(&caller)));
+            }
+            Input::PeerTell {
+                from,
+                id,
+                message,
+                key,
+                reply,
+            } => {
+                let _ = reply.send(self.peer_tell(&from, &id, &message, key.as_deref()));
+            }
+            Input::TellUndelivered { id, message, error } => {
+                self.tell_undelivered(&id, message, &error);
             }
             Input::Control { request, reply } => {
                 let answer = self.control(&request);

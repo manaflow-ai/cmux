@@ -87,8 +87,11 @@ extension SidebarListViewComponents {
         // Group members start right of their group's line (`SidebarStyle.groupGutter`).
         // A block's region draws its own insets, as the band did.
         if case .block = row.key { return NSRect(x: 0, y: row.y, width: bounds.width, height: row.height) }
+        // One gutter per group level (`SidebarRow.depth`): a nested group's header and members move in
+        // with it (remote-groups-DESIGN.md slice 2).
         let gutter: CGFloat = switch row.key {
-        case .workspace, .tab, .item: row.group == nil ? 0 : SidebarStyle.groupGutter
+        case .workspace, .tab, .item: row.group == nil ? 0 : SidebarStyle.groupGutter * CGFloat(max(1, row.depth))
+        case .group: SidebarStyle.groupGutter * CGFloat(row.depth)
         default: 0
         }
         return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter), height: row.height)

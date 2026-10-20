@@ -328,6 +328,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group new-workspace"
             ),
             ActionDescriptor(
+                id: "workspaceGroup.newSubgroup",
+                title: String(localized: "action.workspaceGroup.newSubgroup", defaultValue: "New Subgroup", bundle: .module),
+                keywords: ["group", "nest", "folder", "create"], category: .workspace, symbol: "folder.badge.plus",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group new-subgroup"
+            ),
+            ActionDescriptor(
                 id: "workspaceGroup.rename",
                 title: String(localized: "action.workspaceGroup.rename", defaultValue: "Rename Group…", bundle: .module),
                 keywords: ["group", "title"], category: .workspace, symbol: "pencil.line", surfaces: [.palette, .contextMenu],
