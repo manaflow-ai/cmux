@@ -47,7 +47,7 @@ extension TerminalSurfaceView: NSMenuItemValidation {
             // Cmd-C before the program can get it (see `copy(_:)`).
             return surface != nil
         case #selector(paste(_:)), #selector(pasteAsPlainText(_:)):
-            return TerminalPasteboard.pasteText(from: .general) != nil
+            return TerminalPasteboard.pasteText(from: .general) != nil || TerminalPasteboard.hasImage(.general)
         default:
             return true
         }

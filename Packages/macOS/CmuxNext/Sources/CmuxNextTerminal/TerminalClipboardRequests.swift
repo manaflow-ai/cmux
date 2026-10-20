@@ -15,12 +15,22 @@ final class TerminalClipboardRequests {
     }
 
     /// Serves a clipboard read with the pasteboard's text (and, when asked,
-    /// the list of available types). Unavailable when there is nothing to
-    /// serve, so a paste binding can fall through to the terminal.
+    /// the list of available types). A system clipboard holding only an
+    /// image serves the path of that image saved to a temporary file, as in
+    /// the shipping cmux. Unavailable when there is nothing to serve, so a
+    /// paste binding can fall through to the terminal.
     func completeRead(location: TerminalPasteboardLocation, wantsText: Bool, listAvailable: Bool,
                       state: UncheckedPointer) -> ghostty_clipboard_read_result_e {
         guard let surface = view?.surface else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
-        let text = TerminalPasteboard.pasteText(from: TerminalPasteboard.pasteboard(location))
+        let pasteboard = TerminalPasteboard.pasteboard(location)
+        let text: String? = if location == .standard, wantsText {
+            TerminalPasteboard.pasteTextSavingImage(from: pasteboard)
+        } else if location == .standard, TerminalPasteboard.pasteText(from: pasteboard) == nil,
+                  TerminalPasteboard.hasImage(pasteboard) {
+            ""
+        } else {
+            TerminalPasteboard.pasteText(from: pasteboard)
+        }
         let served = wantsText ? text : nil
         if served == nil, !listAvailable { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
         Self.complete(surface, text: served, available: listAvailable && text != nil ? ["text/plain"] : [],
