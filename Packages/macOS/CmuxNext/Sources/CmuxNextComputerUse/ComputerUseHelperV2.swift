@@ -70,6 +70,35 @@ public final class ComputerUseHelperV2 {
         return team?.isEmpty == false ? team : nil
     }()
 
+    /// The code-signing identifier read from an executable. A raced path can
+    /// at worst produce a requirement the real helper does not satisfy: the
+    /// live audit-token check still requires this app's team.
+    nonisolated static func codeIdentifier(_ executable: URL) -> String? {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(executable as CFURL, [], &code) == errSecSuccess, let code else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
+                == errSecSuccess, let info = info as? [String: Any] else { return nil }
+        return info[kSecCodeInfoIdentifier as String] as? String
+    }
+
+    /// Release helpers check every bridge's live audit token against its exact
+    /// identifier and this app's team. Only ad-hoc development uses a
+    /// mutable-path cdhash.
+    nonisolated static func acpmuxAdmission(executable: URL, teamIdentifier: String? = ownTeam,
+                                            identifier: (URL) -> String? = codeIdentifier,
+                                            hash: (URL) -> Data? = cdhash)
+        -> (hashes: [String], requirement: String?) {
+        if let teamIdentifier {
+            let plain = { (text: String) in
+                !text.isEmpty && text.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }
+            }
+            guard plain(teamIdentifier), let identifier = identifier(executable), plain(identifier) else { return ([], nil) }
+            return ([], "identifier \"\(identifier)\" and anchor apple generic and certificate leaf[subject.OU] = \"\(teamIdentifier)\"")
+        }
+        return (hash(executable).map { [hex($0)] } ?? [], nil)
+    }
+
     init(directory: String = ComputerUseHelperV2.defaultDirectory(),
          helperApp: @escaping @Sendable () -> URL? = { ComputerUseHelperV2.embeddedHelperApp() },
          acpmux: @escaping @Sendable () -> (executable: URL, socketPath: String)? = { nil },
@@ -153,9 +182,12 @@ public final class ComputerUseHelperV2 {
         }
         let secret = Self.makeSecret()
         let acpmux = self.acpmux()
-        let hashes = acpmux.flatMap { Self.cdhash($0.executable) }.map { [Self.hex($0)] } ?? []
+        let admission: (hashes: [String], requirement: String?) = acpmux.map {
+            Self.acpmuxAdmission(executable: $0.executable)
+        } ?? (hashes: [], requirement: nil)
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "secret": Self.hex(secret),
-                                "acpmux_cdhashes": hashes]))
+                                "acpmux_cdhashes": admission.hashes,
+                                "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
         let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
         guard current == generation else {
             spawned.closeInput()
