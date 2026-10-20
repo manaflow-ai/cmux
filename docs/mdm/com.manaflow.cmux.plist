@@ -711,6 +711,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Off, cmux won't switch an agent into a mode that skips approvals.</string>
+			<key>pfm_name</key>
+			<string>sessions.allowFullAccess</string>
+			<key>pfm_title</key>
+			<string>Allow Full-Access Modes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.</string>
@@ -806,18 +818,6 @@
 			<string>Deepest Nesting</string>
 			<key>pfm_type</key>
 			<string>real</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.</string>
-			<key>pfm_name</key>
-			<string>mobile.allowIPhoneConnections</string>
-			<key>pfm_title</key>
-			<string>Allow iPhone Connections</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2796,18 +2796,6 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Web image sites can see your address and when you open a document. When off, each document asks before loading its web images.</string>
-			<key>pfm_name</key>
-			<string>markdown.remoteImages</string>
-			<key>pfm_title</key>
-			<string>Load Web Images Automatically</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
 			<integer>72</integer>
 			<key>pfm_description</key>
 			<string>The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box.</string>
@@ -2913,16 +2901,6 @@
 			<string>real</string>
 		</dict>
 		<dict>
-			<key>pfm_description</key>
-			<string>The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own.</string>
-			<key>pfm_name</key>
-			<string>markdown.code.family</string>
-			<key>pfm_title</key>
-			<string>Code Font</string>
-			<key>pfm_type</key>
-			<string>string</string>
-		</dict>
-		<dict>
 			<key>pfm_name</key>
 			<string>markdown.code.blockSize</string>
 			<key>pfm_range_max</key>
@@ -2964,103 +2942,6 @@
 			<string>Page Theme</string>
 			<key>pfm_type</key>
 			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<integer>800</integer>
-			<key>pfm_description</key>
-			<string>The widest the chat's column gets. On a wider pane the chat stays centered.</string>
-			<key>pfm_name</key>
-			<string>agentPane.display.width</string>
-			<key>pfm_range_max</key>
-			<real>4000</real>
-			<key>pfm_range_min</key>
-			<real>480</real>
-			<key>pfm_title</key>
-			<string>Chat Text Width</string>
-			<key>pfm_type</key>
-			<string>real</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>The chat fills the whole pane instead of the text width.</string>
-			<key>pfm_name</key>
-			<string>agentPane.display.fullWidth</string>
-			<key>pfm_title</key>
-			<string>Chat Full Width</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>markdown</string>
-			<key>pfm_name</key>
-			<string>agentPane.display.font.preset</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>markdown</string>
-				<string>system</string>
-				<string>serif</string>
-				<string>mono</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Chat Font</string>
-			<key>pfm_type</key>
-			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<integer>14</integer>
-			<key>pfm_name</key>
-			<string>agentPane.display.font.size</string>
-			<key>pfm_range_max</key>
-			<real>28</real>
-			<key>pfm_range_min</key>
-			<real>10</real>
-			<key>pfm_title</key>
-			<string>Chat Font Size</string>
-			<key>pfm_type</key>
-			<string>real</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<real>1.625</real>
-			<key>pfm_name</key>
-			<string>agentPane.display.font.lineHeight</string>
-			<key>pfm_range_max</key>
-			<real>2.3999999999999999</real>
-			<key>pfm_range_min</key>
-			<real>1.2</real>
-			<key>pfm_title</key>
-			<string>Chat Line Height</string>
-			<key>pfm_type</key>
-			<string>real</string>
-		</dict>
-		<dict>
-			<key>pfm_description</key>
-			<string>The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.</string>
-			<key>pfm_name</key>
-			<string>agentPane.display.code.family</string>
-			<key>pfm_title</key>
-			<string>Chat Code Font</string>
-			<key>pfm_type</key>
-			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_description</key>
-			<string>Code as a share of the chat's text size. Empty uses the Markdown viewer's.</string>
-			<key>pfm_name</key>
-			<string>agentPane.display.code.scale</string>
-			<key>pfm_range_max</key>
-			<real>1.25</real>
-			<key>pfm_range_min</key>
-			<real>0.59999999999999998</real>
-			<key>pfm_title</key>
-			<string>Chat Code Size</string>
-			<key>pfm_type</key>
-			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -4188,23 +4069,11 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>A player for what is playing, at the bottom of the sidebar.</string>
+			<string>A player for what is playing, at the bottom of the sidebar and on the new chat page.</string>
 			<key>pfm_name</key>
 			<string>sidebar.nowPlaying.enabled</string>
 			<key>pfm_title</key>
 			<string>Show Now Playing</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
-			<string>A player for what is playing, on the New Tab page.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabNowPlaying</string>
-			<key>pfm_title</key>
-			<string>Show Now Playing on New Tab</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

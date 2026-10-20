@@ -1,926 +1,264 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.appearance.backgroundBlur.summary": {
-      "comment": "One-line summary of the window Material setting (Frosted, Glass, Clear Glass, None) in the wallpaper card.",
+    "settings.sessions.allowFullAccess": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Glass shows the desktop through the wallpaper"
+            "value": "Allow Full-Access Modes"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُظهر الزجاج الشفاف سطح المكتب عبر الخلفية"
+            "value": "السماح بأوضاع الوصول الكامل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prozirno staklo prikazuje radnu površinu kroz pozadinu"
+            "value": "Dozvoli načine punog pristupa"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klart glas viser skrivebordet gennem baggrunden"
+            "value": "Tillad tilstande med fuld adgang"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klares Glas zeigt den Schreibtisch durchs Hintergrundbild"
+            "value": "Vollzugriffsmodi erlauben"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El vidrio claro muestra el escritorio a través del fondo"
+            "value": "Permitir modos de acceso total"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le verre clair montre le bureau à travers le fond"
+            "value": "Autoriser les modes d’accès complet"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il vetro chiaro mostra la scrivania attraverso lo sfondo"
+            "value": "Consenti le modalità con accesso completo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クリアガラスでは壁紙越しにデスクトップが見えます"
+            "value": "フルアクセスモードを許可"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កញ្ចក់ថ្លាបង្ហាញផ្ទៃតុតាមរយៈផ្ទាំងរូបភាព"
+            "value": "អនុញ្ញាតរបៀបចូលប្រើពេញលេញ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "투명 유리는 배경화면 너머로 데스크탑을 보여 줍니다"
+            "value": "전체 접근 모드 허용"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klart glass viser skrivebordet gjennom bakgrunnen"
+            "value": "Tillat moduser med full tilgang"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przezroczyste szkło pokazuje biurko przez tapetę"
+            "value": "Zezwalaj na tryby pełnego dostępu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O vidro claro mostra a mesa através do papel de parede"
+            "value": "Permitir modos de acesso total"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Прозрачное стекло показывает рабочий стол сквозь обои"
+            "value": "Разрешить режимы полного доступа"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "กระจกใสจะแสดงเดสก์ท็อปผ่านภาพพื้นหลัง"
+            "value": "อนุญาตโหมดสิทธิ์เต็ม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Şeffaf Cam, masaüstünü duvar kâğıdının ardından gösterir"
+            "value": "Tam erişim modlarına izin ver"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Прозоре скло показує робочий стіл крізь шпалери"
+            "value": "Дозволити режими повного доступу"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kính trong cho thấy màn hình nền qua hình nền"
+            "value": "Cho phép chế độ toàn quyền"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "透明玻璃会透过墙纸显示桌面"
+            "value": "允许完全访问模式"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "透明玻璃會透過桌布顯示桌面"
+            "value": "允許完整存取模式"
           }
         }
       }
     },
-    "settings.group.chiefChat": {
-      "comment": "Settings group in Agents: how the Chief chat looks.",
+    "settings.sessions.allowFullAccess.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief Chat"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "دردشة Chief"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief razgovor"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-chat"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-Chat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat de Chief"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Discussion avec Chief"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat di Chief"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief チャット"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែក Chief"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 채팅"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-chat"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Czat z Chiefem"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat do Chief"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чат с Chief"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชท Chief"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief Sohbeti"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чат із Chief"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trò chuyện với Chief"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 聊天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 聊天"
-          }
-        }
-      }
-    },
-    "settings.home.chiefBubbleStyle": {
-      "comment": "Title of the Chief chat's bubble style setting (home.chiefBubbleStyle): iMessage or Theme.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bubble Style"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "نمط الفقاعات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stil oblačića"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Boblestil"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blasenstil"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Estilo de burbujas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Style des bulles"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stile dei fumetti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "吹き出しのスタイル"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រចនាប័ទ្មពពុះ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "말풍선 스타일"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Boblestil"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Styl dymków"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Estilo dos balões"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Стиль пузырей"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สไตล์บับเบิล"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Baloncuk Stili"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Стиль бульбашок"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kiểu bong bóng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "气泡样式"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "泡泡樣式"
-          }
-        }
-      }
-    },
-    "settings.home.chiefBubbleStyle.help": {
-      "comment": "Help of the Chief chat's bubble style setting (home.chiefBubbleStyle). iMessage is Apple's product name; keep it.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يعرض iMessage رسائلك باللون الأزرق ورسائل Chief باللون الرمادي. يستخدم خيار السمة ألوان التمييز والسطح في سمتك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage prikazuje tvoje poruke plavo, a Chiefove sivo. Tema koristi boju naglaska i površine tvoje teme."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage viser dine beskeder i blå og Chiefs i grå. Tema bruger dit temas accent- og overfladefarver."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage zeigt deine Nachrichten in Blau und die von Chief in Grau. Theme nutzt die Akzent- und Flächenfarben deines Themes."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage muestra tus mensajes en azul y los de Chief en gris. Tema usa los colores de acento y superficie de tu tema."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage affiche vos messages en bleu et ceux de Chief en gris. Thème utilise les couleurs d'accent et de surface de votre thème."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage mostra i tuoi messaggi in blu e quelli di Chief in grigio. Tema usa i colori di accento e di superficie del tuo tema."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage では自分のメッセージが青、Chief のメッセージがグレーで表示されます。テーマでは、テーマのアクセントカラーと面の色が使われます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage បង្ហាញសាររបស់អ្នកជាពណ៌ខៀវ និងសាររបស់ Chief ជាពណ៌ប្រផេះ។ រចនាប័ទ្មប្រើពណ៌សង្កត់ និងពណ៌ផ្ទៃនៃរចនាប័ទ្មរបស់អ្នក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage는 내 메시지를 파란색, Chief의 메시지를 회색으로 표시합니다. 테마는 테마의 강조 색상과 표면 색상을 사용합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage viser meldingene dine i blått og Chiefs i grått. Tema bruker temaets aksent- og overflatefarger."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage pokazuje Twoje wiadomości na niebiesko, a wiadomości Chiefa na szaro. Motyw używa koloru akcentu i powierzchni Twojego motywu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O iMessage mostra suas mensagens em azul e as do Chief em cinza. Tema usa as cores de destaque e de superfície do seu tema."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage показывает ваши сообщения синим, а сообщения Chief серым. Тема использует акцентный цвет и цвет поверхности вашей темы."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage แสดงข้อความของคุณเป็นสีน้ำเงินและข้อความของ Chief เป็นสีเทา ธีมใช้สีเน้นและสีพื้นผิวของธีมของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage mesajlarını mavi, Chief'inkileri gri gösterir. Tema, temanın vurgu ve yüzey renklerini kullanır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage показує ваші повідомлення синім, а повідомлення Chief сірим. Тема використовує акцентний колір і колір поверхні вашої теми."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage hiển thị tin nhắn của bạn màu xanh và của Chief màu xám. Chủ đề dùng màu nhấn và màu nền của chủ đề."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage 将你的消息显示为蓝色，Chief 的消息显示为灰色。主题使用你的主题的强调色和表面颜色。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage 將你的訊息顯示為藍色，Chief 的訊息顯示為灰色。主題使用你的主題的強調色和表面顏色。"
-          }
-        }
-      }
-    },
-    "settings.choice.chiefBubbleStyle.theme": {
-      "comment": "The Chief chat's bubble style choice that uses the theme's colors (home.chiefBubbleStyle = theme).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Theme"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "السمة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Theme"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thème"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "テーマ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រចនាប័ទ្ម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "테마"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Motyw"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Тема"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ธีม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Тема"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chủ đề"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "主题"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "主題"
-          }
-        }
-      }
-    },
-    "settings.markdown.codeBlockSize": {
-      "comment": "Settings title for the hidden fixed code block size (markdown.code.blockSize)",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Code Block Size"
+            "value": "Off, cmux won't switch an agent into a mode that skips approvals."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حجم كتلة التعليمات البرمجية"
+            "value": "عند الإيقاف، لن يحوّل cmux أي وكيل إلى وضع يتخطى الموافقات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Veličina bloka koda"
+            "value": "Kada je isključeno, cmux neće prebaciti agenta u način koji preskače odobrenja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Størrelse på kodeblok"
+            "value": "Når den er slået fra, skifter cmux ikke en agent til en tilstand, der springer godkendelser over."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Größe von Codeblöcken"
+            "value": "Ausgeschaltet versetzt cmux keinen Agenten in einen Modus, der Freigaben überspringt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tamaño de bloque de código"
+            "value": "Si está desactivado, cmux no cambiará un agente a un modo que omite las aprobaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Taille des blocs de code"
+            "value": "Désactivé, cmux ne fait passer aucun agent dans un mode qui ignore les approbations."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dimensione blocchi di codice"
+            "value": "Se disattivato, cmux non passa un agente a una modalità che salta le approvazioni."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コードブロックのサイズ"
+            "value": "オフにすると、cmux は承認をスキップするモードにエージェントを切り替えません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទំហំប្លុកកូដ"
+            "value": "ពេលបិទ cmux នឹងមិនប្ដូរភ្នាក់ងារទៅរបៀបដែលរំលងការអនុម័តទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "코드 블록 크기"
+            "value": "끄면 cmux는 승인을 건너뛰는 모드로 에이전트를 전환하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Størrelse på kodeblokk"
+            "value": "Når den er av, bytter ikke cmux en agent til en modus som hopper over godkjenninger."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rozmiar bloków kodu"
+            "value": "Po wyłączeniu cmux nie przełączy agenta w tryb pomijający zatwierdzenia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tamanho do bloco de código"
+            "value": "Desativado, o cmux não muda um agente para um modo que pula aprovações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Размер блоков кода"
+            "value": "Если выключено, cmux не переключит агента в режим без подтверждений."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ขนาดบล็อกโค้ด"
+            "value": "เมื่อปิด cmux จะไม่สลับเอเจนต์ไปยังโหมดที่ข้ามการอนุมัติ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kod bloğu boyutu"
+            "value": "Kapalıyken cmux bir ajanı onayları atlayan bir moda geçirmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Розмір блоків коду"
+            "value": "Якщо вимкнено, cmux не перемкне агента в режим без підтверджень."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cỡ khối mã"
+            "value": "Khi tắt, cmux sẽ không chuyển tác tử sang chế độ bỏ qua phê duyệt."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "代码块大小"
+            "value": "关闭后，cmux 不会将智能体切换到跳过审批的模式。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "程式碼區塊大小"
-          }
-        }
-      }
-    },
-    "settings.markdown.codeScale.help": {
-      "comment": "Settings help for Code Font Size (markdown.code.scale)",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حجم التعليمات البرمجية كنسبة من حجم النص. يبدو الخط أحادي المسافة أكبر من خط النص بالحجم نفسه، لذا تكون التعليمات البرمجية أصغر قليلًا افتراضيًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kod kao udio veličine teksta. Font fiksne širine izgleda veći od fonta teksta iste veličine, pa je kod po zadanom malo manji."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kode som en andel af tekststørrelsen. En skrift med fast bredde ser større ud end tekstskriften i samme størrelse, så kode er som standard lidt mindre."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Code als Anteil der Textgröße. Eine Festbreitenschrift wirkt bei gleicher Größe größer als die Textschrift, daher ist Code standardmäßig etwas kleiner."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El código como proporción del tamaño del texto. Una fuente monoespaciada parece más grande que la del texto al mismo tamaño, así que el código es algo más pequeño por omisión."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le code en proportion de la taille du texte. Une police à chasse fixe paraît plus grande que celle du texte à taille égale, donc le code est un peu plus petit par défaut."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il codice come quota della dimensione del testo. Un font a spaziatura fissa sembra più grande del font del testo alla stessa dimensione, quindi il codice è un po’ più piccolo per impostazione predefinita."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本文サイズに対するコードの比率。等幅フォントは同じサイズでも本文フォントより大きく見えるため、デフォルトではコードを少し小さくします。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កូដជាសមាមាត្រនៃទំហំអត្ថបទ។ ពុម្ពអក្សរទទឹងថេរមើលទៅធំជាងពុម្ពអក្សរអត្ថបទក្នុងទំហំដូចគ្នា ដូច្នេះកូដតូចជាងបន្តិចតាមលំនាំដើម។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "본문 크기에 대한 코드 크기의 비율입니다. 고정폭 글꼴은 같은 크기에서도 본문 글꼴보다 커 보이므로 기본적으로 코드가 조금 더 작습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kode som en andel av tekststørrelsen. En skrift med fast bredde ser større ut enn tekstskriften i samme størrelse, så kode er litt mindre som standard."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kod jako część rozmiaru tekstu. Czcionka o stałej szerokości wygląda na większą niż czcionka tekstu w tym samym rozmiarze, więc kod jest domyślnie nieco mniejszy."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O código como proporção do tamanho do texto. Uma fonte monoespaçada parece maior que a do texto no mesmo tamanho, então o código fica um pouco menor por padrão."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Код как доля размера текста. Моноширинный шрифт выглядит крупнее шрифта текста того же размера, поэтому по умолчанию код немного меньше."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โค้ดเป็นสัดส่วนของขนาดข้อความ ฟอนต์ความกว้างคงที่ดูใหญ่กว่าฟอนต์ข้อความที่ขนาดเดียวกัน โค้ดจึงเล็กกว่าเล็กน้อยตามค่าเริ่มต้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Metin boyutunun bir oranı olarak kod. Eş aralıklı yazı tipi aynı boyutta metin yazı tipinden büyük görünür, bu yüzden kod varsayılan olarak biraz daha küçüktür."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Код як частка розміру тексту. Моноширинний шрифт виглядає більшим за шрифт тексту того самого розміру, тому типово код трохи менший."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mã theo tỷ lệ với cỡ chữ văn bản. Phông chữ đơn cách trông to hơn phông văn bản ở cùng cỡ, nên mặc định mã nhỏ hơn một chút."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代码相对正文大小的比例。等宽字体在同样大小下看起来比正文字体大，所以代码默认稍小一些。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "程式碼相對內文大小的比例。等寬字體在相同大小下看起來比內文字體大，所以程式碼預設會稍小一些。"
+            "value": "關閉後，cmux 不會將代理切換到略過核准的模式。"
           }
         }
       }
@@ -99427,1722 +98765,6 @@
         }
       }
     },
-    "settings.group.chiefPet": {
-      "comment": "Settings > Home: group title of the Chief pet rows (a small Chief character floating over every app; Chief is a product name, keep it untranslated).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief Pet"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "رفيق Chief"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief ljubimac"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-kæledyr"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-Begleiter"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mascota Chief"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Compagnon Chief"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mascotte Chief"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief ペット"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "សត្វចិញ្ចឹម Chief"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 펫"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-kjæledyr"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zwierzak Chief"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mascote Chief"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Питомец Chief"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สัตว์เลี้ยง Chief"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief evcil hayvanı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Улюбленець Chief"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thú cưng Chief"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 宠物"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 寵物"
-          }
-        }
-      }
-    },
-    "settings.home.chiefPetEnabled": {
-      "comment": "Settings > Home: toggle that shows the Chief pet, a small Chief character floating over every app. Chief is a product name.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Chief Pet"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إظهار رفيق Chief"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikaži Chief ljubimca"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis Chief-kæledyr"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-Begleiter anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar mascota Chief"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afficher le compagnon Chief"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra mascotte Chief"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief ペットを表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញសត្វចិញ្ចឹម Chief"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 펫 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis Chief-kjæledyr"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż zwierzaka Chief"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar mascote Chief"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показывать питомца Chief"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงสัตว์เลี้ยง Chief"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief evcil hayvanını göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показувати улюбленця Chief"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiện thú cưng Chief"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "显示 Chief 宠物"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "顯示 Chief 寵物"
-          }
-        }
-      }
-    },
-    "settings.home.chiefPetEnabled.help": {
-      "comment": "Settings > Home: help under the Show Chief Pet toggle. Chief is a product name; a session is an agent or terminal session.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يطفو Chief صغير فوق كل التطبيقات ويعرض أحداث الوكلاء فوقه. اسحبه إلى أي مكان؛ انقر عليه لمراسلة Chief أو الرد على جلسة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mali Chief lebdi iznad svih aplikacija i prikazuje događaje agenata iznad sebe. Prevucite ga bilo gdje; kliknite ga da pošaljete poruku Chiefu ili odgovorite sesiji."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En lille Chief svæver over alle apps og viser agenthændelser over sig. Træk den hvorhen du vil; klik på den for at skrive til Chief eller svare en session."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ein kleiner Chief schwebt über allen Apps und zeigt Agent-Ereignisse über sich an. Zieh ihn an eine beliebige Stelle; klick ihn an, um Chief zu schreiben oder einer Sitzung zu antworten."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Un pequeño Chief flota sobre todas las apps y muestra encima los eventos de los agentes. Arrástralo a cualquier sitio; haz clic para escribir a Chief o responder a una sesión."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Un petit Chief flotte au-dessus de toutes les apps et affiche au-dessus de lui les événements des agents. Faites-le glisser où vous voulez ; cliquez dessus pour écrire à Chief ou répondre à une session."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Un piccolo Chief fluttua sopra tutte le app e mostra sopra di sé gli eventi degli agenti. Trascinalo ovunque; fai clic per scrivere a Chief o rispondere a una sessione."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "小さな Chief がすべてのアプリの上に浮かび、エージェントのイベントをその上に表示します。好きな場所にドラッグでき、クリックすると Chief にメッセージを送ったりセッションに返信したりできます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief តូចមួយអណ្ដែតលើកម្មវិធីទាំងអស់ ហើយបង្ហាញព្រឹត្តិការណ៍ភ្នាក់ងារពីលើវា។ អូសវាទៅកន្លែងណាក៏បាន ចុចវាដើម្បីផ្ញើសារទៅ Chief ឬឆ្លើយតបវគ្គមួយ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "작은 Chief가 모든 앱 위에 떠 있고 그 위에 에이전트 이벤트를 보여 줍니다. 원하는 곳으로 드래그하고, 클릭하면 Chief에게 메시지를 보내거나 세션에 답장할 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En liten Chief svever over alle apper og viser agenthendelser over seg. Dra den hvor du vil; klikk på den for å skrive til Chief eller svare en økt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mały Chief unosi się nad wszystkimi aplikacjami i pokazuje nad sobą zdarzenia agentów. Przeciągnij go w dowolne miejsce; kliknij, aby napisać do Chief lub odpowiedzieć sesji."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Um pequeno Chief flutua sobre todos os apps e mostra acima dele os eventos dos agentes. Arraste-o para qualquer lugar; clique para escrever ao Chief ou responder a uma sessão."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Маленький Chief парит над всеми приложениями и показывает над собой события агентов. Перетащите его куда угодно; нажмите, чтобы написать Chief или ответить сеансу."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief ตัวเล็กลอยอยู่เหนือทุกแอปและแสดงเหตุการณ์ของเอเจนต์ไว้ด้านบน ลากไปวางที่ใดก็ได้ คลิกเพื่อส่งข้อความถึง Chief หรือตอบกลับเซสชัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Küçük bir Chief tüm uygulamaların üzerinde süzülür ve aracı olaylarını üstünde gösterir. İstediğiniz yere sürükleyin; Chief'e yazmak ya da bir oturuma yanıt vermek için tıklayın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Маленький Chief ширяє над усіма застосунками й показує над собою події агентів. Перетягніть його куди завгодно; натисніть, щоб написати Chief або відповісти сеансу."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Một Chief nhỏ nổi trên mọi ứng dụng và hiện các sự kiện của tác tử phía trên. Kéo nó đến bất cứ đâu; bấm vào để nhắn cho Chief hoặc trả lời một phiên."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "一个小小的 Chief 浮在所有应用上方，并在其上方显示代理事件。可将它拖到任意位置；点按它即可给 Chief 发消息或回复某个会话。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "一個小小的 Chief 浮在所有 App 上方，並在其上方顯示代理事件。可將它拖到任何位置；點按它即可傳訊息給 Chief 或回覆某個工作階段。"
-          }
-        }
-      }
-    },
-    "settings.home.chiefPetMascot": {
-      "comment": "Settings > Home > Chief Pet: menu that picks the floating pet's pixel character.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Character"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الشخصية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lik"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Figur"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Figur"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Personaje"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Personnage"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Personaggio"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "キャラクター"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "តួអង្គ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "캐릭터"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Figur"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Postać"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Personagem"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Персонаж"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตัวละคร"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Karakter"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Персонаж"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nhân vật"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "角色"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "角色"
-          }
-        }
-      }
-    },
-    "settings.choice.chiefPetMascot.orb": {
-      "comment": "Chief pet character: a round dark creature (Orb).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Orb"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "كرة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kugla"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kugle"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kugel"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Orbe"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Orbe"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sfera"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "オーブ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្រាប់មូល"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "오브"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kule"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kula"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Orbe"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Шар"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลูกกลม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Küre"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Куля"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quả cầu"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "圆球"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "圓球"
-          }
-        }
-      }
-    },
-    "settings.choice.chiefPetMascot.orb-spark": {
-      "comment": "Chief pet character: a pale round creature with a spark (Orb Spark).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Orb Spark"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "كرة متلألئة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Iskričava kugla"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gnistkugle"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Funkenkugel"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Orbe chispa"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Orbe étincelle"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sfera scintilla"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "スパークオーブ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្រាប់មូលភ្លឺ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "스파크 오브"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gnistkule"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Iskrząca kula"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Orbe faísca"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Искрящийся шар"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลูกกลมประกาย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kıvılcım küre"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Іскриста куля"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quả cầu lấp lánh"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "闪光圆球"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "閃光圓球"
-          }
-        }
-      }
-    },
-    "settings.choice.chiefPetMascot.orb-hood": {
-      "comment": "Chief pet character: a round creature in a lantern-like hood (Hooded Orb).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hooded Orb"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "كرة بقلنسوة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kugla s kapuljačom"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kugle med hætte"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kugel mit Kapuze"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Orbe con capucha"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Orbe à capuche"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sfera incappucciata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "フードオーブ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្រាប់មូលពាក់មួក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "후드 오브"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kule med hette"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kula w kapturze"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Orbe com capuz"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Шар в капюшоне"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลูกกลมสวมฮู้ด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kapüşonlu küre"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Куля в каптурі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quả cầu đội mũ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "兜帽圆球"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "兜帽圓球"
-          }
-        }
-      }
-    },
-    "settings.choice.chiefPetMascot.machine": {
-      "comment": "Chief pet character: a small robot (Machine).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Machine"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "آلة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mašina"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskine"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maschine"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máquina"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Machine"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Macchina"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "マシン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "머신"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskin"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maszyna"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máquina"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Машина"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เครื่องจักร"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Makine"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Машина"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cỗ máy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "机器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "機器"
-          }
-        }
-      }
-    },
-    "settings.choice.chiefPetMascot.machine-cyan": {
-      "comment": "Chief pet character: the small robot in cyan (Cyan Machine).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cyan Machine"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "آلة سماوية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cijan mašina"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cyan maskine"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cyan-Maschine"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máquina cian"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Machine cyan"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Macchina ciano"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "シアンマシン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីនពណ៌ផ្ទៃមេឃ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "시안 머신"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cyan maskin"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cyjanowa maszyna"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máquina ciano"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Голубая машина"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เครื่องจักรสีฟ้าอมเขียว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Camgöbeği makine"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Блакитна машина"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cỗ máy lục lam"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "青色机器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "青色機器"
-          }
-        }
-      }
-    },
-    "settings.choice.chiefPetMascot.machine-blue": {
-      "comment": "Chief pet character: the small robot in blue (Blue Machine).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Blue Machine"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "آلة زرقاء"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plava mašina"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blå maskine"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blaue Maschine"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máquina azul"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Machine bleue"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Macchina blu"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ブルーマシン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីនពណ៌ខៀវ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "블루 머신"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blå maskin"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Niebieska maszyna"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máquina azul"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Синяя машина"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เครื่องจักรสีน้ำเงิน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mavi makine"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Синя машина"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cỗ máy xanh"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "蓝色机器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "藍色機器"
-          }
-        }
-      }
-    },
-    "settings.choice.chiefPetMascot.moon": {
-      "comment": "Chief pet character: a moth-like creature with moon antennae (Moon).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Moon"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "قمر"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mjesec"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Måne"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mond"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Luna"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lune"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Luna"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ムーン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ព្រះចន្ទ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "문"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Måne"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Księżyc"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lua"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Луна"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "พระจันทร์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ay"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Місяць"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mặt trăng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "月亮"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "月亮"
-          }
-        }
-      }
-    },
-    "settings.choice.chiefPetMascot.moon-blue": {
-      "comment": "Chief pet character: a blue cloud-like creature (Blue Moon).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Blue Moon"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "قمر أزرق"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plavi mjesec"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blå måne"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blauer Mond"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Luna azul"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lune bleue"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Luna blu"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ブルームーン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ព្រះចន្ទពណ៌ខៀវ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "블루 문"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blå måne"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Niebieski księżyc"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lua azul"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Голубая луна"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "พระจันทร์สีฟ้า"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mavi ay"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Блакитний місяць"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trăng xanh"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "蓝月亮"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "藍月亮"
-          }
-        }
-      }
-    },
-    "settings.choice.chiefPetMascot.fox": {
-      "comment": "Chief pet character: a fox with a cape (Fox).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fox"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ثعلب"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lisica"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ræv"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fuchs"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zorro"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Renard"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Volpe"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "キツネ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កញ្ជ្រោង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "여우"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rev"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lis"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Raposa"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Лиса"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "จิ้งจอก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tilki"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Лис"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cáo"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "狐狸"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "狐狸"
-          }
-        }
-      }
-    },
     "settings.home.channelsEnabled": {
       "comment": "Settings > Appearance > Sidebar: toggle that shows the Channels entry after Home.",
       "extractionState": "manual",
@@ -124486,6 +122108,2514 @@
         }
       }
     },
+    "settings.group.chiefChat": {
+      "comment": "Settings group in Agents: how the Chief chat looks.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "دردشة Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat de Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Discussion avec Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat di Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief チャット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែក Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 채팅"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czat z Chiefem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чат с Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชท Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief Sohbeti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чат із Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trò chuyện với Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 聊天"
+          }
+        }
+      }
+    },
+    "settings.home.chiefBubbleStyle": {
+      "comment": "Title of the Chief chat's bubble style setting (home.chiefBubbleStyle): iMessage or Theme.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bubble Style"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نمط الفقاعات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil oblačića"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boblestil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blasenstil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo de burbujas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Style des bulles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stile dei fumetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "吹き出しのスタイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រចនាប័ទ្មពពុះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "말풍선 스타일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boblestil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Styl dymków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo dos balões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиль пузырей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สไตล์บับเบิล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baloncuk Stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиль бульбашок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kiểu bong bóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "气泡样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "泡泡樣式"
+          }
+        }
+      }
+    },
+    "settings.home.chiefBubbleStyle.help": {
+      "comment": "Help of the Chief chat's bubble style setting (home.chiefBubbleStyle). iMessage is Apple's product name; keep it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض iMessage رسائلك باللون الأزرق ورسائل Chief باللون الرمادي. يستخدم خيار السمة ألوان التمييز والسطح في سمتك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage prikazuje tvoje poruke plavo, a Chiefove sivo. Tema koristi boju naglaska i površine tvoje teme."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage viser dine beskeder i blå og Chiefs i grå. Tema bruger dit temas accent- og overfladefarver."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage zeigt deine Nachrichten in Blau und die von Chief in Grau. Theme nutzt die Akzent- und Flächenfarben deines Themes."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage muestra tus mensajes en azul y los de Chief en gris. Tema usa los colores de acento y superficie de tu tema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage affiche vos messages en bleu et ceux de Chief en gris. Thème utilise les couleurs d'accent et de surface de votre thème."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage mostra i tuoi messaggi in blu e quelli di Chief in grigio. Tema usa i colori di accento e di superficie del tuo tema."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage では自分のメッセージが青、Chief のメッセージがグレーで表示されます。テーマでは、テーマのアクセントカラーと面の色が使われます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage បង្ហាញសាររបស់អ្នកជាពណ៌ខៀវ និងសាររបស់ Chief ជាពណ៌ប្រផេះ។ រចនាប័ទ្មប្រើពណ៌សង្កត់ និងពណ៌ផ្ទៃនៃរចនាប័ទ្មរបស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage는 내 메시지를 파란색, Chief의 메시지를 회색으로 표시합니다. 테마는 테마의 강조 색상과 표면 색상을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage viser meldingene dine i blått og Chiefs i grått. Tema bruker temaets aksent- og overflatefarger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage pokazuje Twoje wiadomości na niebiesko, a wiadomości Chiefa na szaro. Motyw używa koloru akcentu i powierzchni Twojego motywu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O iMessage mostra suas mensagens em azul e as do Chief em cinza. Tema usa as cores de destaque e de superfície do seu tema."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage показывает ваши сообщения синим, а сообщения Chief серым. Тема использует акцентный цвет и цвет поверхности вашей темы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage แสดงข้อความของคุณเป็นสีน้ำเงินและข้อความของ Chief เป็นสีเทา ธีมใช้สีเน้นและสีพื้นผิวของธีมของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage mesajlarını mavi, Chief'inkileri gri gösterir. Tema, temanın vurgu ve yüzey renklerini kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage показує ваші повідомлення синім, а повідомлення Chief сірим. Тема використовує акцентний колір і колір поверхні вашої теми."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage hiển thị tin nhắn của bạn màu xanh và của Chief màu xám. Chủ đề dùng màu nhấn và màu nền của chủ đề."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage 将你的消息显示为蓝色，Chief 的消息显示为灰色。主题使用你的主题的强调色和表面颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage 將你的訊息顯示為藍色，Chief 的訊息顯示為灰色。主題使用你的主題的強調色和表面顏色。"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefBubbleStyle.theme": {
+      "comment": "The Chief chat's bubble style choice that uses the theme's colors (home.chiefBubbleStyle = theme).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Theme"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thème"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テーマ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រចនាប័ទ្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "테마"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motyw"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тема"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ธีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тема"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chủ đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主題"
+          }
+        }
+      }
+    },
+    "settings.markdown.codeBlockSize": {
+      "comment": "Settings title for the hidden fixed code block size (markdown.code.blockSize)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Block Size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم كتلة التعليمات البرمجية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina bloka koda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Størrelse på kodeblok"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größe von Codeblöcken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño de bloque de código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille des blocs de code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione blocchi di codice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードブロックのサイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំប្លុកកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코드 블록 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Størrelse på kodeblokk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar bloków kodu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho do bloco de código"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер блоков кода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดบล็อกโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod bloğu boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір блоків коду"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cỡ khối mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码块大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式碼區塊大小"
+          }
+        }
+      }
+    },
+    "settings.markdown.codeScale.help": {
+      "comment": "Settings help for Code Font Size (markdown.code.scale)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم التعليمات البرمجية كنسبة من حجم النص. يبدو الخط أحادي المسافة أكبر من خط النص بالحجم نفسه، لذا تكون التعليمات البرمجية أصغر قليلًا افتراضيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod kao udio veličine teksta. Font fiksne širine izgleda veći od fonta teksta iste veličine, pa je kod po zadanom malo manji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kode som en andel af tekststørrelsen. En skrift med fast bredde ser større ud end tekstskriften i samme størrelse, så kode er som standard lidt mindre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code als Anteil der Textgröße. Eine Festbreitenschrift wirkt bei gleicher Größe größer als die Textschrift, daher ist Code standardmäßig etwas kleiner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El código como proporción del tamaño del texto. Una fuente monoespaciada parece más grande que la del texto al mismo tamaño, así que el código es algo más pequeño por omisión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le code en proportion de la taille du texte. Une police à chasse fixe paraît plus grande que celle du texte à taille égale, donc le code est un peu plus petit par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il codice come quota della dimensione del testo. Un font a spaziatura fissa sembra più grande del font del testo alla stessa dimensione, quindi il codice è un po’ più piccolo per impostazione predefinita."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本文サイズに対するコードの比率。等幅フォントは同じサイズでも本文フォントより大きく見えるため、デフォルトではコードを少し小さくします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូដជាសមាមាត្រនៃទំហំអត្ថបទ។ ពុម្ពអក្សរទទឹងថេរមើលទៅធំជាងពុម្ពអក្សរអត្ថបទក្នុងទំហំដូចគ្នា ដូច្នេះកូដតូចជាងបន្តិចតាមលំនាំដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "본문 크기에 대한 코드 크기의 비율입니다. 고정폭 글꼴은 같은 크기에서도 본문 글꼴보다 커 보이므로 기본적으로 코드가 조금 더 작습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kode som en andel av tekststørrelsen. En skrift med fast bredde ser større ut enn tekstskriften i samme størrelse, så kode er litt mindre som standard."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod jako część rozmiaru tekstu. Czcionka o stałej szerokości wygląda na większą niż czcionka tekstu w tym samym rozmiarze, więc kod jest domyślnie nieco mniejszy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O código como proporção do tamanho do texto. Uma fonte monoespaçada parece maior que a do texto no mesmo tamanho, então o código fica um pouco menor por padrão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код как доля размера текста. Моноширинный шрифт выглядит крупнее шрифта текста того же размера, поэтому по умолчанию код немного меньше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โค้ดเป็นสัดส่วนของขนาดข้อความ ฟอนต์ความกว้างคงที่ดูใหญ่กว่าฟอนต์ข้อความที่ขนาดเดียวกัน โค้ดจึงเล็กกว่าเล็กน้อยตามค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin boyutunun bir oranı olarak kod. Eş aralıklı yazı tipi aynı boyutta metin yazı tipinden büyük görünür, bu yüzden kod varsayılan olarak biraz daha küçüktür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код як частка розміру тексту. Моноширинний шрифт виглядає більшим за шрифт тексту того самого розміру, тому типово код трохи менший."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mã theo tỷ lệ với cỡ chữ văn bản. Phông chữ đơn cách trông to hơn phông văn bản ở cùng cỡ, nên mặc định mã nhỏ hơn một chút."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码相对正文大小的比例。等宽字体在同样大小下看起来比正文字体大，所以代码默认稍小一些。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式碼相對內文大小的比例。等寬字體在相同大小下看起來比內文字體大，所以程式碼預設會稍小一些。"
+          }
+        }
+      }
+    },
+    "settings.group.chiefPet": {
+      "comment": "Settings > Home: group title of the Chief pet rows (a small Chief character floating over every app; Chief is a product name, keep it untranslated).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Pet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفيق Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ljubimac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-kæledyr"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-Begleiter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mascota Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compagnon Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mascotte Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ペット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សត្វចិញ្ចឹម Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 펫"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-kjæledyr"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwierzak Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mascote Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Питомец Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สัตว์เลี้ยง Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief evcil hayvanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Улюбленець Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thú cưng Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 寵物"
+          }
+        }
+      }
+    },
+    "settings.home.chiefPetEnabled": {
+      "comment": "Settings > Home: toggle that shows the Chief pet, a small Chief character floating over every app. Chief is a product name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Chief Pet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار رفيق Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži Chief ljubimca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis Chief-kæledyr"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-Begleiter anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar mascota Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher le compagnon Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra mascotte Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ペットを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញសត្វចិញ្ចឹម Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 펫 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis Chief-kjæledyr"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż zwierzaka Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar mascote Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать питомца Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงสัตว์เลี้ยง Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief evcil hayvanını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати улюбленця Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện thú cưng Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示 Chief 宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示 Chief 寵物"
+          }
+        }
+      }
+    },
+    "settings.home.chiefPetEnabled.help": {
+      "comment": "Settings > Home: help under the Show Chief Pet toggle. Chief is a product name; a session is an agent or terminal session.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يطفو Chief صغير فوق كل التطبيقات ويعرض أحداث الوكلاء فوقه. اسحبه إلى أي مكان؛ انقر عليه لمراسلة Chief أو الرد على جلسة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mali Chief lebdi iznad svih aplikacija i prikazuje događaje agenata iznad sebe. Prevucite ga bilo gdje; kliknite ga da pošaljete poruku Chiefu ili odgovorite sesiji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En lille Chief svæver over alle apps og viser agenthændelser over sig. Træk den hvorhen du vil; klik på den for at skrive til Chief eller svare en session."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein kleiner Chief schwebt über allen Apps und zeigt Agent-Ereignisse über sich an. Zieh ihn an eine beliebige Stelle; klick ihn an, um Chief zu schreiben oder einer Sitzung zu antworten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un pequeño Chief flota sobre todas las apps y muestra encima los eventos de los agentes. Arrástralo a cualquier sitio; haz clic para escribir a Chief o responder a una sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un petit Chief flotte au-dessus de toutes les apps et affiche au-dessus de lui les événements des agents. Faites-le glisser où vous voulez ; cliquez dessus pour écrire à Chief ou répondre à une session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un piccolo Chief fluttua sopra tutte le app e mostra sopra di sé gli eventi degli agenti. Trascinalo ovunque; fai clic per scrivere a Chief o rispondere a una sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "小さな Chief がすべてのアプリの上に浮かび、エージェントのイベントをその上に表示します。好きな場所にドラッグでき、クリックすると Chief にメッセージを送ったりセッションに返信したりできます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief តូចមួយអណ្ដែតលើកម្មវិធីទាំងអស់ ហើយបង្ហាញព្រឹត្តិការណ៍ភ្នាក់ងារពីលើវា។ អូសវាទៅកន្លែងណាក៏បាន ចុចវាដើម្បីផ្ញើសារទៅ Chief ឬឆ្លើយតបវគ្គមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작은 Chief가 모든 앱 위에 떠 있고 그 위에 에이전트 이벤트를 보여 줍니다. 원하는 곳으로 드래그하고, 클릭하면 Chief에게 메시지를 보내거나 세션에 답장할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En liten Chief svever over alle apper og viser agenthendelser over seg. Dra den hvor du vil; klikk på den for å skrive til Chief eller svare en økt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mały Chief unosi się nad wszystkimi aplikacjami i pokazuje nad sobą zdarzenia agentów. Przeciągnij go w dowolne miejsce; kliknij, aby napisać do Chief lub odpowiedzieć sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um pequeno Chief flutua sobre todos os apps e mostra acima dele os eventos dos agentes. Arraste-o para qualquer lugar; clique para escrever ao Chief ou responder a uma sessão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маленький Chief парит над всеми приложениями и показывает над собой события агентов. Перетащите его куда угодно; нажмите, чтобы написать Chief или ответить сеансу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ตัวเล็กลอยอยู่เหนือทุกแอปและแสดงเหตุการณ์ของเอเจนต์ไว้ด้านบน ลากไปวางที่ใดก็ได้ คลิกเพื่อส่งข้อความถึง Chief หรือตอบกลับเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Küçük bir Chief tüm uygulamaların üzerinde süzülür ve aracı olaylarını üstünde gösterir. İstediğiniz yere sürükleyin; Chief'e yazmak ya da bir oturuma yanıt vermek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маленький Chief ширяє над усіма застосунками й показує над собою події агентів. Перетягніть його куди завгодно; натисніть, щоб написати Chief або відповісти сеансу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một Chief nhỏ nổi trên mọi ứng dụng và hiện các sự kiện của tác tử phía trên. Kéo nó đến bất cứ đâu; bấm vào để nhắn cho Chief hoặc trả lời một phiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一个小小的 Chief 浮在所有应用上方，并在其上方显示代理事件。可将它拖到任意位置；点按它即可给 Chief 发消息或回复某个会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一個小小的 Chief 浮在所有 App 上方，並在其上方顯示代理事件。可將它拖到任何位置；點按它即可傳訊息給 Chief 或回覆某個工作階段。"
+          }
+        }
+      }
+    },
+    "settings.home.chiefPetMascot": {
+      "comment": "Settings > Home > Chief Pet: menu that picks the floating pet's pixel character.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Character"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الشخصية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figur"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personaje"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personnage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personaggio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キャラクター"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តួអង្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "캐릭터"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figur"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Персонаж"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวละคร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karakter"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Персонаж"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhân vật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "角色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "角色"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.orb": {
+      "comment": "Chief pet character: a round dark creature (Orb).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orb"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kugla"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kugle"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kugel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orbe"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orbe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sfera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オーブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រាប់មូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "오브"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kule"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kula"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orbe"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шар"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลูกกลม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Küre"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Куля"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quả cầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圆球"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圓球"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.orb-spark": {
+      "comment": "Chief pet character: a pale round creature with a spark (Orb Spark).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orb Spark"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كرة متلألئة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iskričava kugla"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gnistkugle"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Funkenkugel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orbe chispa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orbe étincelle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sfera scintilla"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スパークオーブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រាប់មូលភ្លឺ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스파크 오브"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gnistkule"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iskrząca kula"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orbe faísca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Искрящийся шар"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลูกกลมประกาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kıvılcım küre"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Іскриста куля"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quả cầu lấp lánh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "闪光圆球"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "閃光圓球"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.orb-hood": {
+      "comment": "Chief pet character: a round creature in a lantern-like hood (Hooded Orb).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooded Orb"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كرة بقلنسوة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kugla s kapuljačom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kugle med hætte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kugel mit Kapuze"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orbe con capucha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orbe à capuche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sfera incappucciata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フードオーブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រាប់មូលពាក់មួក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "후드 오브"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kule med hette"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kula w kapturze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orbe com capuz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шар в капюшоне"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลูกกลมสวมฮู้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapüşonlu küre"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Куля в каптурі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quả cầu đội mũ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "兜帽圆球"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "兜帽圓球"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.machine": {
+      "comment": "Chief pet character: a small robot (Machine).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "マシン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องจักร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cỗ máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "機器"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.machine-cyan": {
+      "comment": "Chief pet character: the small robot in cyan (Cyan Machine).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cyan Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آلة سماوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cijan mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cyan maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cyan-Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina cian"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine cyan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina ciano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "シアンマシン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនពណ៌ផ្ទៃមេឃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시안 머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cyan maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cyjanowa maszyna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina ciano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Голубая машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องจักรสีฟ้าอมเขียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Camgöbeği makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Блакитна машина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cỗ máy lục lam"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "青色机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "青色機器"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.machine-blue": {
+      "comment": "Chief pet character: the small robot in blue (Blue Machine).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blue Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آلة زرقاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plava mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blå maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blaue Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina azul"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine bleue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina blu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ブルーマシン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនពណ៌ខៀវ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "블루 머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blå maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niebieska maszyna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina azul"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Синяя машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องจักรสีน้ำเงิน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mavi makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Синя машина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cỗ máy xanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "蓝色机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "藍色機器"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.moon": {
+      "comment": "Chief pet character: a moth-like creature with moon antennae (Moon).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قمر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mjesec"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Måne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mond"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luna"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lune"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ムーン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ព្រះចន្ទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "문"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Måne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Księżyc"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lua"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Луна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พระจันทร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ay"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Місяць"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mặt trăng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "月亮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "月亮"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.moon-blue": {
+      "comment": "Chief pet character: a blue cloud-like creature (Blue Moon).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blue Moon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قمر أزرق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plavi mjesec"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blå måne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blauer Mond"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luna azul"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lune bleue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luna blu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ブルームーン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ព្រះចន្ទពណ៌ខៀវ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "블루 문"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blå måne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niebieski księżyc"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lua azul"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Голубая луна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พระจันทร์สีฟ้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mavi ay"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Блакитний місяць"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trăng xanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "蓝月亮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "藍月亮"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.fox": {
+      "comment": "Chief pet character: a fox with a cape (Fox).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fox"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ثعلب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lisica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ræv"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuchs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zorro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volpe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キツネ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កញ្ជ្រោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여우"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rev"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lis"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raposa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лиса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จิ้งจอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilki"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лис"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cáo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "狐狸"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "狐狸"
+          }
+        }
+      }
+    },
     "settings.browser.verificationAutofill.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -130249,6 +130379,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "同一窗格中的分頁"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundBlur.summary": {
+      "comment": "One-line summary of the window Material setting (Frosted, Glass, Clear Glass, None) in the wallpaper card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Glass shows the desktop through the wallpaper"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُظهر الزجاج الشفاف سطح المكتب عبر الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozirno staklo prikazuje radnu površinu kroz pozadinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glas viser skrivebordet gennem baggrunden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klares Glas zeigt den Schreibtisch durchs Hintergrundbild"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El vidrio claro muestra el escritorio a través del fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le verre clair montre le bureau à travers le fond"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il vetro chiaro mostra la scrivania attraverso lo sfondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリアガラスでは壁紙越しにデスクトップが見えます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់ថ្លាបង្ហាញផ្ទៃតុតាមរយៈផ្ទាំងរូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "투명 유리는 배경화면 너머로 데스크탑을 보여 줍니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glass viser skrivebordet gjennom bakgrunnen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przezroczyste szkło pokazuje biurko przez tapetę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vidro claro mostra a mesa através do papel de parede"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозрачное стекло показывает рабочий стол сквозь обои"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจกใสจะแสดงเดสก์ท็อปผ่านภาพพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şeffaf Cam, masaüstünü duvar kâğıdının ardından gösterir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозоре скло показує робочий стіл крізь шпалери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kính trong cho thấy màn hình nền qua hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃会透过墙纸显示桌面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃會透過桌布顯示桌面"
           }
         }
       }
