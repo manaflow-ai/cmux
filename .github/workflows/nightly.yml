@@ -145,7 +145,10 @@ concurrency:
   # A six-hour cache warmup must not wait behind a publishing nightly build or
   # hold one behind a saturated runner pool. Each lane has its own group, and
   # a newer run may replace only a pending run. An in-flight nightly must always
-  # finish so a 42-minute macOS build is not discarded by the next push.
+  # finish so its work is not discarded by the next push. Measured 2026-10-20
+  # on nightly-next: build-nightly-app takes 12-14 min on the warm worker
+  # (Release compile 4-6 min), and a run takes 43-63 min to publish, about
+  # 11 min of it Apple's notarization.
   # nightly-next has its own group. Sharing main's group (#18150) let every
   # main push replace the pending nightly-next run (run 37579667979, cancelled
   # by main push run 37580645859 before any job ran), so nightly-next starved.
@@ -2229,12 +2232,6 @@ jobs:
           app="build-universal/Build/Products/Release/cmux.app"
           scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/cmux"
 
-      - name: Prove the browser-data import is compiled out (cx-f58x notary test)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')
-        run: |
-          set -euo pipefail
-          scripts/ci/check-browser-data-import-absent.sh "build-universal/Build/Products/Release/cmux.app"
-
       - name: Bound Xcode compilation cache size
         if: inputs.nightly_next_unsigned_run == ''
         id: compilation-cache-bound
@@ -2769,6 +2766,21 @@ jobs:
           products="build-universal/Build/Products/Release"
           mkdir -p "$products"
           tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
+
+      # The cx-f58x browser-data scan runs here, on the per-run hosted lane,
+      # before anything is injected or signed. In build-nightly-app it took
+      # 54-55 s of the 12-14 minute warm slot that serializes every nightly-next
+      # build (runs 39371003711, 39373745957, 39374887542). It scans file
+      # contents, so the strip before transfer does not hide anything from it;
+      # it now also covers what build-nightly-app adds after the compile (the
+      # Computer Use helper, cmux-symbols.bin), which is the bundle that ships.
+      # The password-reader proof reads symbols with nm, which the strip
+      # removes, so it stays right after the compile in build-nightly-app.
+      - name: Prove the browser-data import is compiled out (cx-f58x notary test)
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')
+        run: |
+          set -euo pipefail
+          scripts/ci/check-browser-data-import-absent.sh "build-universal/Build/Products/Release/cmux.app"
 
 
       - name: Inject universal Ghostty CLI helper
