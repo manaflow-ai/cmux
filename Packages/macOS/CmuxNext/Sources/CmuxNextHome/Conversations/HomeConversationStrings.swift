@@ -11,6 +11,8 @@ enum HomeConversationStrings {
     static var newMessage: String { String(localized: "home.list.newMessage", defaultValue: "New Message…", bundle: .module) }
     static var newChief: String { String(localized: "home.list.newChief", defaultValue: "New Chief…", bundle: .module) }
     static var invite: String { String(localized: "home.list.invite", defaultValue: "Invite to cmux-next…", bundle: .module) }
+    /// Group info's Invite by Email… after a `not_reachable` refusal.
+    static var inviteByEmail: String { String(localized: "home.groupInfo.inviteByEmail", defaultValue: "Invite by Email…", bundle: .module) }
     static var empty: String {
         String(localized: "home.list.empty", defaultValue: "No conversations yet. Start one with New Message.", bundle: .module)
     }
@@ -38,6 +40,17 @@ enum HomeConversationStrings {
         return String(localized: "home.list.cloudUnavailable", defaultValue: "Cloud conversations are not available right now.", bundle: .module)
     }
     static var untitled: String { String(localized: "home.list.untitled", defaultValue: "Conversation", bundle: .module) }
+
+    // MARK: Chiefs (HomeChiefRoster)
+
+    /// The main Chief's tag in the list.
+    static var mainChief: String { String(localized: "home.list.chief.main", defaultValue: "Main", bundle: .module) }
+    /// A Chief that runs on this Mac.
+    static var placeThisMac: String { String(localized: "home.list.chief.thisMac", defaultValue: "This Mac", bundle: .module) }
+    /// A Chief that runs in the cloud (the Hosted Chief).
+    static var placeCloud: String { String(localized: "home.list.chief.cloud", defaultValue: "Cloud", bundle: .module) }
+    /// A Chief on a paired server whose name is not known yet.
+    static var placeServer: String { String(localized: "home.list.chief.server", defaultValue: "Paired server", bundle: .module) }
 
     // MARK: Message requests (home-messaging-invites DESIGN 2.3, 2.5)
 
@@ -87,7 +100,6 @@ enum HomeConversationStrings {
     static var composeNoContacts: String {
         String(localized: "home.compose.noContacts", defaultValue: "No teammates yet. Invite someone by email.", bundle: .module)
     }
-    static var inviteByEmail: String { String(localized: "home.compose.inviteByEmail", defaultValue: "Invite by Email…", bundle: .module) }
     static var sourceTeam: String { String(localized: "home.compose.source.team", defaultValue: "Team", bundle: .module) }
     static var sourceConnection: String { String(localized: "home.compose.source.connection", defaultValue: "Contact", bundle: .module) }
     static var sourceAgent: String { String(localized: "home.compose.source.agent", defaultValue: "Chief", bundle: .module) }

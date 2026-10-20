@@ -408,6 +408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()
+        services?.iphone.stop()
         services?.daemon.shutdownConnection()
     }
 

@@ -12,7 +12,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops
+        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -194,6 +194,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
             // Remote Hosting (this Mac for your other devices) beside it.
             groups: [group("settings.group.phone"), group("settings.group.remoteHosting")],
             lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
+        // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
+        CategorySpec(
+            id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",
+            groups: [group("settings.group.mobile")], trail: [.mobile]),
         CategorySpec(
             id: "advanced", title: section(.advanced), symbol: "curlybraces", groups: [],
             lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]),

@@ -93,7 +93,7 @@ impl Brain {
             spawn,
             ids,
             queued,
-            limit: self.live_cap(),
+            limit: self.live_cap_source(),
             engine: self.spawn_engine(),
         })
     }
@@ -453,7 +453,7 @@ impl Brain {
                 sub.status = SubStatus::Done;
                 sub.stopped = false;
                 sub.report = Some(format!(
-                    "stopped: {reason}. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
+                    "stopped after a retryable network error. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
                     crate::auto_resume::NETWORK_WAIT_MAX.as_secs() / 60
                 ));
             }
@@ -852,10 +852,16 @@ impl Brain {
 
     /// The live cap: `control cap` (0: none) over the env's.
     pub(super) fn live_cap(&self) -> Option<usize> {
+        self.live_cap_source().map(crate::subagents::LiveCap::n)
+    }
+
+    /// The live cap with where it came from (`control cap` over the env).
+    pub(super) fn live_cap_source(&self) -> Option<crate::subagents::LiveCap> {
+        use crate::subagents::LiveCap;
         match self.state.live_cap {
             Some(0) => None,
-            Some(n) => Some(n),
-            None => self.max_live,
+            Some(n) => Some(LiveCap::Control(n)),
+            None => self.max_live.map(LiveCap::Env),
         }
     }
 

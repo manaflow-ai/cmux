@@ -49,6 +49,7 @@ extension SettingsWindowService {
                                // A build that may not change hosting (not release or NIGHTLY): toggle off, with a note.
                                "read_only": .bool(!services.remoteHosting.owner),
                                "note": services.remoteHosting.readOnlyNote.map(JSONValue.string) ?? .null],
+            "iphone": services.iphone.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),

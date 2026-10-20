@@ -1,4 +1,6 @@
 import CmuxNextActions
+import CmuxNextBridge
+import CmuxNextLayout
 
 /// Hide Tab Bar / Show Tab Bar and New Horizontal Tab (cx-soza): a pane's own
 /// tab bar choice (``PaneTabBarChoices``, the only way a tab bar hides), and
@@ -28,7 +30,10 @@ enum PaneTabBarHandlers {
         // An app workspace's one pane shows its app without a tab bar (`app-screens-v1`).
         // After both binds: `bind` registers a fresh action and drops an earlier hide rule.
         for id in [toggle, newTab] {
-            ActionTargetVisibility.hide(id, in: registry) { invocation in ctx.paneController(invocation)?.isAppPane ?? false }
+            // The Home Chief pane has no tab bar to show and takes no new tab (home-chief-pane.md).
+            ActionTargetVisibility.hide(id, in: registry) { invocation in
+                ctx.paneController(invocation).map { $0.isAppPane || $0.isPinnedDockPane } ?? false
+            }
         }
     }
 }
@@ -36,6 +41,14 @@ enum PaneTabBarHandlers {
 extension PaneController {
     /// An app workspace's pane: it never shows a tab bar.
     var isAppPane: Bool { daemon.store.workspace(containing: pane.handle)?.app != nil }
+
+    /// A pane of a pinned dock that takes no other tab (the Home Chief pane, `pinned-dock-v1`):
+    /// it shows no tab bar and never closes.
+    var isPinnedDockPane: Bool {
+        let column = daemon.store.workspace(containing: pane.handle)?.screens.lazy.flatMap(\.columns)
+            .first { $0.layout.paneIDs.contains(self.pane.handle) }
+        return column?.dock.map { !LayoutMapping.dock($0).takesTabs } ?? false
+    }
 
     /// Shows or hides this pane's tab bar now. Shown is the default, so it is no choice.
     func showTabBar(_ shown: Bool) {
