@@ -90,6 +90,25 @@ async fn an_offered_chat_is_a_chip_only_the_person_starts_and_it_reports_its_par
     let summary = hub.session_summary(&started);
     assert_eq!(summary["parentId"], id.as_str(), "{summary}");
     assert!(summary["forkSeq"].is_null(), "an offered chat is not a fork: {summary}");
+    // It is this chat's sub-session too: the agent that offered it lists,
+    // reads and waits on it with its cmux-subsessions tools.
+    assert_eq!(summary["startedBy"], id.as_str(), "{summary}");
+    assert_eq!(summary["depth"], 1, "{summary}");
+    assert_eq!(summary["shortName"], "fix-the-flaky-upload-test", "{summary}");
+    assert_eq!(hub.session_summary(&session)["children"], 1);
+    let family = hub.subsession_list(&session, false);
+    assert_eq!(family["sessions"][0]["sessionId"], child.as_str(), "{family}");
+    // The person started it in a mode they chose, which may allow more than
+    // the offering agent's own: that agent reads it, but neither prompts it
+    // nor stops or closes it.
+    assert!(hub.subsession_target(&session, &child, true).is_ok());
+    for parent_ok in [true, false] {
+        let Err(e) = hub.subsession_write_target(&session, &child, parent_ok) else {
+            panic!("the offering agent may write to the chat the person started");
+        };
+        let data = e.data.clone().unwrap_or_default();
+        assert_eq!(data["reason"], "subsessions.person_started", "{e:?}");
+    }
     let events = hub.events(&id, 0, 10_000).unwrap();
     assert!(
         events.iter().any(|e| e.kind == "session_offer_decision" && e.msg["outcome"] == "accepted")
@@ -345,4 +364,45 @@ async fn suggested_tasks_tool_offers_each_task_in_one_group() {
     let titles: Vec<&str> = offers.iter().filter_map(|o| o["title"].as_str()).collect();
     assert_eq!(titles, ["Task 0", "Task 1", "Task 2"]);
     assert!(offers.iter().all(|o| o["groupId"] == group), "{offers:?}");
+}
+
+/// The `instructions` an MCP server gives at `initialize`.
+#[cfg(unix)]
+async fn mcp_instructions(server: &str, session_env: &str) -> String {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let scratch = std::env::temp_dir().join(format!("amx-instr-{}-{server}", std::process::id()));
+    let mut mcp = crate::daemon_env::tokio_command(&scratch, crate::daemon_env::Agents::Deny)
+        .arg(server)
+        .env(session_env, "s-instructions")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut stdin = mcp.stdin.take().unwrap();
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}});
+    stdin.write_all(format!("{init}\n").as_bytes()).await.unwrap();
+    let mut lines = BufReader::new(mcp.stdout.take().unwrap()).lines();
+    let line = tokio::time::timeout(Duration::from_secs(30), lines.next_line())
+        .await
+        .expect("initialize timed out")
+        .unwrap()
+        .expect("the server closed");
+    let reply: Value = serde_json::from_str(&line).unwrap();
+    reply["result"]["instructions"].as_str().unwrap_or_default().to_owned()
+}
+
+/// The session servers tell the agent when to start a session and when to
+/// suggest one, and point at the cmux tools for reaching the user.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_session_servers_say_when_to_start_and_when_to_suggest() {
+    let sub = mcp_instructions("subsession-mcp", acpmux::subsession_mcp::SESSION_ENV).await;
+    assert!(sub.contains("start_session only when the user asked"), "{sub}");
+    for tool in ["workspace_open_url", "notification_create", "agent_report"] {
+        assert!(sub.contains(tool), "{tool}: {sub}");
+    }
+    let offers = mcp_instructions("offer-mcp", acpmux::offer_mcp::SESSION_ENV).await;
+    assert!(offers.contains("offer_session") && offers.contains("suggest_tasks"), "{offers}");
 }

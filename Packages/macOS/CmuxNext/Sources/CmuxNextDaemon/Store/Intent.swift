@@ -45,6 +45,12 @@ public enum Intent: Sendable, Hashable {
     /// pane with the same public id replaces it or the split is refused
     /// (plans/cmux-next/remote-state-ownership.md S3).
     case splitPane(pane: PaneID, direction: SplitDirection, ratio: Double, provisional: ProvisionalPane)
+    /// `create-workspace` + its first tab (`new-conversation-tab {workspace, transaction}`): the
+    /// workspace shows in the input's frame, at daemon-order `index` (nil: the end), with its one
+    /// tab, until the daemon's workspace under the same key holds its first tab or the create
+    /// fails (Cmd-N, instant-new-surfaces). Its first tab is a provisional tab, so the
+    /// conservation check does not count it.
+    case createWorkspace(provisional: ProvisionalWorkspace, index: Int?)
 }
 
 /// One row's height in permille (`set-row-heights` `heights[]`).

@@ -189,8 +189,9 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         switch self {
         case .system: return imageURL(for: dark ? .dark : .light)
         case .desktop:
-            guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
-            return NSWorkspace.shared.desktopImageURL(for: screen)
+            // macOS can report a file that is gone, a folder or a wallpaper description; resolve
+            // it to a picture that decodes (the fill color when there is none).
+            return DesktopPicture(screen: NSScreen.main ?? NSScreen.screens.first).resolvedURL(dark: dark)
         case .art, .file, .collage: return imageURL
         }
     }

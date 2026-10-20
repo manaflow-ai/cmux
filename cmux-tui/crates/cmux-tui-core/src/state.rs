@@ -23,6 +23,8 @@ pub(crate) mod agent_messages;
 pub(crate) mod agent_start;
 pub(crate) mod app_workspaces;
 pub(crate) mod browser_devices;
+#[cfg(test)]
+mod browser_devices_data_tests;
 pub(crate) mod browser_devices_ops;
 #[cfg(test)]
 mod closed_browser_history_tests;
@@ -110,6 +112,8 @@ pub(crate) mod stash;
 mod stash_member_tests;
 #[cfg(test)]
 mod stash_protocol_tests;
+#[cfg(test)]
+mod stash_restore_tests;
 pub(crate) mod stash_router;
 pub(crate) mod stash_store;
 pub(crate) mod status_meta;

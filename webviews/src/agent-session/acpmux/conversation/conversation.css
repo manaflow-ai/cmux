@@ -159,6 +159,38 @@
   overflow: auto;
 }
 
+/* A prompt the Chief sent a subagent: a quiet "From the Chief" line above it, and a long task
+   collapsed to its first lines with Show all under it (ChiefPromptBubble.tsx). */
+.cv-user__from {
+  margin-bottom: 2px;
+  padding-right: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+}
+.cv-user__bubble--collapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+  overflow: hidden;
+}
+.cv-user__expand {
+  margin-top: 2px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+  cursor: pointer;
+}
+.cv-user__expand:hover {
+  color: var(--agent-text);
+}
+
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
 .cv-user__status {
   display: flex;
@@ -762,6 +794,12 @@ pre.cv-math-source {
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
 }
+/* The spacer is the scroller's extent, which a followed view's offset is set against in the same
+   frame: under Reduce Motion's 0.01ms transitions (shared/desktop.css) it kept its old height for
+   that frame, and the offset clamped short of the end and stayed there. */
+.acpmux-spacer {
+  transition: none;
+}
 .acpmux-row {
   left: var(--cv-inset);
   right: var(--cv-inset);
@@ -1014,6 +1052,35 @@ pre.cv-math-source {
 .cv-worked__chevron {
   margin-top: 3px;
   margin-left: 2px;
+}
+/* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
+   to one line and give way at the line's end, never wrapping it to a second. */
+.cv-worked__count {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 4px;
+  margin-left: 2px;
+  white-space: nowrap;
+}
+.cv-worked__open {
+  all: unset;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 4px;
+  color: var(--agent-accent);
+  cursor: pointer;
+}
+.cv-worked__open:hover {
+  text-decoration: underline;
+}
+.cv-worked__open:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+}
+.cv-worked__label {
+  flex: none;
 }
 /* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
 @keyframes cv-thinking-sweep {
@@ -1579,6 +1646,28 @@ pre.cv-math-source {
   }
 }
 
+/* cx-2lv1k: a row from a page of older history fades in once, the first time the reader scrolls it
+ * into view at the top edge (OlderRowFade in App.tsx). It waits at a soft 0.35 until then, out of
+ * view, so the fade starts from ink already there and never from a blank band. Opacity only: no
+ * row moves or changes height, so the anchoring that holds the reader's place is untouched. Reduce
+ * Motion draws it in full ink at once; ui.animationSpeed off makes the fade instant (the token is 0). */
+@keyframes acpmux-older-in {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-row--older:not([data-older-shown]) {
+    opacity: 0.35;
+  }
+  .acpmux-row--older[data-older-shown] {
+    animation: acpmux-older-in var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+
 /* R104: an open fence draws plain lines in Pierre's metrics (12px on 20px lines, no wrap), so its
  * height is final as it grows; Pierre highlights it once when it closes (StreamingCode.tsx). */
 .cv-code-plain {
@@ -1946,6 +2035,10 @@ pre.cv-math-source {
   height: 180px;
   background: var(--agent-page-bg);
 }
+/* A gallery stage's placeholder takes its live frame's height (previewUrl.ts GALLERY_FRAME_HEIGHT). */
+.acpmux-turn-preview-unloaded--live {
+  height: 360px;
+}
 .acpmux-turn-preview-load {
   height: 28px;
   padding: 0 10px;
@@ -2081,6 +2174,15 @@ pre.cv-math-source {
 .cv-diagram__chart svg {
   max-width: 100%;
   height: auto;
+}
+/* Ondine's monochrome diagrams take the pane's colors (its defaults are black on white). */
+.cv-diagram__chart svg.ondine {
+  --ondine-fg: var(--agent-text);
+  --ondine-bg: var(--agent-page-bg);
+  --ondine-muted: var(--agent-text);
+  --ondine-line: var(--agent-text);
+  --ondine-border: var(--agent-text);
+  --ondine-surface-alt: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg));
 }
 .cv-diagram__error {
   padding: 8px 10px;
@@ -2291,8 +2393,9 @@ pre.cv-math-source {
   }
 }
 /* Static status indicators (cx-sya4n): the dots hold still. Reduce Motion gets the same static
-   dots, swapped in without the morph, since both rules above sit under no-preference. */
-:root[data-status-indicators="static"] .acpmux-jump-latest__dots i {
+   dots, swapped in without the morph, since both rules above sit under no-preference. The selector
+   repeats the loop's [data-shown][data-working] so it outranks it. */
+:root[data-status-indicators="static"] .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
   animation: none;
 }
 @keyframes acpmux-jump-latest-dot {
@@ -2428,6 +2531,44 @@ pre.cv-math-source {
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
+  color: var(--agent-danger);
+}
+
+/* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */
+/* The compaction note under the facts line: wraps (it is a sentence or three), indented to the
+   facts' text, quiet until dismissed. */
+.cv-session-start__compaction {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding-left: 22.5px;
+  line-height: 18px;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-session-start__compaction-text {
+  min-width: 0;
+  flex: 1;
+}
+.cv-session-start__dismiss {
+  all: unset;
+  flex: none;
+  display: flex;
+  padding: 3px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-session-start__dismiss:hover {
+  color: var(--agent-text);
+}
+.cv-session-start__dismiss:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+
+/* ---------- A compaction (CompactionNote.tsx) ---------- */
+.cv-compaction[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
 }
 

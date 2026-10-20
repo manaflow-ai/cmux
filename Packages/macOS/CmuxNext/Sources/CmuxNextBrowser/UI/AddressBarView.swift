@@ -48,6 +48,8 @@ public final class AddressBarView: NSView {
     private var cursorRectsEditing = false
     /// The text area the bar's cursor rects were last built for.
     private var cursorTextArea = NSRect.zero
+    /// The page's title, for a drag of the address out of the bar.
+    public var pageTitle: (() -> String?)?
     /// The page's URL changed (the host refreshes the bookmark star).
     public var onPageURLChange: ((URL?) -> Void)?
     /// Set by `focus()` for the responder change it causes.
@@ -104,6 +106,12 @@ public final class AddressBarView: NSView {
         controller.onEffect = { [weak self] effect in self?.perform(effect) }
         controller.onStep = { [weak self] in self?.updateChrome() }
 
+        // The page drags out of the location icon while the field shows it.
+        chip.dragItem = { [weak self] in
+            guard let self, !controller.state.hasFocus, let url = controller.state.pageURL,
+                  !BrowserNewTabPage.isNewTabPage(url) else { return nil }
+            return BrowserURLDragItem(url: url, title: pageTitle?())
+        }
         field.setPlaceholder(Strings.omnibarPlaceholder)
         field.delegate = self
         field.sink = self

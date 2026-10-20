@@ -25,7 +25,8 @@ struct PendingPlacement {
 // owning daemon.
 extension WindowManager {
     func applyPendingPlacements(live: Set<String>) {
-        for (id, pending) in pendingPlacements where live.contains(id) {
+        // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
+        for (id, pending) in pendingPlacements where live.contains(id) && services.machines.workspace(id: id)?.0.isProvisional != true {
             pendingPlacements[id] = nil
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let machine = services.machines.daemon(forWorkspace: id)?.machineID else { continue }

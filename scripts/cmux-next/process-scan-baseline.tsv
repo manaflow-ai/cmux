@@ -5,7 +5,7 @@
 # you remove sites, delete the row at 0. `keep` rows are reviewed exceptions
 # (peer authentication of one connected socket, one held child, this process's
 # own children); a new `keep` row needs a review note in the commit.
-cmux-tui/crates/acpmux/src/adopt_live.rs	2	remove	cx-t2sqm.2
+cmux-tui/crates/acpmux/src/adopt_live.rs	1	remove	cx-t2sqm.2 (OpenCode only; Claude and Codex use their recorded holders)
 cmux-tui/crates/acpmux/src/agent_host/tree.rs	1	remove	cx-t2sqm.3
 cmux-tui/crates/acpmux/src/hub/pool/reaper.rs	1	remove	cx-t2sqm.3
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/session_cleanup.rs	2	remove	cx-t2sqm.4
@@ -41,3 +41,4 @@ Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperV2.swift	1	
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPanePersonInput.swift	1	keep	peer authentication of one posted event source pid
 Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/PeerInspector.swift	1	remove	cx-t2sqm.11 (walks the peer's ancestors; decision D5)
 cmux-tui/crates/cmux-server/src/health/mod.rs	1	keep	reads the system route table under /proc/net, not processes
+cmux-tui/crates/cmux-tui-platform/src/platform/codex_daemon.rs	4	keep	this process's own parents, at most 2, no enumeration: a Codex hook refuses the route its shared app-server daemon inherited (#20757)

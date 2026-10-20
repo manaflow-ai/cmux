@@ -20,6 +20,9 @@ final class TabCell {
             stateChanged(animated: false)
         }
     }
+    /// One of several selected tabs (Cmd- or Shift-click) that is not the active one: a lighter
+    /// fill than the active tab's (`Palette.secondarySelectionFill`, Chrome's selected tabs).
+    var isMultiSelected = false { didSet { if oldValue != isMultiSelected { stateChanged(animated: false) } } }
     var isHovered = false { didSet { if oldValue != isHovered { stateChanged() } } }
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true, showing: isCloseHovered) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
@@ -68,7 +71,7 @@ final class TabCell {
     var scale: CGFloat = 1 {
         didSet {
             guard oldValue != scale else { return }
-            for sublayer in [titleLayer, iconLayer, closeGlyphLayer, machineLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
+            for sublayer in [titleLayer, iconLayer, closeGlyphLayer, machineLayer, hibernationRingLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
             spinnerLayer?.contentsScale = scale
             updateColors(animated: false)
             layoutLayers()
@@ -113,6 +116,7 @@ final class TabCell {
     var profileLayer: CALayer? // browser profile dot (TabCell+ProfileBadge)
     var presenceLayer: CALayer? // the acting agent's dot (TabCell+PresenceDot)
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
+    var hibernationRingLayer: CAShapeLayer? // dotted ring of a hibernated tab (TabCell+HibernationRing)
 
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
 
@@ -179,6 +183,7 @@ final class TabCell {
     private func applyItem(previous: TabItem?) {
         if previous?.title != item.title {
             measuredTitle = nil
+            crossfadeRename(from: previous?.title)
             titleLayer.string = displayTitle
         }
         if previous?.indicator != item.indicator || previous?.busyStyle != item.busyStyle {
@@ -190,9 +195,33 @@ final class TabCell {
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
         if previous?.presence != item.presence { updatePresenceDot() }
         if previous?.audio != item.audio { updateAudioBadge() }
+        // Animated only for a tab that hibernates or wakes while it is in the strip.
+        if (previous?.isDormant ?? false) != item.isDormant { updateHibernationRing(animated: previous != nil) }
         updateColors(animated: false)
         updateAccessibility()
         layoutLayers()
+    }
+
+    /// The name this Mac's inline rename just committed: its echo is direct manipulation (DESIGN.md
+    /// 1.4 rule 4), already drawn by the editor, so it swaps without the crossfade. The next title
+    /// change clears it.
+    var directTitle: String?
+
+    /// A rename (on another device, by an agent) crossfades the title in
+    /// place on `crossfade` (plans/cmux-next/sync-ux/DESIGN.md 1.4 rule 6): the
+    /// tab's width comes from the strip's layout, not from the text, so nothing
+    /// else moves. A cell's first title and an untitled tab swap at once; the
+    /// fade is at most `crossfade` under Reduce Motion and none when fades are off.
+    private func crossfadeRename(from old: String?) {
+        let direct = directTitle
+        directTitle = nil
+        guard let old, !old.isEmpty, !item.title.isEmpty, item.title != direct else { return }
+        let seconds = Motion.duration(.crossfade)
+        guard seconds > 0 else { return }
+        let transition = Motion.crossfadeAction
+        transition.duration = seconds
+        transition.timingFunction = Motion.fadeCurve
+        titleLayer.add(transition, forKey: "cmux.tabRename")
     }
 
     var displayTitle: String {
@@ -239,7 +268,7 @@ final class TabCell {
     /// `showing` is whether the fill that changed shows: the tab's by
     /// default, the close button's for its own hover.
     func updateColors(animated: Bool, showing: Bool? = nil) {
-        let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isHovered)) : nil
+        let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isMultiSelected || isHovered)) : nil
         // An instant change also ends a fill still easing in.
         if (token.map(Motion.duration) ?? 0) == 0 {
             for layer in [backgroundLayer, closeBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
@@ -250,13 +279,16 @@ final class TabCell {
     private func applyColors() {
         themeScope.perform {
             backgroundLayer.shadowColor = Palette.shadow.cgColor
-            let fill: NSColor? = fillsSelection ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
+            let multi = isMultiSelected && !isSelected
+            let fill: NSColor? = fillsSelection ? Palette.selectionFill : multi ? Palette.secondarySelectionFill : (isHovered ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             if isLifted {
                 // A lifted tab reads as solid so it does not show tabs sliding under it.
                 backgroundLayer.backgroundColor = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary)?.cgColor
             }
-            let text = isSelected ? Palette.textPrimary : item.isDormant ? Palette.textTertiary : Palette.textSecondary
+            // A hibernated tab keeps its title color (Chrome's discarded tabs do too); the ring marks it.
+            let text = isSelected ? Palette.textPrimary : Palette.textSecondary
+            hibernationRingLayer?.strokeColor = Self.hibernationRingColor.cgColor
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = Palette.textTertiary.cgColor
             applyProfileDotColors()
@@ -278,7 +310,7 @@ final class TabCell {
         case .needsInput: return Palette.attention
         case .success: return Palette.success
         case .failure: return Palette.danger
-        case .none: return item.isUnread ? Palette.textPrimary : nil
+        case .none: return item.isUnread ? Palette.notificationBlue : nil
         }
     }
 
@@ -319,6 +351,7 @@ final class TabCell {
             isPinned: item.isPinned,
             isSelected: isSelected,
             isHovered: isHovered,
+            isClosable: item.isClosable,
             style: style,
             metrics: m
         )
@@ -347,43 +380,33 @@ final class TabCell {
                 : (bounds.width - iconSide) / 2
         }
         let iconFrame = CGRect(x: pixel(iconX), y: pixel(midY - iconSide / 2), width: iconSide, height: iconSide)
-        // A working agent keeps its brand mark, with the spinner as a small badge on it.
-        let spinnerBadgesMark = spinnerLayer != nil && { if case .agentMark = item.icon { true } else { false } }()
-        let showsIconArt = visibility.showsIcon && (spinnerLayer == nil || spinnerBadgesMark)
-        iconLayer.frame = iconFrame
-        layoutThemeBadge(iconFrame: iconFrame, visible: visibility.showsIcon)
-        // A hibernated page's icon is dimmed until it is selected.
-        iconLayer.opacity = showsIconArt ? (item.isDormant && !isSelected ? 0.55 : 1) : 0
-        if let spinnerLayer {
-            if !isSpinnerExiting { spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0 }
-            if spinnerBadgesMark {
-                let side = pixel(iconFrame.width * 0.55)
-                spinnerLayer.frame = CGRect(x: pixel(iconFrame.maxX - side + Metrics.space1), y: pixel(iconFrame.maxY - side + Metrics.space1),
-                                            width: side, height: side)
-            } else {
-                spinnerLayer.frame = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
+        // Lawrence 2026-10-19: nothing but the favicon (or the tab's icon) draws in the leading
+        // slot; the unread or status mark, the loading indicator and the other marks draw in the
+        // trailing cluster (TabCell+TrailingMarks). A tab too narrow for its title has no
+        // trailing room, so there they keep the icon's corner as before.
+        let marksOnIcon = !visibility.showsTitle
+        // On the icon, a working agent keeps its brand mark, with the spinner as a small badge on it.
+        let spinnerOnIcon = marksOnIcon && spinnerLayer != nil
+        let spinnerBadgesMark = spinnerOnIcon && { if case .agentMark = item.icon { true } else { false } }()
+        let showsIconArt = visibility.showsIcon && (!spinnerOnIcon || spinnerBadgesMark)
+        // Bounds and position, not frame: a hibernated tab's icon is scaled (TabCell+HibernationRing).
+        iconLayer.bounds = CGRect(origin: .zero, size: iconFrame.size)
+        iconLayer.position = CGPoint(x: iconFrame.midX, y: iconFrame.midY)
+        layoutHibernationRing(iconFrame: iconFrame, visible: showsIconArt)
+        iconLayer.opacity = showsIconArt ? 1 : 0
+        if marksOnIcon {
+            layoutThemeBadge(frame: themeBadgeIconFrame(iconFrame: iconFrame), visible: visibility.showsIcon)
+            if let spinnerLayer {
+                if !isSpinnerExiting { spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0 }
+                if spinnerBadgesMark {
+                    let side = pixel(iconFrame.width * 0.55)
+                    spinnerLayer.frame = CGRect(x: pixel(iconFrame.maxX - side + Metrics.space1), y: pixel(iconFrame.maxY - side + Metrics.space1),
+                                                width: side, height: side)
+                } else {
+                    spinnerLayer.frame = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
+                }
             }
-        }
-
-        let drawsStatusGlyph = layoutStatusGlyph(iconFrame: iconFrame, visible: visibility.showsIcon)
-        if visibility.showsIcon, badgeColor != nil, !drawsStatusGlyph {
-            let badgeLayer = makeBadge()
-            let badge = m.badgeSize
-            badgeLayer.frame = CGRect(
-                x: pixel(iconFrame.maxX - badge + Metrics.space1),
-                y: pixel(iconFrame.minY - Metrics.space1),
-                width: badge,
-                height: badge
-            )
-            badgeLayer.cornerRadius = badge / 2
-            badgeLayer.opacity = 1
-        } else if let badgeLayer {
-            if onPath {
-                badgeLayer.opacity = 0
-            } else {
-                badgeLayer.removeFromSuperlayer()
-                self.badgeLayer = nil
-            }
+            layoutStateMark(iconFrame: iconFrame, visible: visibility.showsIcon, onPath: onPath)
         }
 
         if let closeRect {
@@ -421,9 +444,7 @@ final class TabCell {
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
             titleLayer.opacity = 1
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
-            let badgesEnd = layoutAudioBadge(titleX: titleX, titleEnd: layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY), midY: midY)
-            let profileEnd = layoutProfileBadge(titleX: titleX, titleEnd: badgesEnd, midY: midY)
-            let visibleEnd = layoutPresenceDot(titleX: titleX, titleEnd: profileEnd, midY: midY)
+            let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath)
             // The marquee fades glyphs out across the icon-title gap.
             let geometry = TitleFadeGeometry(
                 textWidth: titleWidth(), span: span, visibleWidth: visibleEnd - titleX,

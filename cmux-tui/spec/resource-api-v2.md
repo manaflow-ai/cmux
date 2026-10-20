@@ -87,7 +87,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | App workspaces (`app-screens-v1`, one per installed app), app tabs | shared | `workspace.ensure_app` |
 | Workspace agent folder (where new agent chats start; set only by the user) | shared | `workspace.agent_folder.set` |
 | Web links of a workspace (open on its right side, reuse its browser tab) | shared | `workspace.open_url` |
-| Tab pin, zoom, user icon, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
+| Tab pin, zoom, user icon, manual unread mark, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
 | Screen pin, color, icon, order; screen groups | shared | `screen.update`, `screen.move`, `screen_group.*` |
 | Closed history (one group per close gesture, kept until deleted) | shared | `closed.list`, `closed.reopen`, `closed.delete` |
@@ -118,7 +118,8 @@ Fields that belong to an existing snapshot travel in its `extra` map, so a
 restated workspace, screen, tab, or terminal from any operation carries them:
 workspace `title`, `color`, `icon`, `ephemeral`, `kind` (`home` for the home
 workspace, absent for a normal one), `agent_folder` (absent until set); tab `pinned`,
-`tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `back`, `forward`, `owner` (the install id of the app
+`tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `marked_unread`
+(`true` while the person marked the tab unread by hand, `tab-mark-unread-v1`; absent otherwise), `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,
@@ -300,6 +301,9 @@ the folder. A workspace without one gets an app-owned agent-home folder for its
 chats; that folder is not stored here. Neither the user's home folder nor a
 folder above it is accepted (`validation.invalid`): an agent there could read
 the whole home folder.
+Every workspace snapshot also carries `extra.key`, the workspace key that its
+terminals and agent chats get as `CMUX_WORKSPACE_ID` (in UUID form), so a client
+can tell which acpmux chats run in a session's workspaces (`cmux agents chat`).
 `workspace.agent_start.get {workspace, cwd?}` (capability
 `workspace-agent-start-v1`, cx-9aps) is the one answer for where a new agent
 chat of the workspace starts: `{cwd, kind, agent_home, skipped?}`. Rules, first
@@ -489,7 +493,9 @@ members by those ids, and an id the stash no longer holds is
 target?, pane?}` reopens them like `closed.reopen` (`here`; a member whose
 own pane is gone opens in `pane`, the pane the user acted from) or in one
 new workspace (`new_workspace`); restored members leave the stash in the
-same commit. App tabs and pages that are not http(s) are never stashed.
+same commit. A restore is all or nothing: when one member cannot reopen,
+the pages it opened close again and every member stays, so a retry opens
+each page once. App tabs and pages that are not http(s) are never stashed.
 `stash.delete` drops members or a stash, `stash.import {source: onetab,
 groups}` stores OneTab groups (http(s) pages only), and `stash.list` never
 shows back/forward history. Changes are `state_upsert`/`state_delete` of
@@ -817,9 +823,17 @@ back now (nothing changes). An acpmux recipient's outcome is acpmux's
 `_acpmux/prompt_withdraw` answer. When acpmux does not answer for a delivery a
 hand-over may have reached, the outcome is `failed` with `error.reason`
 `acpmux_unavailable`; a withdraw acpmux refuses is `failed` with
-`error.reason` `withdraw_refused` and `error.acpmux_reason`. The other
+`error.reason` `withdraw_refused` and `error.acpmux_reason` (`withdraw.refused`
+when acpmux names none). A queued delivery a pump hand-over went out for,
+which acpmux never accepted, is asked too: when acpmux holds no such prompt
+the outcome is `failed` with `error.reason` `acpmux_unavailable` (the
+hand-over may still reach it, so try again), and when acpmux no longer knows
+the session (it was deleted, and no peer daemon runs it) it is `unsent` (no
+session can take it late). The other
 deliveries' outcomes still commit. A retry under the same key replays, and a
-reused key or stale `expected_revision` is refused, before acpmux is asked.
+reused key or stale `expected_revision` is refused, before acpmux is asked;
+acpmux's answers then commit even when other state changed while it
+answered.
 The result names each delivery's outcome and the message; `outcome` is
 `failed` when any delivery failed, else `too_late` when any was too late, else
 `retracted` when any was retracted, else `unsent`. An unsend runs on this machine only; the remote CLI

@@ -1,7 +1,8 @@
 import CmuxNextDesign
+import CoreText
 public import QuartzCore
 
-/// One agent's cursor: arrow, click ripple and the hidden-target indicator,
+/// One agent's cursor: arrow, name tag, click ripple and the hidden-target indicator,
 /// all CAShapeLayers under `root`, whose `position` is the arrow tip. A
 /// wrapper, not a CALayer subclass, so CoreAnimation's presentation copies
 /// never run app code.
@@ -22,15 +23,35 @@ public final class AgentCursorLayer {
     }()
 
     public let root = CALayer()
+    /// The arrow and ripple, turned with the travel heading; the name tag
+    /// and caption sit on `root` and stay level.
+    public let heading = CALayer()
     let arrow = CAShapeLayer()
     let ripple = CAShapeLayer()
     let indicator = CAShapeLayer()
+    /// The keystroke caption: a pill under and right of the arrow with what
+    /// the agent types (``AgentKeystrokeCaption``).
+    let caption = CALayer()
+    let captionText = CATextLayer()
+    /// The agent's name in a pill of its color below-right of the arrow
+    /// (``AgentCursorSessionLabel``), so the person sees whose cursor it is.
+    let nameTag = CALayer()
+    let nameText = CATextLayer()
     private let fill: CGColor
+    /// The cursor has a name tag to show.
+    let hasName: Bool
 
-    public init(color: CGColor) {
+    /// - Parameters:
+    ///   - color: The session's fill.
+    ///   - name: The name tag text; nil or empty shows no tag.
+    ///   - scale: The text's backing scale.
+    public init(color: CGColor, name: String? = nil, scale: CGFloat = 2) {
         fill = color
+        hasName = !(name ?? "").isEmpty
         root.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
         root.anchorPoint = .zero
+        heading.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
+        heading.anchorPoint = .zero
         arrow.path = Self.arrowPath
         arrow.fillColor = color
         arrow.strokeColor = CGColor(gray: 0, alpha: 0.55)
@@ -43,10 +64,103 @@ public final class AgentCursorLayer {
         indicator.path = CGPath(ellipseIn: CGRect(x: -5, y: -5, width: 10, height: 10), transform: nil)
         indicator.fillColor = color
         indicator.isHidden = true
-        root.addSublayer(ripple)
-        root.addSublayer(arrow)
+        caption.backgroundColor = CGColor(gray: 0.08, alpha: 0.86)
+        caption.borderColor = color
+        caption.borderWidth = 1.5
+        caption.cornerRadius = Self.captionHeight / 2
+        caption.anchorPoint = .zero
+        caption.opacity = 0
+        captionText.font = Self.captionFont
+        captionText.fontSize = Self.captionFontSize
+        captionText.foregroundColor = CGColor(gray: 1, alpha: 1)
+        captionText.alignmentMode = .center
+        captionText.truncationMode = .start
+        caption.addSublayer(captionText)
+        nameTag.backgroundColor = color
+        nameTag.borderColor = CGColor(gray: 0, alpha: 0.35)
+        nameTag.borderWidth = 0.5
+        nameTag.cornerRadius = Self.tagHeight / 2
+        nameTag.anchorPoint = .zero
+        nameText.font = Self.captionFont
+        nameText.fontSize = Self.tagFontSize
+        nameText.foregroundColor = CGColor(gray: 1, alpha: 1)
+        nameText.alignmentMode = .center
+        nameText.truncationMode = .end
+        nameText.contentsScale = scale
+        nameTag.addSublayer(nameText)
+        if let name, !name.isEmpty {
+            let padding: CGFloat = 7
+            let width = Self.captionWidth(name, size: Self.tagFontSize) + padding * 2
+            nameTag.frame = CGRect(origin: Self.tagOffset, size: CGSize(width: width, height: Self.tagHeight))
+            let lineHeight = ceil(Self.tagFontSize * 1.3)
+            nameText.frame = CGRect(x: padding, y: (Self.tagHeight - lineHeight) / 2, width: width - padding * 2, height: lineHeight)
+            nameText.string = name
+        } else {
+            nameTag.isHidden = true
+        }
+        heading.addSublayer(ripple)
+        heading.addSublayer(arrow)
+        root.addSublayer(heading)
         root.addSublayer(indicator)
+        root.addSublayer(nameTag)
+        root.addSublayer(caption)
     }
+
+    static let tagFontSize: CGFloat = 11
+    static let tagHeight: CGFloat = 18
+    /// The name tag's top-left corner from the arrow tip: right of the
+    /// arrow's tail, never over the point the agent acts on.
+    static let tagOffset = CGPoint(x: 14, y: 18)
+
+    static let captionFontSize: CGFloat = 12
+    static let captionHeight: CGFloat = 22
+    /// The caption's font, the bold system font (made per use: a CTFont is not Sendable).
+    static var captionFont: CTFont {
+        CTFontCreateUIFontForLanguage(.emphasizedSystem, captionFontSize, nil)
+            ?? CTFontCreateWithName("Helvetica-Bold" as CFString, captionFontSize, nil)
+    }
+    /// Where the caption's top-left corner sits from the arrow tip: right of
+    /// the arrow's tail, so it never covers the point the agent acts on.
+    static let captionOffset = CGPoint(x: 16, y: 20)
+
+    /// Where the caption goes: under the name tag when there is one.
+    var captionOrigin: CGPoint {
+        !hasName ? Self.captionOffset : CGPoint(x: Self.tagOffset.x, y: nameTag.frame.maxY + 4)
+    }
+    /// How long the caption stays after the last keystroke.
+    static let captionHideDelay: CFTimeInterval = 1.6
+    static let captionHideKey = "agentCursor.captionHide"
+
+    /// The width `text` needs in the caption font.
+    static func captionWidth(_ text: String, size: CGFloat = captionFontSize) -> CGFloat {
+        let font = size == captionFontSize ? captionFont : CTFontCreateCopyWithAttributes(captionFont, size, nil, nil)
+        let attributes = [kCTFontAttributeName as String: font] as CFDictionary
+        guard let attributed = CFAttributedStringCreate(nil, text as CFString, attributes) else { return 0 }
+        let line = CTLineCreateWithAttributedString(attributed)
+        return ceil(CTLineGetTypographicBounds(line, nil, nil, nil))
+    }
+
+    /// Shows `text` in the caption at once, then fades it out
+    /// ``captionHideDelay`` after this keystroke unless another comes.
+    func showCaption(_ text: String, scale: CGFloat) {
+        let padding: CGFloat = 9
+        let width = Self.captionWidth(text) + padding * 2
+        caption.frame = CGRect(origin: captionOrigin, size: CGSize(width: width, height: Self.captionHeight))
+        let lineHeight = ceil(Self.captionFontSize * 1.3)
+        captionText.frame = CGRect(x: padding, y: (Self.captionHeight - lineHeight) / 2,
+                                   width: width - padding * 2, height: lineHeight)
+        captionText.contentsScale = scale
+        captionText.string = text
+        caption.opacity = 1
+        caption.removeAnimation(forKey: Self.captionHideKey)
+        caption.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: Self.captionHideDelay, on: caption),
+                    forKey: Self.captionHideKey)
+    }
+
+    /// The name tag's text, nil without a tag (diagnostics: `debug.agent_cursor`).
+    public var tagText: String? { hasName ? nameText.string as? String : nil }
+    /// The keystroke caption's last text (diagnostics).
+    public var captionString: String? { captionText.string as? String }
 
     /// The person paused or took over: an outline, no fill.
     public var isPaused = false {
@@ -58,6 +172,8 @@ public final class AgentCursorLayer {
         didSet {
             indicator.isHidden = !showsIndicator
             arrow.isHidden = showsIndicator
+            caption.isHidden = showsIndicator
+            nameTag.isHidden = showsIndicator || !hasName
         }
     }
 
