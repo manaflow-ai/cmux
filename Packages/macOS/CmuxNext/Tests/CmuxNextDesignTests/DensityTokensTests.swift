@@ -36,7 +36,7 @@ import Testing
             }
             #expect(Metrics.tabStripHeight == (Metrics.compactTabs ? 26 : 28))
             #expect(Self.typeSizes() == [12, 12, 10.5, 11, 16, 10.5, 20, 13])
-            #expect(Metrics.codePanePadding == 2)
+            #expect(Metrics.tokens.resolve(compact: 2, comfortable: 4, token: "panePadding") == 2, "the density's pane padding")
             #expect(Metrics.space1 == ChromeTunables.space1.value && Metrics.space3 == ChromeTunables.space3.value
                 && Metrics.space6 == ChromeTunables.space6.value, "Compact keeps every padding step")
             #expect(Metrics.density == .compact)
