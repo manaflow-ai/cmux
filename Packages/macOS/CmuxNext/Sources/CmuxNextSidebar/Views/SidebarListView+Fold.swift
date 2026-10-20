@@ -49,7 +49,7 @@ extension SidebarListViewComponents {
             if case .workspace = layout.rows[index].key { old.row(for: layout.rows[index].key) == nil } else { false }
         }
         // Only the user's own fold moves on the spring; another client's shows in one step (calm-sidebar-movement).
-        let animate = model.followsUserIntent && (!opensWorkspaces || Motion.animates(.newWorkspace))
+        let animate = model.followsUserIntent && (!opensWorkspaces || Motion.sidebar.animates(.newWorkspace))
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var leavingRows: [(SidebarRowView, NSRect)] = []

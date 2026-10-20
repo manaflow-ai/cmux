@@ -56,10 +56,10 @@ import Testing
         Motion.reduceMotionOverride = false
         let cell = TabCell(item: item(dormant: false))
         cell.update(item: item(dormant: true))
-        if Motion.animatesMovement {
+        if Motion.indicators.animatesMovement {
             #expect(cell.iconLayer.animation(forKey: "transform") != nil, "the favicon jumps to its small size")
         }
-        if Motion.duration(.hibernateRing) > 0 {
+        if Motion.indicators.duration(.hibernateRing) > 0 {
             #expect(cell.hibernationRingLayer?.animation(forKey: "opacity") != nil, "the ring appears at once")
         }
 

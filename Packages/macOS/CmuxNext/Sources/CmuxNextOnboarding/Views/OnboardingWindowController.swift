@@ -20,7 +20,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.title = model.step == .importData ? OnboardingStrings.importTitle : OnboardingStrings.computerUseTitle
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
-        window.animationBehavior = .alertPanel
+        window.animationBehavior = Motion.panes.animatesMovement ? .alertPanel : .none
         // The close button stays visible (Lane 20: every window of its own
         // shows it); Escape and Skip also dismiss.
         // A fixed size: content never grows the window.

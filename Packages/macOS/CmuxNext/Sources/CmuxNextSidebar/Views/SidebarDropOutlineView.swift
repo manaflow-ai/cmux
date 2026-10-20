@@ -42,12 +42,12 @@ extension SidebarViewComponents {
         if overlay !== subviews.last { addSubview(overlay, positioned: .above, relativeTo: nil) }
         let rect = overlay.convert(windowRect, from: nil)
         overlay.performWithTheme {
-            overlay.ring.show(rect, cornerRadius: min(Metrics.space2, rect.height / 2), refused: refused, animated: Motion.animatesMovement)
+            overlay.ring.show(rect, cornerRadius: min(Metrics.space2, rect.height / 2), refused: refused, animated: Motion.sidebar.animatesMovement)
         }
     }
 
     func hideDropOutline() {
-        dropOutlineView?.ring.hide(animated: Motion.animatesFades)
+        dropOutlineView?.ring.hide(animated: Motion.sidebar.animatesFades)
     }
 
     /// The outline overlay, once a drag has used it (tests read its ring).
