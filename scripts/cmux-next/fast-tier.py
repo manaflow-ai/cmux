@@ -146,6 +146,11 @@ def write_receipt(path, *, status, started_wall, builds, results, total_seconds)
         hit = os.environ.get(f"CMUX_FAST_{kind.upper()}_CACHE_HIT")
         if key or hit:
             cache[kind] = {"key": key or "", "exact_hit": hit == "true"}
+    # The seed a restore by prefix picked (cmux-next.yml fast-tier): a warm run
+    # is told apart from a cold one even when no exact key hit.
+    matched = os.environ.get("CMUX_FAST_CACHE_MATCHED_KEY")
+    if matched:
+        cache["matched_key"] = matched
     payload = {
         "schema": "cmux-next-fast-tier-receipt.v1",
         "status": status,

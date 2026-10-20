@@ -5,7 +5,7 @@
  */
 import { HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { Scope } from "./domain/scopes.ts";
+import { ReportedScope, type Scope } from "./domain/scopes.ts";
 import { SnapshotId } from "./lib/ids.ts";
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
@@ -16,7 +16,7 @@ export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
 
 export class Forbidden extends Schema.TaggedError<Forbidden>()(
   "Forbidden",
-  { message: Schema.String, missingScope: Schema.optional(Scope) },
+  { message: Schema.String, missingScope: Schema.optional(ReportedScope) },
   HttpApiSchema.annotations({ status: 403 }),
 ) {}
 
