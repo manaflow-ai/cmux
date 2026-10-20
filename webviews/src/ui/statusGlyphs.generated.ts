@@ -82,7 +82,7 @@ export type StatusGlyphName = keyof typeof STATUS_GLYPHS;
 export const STATUS_GLYPH_SETS = {
   codex: {
     working: { glyph: "idle", tint: "color-mix(in srgb, var(--cmux-app-text, CanvasText) 66%, transparent)" },
-    waiting: { glyph: "waiting", tint: "var(--cmux-app-text-secondary, GrayText)" },
+    waiting: { glyph: "dot", tint: "var(--cmux-app-warning, #b26b00)" },
     permission: { glyph: "shieldLine", tint: "var(--cmux-app-text-secondary, GrayText)" },
     done: { glyph: "dot", tint: `var(--cmux-status-unread, ${STATUS_UNREAD})` },
     error: { glyph: "info", tint: "var(--cmux-app-danger, #c42b1c)" },

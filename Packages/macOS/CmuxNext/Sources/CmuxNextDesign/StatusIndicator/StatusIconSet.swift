@@ -78,7 +78,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbols: "SF Symbols, filled: hand.raised, questionmark.bubble, key, exclamationmark.circle, checkmark.circle, xmark.octagon; a spinner for work."
         case .symbolsOutline: "SF Symbols, outlined, and a spinner for work."
         case .still: "Static glyphs, never animated: half-filled ring, empty bubble, shield, check disc, ! diamond."
-        case .codex: "Codex's sidebar: a grey spinner (a still ring under Reduce Motion), blue done dot, muted line bubble and shield, red line i."
+        case .codex: "Codex's sidebar: a grey spinner (a still ring under Reduce Motion), blue done dot, attention dot for a wait, muted line shield for permission, red line i."
         }
     }
 
@@ -155,7 +155,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
             case nil: .symbol("exclamationmark.circle")
             }
         case .still: .vector(kind == .permission || kind == .auth ? .permission : .waiting)
-        case .codex: .vector(kind == .permission || kind == .auth ? .shieldLine : .waiting)
+        case .codex: .vector(kind == .permission || kind == .auth ? .shieldLine : .dot)
         }
     }
 
@@ -204,8 +204,12 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         switch state {
         case .working where state.progress == nil:
             return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .spinner)
-        case .waiting(let kind):
+        case .waiting(let kind) where kind == .permission || kind == .auth:
             return StatusIndicatorPlan(glyph: .mark(blockedMark(kind)), animation: nil, tint: .loading)
+        case .waiting:
+            // No talk bubble (Lawrence 2026-10-20: "rm the talk icon"): waiting on you is the set's
+            // one dot, in the attention tint so it reads apart from done's blue dot.
+            return StatusIndicatorPlan(glyph: .mark(.vector(.dot)), animation: nil, tint: .attention)
         case .success:
             return StatusIndicatorPlan(glyph: .mark(doneMark), animation: nil, tint: .unread)
         case .error:

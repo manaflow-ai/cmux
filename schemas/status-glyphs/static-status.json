@@ -178,9 +178,9 @@
   },
   "sets": {
     "codex": {
-      "about": "Codex-like (Leo's team, 2026-10-14): Codex's sidebar. Work spins in a neutral grey (a still ring when nothing may move), done is Codex's blue dot, waiting is a muted line symbol, and only an error is red.",
+      "about": "Codex-like (Leo's team, 2026-10-14): Codex's sidebar. Work spins in a neutral grey (a still ring when nothing may move), done is Codex's blue dot, a permission wait is a muted line shield, any other wait an attention dot (no talk bubble, Lawrence 2026-10-20), and only an error is red.",
       "working": ["idle", "spinner"],
-      "waiting": ["waiting", "loading"],
+      "waiting": ["dot", "attention"],
       "permission": ["shieldLine", "loading"],
       "done": ["dot", "unread"],
       "error": ["info", "danger"]
