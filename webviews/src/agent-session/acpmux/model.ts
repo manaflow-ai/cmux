@@ -122,6 +122,9 @@ export type AcpmuxRow = {
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
   images?: PromptImage[];
+  /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
+  /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
+  from?: "chief";
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
   retryAttachments?: ComposerAttachment[];
