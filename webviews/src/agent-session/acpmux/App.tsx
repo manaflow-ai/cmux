@@ -116,7 +116,7 @@ import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList
 import { AgentsPill } from "./subagents/AgentsPill";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
-import { chatGallery } from "./summary/chatGallery";
+import { chatHasSummaryContent } from "./summary/summaryContent";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -193,7 +193,7 @@ import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcut
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
-import { transcriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
+import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
@@ -218,7 +218,8 @@ import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
-import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
+import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
@@ -867,7 +868,7 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
   rowKind(row) !== "editedFiles" &&
-  transcriptCopyText(row).length > 0;
+  hasTranscriptCopyText(row);
 
 /// Slides the thread from `step` px below (above, when negative) to its place over 180 ms, so
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
@@ -2871,6 +2872,8 @@ function AcpmuxPane() {
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
   // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
   const [readHealth, setHarnessHealth] = useState<HarnessHealth>();
+  /// An agent CLI update on offer (hq#2569 #12): the model chip's dot and picker row, not a banner.
+  const [updateOffer, setUpdateOffer] = useState<UpdateOffer>();
   const healthHarness = snapshot.summary?.harness;
   const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
   /// `harness.health {id, refresh?, rescan?}` answered by this Mac's acpmux (the Harnesses page asks
@@ -3161,27 +3164,7 @@ function AcpmuxPane() {
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
-  const summaryHasContent = useMemo(() => {
-    if (chatGallery(snapshot.rows).length > 0) return true;
-    return snapshot.rows.some(
-      (row) =>
-        row.subagents?.length ||
-        row.backgroundTask ||
-        (row.kind === "activity" &&
-          row.items?.some((item) => {
-            const tool = item.tool;
-            if (!tool) return false;
-            if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
-            // Wakeups and cron jobs arrive as kind "other", named by their title (the summary's
-            // scheduled() list reads them the same way).
-            if (/^(?:ScheduleWakeup|CronCreate)\b/.test(tool.title) && tool.status !== "failed") return true;
-            if (tool.kind !== "execute") return false;
-            // Claude's raw input arrives as JSON (`"run_in_background":true`).
-            const command = `${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
-            return /run_in_background["']?\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)/.test(command);
-          })),
-    );
-  }, [snapshot.rows]);
+  const summaryHasContent = useMemo(() => chatHasSummaryContent(snapshot.rows), [snapshot.rows]);
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
   const [dock, setDock] = useState<HTMLElement | null>(null);
@@ -3716,9 +3699,10 @@ function AcpmuxPane() {
   // background shells that have not ended. A count of one opens its subagent or the shell's row;
   // of several, the summary card, which lists them all.
   const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string }>();
+  // chatAgents already lists every subagent and changes when one's state does.
   const runningAgents = useMemo(
-    () => (snapshot.isWorking ? [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()].filter(running) : []),
-    [snapshot.isWorking, snapshot.rows, snapshot.subagentViews],
+    () => (snapshot.isWorking ? chatAgents.filter(running) : []),
+    [snapshot.isWorking, chatAgents],
   );
   const runningCommands = useMemo(
     () => (snapshot.isWorking ? runningBackgroundTasks(snapshot.rows) : []),
@@ -5638,21 +5622,35 @@ function AcpmuxPane() {
           failed={recapCard.failed}
         />
       )}
-      <DictationNotice dictation={dictation} />
-      {importError && (
+      <Notice id="dictation" tier="error" when={dictation.notice?.message}>
+        <DictationNotice dictation={dictation} />
+      </Notice>
+      <Notice id="import-error" tier="error" when={importError}>
         <p className="acpmux-composer-remote-note" role="alert">
           {importError}
         </p>
-      )}
-      <InstructionsNotice
-        failure={instructionsFailure?.failure}
-        onRetry={() =>
-          instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
-        }
-        onDismiss={() => setInstructionsFailure(undefined)}
-      />
-      {harnessCard ?? (
-        <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+      </Notice>
+      <Notice id="instructions" tier="error" when={instructionsFailure}>
+        <InstructionsNotice
+          failure={instructionsFailure?.failure}
+          onRetry={() =>
+            instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
+          }
+          onDismiss={() => setInstructionsFailure(undefined)}
+        />
+      </Notice>
+      {harnessCard ? (
+        <Notice id="harness-block" tier="error" when>
+          {harnessCard}
+        </Notice>
+      ) : (
+        <Notice
+          id="switch"
+          tier={snapshot.switching?.phase === "deferred" ? "status" : "error"}
+          when={snapshot.switching && snapshot.switching.phase !== "starting"}
+        >
+          <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+        </Notice>
       )}
       {!harnessCard && (
         <HarnessHealthNotice
@@ -5667,12 +5665,13 @@ function AcpmuxPane() {
           native={callNative}
           turnRunning={snapshot.isWorking}
           onUpdated={recheckHealth}
+          onOffer={setUpdateOffer}
         />
       )}
-      {folderNeeded && !snapshot.sessionId && (
+      <Notice id="missing-folder" tier="error" when={folderNeeded && !snapshot.sessionId}>
         <MissingFolder
-          reason={folderNeeded.reason}
-          error={folderNeeded.error}
+          reason={folderNeeded?.reason ?? ""}
+          error={folderNeeded?.error}
           onChoose={() => {
             void chooseChatFolder(
               () => callNative("chat.folder.choose"),
@@ -5692,7 +5691,7 @@ function AcpmuxPane() {
             );
           }}
         />
-      )}
+      </Notice>
       {pendingFolder ? (
         <StartFolderAsk
           ask={pendingFolder.ask}
@@ -5712,14 +5711,18 @@ function AcpmuxPane() {
           }}
         />
       ) : (
-        showsFolderChoice({
-          offered: chooseFolder,
-          freshChat,
-          quick,
-          projectDraft,
-          sessionId: snapshot.sessionId,
-          missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
-        }) && (
+        <Notice
+          id="folder-choice"
+          tier="hint"
+          when={showsFolderChoice({
+            offered: chooseFolder,
+            freshChat,
+            quick,
+            projectDraft,
+            sessionId: snapshot.sessionId,
+            missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
+          })}
+        >
           <FolderChoice
             error={folderError}
             onChoose={() => {
@@ -5733,14 +5736,14 @@ function AcpmuxPane() {
                 .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
             }}
           />
-        )
+        </Notice>
       )}
-      {worktreeCreating && freshChat && !snapshot.sessionId && (
+      <Notice id="worktree-creating" tier="status" when={worktreeCreating && freshChat && !snapshot.sessionId}>
         <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
-      )}
-      {worktreeError && freshChat && !snapshot.sessionId && (
-        <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />
-      )}
+      </Notice>
+      <Notice id="worktree-error" tier="error" when={worktreeError && freshChat && !snapshot.sessionId}>
+        <WorktreeFailure error={worktreeError ?? ""} onDismiss={() => setWorktreeError(undefined)} />
+      </Notice>
       {aside && (
         <SideQuestion
           state={aside}
@@ -5921,8 +5924,10 @@ function AcpmuxPane() {
       </ImageViewerContext.Provider>
     </>
   );
-  const hostErrorCard = hostError && (
-    <HostError message={hostError} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
+  const hostErrorCard = (
+    <Notice id="host-error" tier="error" when={hostError}>
+      <HostError message={hostError ?? ""} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
+    </Notice>
   );
   // The floating chat's compact bar shows whether the chat is working or waiting on the user, and
   // the reply's last line.
@@ -6386,7 +6391,11 @@ function AcpmuxPane() {
   );
   return (
     <SignInContext.Provider value={signIn}>
-      <ChatAccountsContext.Provider value={chatAccounts}>{pane}</ChatAccountsContext.Provider>
+      <ChatAccountsContext.Provider value={chatAccounts}>
+        <UpdateOfferContext.Provider value={updateOffer}>
+          <NoticeSlot>{pane}</NoticeSlot>
+        </UpdateOfferContext.Provider>
+      </ChatAccountsContext.Provider>
     </SignInContext.Provider>
   );
 }

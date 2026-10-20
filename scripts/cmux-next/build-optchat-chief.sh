@@ -25,6 +25,11 @@ Environment:
   CMUX_NEXT_OPTCHAT_CHIEF_CACHE  cache root (default: <crate>/target/hosted)
   CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR  Cargo target dir (default: <crate>/target/app);
                                  a CI job whose checkout is cleaned each run keeps it warm here
+  CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1  key the cache by the build's inputs
+                                 (optchat-chief-input-key.py) instead of the commit,
+                                 so a commit that changes none of them reuses the binary;
+                                 keeps the 8 most recently used entries (and at
+                                 most 8 commit-keyed fallback entries)
 USAGE
 }
 
@@ -59,8 +64,40 @@ for arch in ${raw//,/ }; do
   esac
   [[ " $archs " == *" $arch "* ]] || archs="${archs:+$archs }$arch"
 done
-cache_dir="${CMUX_NEXT_OPTCHAT_CHIEF_CACHE:-$crate/target/hosted}/$commit/${archs// /-}"
+cache_root="${CMUX_NEXT_OPTCHAT_CHIEF_CACHE:-$crate/target/hosted}"
+cache_dir="$cache_root/$commit/${archs// /-}"
+input_key=""
+if [[ "${CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED:-0}" == 1 ]]; then
+  # A commit that changes none of the Chief's inputs (most cmux-next pushes)
+  # reuses the binary an earlier commit built from the same inputs. The key
+  # script exits nonzero when it cannot read them; the commit key stays then.
+  key_toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$repo_root/cmux-tui/rust-toolchain.toml")"
+  if input_key="$(python3 "$repo_root/scripts/cmux-next/optchat-chief-input-key.py" --archs "$archs" --toolchain "$key_toolchain")" \
+     && [[ "$input_key" =~ ^[0-9a-f]{64}$ ]]; then
+    cache_dir="$cache_root/inputs-$input_key/${archs// /-}"
+  else
+    input_key=""
+  fi
+fi
 cache_bin="$cache_dir/optchat-chief"
+
+# In the input-keyed cache, which a trusted worker keeps between runs, entries
+# are touched on use and only the 8 most recently used stay; so do at most 8
+# commit-keyed entries that a fallback (unreadable inputs) left there.
+prune_input_keyed() {
+  [[ "${CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED:-0}" == 1 ]] || return 0
+  [[ -d "$cache_dir" ]] && touch "${cache_dir%/*}"
+  local pattern entry count
+  for pattern in 'inputs-[0-9a-f]{64}' '[0-9a-f]{40}'; do
+    count=0
+    while IFS= read -r entry; do
+      [[ "${entry##*/}" =~ ^${pattern}$ ]] || continue
+      count=$((count + 1))
+      [[ "$count" -gt 8 ]] && rm -rf "$entry"
+    done < <(ls -1dt "$cache_root"/* 2>/dev/null)
+  done
+  return 0
+}
 
 # Copies the cached binary to --output (when given) and reports where it is.
 deliver() {
@@ -76,6 +113,7 @@ deliver() {
 }
 
 if [[ -x "$cache_bin" ]]; then
+  prune_input_keyed
   deliver "already cached"
   exit 0
 fi
@@ -132,5 +170,6 @@ staged="$cache_bin.tmp.$$"
 if [[ ${#slices[@]} -eq 1 ]]; then cp "${slices[0]}" "$staged"; else lipo -create "${slices[@]}" -output "$staged"; fi
 chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"
-printf '%s\n' "commit=$commit" "archs=$archs" "sha256=$(shasum -a 256 "$cache_bin" | awk '{print $1}')" > "$cache_bin.ref"
+printf '%s\n' "commit=$commit" "archs=$archs" ${input_key:+"inputs=$input_key"} "sha256=$(shasum -a 256 "$cache_bin" | awk '{print $1}')" > "$cache_bin.ref"
+prune_input_keyed
 deliver built
