@@ -4,8 +4,8 @@ import type { AccountsRow, AccountsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
-import BOCKLIN_ISLE_OF_THE_DEAD from "../../gallery/fixtures/art/bocklin-isle-of-the-dead.jpg?inline";
-import FUSELI_NIGHTMARE from "../../gallery/fixtures/art/fuseli-nightmare.jpg?inline";
+import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
+import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
 import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
 import HOKUSAI_GREAT_WAVE from "../../gallery/fixtures/art/hokusai-great-wave.jpg?inline";
 import FRIEDRICH_WANDERER from "../../gallery/fixtures/art/friedrich-wanderer.jpg?inline";
@@ -264,8 +264,8 @@ Object.assign(variants, {
     ],
     note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
   }),
-  // The curated backdrop art (cx-t2x.7): the real thumbnails of two or three works from each
-  // picker collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
+  // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
+  // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
   "curated-art": variant("appearance", {
     options: {
       values: { "appearance.background": "van-gogh-starry-night" },
@@ -274,16 +274,17 @@ Object.assign(variants, {
       ...host,
       backdrops: [
         {
-          id: "bocklin-isle-of-the-dead",
-          title: "Isle of the Dead — Arnold Böcklin",
-          attribution: "Isle of the Dead · Arnold Böcklin · 1880 · Kunstmuseum Basel · Public domain",
+          id: "martin-pandemonium",
+          title: "Pandemonium — John Martin",
+          attribution: "Pandemonium · John Martin · 1841 · Musée du Louvre, Paris · Public domain",
           collection: "darkArt",
           collection_title: "Dark Art",
         },
         {
-          id: "fuseli-nightmare",
-          title: "The Nightmare — Henry Fuseli",
-          attribution: "The Nightmare · Henry Fuseli · 1781 · Detroit Institute of Arts · Public domain",
+          id: "friedrich-forest-moonlight",
+          title: "Forest Interior by Moonlight — Caspar David Friedrich",
+          attribution:
+            "Forest Interior by Moonlight · Caspar David Friedrich · c. 1823–1830 · Alte Nationalgalerie, Berlin · Public domain",
           collection: "darkArt",
           collection_title: "Dark Art",
         },
@@ -358,8 +359,8 @@ Object.assign(variants, {
       ],
     },
     backdropImages: {
-      "bocklin-isle-of-the-dead": BOCKLIN_ISLE_OF_THE_DEAD,
-      "fuseli-nightmare": FUSELI_NIGHTMARE,
+      "martin-pandemonium": MARTIN_PANDEMONIUM,
+      "friedrich-forest-moonlight": FRIEDRICH_FOREST_MOONLIGHT,
       "van-gogh-starry-night": VAN_GOGH_STARRY_NIGHT,
       "hokusai-great-wave": HOKUSAI_GREAT_WAVE,
       "friedrich-wanderer": FRIEDRICH_WANDERER,

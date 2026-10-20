@@ -3,19 +3,14 @@
 /// here too.
 extension BackdropArt {
     public nonisolated static let dailyRotation: [BackdropArt] = [
-        .davidDeathOfMarat, .veldeSmallShipStorm, .boschGardenRight, .boschAscentBlessed, .goyaWitchesFlight,
-        .bocklinSelfPortraitDeath, .caravaggioMedusa, .martinPandemonium, .moranBurningPhiladelphia, .goyaBurialSardine,
-        .arboWildHunt, .caravaggioDavidGoliath, .vanGoghSkeletonCigarette, .altdorferBattleOfIssus, .gentileschiJudith,
-        .munchMadonna, .bocklinIsleOfTheDead, .kleeFishMagic, .friedrichForestMoonlight, .goyaWitchesSabbath, .boschGardenLeft,
-        .rembrandtStormGalilee, .coleVoyageManhood, .fuseliNightmare2, .hiremyHirschlSoulsOfAcheron, .munchScream, .klimtJudith,
-        .repinIvan, .millaisOphelia, .bruegelFallRebelAngels, .fuseliNightmare, .bundyDeathGeneral, .wrightVesuvius,
-        .geromeBotsaris, .durerKnightDeathDevil, .martinJoshua, .veldeGale, .hogaiNio, .klimtDeathAndLife, .klimtMedicine,
-        .boschGardenCentral, .martinGreatDayWrath, .bonheurWoundedEagle, .geromePolliceVerso, .coleVoyageOldAge,
-        .friedrichAbbeyOakwood, .goyaSleepOfReason, .boschGardenFragment, .bruegelTriumphDeath, .spilliaertVertigo,
-        .rothaugMelpomene, .schieleDeathAndTheMaiden, .aivazovskyShipStormySeas, .vereshchaginApotheosisWar,
-        .ensorSkeletonPainter, .cabanelFallenAngel, .spilliaertWomanShoreline, .elGrecoViewOfToledo, .gericaultRaftOfTheMedusa,
-        .moreauApparition, .rembrandtProdigalSon, .velazquezLasMeninas, .matejkoStanczyk, .sargentMadameX, .millaisJoanOfArc,
-        .cotStorm, .rembrandtNightWatch, .vigeeLebrunMadameGrand, .waterhouseLadyShalott, .draperLamentIcarus, .fragonardSwing,
+        .davidDeathOfMarat, .veldeSmallShipStorm, .boschAscentBlessed, .goyaWitchesFlight,
+        .martinPandemonium, .moranBurningPhiladelphia, .goyaBurialSardine,
+        .arboWildHunt, .altdorferBattleOfIssus, .munchMadonna, .kleeFishMagic, .friedrichForestMoonlight, .boschGardenLeft,
+        .rembrandtStormGalilee, .coleVoyageManhood, .munchScream, .bruegelFallRebelAngels, .wrightVesuvius,
+        .geromeBotsaris, .martinJoshua, .veldeGale, .hogaiNio, .boschGardenCentral, .martinGreatDayWrath, .bonheurWoundedEagle, .coleVoyageOldAge,
+        .friedrichAbbeyOakwood, .goyaSleepOfReason, .boschGardenFragment, .spilliaertVertigo,
+        .rothaugMelpomene, .aivazovskyShipStormySeas, .cabanelFallenAngel, .spilliaertWomanShoreline, .elGrecoViewOfToledo, .rembrandtProdigalSon, .velazquezLasMeninas, .matejkoStanczyk, .sargentMadameX, .millaisJoanOfArc,
+        .cotStorm, .rembrandtNightWatch, .vigeeLebrunMadameGrand, .waterhouseLadyShalott, .fragonardSwing,
         .rubensStFrancisXavier, .vermeerPearlEarring, .danielsonGambogiSelf, .beardHisMajesty, .marcFoxes, .degasGreenDancers,
         .modiglianiNudeDivan, .raphaelSistineMadonna, .bouguereauVirginLilies, .woodAmericanGothic, .steinlenChatNoir,
         .degasBlueDancers, .botticelliPrimavera, .vanGoghCafeTerrace, .matisseRedRoom, .kandinskyDeepenedImpulse,
@@ -34,7 +29,7 @@ extension BackdropArt {
         .monetWomanParasol, .veldeCannonShot, .crossPinkCloud, .laurenceMckinley, .vanGoghIrises, .kramskoiChristInTheDesert,
         .turnerTemeraire, .leonardoVitruvianMan, .bruegelHuntersSnow, .coleVoyageYouth, .friedrichMonkByTheSea,
         .vanGoghWheatFieldCypresses, .monetCliffPourville, .vanGoghAlmondBlossom, .vanGoghFishingBoats, .hokusaiUmezawa,
-        .whistlerFallingRocket, .doreFallOfSatan, .doreFlood, .doreWolvesSheep, .doreLeviathan, .doreParadiseLostBookVi,
+        .whistlerFallingRocket, .doreFallOfSatan, .doreWolvesSheep, .doreLeviathan, .doreParadiseLostBookVi,
         .doreMosesTables, .doreEmpyrean, .doreRaven
     ]
 }

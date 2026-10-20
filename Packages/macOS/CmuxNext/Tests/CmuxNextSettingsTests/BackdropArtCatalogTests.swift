@@ -51,18 +51,21 @@ import Testing
         }
     }
 
-    /// A cmux.json that still names a work taken out of the set (Goya's Saturn Devouring His Son) shows
-    /// the default background on either key, with no invalid-value diagnostic, and the picker no
-    /// longer offers it.
-    @Test(arguments: [["appearance", "background"], ["appearance", "backdropArt"]])
-    func aRemovedWorkFallsBackToTheDefaultBackground(path: [String]) {
-        #expect(BackdropArt(id: "goya-saturn") == nil)
-        #expect(!BackdropCatalog.bundled.contains { $0.id == "goya-saturn" })
-        let root = JSONValue.object([path[0]: .object([path[1]: .string("goya-saturn")])])
-        let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
-        #expect(snapshot.backdropSelection == BackdropSelectionSetting.defaultSelection)
-        #expect(snapshot.backdropArt == BackdropSelectionSetting.defaultArt)
-        #expect(!snapshot.diagnostics.contains { $0.path.hasPrefix("appearance.") }, "\(snapshot.diagnostics)")
+    /// A cmux.json that still names a work taken out of the set (Goya's Saturn Devouring His Son,
+    /// Gentileschi's Judith, ...) shows the default background on either key, with no invalid-value
+    /// diagnostic, and the picker no longer offers it.
+    @Test(arguments: ["goya-saturn", "gentileschi-judith", "bocklin-isle-of-the-dead"])
+    func aRemovedWorkFallsBackToTheDefaultBackground(id: String) {
+        #expect(BackdropArt(id: id) == nil)
+        #expect(!BackdropCatalog.bundled.contains { $0.id == id })
+        for path in [["appearance", "background"], ["appearance", "backdropArt"]] {
+            let root = JSONValue.object([path[0]: .object([path[1]: .string(id)])])
+            let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
+            #expect(snapshot.backdropSelection == BackdropSelectionSetting.defaultSelection, "\(path) = \(id)")
+            #expect(snapshot.backdropArt == BackdropSelectionSetting.defaultArt, "\(path) = \(id)")
+            #expect(!snapshot.diagnostics.contains { $0.path.hasPrefix("appearance.") }, "\(snapshot.diagnostics)")
+        }
+        #expect(BackdropArt.removedIDs.allSatisfy { BackdropArt(rawValue: $0) == nil })
     }
 
     /// Every work ships a small thumbnail (the picker and the first frame); only the starter set

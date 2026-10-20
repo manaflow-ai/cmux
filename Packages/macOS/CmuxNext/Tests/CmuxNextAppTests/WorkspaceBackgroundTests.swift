@@ -23,8 +23,8 @@ import Testing
         #expect(window.backdropSelection == nil)
         #expect(app.backdropSelection == Self.work)
 
-        window.pinBackdrop(.selection(.art(.bocklinIsleOfTheDead)))
-        #expect(window.backdropSelection == .art(.bocklinIsleOfTheDead))
+        window.pinBackdrop(.selection(.art(.friedrichForestMoonlight)))
+        #expect(window.backdropSelection == .art(.friedrichForestMoonlight))
 
         window.pinBackdrop(.inherit)
         #expect(window.backdropSelection == Self.work)
@@ -47,8 +47,8 @@ import Testing
         room.show(plain)
         #expect(room.backdropSelection == Self.work)
         room.show(pinned)
-        pinned.pinBackdrop(.selection(.art(.bocklinIsleOfTheDead)))
-        #expect(room.backdropSelection == .art(.bocklinIsleOfTheDead))
+        pinned.pinBackdrop(.selection(.art(.friedrichForestMoonlight)))
+        #expect(room.backdropSelection == .art(.friedrichForestMoonlight))
     }
 
     /// A workspace's own Opacity over art: its window draws that tint, a top page the work's own,
