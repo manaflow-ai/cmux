@@ -381,6 +381,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.passwords.offerToSave` | boolean | `true` |  | Offer to Save Passwords. A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask. |
 | `browser.passwords.generate` | boolean | `true` |  | Suggest Strong Passwords. Offers a generated password when a site asks for a new one, and saves it. |
 | `browser.passwords.allowExport` | boolean | `false` |  | Allow Password Export. Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password. |
+| `browser.verificationAutofill.enabled` | boolean | `false` |  | Fill Codes from Verification Emails. When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored. |
 | `home.attachments.keepLocation` | boolean | `false` |  | Keep Location in Photos and Videos. When off, location data is removed from photos and videos before they are attached. |
 | `home.channelsEnabled` | boolean | `false` |  | Channels. Show Channels below Home in the sidebar. You can also turn it on or off from the command palette. |
 | `home.chiefPetEnabled` | boolean | `false` |  | Show Chief Pet. A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. |
