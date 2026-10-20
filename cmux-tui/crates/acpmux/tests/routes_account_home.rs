@@ -131,6 +131,14 @@ fn a_started_chat_stays_in_the_account_it_started_in() {
     let none = std::collections::BTreeMap::new();
     let home = route_account::current_home(&meta, "claude", &none);
     assert_eq!(home.as_deref(), Some(Path::new("/a")));
+    // A profile's `~/work` is the folder it expands to at spawn.
+    let mut fresh = meta.clone();
+    fresh.chat_store = None;
+    let profile =
+        std::collections::BTreeMap::from([("CLAUDE_CONFIG_DIR".to_owned(), "~/work".to_owned())]);
+    let expanded = dirs::home_dir().unwrap().join("work");
+    let home = route_account::current_home(&fresh, "claude", &profile);
+    assert_eq!(home.as_deref(), Some(expanded.as_path()));
 
     // A route's home does not move a chat that has one; its folder stays.
     let mut env =

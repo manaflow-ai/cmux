@@ -139,6 +139,12 @@ pub fn current_home(
 ) -> Option<PathBuf> {
     let var = home_var(family)?;
     let mut env = harness_env.clone();
+    // Expanded as at spawn (`~/work`, `${home}/work`): the folder it runs in.
+    let home = dirs::home_dir().unwrap_or_default();
+    let model = meta.model_request.clone().unwrap_or_default();
+    for value in env.values_mut() {
+        *value = crate::hub::expand_env_value(value, &meta.cwd, &home, &model);
+    }
     env.extend(meta.session_env.clone());
     meta.apply_chat_store(&mut env);
     env.get(var).map(PathBuf::from)
