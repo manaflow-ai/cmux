@@ -195,6 +195,7 @@ final class TabHoverCardController: HoverCardSource {
         // Its frame stays as it is while it fades out.
         if !cardIsShowing() {
             body?.setThumbnail(nil)
+            body?.resetResourceHistory()
             opensFresh = true
         }
     }

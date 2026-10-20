@@ -154,13 +154,21 @@ final class TabHoverCardView: NSView {
     /// The tab's latest sample (or, for a hibernated page, its last one before); nil shows
     /// a dash until the first.
     func setResources(_ report: ResourceReport?) {
+        // A redraw hands the same report again; only a new sample adds a bar.
+        let fresh = report != nil && report != self.report
         self.report = report
-        if let item, !item.isDormant, let row = report?.tabs.first(where: { $0.id == item.id.rawValue }),
+        if fresh, let item, !item.isDormant, let row = report?.tabs.first(where: { $0.id == item.id.rawValue }),
            TabHoverCardLines.measured(row), let cpu = row.usage.cpu {
             cpuHistory.append(cpu)
             if cpuHistory.count > HoverCardAccessoryView.maxBars { cpuHistory.removeFirst(cpuHistory.count - HoverCardAccessoryView.maxBars) }
         }
         render()
+    }
+
+    /// The card hid: its next show starts with no bars, even for the same tab.
+    func resetResourceHistory() {
+        cpuHistory.removeAll()
+        report = nil
     }
 
     private func render() {

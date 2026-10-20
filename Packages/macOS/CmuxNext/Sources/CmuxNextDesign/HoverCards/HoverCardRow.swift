@@ -127,7 +127,9 @@ public final class HoverCardRowView: NSView {
         textLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         accessoryView.setContentHuggingPriority(.required, for: .horizontal)
         accessoryView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        stack.setViews([icon, statusLabel, textLabel, additionsLabel, deletionsLabel, accessoryView], in: .leading)
+        // The text and its counts read from the leading edge; the live mark sits at the trailing one.
+        stack.setViews([icon, statusLabel, textLabel, additionsLabel, deletionsLabel], in: .leading)
+        stack.setViews([accessoryView], in: .trailing)
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = Metrics.space2
@@ -240,17 +242,21 @@ public final class HoverCardAccessoryView: NSView {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    public override var isFlipped: Bool { true }
-
     /// The mark's own width (the ring adds its percentage).
     public override var intrinsicContentSize: NSSize {
         switch accessory {
         case .dot?: NSSize(width: Self.dotSize, height: Self.dotSize)
         case .ring?:
-            NSSize(width: Self.ringSize + Metrics.space1 + percentLabel.intrinsicContentSize.width, height: Self.ringSize)
+            NSSize(width: Self.ringSize + Metrics.space1 + percentSize.width, height: Self.ringSize)
         case .bars?: NSSize(width: CGFloat(Self.maxBars) * (Self.barWidth + Self.barGap) - Self.barGap, height: Self.barsHeight)
         case nil: NSSize(width: 0, height: 0)
         }
+    }
+
+    /// The percentage's natural size, rounded up so its last digit is never clipped.
+    private var percentSize: NSSize {
+        let size = percentLabel.attributedStringValue.size()
+        return NSSize(width: ceil(size.width) + 2, height: ceil(size.height))
     }
 
     public override func layout() {
@@ -258,6 +264,8 @@ public final class HoverCardAccessoryView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        track.frame = bounds
+        mark.frame = bounds
         let midY = bounds.midY
         track.path = nil
         mark.path = nil
@@ -269,19 +277,21 @@ public final class HoverCardAccessoryView: NSView {
             let radius = (Self.ringSize - Self.ringWidth) / 2
             track.path = CGPath(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius), transform: nil)
             let arc = CGMutablePath()
-            let start = -CGFloat.pi / 2
+            // From the top, clockwise on screen (y grows up, so the angle falls).
+            let start = CGFloat.pi / 2
             arc.addArc(center: center, radius: radius, startAngle: start,
-                       endAngle: start + 2 * .pi * CGFloat(min(max(fraction, 0), 1)), clockwise: false)
+                       endAngle: start - 2 * .pi * CGFloat(min(max(fraction, 0), 1)), clockwise: true)
             mark.path = arc
-            let size = percentLabel.intrinsicContentSize
+            let size = percentSize
             percentLabel.frame = CGRect(x: Self.ringSize + Metrics.space1, y: midY - size.height / 2, width: size.width, height: size.height)
         case .bars(let samples, _)?:
+            // Bars stand on one baseline (the view is not flipped: y grows up), newest on the right.
             let path = CGMutablePath()
-            let top = midY - Self.barsHeight / 2
+            let baseline = midY - Self.barsHeight / 2
             for (index, sample) in samples.suffix(Self.maxBars).enumerated() {
                 let height = max(1, Self.barsHeight * CGFloat(min(max(sample, 0), 1)))
                 let x = CGFloat(Self.maxBars - min(samples.count, Self.maxBars) + index) * (Self.barWidth + Self.barGap)
-                path.addRect(CGRect(x: x, y: top + Self.barsHeight - height, width: Self.barWidth, height: height))
+                path.addRect(CGRect(x: x, y: baseline, width: Self.barWidth, height: height))
             }
             mark.path = path
         case nil:
@@ -317,8 +327,9 @@ public final class HoverCardAccessoryView: NSView {
 /// panel: it recolors the body when it joins a window and on every theme change, as the panel
 /// does for a shown card (`debug.hover_card_gallery`).
 @MainActor
-public final class HoverCardGalleryHost: NSView {
+public final class HoverCardGalleryHost: NSView, ThemeResponsive {
     private let recolor: () -> Void
+    private weak var observedScope: ThemeScope?
 
     public init(body: NSView, recolor: @escaping () -> Void) {
         self.recolor = recolor
@@ -344,6 +355,15 @@ public final class HoverCardGalleryHost: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // A theme switch that keeps light or dark changes no appearance: hear the theme itself,
+        // from the window's scope when it has one, else the app's.
+        observedScope?.removeResponder(self)
+        observedScope = window.flatMap { ThemeScopeRegistry.scope(of: $0) }
+        if let observedScope { observedScope.addResponder(self) } else { ThemeStore.shared.addResponder(self) }
+        recolor()
+    }
+
+    public func themeDidChange() {
         recolor()
     }
 

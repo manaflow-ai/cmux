@@ -7,7 +7,8 @@ import CmuxNextResources
 /// DEBUG ONLY: the workspace hover card in each of its kinds over fixture data, for the hover card
 /// gallery (`debug.hover_card_gallery`, the macOS tour's `hover-card` shots; Leo 2026-10-19, the
 /// Codex sidebar card and Claude desktop's PR list). The words are fixture data, like a mock's.
-public enum WorkspaceHoverCardGallery {
+public struct WorkspaceHoverCardGallery {
+    public init() {}
     /// Each state's name and its card on the overlay glass, configured; resources sampled a few
     /// times so the CPU bars show.
     @MainActor public static func cards(now: Date = Date()) -> [(name: String, view: NSView)] {

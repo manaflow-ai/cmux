@@ -712,7 +712,11 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
     if debug:
         result["command"] = f"{debug['method']} {json.dumps(debug.get('params', {}), sort_keys=True)}"
         try:
-            result["output"] = json.dumps(app.request(debug["method"], debug.get("params")), sort_keys=True)[-1500:]
+            answer = app.request(debug["method"], debug.get("params"))
+            result["output"] = json.dumps(answer, sort_keys=True)[-1500:]
+            # A debug method that answers but could not do it says so in its own `ok`.
+            if isinstance(answer, dict) and answer.get("ok") is False:
+                raise TourError(f"{debug['method']} answered ok: false")
         except (OSError, ValueError, TourError) as error:
             result["status"] = "unavailable" if step.get("optional") else "failed"
             result["detail"] = str(error)

@@ -190,6 +190,8 @@ final class WorkspaceHoverCardView: NSView {
     private var resourceShown = false
     /// The CPU of each sample since the card showed, newest last (its bars).
     private var cpuHistory: [Double] = []
+    /// The report behind the newest bar, so a repeat of it adds none.
+    private var lastSampled: ResourceReport?
     /// One shared row per fact (`HoverCardRowView`), reused card to card.
     private var factViews: [HoverCardRowView] = []
     /// The built-in card's rows (hidden while the user's card shows).
@@ -260,6 +262,7 @@ final class WorkspaceHoverCardView: NSView {
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            resourceRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
             kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
             activitySlot.widthAnchor.constraint(equalToConstant: Self.iconSize),
@@ -422,7 +425,9 @@ final class WorkspaceHoverCardView: NSView {
     }
 
     func setResources(_ report: ResourceReport?) {
-        if let cpu = report?.total?.cpu {
+        // A redraw hands the same report again; only a new sample adds a bar.
+        if let report, report != lastSampled, let cpu = report.total.cpu {
+            lastSampled = report
             cpuHistory.append(cpu)
             if cpuHistory.count > HoverCardAccessoryView.maxBars { cpuHistory.removeFirst(cpuHistory.count - HoverCardAccessoryView.maxBars) }
         }
@@ -435,6 +440,7 @@ final class WorkspaceHoverCardView: NSView {
     /// The card left its workspace: the next one's bars start empty.
     func resetResourceHistory() {
         cpuHistory.removeAll()
+        lastSampled = nil
     }
 
     private func addFactRow() {

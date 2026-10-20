@@ -7,7 +7,8 @@ import CmuxNextResources
 /// DEBUG ONLY: the tab hover card in each of its kinds over fixture data, for the hover card
 /// gallery (`debug.hover_card_gallery`, the macOS tour's `hover-card` shots). No thumbnails: the
 /// rows are what the gallery shows.
-public enum TabHoverCardGallery {
+public struct TabHoverCardGallery {
+    public init() {}
     @MainActor public static func cards(now: Date = Date()) -> [(name: String, view: NSView)] {
         var running = TabItem(id: TabID("gallery-terminal"), title: "cargo build --release", subtitle: "~/Projects/cmux",
                               icon: .symbol("terminal"), isBusy: true)

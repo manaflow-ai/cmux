@@ -78,7 +78,7 @@ import Testing
         let card = TabHoverCardView()
         card.configure(.tab(item))
         let rows = Self.rows(in: card).filter { !$0.isHidden }
-        #expect(rows.count == 2, "place and status: \(card.reportedLines)")
+        #expect(rows.count == 3, "place, status and the memory dash: \(card.reportedLines)")
         #expect(rows.allSatisfy { $0.textLabel.font?.pointSize == Typography.body.pointSize })
     }
 
