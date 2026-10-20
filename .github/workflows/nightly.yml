@@ -2096,6 +2096,13 @@ jobs:
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
             "${notary_test_flags[@]}"
 
+      - name: Prove the password-import readers are compiled out (cx-f58x notary test)
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.password_readers_out == 'true')
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/cmux"
+
       - name: Bound Xcode compilation cache size
         if: inputs.nightly_next_unsigned_run == ''
         id: compilation-cache-bound
@@ -2614,19 +2621,15 @@ jobs:
           mkdir -p "$products"
           tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
 
-      # cx-f58x proofs on the app exactly as build-nightly-app built it, before
-      # anything is injected and before signing. They ran inside
-      # build-nightly-app, whose one warm slot serializes every nightly-next
-      # build: the browser-data scan alone took 54-55 s of a 12-14 minute slot
-      # (runs 39371003711, 39373745957, 39374887542). Here they run on the
-      # per-run hosted lane, so the next promoted build starts that much sooner.
-      - name: Prove the password-import readers are compiled out (cx-f58x notary test)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.password_readers_out == 'true')
-        run: |
-          set -euo pipefail
-          app="build-universal/Build/Products/Release/cmux.app"
-          scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/cmux"
-
+      # The cx-f58x browser-data scan runs here, on the per-run hosted lane,
+      # before anything is injected or signed. In build-nightly-app it took
+      # 54-55 s of the 12-14 minute warm slot that serializes every nightly-next
+      # build (runs 39371003711, 39373745957, 39374887542). It scans file
+      # contents, so the strip before transfer does not hide anything from it;
+      # it now also covers what build-nightly-app adds after the compile (the
+      # Computer Use helper, cmux-symbols.bin), which is the bundle that ships.
+      # The password-reader proof reads symbols with nm, which the strip
+      # removes, so it stays right after the compile in build-nightly-app.
       - name: Prove the browser-data import is compiled out (cx-f58x notary test)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')
         run: |
