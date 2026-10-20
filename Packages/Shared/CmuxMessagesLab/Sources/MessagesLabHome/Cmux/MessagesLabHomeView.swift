@@ -18,8 +18,10 @@ public final class MessagesLabHomeView: NSView {
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
     ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
     ///     JavaScriptCore Ondine renderer); nil keeps them as text.
+    ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
+    ///     typing dots, then each message whole) or the older token-by-token stream bubble.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
-                diagrams: (any HomeDiagramRendering)? = nil) {
+                diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
         // Before the projection maps its first messages, so a diagram never shows as text first.
@@ -27,7 +29,7 @@ public final class MessagesLabHomeView: NSView {
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
-                                    linkPreviews: HomeLinkPreviews())
+                                    linkPreviews: HomeLinkPreviews(), replies: replies)
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)
@@ -185,6 +187,13 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onOpenLink = newValue }
     }
 
+    /// cmux: where an attachment opens and what its right-click menu offers (held weakly).
+    /// Nil: the system opens it ("Open in Default App").
+    public var fileHost: HomeFileHost? {
+        get { controller.fileHost }
+        set { controller.fileHost = newValue }
+    }
+
     /// A click (or Space/Return with the keyboard) on the header's name
     /// pill: cmux shows the Chief's settings popover under it.
     public var onNamePill: () -> Void {
@@ -317,6 +326,27 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onRefusal }
         set { projection.onRefusal = newValue }
     }
+
+    /// Forward… in a bubble's context menu: the host routes the bubble's text to another chat
+    /// (cmux-next's `home.sendSelectionTo`); nil leaves Forward… out of the menu.
+    public var onForward: ((String) -> Void)? {
+        get { projection.onForward }
+        set { projection.onForward = newValue }
+    }
+
+    /// Automation and tests: chooses `title` in the context menu of the shown bubble whose text
+    /// is `text`, built and chosen by the right-click's path. False when no such bubble or row shows.
+    public func debugChooseMenuItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text), let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return false }
+        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
+        guard let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized title of a bubble's Forward… row.
+    public static var forwardMenuTitle: String { CmuxStrings.forward }
 
     // MARK: Attachments (lane 16)
 

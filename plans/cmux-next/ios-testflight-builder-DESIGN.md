@@ -150,3 +150,19 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
   other.
 - The archive job uploads the `.xcarchive` as an Actions artifact (about
   0.3 GB per build, kept 3 days).
+
+## App Store review rules (2026-10-20, after ITMS-90626)
+
+Apple rejected cmux INTERNAL builds in processing (after upload) because an App
+Intent description said "transcribed on this iPhone". `scripts/cmux-next/check-app-store-rules.py`
+now finds that class of error before upload. It checks App Intents text in every language
+(Apple trademarks: iPhone, iPad, Mac, Siri, Apple, iCloud, ...), App Shortcut phrases without the
+app name, missing or empty purpose strings for APIs the binary uses (ITMS-90683), usage
+descriptions that name one Apple device, unknown `UIBackgroundModes`, and iPad orientations
+(ITMS-90474). It runs in four places:
+
+1. the pre-push gate (`--source`, on pushes that change `cnx-ios/`);
+2. the cmux-next checks job (`--source` plus `tests/test_app_store_rules.py`);
+3. this builder's archive job, on the source and on the built app, before the archive goes to the
+   signer;
+4. `testflight-build.sh` `check_app`, before it signs, exports or uploads.

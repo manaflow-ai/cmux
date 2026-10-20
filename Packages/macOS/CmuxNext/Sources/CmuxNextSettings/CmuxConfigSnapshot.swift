@@ -39,6 +39,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var commandActions: [ConfigCommandAction] = []
     /// `browser.defaultEngine`; Chromium when unset or invalid.
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
+    /// `browser.siteEngines`; the protected-media sites on WebKit when unset.
+    public var browserSiteEngines: BrowserSiteEngines = .fallback
     /// `browser.newTabPage`; nil opens a blank page.
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
@@ -49,6 +51,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
     /// `browser.showAgentCursor`; on when unset.
     public var browserShowAgentCursor = AgentCursorSetting().fallback
+    /// `browser.agentMouse.*`: how an agent's pointer moves; human motion,
+    /// 350 ms cap when unset.
+    public var browserAgentMouse = AgentMouseSetting().fallback
     /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
     public var homeKeepLocation = false, homeChannelsEnabled = false, homeChiefPetEnabled = false, homeChiefPetMascot = HomeChiefPetSetting.defaultMascot
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
@@ -72,6 +77,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
     public var animationKinds = AnimationKindsSetting()
+    /// `ui.animations.enabled` and `ui.animations.<category>` (``MotionCategoriesSetting``).
+    public var motionCategories = MotionCategoriesSetting()
     /// `ui.paneAnimations`; on when unset or invalid.
     public var paneAnimations: Bool = PaneAnimationsSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
@@ -95,8 +102,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
     /// `layout.rows`: rows on (default) or off (plans/cmux-next/rows.md O1).
     public var layoutRows: Bool = ColumnLayoutSettings.rowsFallback
-    /// `layout.focusPaneOnScroll`: a scroll over an unfocused pane focuses it (default on).
-    public var focusPaneOnScroll: Bool = ColumnLayoutSettings.focusPaneOnScrollFallback
+    /// `layout.focusFollowsMouse`: hovering or scrolling an unfocused pane focuses it (default off).
+    public var focusFollowsMouse: Bool = ColumnLayoutSettings.focusFollowsMouseFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
@@ -249,11 +256,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.showModifierHoldHints = hints
         if let hintsDiagnostic { snapshot.diagnostics.append(hintsDiagnostic) }
         snapshot.take(BrowserDefaultEngine.parse(root), \.browserDefaultEngine)
+        snapshot.take(BrowserSiteEngines.parse(root), \.browserSiteEngines)
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
         snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
         snapshot.take(AgentCursorSetting().parse(root), \.browserShowAgentCursor)
+        snapshot.take(AgentMouseSetting().parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
@@ -269,6 +278,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.animationSpeed = speed
         if let speedDiagnostic { snapshot.diagnostics.append(speedDiagnostic) }
         snapshot.take(AnimationKindsSetting.parse(root), \.animationKinds)
+        snapshot.take(MotionCategoriesSetting.parse(root), \.motionCategories)
         snapshot.take(PaneAnimationsSetting.parse(root), \.paneAnimations)
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering

@@ -188,7 +188,7 @@ final class ProfileBarView: NSView {
         }
         let from = Motion.presentationValue(layer, "position")
         indicator.frame = rect
-        Motion.set(layer, "position", to: layer.position, spring: .selection, from: from)
+        Motion.sidebar.set(layer, "position", to: layer.position, spring: .selection, from: from)
     }
 
     // theme-scoped: marks.draw runs inside the bar's theme scope
@@ -217,7 +217,7 @@ final class ProfileBarView: NSView {
             shownActive = model.activeProfileID
             if switched, let layer = marks.layer, let old = layer.contents {
                 marks.display()
-                if let new = layer.contents { _ = Motion.set(layer, "contents", to: new, fade: .crossfade, from: old) }
+                if let new = layer.contents { _ = Motion.sidebar.set(layer, "contents", to: new, fade: .crossfade, from: old) }
             }
         }
         needsDisplay = true

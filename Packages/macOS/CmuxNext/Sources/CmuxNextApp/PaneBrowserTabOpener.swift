@@ -96,7 +96,7 @@ struct PaneBrowserTabOpener {
         }
         if route == .daemon {
             var choice: BrowserEngineChoice
-            switch browserTabs.resolve(requested: requested, inherited: inherited) {
+            switch browserTabs.resolve(requested: requested, inherited: inherited, url: url) {
             case .refuse(let reason):
                 services.registry.refuse(BrowserTabService.message(reason))
                 return false

@@ -88,7 +88,7 @@ impl Mux {
         extra_fields: Map<String, Value>,
     ) -> anyhow::Result<Arc<Surface>> {
         if let Some(dock) = pane
-            && self.with_state(|state| crate::mux::lone_pinned_dock_taking_no_tabs(state, dock))
+            && self.with_state(|state| lone_pinned_dock_taking_no_tabs(state, dock))
         {
             return self.new_browser_column_beside_lone_dock(actor, url, dock, size, extra_fields);
         }
@@ -120,6 +120,7 @@ impl Mux {
         let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
         fields.extend(extra_fields);
         tab_strip::tab_slot::insert_field(&mut fields, pane);
+        tab_strip::reopen_identity::insert_field(&mut fields);
         if let Some((cols, rows)) = size {
             let (cell_width, cell_height) = self.cell_pixel_size();
             fields.insert("width_px".into(), Value::from(u64::from(cols) * u64::from(cell_width)));
@@ -304,6 +305,7 @@ impl Mux {
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
         tab_strip::tab_slot::insert_field(&mut fields, pane);
+        tab_strip::reopen_identity::insert_field(&mut fields);
         let commit = self.commit_ordinary_topology_operation_by(
             actor,
             ResourceOperation::TabCreateTerminal,
@@ -695,15 +697,15 @@ impl Mux {
         mut fields: Map<String, Value>,
     ) -> anyhow::Result<Arc<Surface>> {
         let background =
-            fields.remove(super::browser_tab_create::ACTIVATE_FIELD) == Some(Value::Bool(false));
-        fields.remove(super::browser_tab_create::AFTER_FIELD);
-        fields.insert(crate::mux::PANE_BROWSER_URL_FIELD.into(), Value::String(url));
+            fields.remove(browser_tab_create::ACTIVATE_FIELD) == Some(Value::Bool(false));
+        fields.remove(browser_tab_create::AFTER_FIELD);
+        fields.insert(PANE_BROWSER_URL_FIELD.into(), Value::String(url));
         let focused = self.with_state(|state| state.active_pane());
         let surface = self.split_browser_pane_with_fields_as(
             actor,
             dock,
             "right",
-            Some(crate::mux::LONE_DOCK_NEIGHBOR_WIDTH),
+            Some(LONE_DOCK_NEIGHBOR_WIDTH),
             fields,
             size,
         )?;
