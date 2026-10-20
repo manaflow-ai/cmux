@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextDaemon
 import Foundation
 import Testing
 
@@ -18,5 +20,36 @@ struct TerminalChatTests {
         let services = Self.services()
         AppActions.bind(services)
         #expect(services.registry.unavailableReason(for: "palette.openTerminalChatView") == nil)
+    }
+
+    static func status(agent: String?, session: String?) -> AgentStatus {
+        AgentStatus(surface: 1, state: .working, source: "hook", session: session, agent: agent)
+    }
+
+    @Test(arguments: [("claude", "claude"), ("claude-code", "claude"), ("Claude_Code", "claude"), ("codex", "codex")])
+    func aClaudeOrCodexSessionOpensAsAChatResumingIt(agent: String, harness: String) {
+        let route = TerminalChatRoute.route(Self.status(agent: agent, session: "s-123"), openTab: { _ in nil })
+        #expect(route == .open(AgentPaneAdopt(harness: harness, agentSessionId: "s-123")))
+    }
+
+    @Test func aSessionATabAlreadyResumesIsShownInsteadOfADuplicate() {
+        var asked: AgentPaneAdopt?
+        let route = TerminalChatRoute.route(Self.status(agent: "codex", session: "abc")) { adopt in
+            asked = adopt
+            return "tab-7"
+        }
+        #expect(route == .reveal(tab: "tab-7"))
+        #expect(asked == AgentPaneAdopt(harness: "codex", agentSessionId: "abc"))
+    }
+
+    @Test func aTerminalWithoutAnAgentSessionIsRefused() {
+        #expect(TerminalChatRoute.route(nil, openTab: { _ in nil }) == .noSession)
+        #expect(TerminalChatRoute.route(Self.status(agent: "claude", session: nil), openTab: { _ in nil }) == .noSession)
+        #expect(TerminalChatRoute.route(Self.status(agent: "claude", session: "  "), openTab: { _ in nil }) == .noSession)
+    }
+
+    @Test func anAgentACPCannotResumeIsRefused() {
+        #expect(TerminalChatRoute.route(Self.status(agent: "opencode", session: "x"), openTab: { _ in nil }) == .unsupportedHarness)
+        #expect(TerminalChatRoute.route(Self.status(agent: nil, session: "x"), openTab: { _ in nil }) == .unsupportedHarness)
     }
 }
