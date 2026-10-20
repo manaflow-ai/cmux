@@ -29,6 +29,7 @@ fn hosted_root() {
     assert_eq!(unsafe { libc::geteuid() }, 0);
 }
 
+#[track_caller]
 fn drive_until(host: &Host, mut condition: impl FnMut(bool) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
