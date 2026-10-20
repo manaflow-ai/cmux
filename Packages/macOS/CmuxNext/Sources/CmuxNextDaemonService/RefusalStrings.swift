@@ -167,7 +167,6 @@ public nonisolated enum RefusalStrings {
     public static var filesPaneUnported: String { text("handlers.refusal.filesPaneUnported", "needs the Files panel as a pane (not in cmux-next yet)") }
     public static var findPaneUnported: String { text("handlers.refusal.findPaneUnported", "needs the Find panel as a pane (not in cmux-next yet)") }
     public static var vaultPaneUnported: String { text("handlers.refusal.vaultPaneUnported", "needs the Vault panel as a pane (not in cmux-next yet)") }
-    public static var cloudPaneUnported: String { text("handlers.refusal.cloudPaneUnported", "needs the Cloud panel as a pane (not in cmux-next yet)") }
     public static var noRecentlyClosedTab: String { text("handlers.refusal.noRecentlyClosedTab", "no recently closed tab") }
     public static var noRecentlyClosedWorkspace: String { text("handlers.refusal.noRecentlyClosedWorkspace", "no recently closed workspace") }
     static var noRecentlyClosedItem: String { text("handlers.refusal.noRecentlyClosedItem", "nothing was closed recently") }
@@ -196,6 +195,7 @@ public nonisolated enum RefusalStrings {
     public static var terminalCannotReload: String { text("handlers.refusal.terminalCannotReload", "terminal tabs cannot reload; use Reconnect Pane") }
     public static var fullWidthTabUnported: String { text("handlers.refusal.fullWidthTabUnported", "needs full-width tab support in the cmux-next tab strip") }
     public static var audioMuteNeedsPage: String { text("handlers.refusal.audioMuteNeedsPage", "only a loaded browser tab can be muted") }
+    public static var workspaceHasNoAudio: String { text("handlers.refusal.workspaceHasNoAudio", "No tab in this workspace plays sound") }
     public static func noColumnShown(_ id: String) -> String { text("handlers.refusal.columnNotShown", "That column isn't shown.") }
     public static var addSecondColumnFirst: String { text("handlers.refusal.addSecondColumnFirst", "Add a second column first") }
     public static var columnAlreadyHasWidth: String { text("handlers.refusal.columnAlreadyHasWidth", "the column already has that width") }

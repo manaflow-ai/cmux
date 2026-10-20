@@ -198,7 +198,14 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
     }
     function runRevoke() {
       const current = stateRef.current;
-      if (current.supported && current.chatAllowance && !current.busy && !current.loading && !current.uncertain)
+      if (
+        current.supported &&
+        current.chatAllowance &&
+        current.ready !== false &&
+        !current.busy &&
+        !current.loading &&
+        !current.uncertain
+      )
         callbacks.current.onRevoke();
     }
     function runRefresh() {

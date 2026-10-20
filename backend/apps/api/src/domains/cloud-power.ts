@@ -52,7 +52,7 @@ export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.m
   }
   const rev = state.rev + 1
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
-  const ledger: LedgerRow = { key, op: pause ? "pause" : "start", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
+  const ledger: LedgerRow = { transport: m.transport ?? "direct", key, op: pause ? "pause" : "start", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
   // pause_reason: why cmux paused it by itself (for the app); a person's pause or a start clears it.
   const row: MachineRow = { ...m, status: pause ? "pausing" : "starting", error: null, revision: String(rev), pause_reason: pause && system ? reason : null, ...(pause ? {} : { last_power_at: ctx.now }) }
   const writes: Array<RowWrite> = [upsertLedger(ledger, rev), upsertMachine(row, stored.n)]
@@ -88,7 +88,7 @@ export const resizeIntent = (config: CloudConfig, state: CloudState, params: unk
   if (!config.prefix || !ctx.idempotencyKey) return unavailable()
   const rev = state.rev + 1
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
-  const ledger: LedgerRow = { key, op: "resize", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, size: target, size_before: cur }
+  const ledger: LedgerRow = { transport: m.transport ?? "direct", key, op: "resize", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, size: target, size_before: cur }
   const row: MachineRow = { ...m, size: target, error: null, revision: String(rev) }
   const s = next(state, { pending: { ...state.pending, [key]: { machine: m.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: m.id, removed: false })
   return { ok: true, state: s, value: { machine: publicMachine(row) }, writes: [upsertLedger(ledger, rev), upsertMachine(row, stored.n)] }

@@ -8,6 +8,8 @@ import { isPageError, type PageClient } from "../shared/pageClient";
 import { chief as chiefRecord } from "./daemonPeople";
 import { parseRoute, routeHash, type HomeRoute } from "./routes";
 import {
+  chiefBackend,
+  DEFAULT_CHIEF_BACKEND,
   HomeOps,
   type HomeCapabilities,
   type HomeChief,
@@ -236,13 +238,16 @@ export class HomeSheets {
   }
 
   /** Makes a Chief through the host (the person's click: create is never the page's alone) with
-   * this profile and, when given, a changed grant, in one request; then its picture and its direct
-   * message from the page. Resolves the Chief, or undefined when it was refused. */
+   * this profile and, when given, a changed grant and a starting engine other than the default, in
+   * one request; then its picture and its direct message from the page. Resolves the Chief, or
+   * undefined when it was refused. */
   async createChief(
     profile: HomeChiefProfile,
     grant: HomeChiefGrantChange | undefined,
     picture: { mediaType: string; data: string } | undefined,
+    harness?: string,
   ): Promise<HomeChief | undefined> {
+    const backend = chiefBackend(harness);
     if (!this.client || !this.host || !this.snapshot.chiefGrants) return undefined;
     try {
       const made = await this.host.call<{ value: Record<string, unknown> }>("cmux.chief.profile.create", {
@@ -252,6 +257,8 @@ export class HomeSheets {
         personality: profile.personality,
         instructions: profile.instructions,
         ...(grant ? grantFields(grant) : {}),
+        // The default engine is not named: the owner applies its own (as `cmux chief new`).
+        ...(backend === DEFAULT_CHIEF_BACKEND ? {} : { harness: backend }),
         idempotency_key: this.key("chief"),
       });
       const chief = chiefRecord(made.value);
