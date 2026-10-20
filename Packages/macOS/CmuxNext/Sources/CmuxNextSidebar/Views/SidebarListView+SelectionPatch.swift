@@ -34,18 +34,16 @@ extension SidebarListViewComponents {
             guard let view = rowViews[.workspace(id)] as? WorkspaceRowView else { continue }
             view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
         }
-        if takeTopReveal() {
-            revealedActive = newActive.map { SidebarRowKey.workspace($0) }
-            scrollToTop()
-        } else {
-            revealPatchedActive(newActive.map { SidebarRowKey.workspace($0) })
-        }
+        revealPatchedSelection()
         return true
     }
 
     /// `applyKeepingViewport`'s reveal for a change that moved no row: a new
-    /// active row that is not wholly in view scrolls in (with `Motion`).
-    private func revealPatchedActive(_ active: SidebarRowKey?) {
+    /// selection whose reveal (`selectionReveal`: its row with the header and
+    /// list top around it, or its item in a block) is not wholly in view
+    /// scrolls in (with `Motion`).
+    private func revealPatchedSelection() {
+        let active = selectionRevealKey
         let previous = revealedActive
         revealedActive = active
         guard let clip = enclosingScrollView?.contentView, case let height = clip.bounds.height, height > 0 else {
@@ -53,8 +51,7 @@ extension SidebarListViewComponents {
             revealedActive = nil
             return
         }
-        guard let active, active != previous, let row = displayed.row(for: active) else { return }
-        let item = ListViewport<SidebarRowKey>.Item(id: active, start: row.y, length: row.height)
+        guard let active, active != previous, let item = selectionReveal(in: displayed, height: height) else { return }
         let viewport = ListViewport(items: [item], viewport: height, content: max(displayed.totalHeight, height))
         let offset = clip.bounds.minY
         guard !viewport.isFullyVisible(item, at: offset, padding: 0) else { return }
