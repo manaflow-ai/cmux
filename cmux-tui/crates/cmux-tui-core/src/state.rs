@@ -110,6 +110,8 @@ pub(crate) mod stash;
 mod stash_member_tests;
 #[cfg(test)]
 mod stash_protocol_tests;
+#[cfg(test)]
+mod stash_restore_tests;
 pub(crate) mod stash_router;
 pub(crate) mod stash_store;
 pub(crate) mod status_meta;

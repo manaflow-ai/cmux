@@ -1006,6 +1006,7 @@ fn resource_shutdown_requires_local_authority_and_force_for_a_live_browser_owner
             device_kind: None,
             device_name: None,
             device_id: None,
+            api_revision: None,
         },
         &owner_writer,
     )

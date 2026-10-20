@@ -73,6 +73,11 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// The avatar value alone (text or a picture's file name).
     func avatar() -> String? { snapshot().avatar }
 
+    /// engine.json's harness, the brain's saved choice; nil when it saved none.
+    func engineHarness() -> String? {
+        (object(engineFile)["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     /// Whether an avatar value names a picture rather than text: a file
     /// name (no path) with an image extension, e.g. `"avatar": "cat.png"`.
     static func namesPicture(_ avatar: String) -> Bool {
@@ -83,8 +88,9 @@ public nonisolated struct HomeChiefFiles: Sendable {
     static let pictureExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "gif", "webp"]
     /// What Choose Picture… offers.
     static let pictureTypes: [UTType] = [.png, .jpeg, .heic, .gif, .webP]
-    /// The largest GIF kept as it is (a still is drawn down instead).
-    static let maximumGIFBytes = 5 * 1024 * 1024
+    /// The largest GIF kept as it is (a still is drawn down instead): the daemon's own picture cap,
+    /// which the Chief sheet keeps too.
+    static let maximumGIFBytes = 1024 * 1024
     /// The pictures this writes beside profile.json; choosing another replaces them.
     static let pictureFiles = ["avatar.png", "avatar.gif"]
 

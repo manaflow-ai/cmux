@@ -102,8 +102,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
     }
-    let mut child =
-        cmd.spawn().with_context(|| format!("spawn {} {}", spec.program, spec.args.join(" ")))?;
+    let mut child = cmd.spawn().context("spawn harness process")?;
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),

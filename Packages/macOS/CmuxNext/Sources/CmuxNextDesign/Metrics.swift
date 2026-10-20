@@ -114,6 +114,13 @@ public struct Metrics {
     /// Inset around every pane's tab strip and content (`layout.panePadding`;
     /// 0 is edge to edge).
     public static var panePadding: CGFloat { scale(ChromeTunables.panePadding.resolve(codePanePadding)) }
+    /// The part of the pane padding that counts toward the gap above a pane's
+    /// tab pills (`PaneChromeMetrics`): the whole padding, since nothing is
+    /// drawn above the strip and the cell's top is the edge the eye reads;
+    /// 0 under Floating Panes, where each pane is one card whose own top edge
+    /// sits the padding inside the cell (Lawrence 2026-10-19: the space above
+    /// and below the tabs must be identical).
+    public static var stripTopOutset: CGFloat { floatingPanes ? 0 : panePadding }
     /// `layout.panePadding`, else the density default (no Debug Settings override).
     static var codePanePadding: CGFloat {
         let chrome = DesignSettings.shared.paneChrome
