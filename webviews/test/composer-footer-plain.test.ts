@@ -51,7 +51,11 @@ type Row = {
 await requireBrowserLane("composer-footer-plain.test.ts", async () => {
   /** Runs in the page: the footer's chips and every control's box. */
   function measure(): Row {
-    const bar = document.querySelector<HTMLElement>(".acpmux-composer-bar")!;
+    // The plain look moves the chips to the quiet row under the box (ComposerFoot.tsx); the other
+    // look keeps them in the box's row.
+    const bar =
+      document.querySelector<HTMLElement>(".acpmux-composer-foot") ??
+      document.querySelector<HTMLElement>(".acpmux-composer-bar")!;
     const shown = (element: Element) => {
       for (let node: Element | null = element; node && node !== bar; node = node.parentElement) {
         const css = getComputedStyle(node);
@@ -202,6 +206,8 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
     for (const scheme of ["light", "dark"]) {
       test(`at ${width} px (${scheme}): off, the chips draw as today`, async () => {
         const page = await open(width, scheme);
+        // The plain look is the default (#22050); the other look is the toggle's off.
+        await plain(page, false);
         const row = await page.evaluate(measure);
         await page.close();
         console.log(
@@ -229,6 +235,7 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
 
       test(`at ${width} px (${scheme}): on, plain text at rest, same labels, no overlap`, async () => {
         const page = await open(width, scheme);
+        await plain(page, false);
         const before = await page.evaluate(measure);
         await plain(page, true);
         const row = await page.evaluate(measure);
